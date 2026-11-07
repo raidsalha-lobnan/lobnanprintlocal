@@ -1,0 +1,36 @@
+name: lobnan-accounting-local
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lobnan_accounting
+      POSTGRES_USER: lobnan
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.local-server}
+    volumes:
+      - lobnan_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lobnan -d lobnan_accounting"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+  api:
+    build: ./local-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://lobnan:${POSTGRES_PASSWORD}@db:5432/lobnan_accounting
+      SYNC_DEVICE_TOKEN: ${SYNC_DEVICE_TOKEN:?Set SYNC_DEVICE_TOKEN}
+      SYNC_WORKSPACE: lobnan_main
+      SYNC_PORT: 4577
+      SYNC_ALLOWED_ORIGINS: ${SYNC_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,null}
+    ports:
+      - "4577:4577"
+    networks: [internal]
+volumes:
+  lobnan_postgres_data:
+networks:
+  internal:
