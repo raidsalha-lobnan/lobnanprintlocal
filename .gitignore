@@ -1,0 +1,26 @@
+# Never store live accounting data in GitHub
+node_modules/
+dist/
+build/
+dist-electron/
+coverage/
+.env
+.env.*
+!.env.example
+.sync_data/
+private-backups/
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+*.zip
+*.pem
+*.key
+serviceAccount*.json
+*service-account*.json
+firebase-applet-config.json
+.firebaserc
+master_drive_database_snapshot.json
+public/master_drive_database_snapshot.json
+local-server/node_modules/
+*.log
