@@ -33,8 +33,11 @@ const PERMISSIONS={
   users:['view_settings'],
   roles:['view_settings']
 };
+const FINANCIAL_ENTITIES=new Set([
+  'invoices','vouchers','journalEntries','purchases','purchaseReturns',
+  'salesReturns','expenses','stockMovements','treasuryTransactions','debtClearings'
+]);
 const GLOBAL_ENTITIES=new Set(['settings','users','roles','companies','branches','accounts','parties','inventory','warehouses']);
-const SAFE_READ_ALL=Symbol('safe read all');
 
 const denied=(code='ACCESS_DENIED')=>{
   const e=new Error(code);
@@ -90,6 +93,9 @@ export async function resolveAccess(pool,workspace,profile,initialAdminId=''){
   function canChange(entity,value,previous){
     if(!Object.prototype.hasOwnProperty.call(PERMISSIONS,entity))return false;
     if(entity==='users'||entity==='roles')return false;
+    if(value===null && FINANCIAL_ENTITIES.has(entity))return false;
+    // Finalized invoices and journal postings cannot be edited in place.
+    if(previous?.isOfficial === true && entity==='invoices')return false;
     if(!canRead(entity,value||previous,null))return false;
     if(!branchScope(value,entity)||!branchScope(previous,entity))return false;
     // Financial and configuration writes require explicit role permissions.
@@ -111,6 +117,9 @@ export function filterSnapshot(snapshot,access){
 
 export function filterEvents(events,access){
   return events.map(event=>({...event,changes:event.changes.filter(change=>
+    // Legacy events lack a branch snapshot on tombstones: do not disclose
+    // deleted record identities to a user whose branch cannot be verified.
+    (change.value !== null || access.admin) &&
     access.canRead(change.entity,change.value,change.id))}));
 }
 
