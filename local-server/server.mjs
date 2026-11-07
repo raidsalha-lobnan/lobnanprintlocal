@@ -7,6 +7,7 @@ import pg from 'pg';
 import {SyncService} from './sync-service.mjs';
 import {InputError} from './sync-domain.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
+import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
 import {createAccessVerifier} from './access-verifier.mjs';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 const PORT=Number(process.env.SYNC_PORT||4577);
@@ -17,14 +18,20 @@ const STRICT_AUTH=process.env.SYNC_AUTH_MODE==='users';
 const ADMIN_USER_ID=process.env.SYNC_ADMIN_USER_ID||'';
 const authAttempts=new Map();
 
-if(TOKEN.length<32||!DATABASE_URL) throw new Error('SYNC_DEVICE_TOKEN (32+ characters) and DATABASE_URL are mandatory');
+if(!DATABASE_URL || (!STRICT_AUTH && TOKEN.length<32))
+  throw new Error('DATABASE_URL and legacy SYNC_DEVICE_TOKEN (32+ characters) are mandatory');
 const enforceCloudflareAccess = process.env.CF_ACCESS_REQUIRED === '1';
 const verifyAccess = enforceCloudflareAccess ? createAccessVerifier({
   teamDomain: process.env.CF_ACCESS_TEAM_DOMAIN,
   audience: process.env.CF_ACCESS_AUD
 }) : null;
 
-const allowedOrigins = new Set((process.env.SYNC_ALLOWED_ORIGINS||'http://localhost:3000,http://127.0.0.1:3000,null').split(',').map(s=>s.trim()));
+if(STRICT_AUTH && !process.env.SYNC_ALLOWED_ORIGINS)
+  throw new Error('SYNC_ALLOWED_ORIGINS must explicitly list the HTTPS application origin in users auth mode');
+const allowedOrigins = new Set((process.env.SYNC_ALLOWED_ORIGINS||
+  'http://localhost:3000,http://127.0.0.1:3000,null').split(',').map(s=>s.trim()).filter(Boolean));
+if(STRICT_AUTH && (allowedOrigins.has('*')||allowedOrigins.has('null')))
+  throw new Error('Wildcard and null origins are prohibited in strict mode');
 const pool=new pg.Pool({connectionString:DATABASE_URL,max:12});
 const schema=fs.readFileSync(path.join(dir,'schema.sql'),'utf8');
 await pool.query(schema);
@@ -93,6 +100,7 @@ const srv=http.createServer(async(req,res)=>{
     }
     const user=STRICT_AUTH?await userAuth.authenticate(bearer):null;
     if(STRICT_AUTH&&!user)return json(res,401,{code:'LOGIN_REQUIRED'},cors);
+    const access=STRICT_AUTH?await resolveAccess(pool,workspace,user,ADMIN_USER_ID):null;
     if(!STRICT_AUTH&&!safeEq(bearer,TOKEN))return json(res,401,{code:'UNAUTHORIZED'},cors);
     if(STRICT_AUTH && req.method==='GET' && url.pathname==='/api/v1/auth/me')
       return json(res,200,{user},cors);
@@ -104,12 +112,12 @@ const srv=http.createServer(async(req,res)=>{
       return json(res,200,{sequence:await service.head(workspace)},cors);
     if(req.method==='GET' && url.pathname==='/api/v1/bootstrap'){
       const snapshot=await service.bootstrap(workspace);
-      return json(res,200,STRICT_AUTH?safeSnapshot(snapshot):snapshot,cors);
+      return json(res,200,STRICT_AUTH?safeSnapshot(filterSnapshot(snapshot,access)):snapshot,cors);
     }
     if(req.method==='GET' && url.pathname==='/api/v1/events'){
       const pulled=await service.pull(workspace,Number(url.searchParams.get('after')||0),
         Math.min(500,Number(url.searchParams.get('limit')||100)));
-      return json(res,200,{events:STRICT_AUTH?pulled.map(safeEvent):pulled},cors);
+      return json(res,200,{events:STRICT_AUTH?filterEvents(pulled,access).map(safeEvent):pulled},cors);
     }
     if(req.method==='POST' && url.pathname==='/api/v1/push'){
       const command=await parseBody(req,1024*1024);
@@ -119,8 +127,9 @@ const srv=http.createServer(async(req,res)=>{
           // Admin-managed user and role changes need separate credential-aware APIs.
           throw new InputError('AUTH_ADMIN_WRITE_REQUIRES_SECURE_API',403);
         }
-        // Remaining entity-level permissions must be mapped before using real
-        // accounting data. Strict-auth mode alone is NOT production certification.
+        await authorizeCommand(pool,workspace,access,command);
+        // Role permissions do NOT replace domain-specific accounting validation.
+        // Finalized financial operations need further end-to-end validation.
       }
       const receipt=await service.push(workspace,command);
       return json(res,200,STRICT_AUTH?{...receipt,changes:receipt.changes.map(c=>
@@ -130,8 +139,9 @@ const srv=http.createServer(async(req,res)=>{
   }catch(e){
     const err=e;
     console.error('sync request',err?.message);
-    json(res,err instanceof InputError?err.status:500,
-      {code:err instanceof InputError?err.message:'SERVER_ERROR',
+    const safeStatus=err instanceof InputError?err.status:err?.status===403?403:500;
+    json(res,safeStatus,
+      {code:safeStatus===500?'SERVER_ERROR':err.message,
        detail:err instanceof InputError?err.detail:undefined},cors);
   }
 });
