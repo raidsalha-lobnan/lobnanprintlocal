@@ -1,0 +1,1330 @@
+@import "tailwindcss";
+
+/* ==========================================================
+   Global Typography: IBM Plex Sans Arabic SemiBold (600)
+   استخدام خط IBM Plex Sans Arabic بوزن SemiBold في كافة شاشات البرنامج
+   وعدم نزول حجم الخط عن 14 بكسل في أي عنصر أو شاشة
+   ========================================================== */
+
+/* 1. Force IBM Plex Sans Arabic on all text elements */
+*, *::before, *::after {
+  font-family: 'IBM Plex Sans Arabic', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+html, body {
+  font-family: 'IBM Plex Sans Arabic', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure form controls, buttons, labels, and text nodes default to SemiBold (600) */
+button,
+input,
+select,
+textarea,
+label,
+table,
+td,
+th,
+p,
+span,
+div,
+a,
+li {
+  font-family: 'IBM Plex Sans Arabic', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  font-weight: 600;
+}
+
+/* Standardize weights: normal/medium/semibold are all at least SemiBold (600) */
+.font-normal,
+.font-medium,
+.font-semibold {
+  font-weight: 600 !important;
+}
+
+/* Maintain high-contrast bold for headlines and emphasized values */
+.font-bold,
+.font-extrabold,
+.font-black {
+  font-weight: 700 !important;
+}
+
+/* ==========================================================
+   Global Minimum Font Size Rule: No Font Less Than 14px
+   قاعدة عدم نزول الخط عن 14 بكسل في كافة الشاشات
+   ========================================================== */
+
+/* Elevate all sub-14px utility classes to minimum 14px */
+.text-xs,
+.text-sm,
+[class*="text-[7px]"],
+[class*="text-[8px]"],
+[class*="text-[9px]"],
+[class*="text-[10px]"],
+[class*="text-[11px]"],
+[class*="text-[12px]"],
+[class*="text-[13px]"] {
+  font-size: 14px !important;
+  line-height: 1.45 !important;
+}
+
+/* Ensure form controls, buttons, table cells, and badges never drop below 14px */
+input:not([type="number"]),
+select,
+textarea,
+button,
+label,
+td,
+th,
+small,
+caption {
+  font-size: 14px;
+}
+
+/* ==========================================================
+   Full Field Highlighting when Cursor/Focus is Placed
+   تعليم الخانة بالكامل أينما يوضع المؤشر
+   ========================================================== */
+
+/* ==========================================================
+   Report Tables & Print A4 Formatting (التقارير وكشوفات الحسابات)
+   1. عرض التقارير والكشوفات لا يتجاوز عرض A4 المعتمد (20 سم)
+   2. حجم الخط موحد 13PT في الكشوفات بشكل عام
+   3. أعمدة متناسقة بدون هدر للمساحات وتنسيق الأبعاد
+   ========================================================== */
+
+.report-a4-container {
+  width: 100% !important;
+  max-width: 20cm !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-sizing: border-box !important;
+}
+
+.report-table {
+  font-size: 10pt !important;
+  line-height: 1.35 !important;
+  border-collapse: collapse !important;
+}
+
+.report-table th {
+  font-size: 10pt !important;
+  padding: 4px 6px !important;
+  line-height: 1.25 !important;
+}
+
+.report-table td {
+  font-size: 9.5pt !important;
+  padding: 4px 6px !important;
+  line-height: 1.3 !important;
+}
+
+.report-table td div,
+.report-table td span,
+.report-table td strong {
+  font-size: 9.5pt !important;
+}
+
+.report-table th div,
+.report-table th span {
+  font-size: 10pt !important;
+}
+
+.report-table tfoot td,
+.report-table tfoot th {
+  font-size: 10pt !important;
+  padding: 4px 6px !important;
+}
+
+.report-sub-table {
+  font-size: 9pt !important;
+  line-height: 1.25 !important;
+  border-collapse: collapse !important;
+  width: 100% !important;
+  margin: 0 !important;
+  border: none !important;
+}
+
+.report-sub-table th,
+.report-sub-table td {
+  font-size: 9pt !important;
+  padding: 2.5px 5px !important;
+  border-color: #cbd5e1 !important;
+  border-left: 1px solid #cbd5e1 !important;
+}
+
+.report-sub-table thead tr {
+  border-bottom: 1px solid #cbd5e1 !important;
+}
+
+.report-sub-table tbody tr {
+  border-bottom: 1px solid #cbd5e1 !important;
+}
+
+.report-sub-table tbody tr:last-child {
+  border-bottom: none !important;
+}
+
+.report-sub-table td div,
+.report-sub-table td span,
+.report-sub-table th div,
+.report-sub-table th span {
+  font-size: 9pt !important;
+}
+
+/* Seamless integration of sub-tables inside report-table with zero spacing and identical outer border line */
+.report-table td.report-subtable-cell,
+.report-table td:has(.report-sub-table),
+.report-table td:has(table),
+td.report-subtable-cell,
+td:has(.report-sub-table),
+tr:has(.report-sub-table) > td {
+  padding: 0 !important;
+  margin: 0 !important;
+  border-left: none !important;
+  border-right: none !important;
+}
+
+.report-table td.report-subtable-cell > div,
+td.report-subtable-cell > div,
+td:has(.report-sub-table) > div {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  width: 100% !important;
+}
+
+/* Ensure no secondary border lines on left/right outer edges of the inner table */
+.report-sub-table tr > th:first-child,
+.report-sub-table tr > td:first-child {
+  border-right: none !important;
+}
+
+.report-sub-table tr > th:last-child,
+.report-sub-table tr > td:last-child {
+  border-left: none !important;
+}
+
+/* Ensure report text sizes scale precisely */
+.report-text-12,
+.report-text-13 {
+  font-size: 10pt !important;
+  line-height: 1.35 !important;
+}
+
+/* Enlarge numbers globally across the app without breaking layout */
+input[type="number"], 
+.font-mono.font-black,
+.font-mono.font-bold {
+  font-size: 15px !important;
+  letter-spacing: -0.5px; /* compress slightly so it doesn't overflow */
+}
+
+/* Ensure report numbers match the compact report standard */
+.report-table .font-mono,
+.report-table .font-mono.font-bold,
+.report-table .font-mono.font-black,
+.report-table td.font-mono,
+.report-table th.font-mono {
+  font-size: 9.5pt !important;
+}
+
+.report-sub-table .font-mono,
+.report-sub-table td.font-mono {
+  font-size: 9pt !important;
+}
+
+/* Ensure padding inside number inputs is minimal so the larger numbers fit */
+input[type="number"] {
+  padding-left: 2px !important;
+  padding-right: 2px !important;
+  -moz-appearance: textfield; /* Firefox */
+}
+
+/* Hide spin buttons to maximize space for larger numbers */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Active / Focused Input, Select, and Textarea */
+input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="color"]):focus,
+textarea:focus,
+select:focus {
+  background-color: #fffbeb !important; /* Luminous active field background (warm amber/yellow) */
+  border-color: #2563eb !important;     /* High-contrast precision blue border */
+  box-shadow: 0 0 0 2.5px rgba(37, 99, 235, 0.45), inset 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+  outline: none !important;
+  color: #0f172a !important;
+}
+
+/* Entire Table Cell containing the active cursor/input */
+td:has(input:focus),
+td:has(select:focus),
+td:has(textarea:focus) {
+  background-color: #fef9c3 !important; /* Prominently highlight the entire table cell */
+  outline: 2px solid #2563eb !important;
+  outline-offset: -2px;
+  z-index: 10;
+  position: relative;
+}
+
+/* Table row containing the active cursor */
+tr:has(input:focus),
+tr:has(select:focus),
+tr:has(textarea:focus) {
+  background-color: #fefce8 !important; /* Subtle tint for the active row */
+}
+
+/* Text Selection: High visibility selection color across all fields */
+::selection {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+input::selection,
+textarea::selection {
+  background-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+/* Full-Frame Camera Viewport Styling (eliminates square bounds, ensures direct full video display) */
+#pos-inline-camera-viewport,
+#app-barcode-scanner-viewport {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 190px !important;
+  position: relative !important;
+  background: #000000 !important;
+}
+
+#pos-inline-camera-viewport video,
+#app-barcode-scanner-viewport video {
+  object-fit: cover !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 190px !important;
+  max-height: 420px !important;
+  display: block !important;
+}
+
+/* Hide any html5-qrcode shaded region or square bounding box */
+#pos-inline-camera-viewport #qr-shaded-region,
+#app-barcode-scanner-viewport #qr-shaded-region,
+#pos-inline-camera-viewport svg,
+#app-barcode-scanner-viewport svg {
+  display: none !important;
+}
+
+/* Full-width laser scanner beam animation */
+@keyframes scan-laser {
+  0% {
+    top: 8%;
+    opacity: 0.85;
+  }
+  50% {
+    top: 88%;
+    opacity: 1;
+  }
+  100% {
+    top: 8%;
+    opacity: 0.85;
+  }
+}
+
+.animate-scan-laser {
+  animation: scan-laser 2s ease-in-out infinite;
+}
+
+/* ==========================================================
+   Expand All Popups and Modals to 80% of Display Viewport from All Sides
+   توسيع الشاشات والشاشات المنبثقة بنسبة 80% من شاشة العرض من كل الجوانب
+   لتكون أوضح للإضافة مع ترك هوامش متناسقة من كل الاتجاهات
+   ========================================================== */
+
+@media screen and (min-width: 640px) {
+  /* Modal dialog cards inside overlays expand to 80vw and 86vh max with auto margins */
+  .fixed.inset-0:not(.print-mode):not([class*="print:static"]) > div:not(.absolute):not(.fixed):not([data-no-modal-expand]),
+  .fixed.inset-0:not(.print-mode):not([class*="print:static"]) > form:not(.absolute):not(.fixed):not([data-no-modal-expand]),
+  [role="dialog"]:not([data-no-modal-expand]),
+  .modal-80vw {
+    width: 80vw !important;
+    max-width: 80vw !important;
+    min-width: 80vw !important;
+    max-height: 86vh !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-top: auto !important;
+    margin-bottom: auto !important;
+    box-sizing: border-box !important;
+  }
+
+  /* When modal contains forms or scrollable sections, guarantee generous height */
+  .fixed.inset-0:not(.print-mode) > div:not(.absolute):not(.fixed):not([data-no-modal-expand]) > form,
+  .fixed.inset-0:not(.print-mode) > div:not(.absolute):not(.fixed):not([data-no-modal-expand]) .overflow-y-auto,
+  .modal-80vw > form,
+  .modal-80vw .overflow-y-auto {
+    max-height: calc(86vh - 75px);
+  }
+}
+
+@media screen and (max-width: 639px) {
+  /* Responsive fallback on small handheld devices */
+  .fixed.inset-0:not(.print-mode):not([class*="print:static"]) > div:not(.absolute):not(.fixed):not([data-no-modal-expand]),
+  .fixed.inset-0:not(.print-mode):not([class*="print:static"]) > form:not(.absolute):not(.fixed):not([data-no-modal-expand]),
+  [role="dialog"]:not([data-no-modal-expand]),
+  .modal-80vw {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    min-width: 95vw !important;
+    max-height: 92vh !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-top: auto !important;
+    margin-bottom: auto !important;
+  }
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 6mm;
+  }
+
+  /* 1. Global Reset for Clean Document Printing */
+  html, body, #root {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 2. Hide Web Shell Elements (Navbar, App Footer, Modals close buttons, control bars) */
+  nav,
+  footer,
+  .no-print,
+  .print\:hidden,
+  [data-no-print="true"],
+  button:not(.allow-print),
+  input[type="file"],
+  .toast,
+  .offline-indicator,
+  .status-badge {
+    display: none !important;
+  }
+
+  /* Ensure Official Print Headers are always visible with high fidelity */
+  .print-header,
+  [data-component="print-header"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-bottom: 12px !important;
+  }
+
+  .print-header img,
+  [data-component="print-header"] img {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  /* 3. Completely hide the main screen background when a print modal is open */
+  .print-modal-is-active main,
+  body.has-active-print-modal main {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* 4. Reset Modal Containers to Pure Document Layout */
+  .fixed.inset-0,
+  .modal-80vw,
+  .print-modal-container {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  .fixed.inset-0 > div,
+  .fixed.inset-0 > form,
+  .modal-80vw > div,
+  .modal-80vw > form {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* 5. Document & Paper Formatting */
+  .print-area,
+  .printable-paper,
+  .print-document {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    overflow: visible !important;
+  }
+
+  /* 6. Official Stamp 3.5cm Circular Print & Stamp Effect */
+  .official-stamp,
+  .stamp-cm,
+  [data-stamp-cm="true"] {
+    width: 3.5cm !important;
+    height: 3.5cm !important;
+    min-width: 3.5cm !important;
+    min-height: 3.5cm !important;
+    max-width: 3.5cm !important;
+    max-height: 3.5cm !important;
+    border-radius: 50% !important;
+    mix-blend-mode: multiply !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .official-stamp img,
+  .stamp-cm img,
+  [data-stamp-cm="true"] img {
+    width: 3.5cm !important;
+    height: 3.5cm !important;
+    max-width: 3.5cm !important;
+    max-height: 3.5cm !important;
+    object-fit: contain !important;
+    border-radius: 50% !important;
+    mix-blend-mode: multiply !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 7. Professional Print Pagination and Page-Break Logic */
+  table {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    border-collapse: collapse !important;
+    border-spacing: 0 !important;
+    width: 100% !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  tbody {
+    display: table-row-group !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  /* Prevent regular non-expandable cells from being vertically cut in half */
+  th,
+  td:not(.print-allow-break) {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Expandable/Sub-table rows, details container, and their td/divs MUST be permitted to break across pages */
+  tr.print-allow-break,
+  td.print-allow-break,
+  tr:has(table),
+  td:has(table),
+  tr:has(.report-sub-table),
+  td:has(.report-sub-table),
+  .report-sub-table,
+  .report-sub-table tbody,
+  .sub-table,
+  .sub-table tbody {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    page-break-before: auto !important;
+    break-before: auto !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  /* Keep sub-table individual item rows intact so item rows don't get split horizontally */
+  .report-sub-table tbody tr,
+  .sub-table tbody tr,
+  tr.print-allow-break table tbody tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Prevent any wrapper element from blocking pagination */
+  tr.print-allow-break,
+  tr.print-allow-break > td {
+    overflow: visible !important;
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  tr.print-allow-break div,
+  td.print-allow-break div,
+  .report-table-container,
+  [class*="overflow-x-auto"],
+  [class*="overflow-y-auto"] {
+    background: transparent !important;
+    background-color: transparent !important;
+    border-color: transparent !important;
+    border-style: none !important;
+    border-width: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+
+  /* Ensure the sub-table itself retains clean borders and styling in print without double side borders */
+  tr.print-allow-break table,
+  .report-sub-table {
+    border-collapse: collapse !important;
+    border-spacing: 0 !important;
+    border: none !important;
+    border-top: 1px solid #cbd5e1 !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    background-color: #ffffff !important;
+    width: 100% !important;
+    margin: 0 !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  /* Prevent double side borders or padding on sub-table container cell in print */
+  tr.print-allow-break > td.report-subtable-cell,
+  tr.print-allow-break > td:has(.report-sub-table),
+  td.report-subtable-cell,
+  td:has(.report-sub-table) {
+    border-left: none !important;
+    border-right: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Re-enforce cell rules inside sub-tables to keep individual item text clean */
+  .report-sub-table td,
+  .report-sub-table th,
+  .sub-table td,
+  .sub-table th {
+    border: 1px solid #cbd5e1 !important;
+  }
+
+  .report-sub-table tr > th:first-child,
+  .report-sub-table tr > td:first-child {
+    border-right: none !important;
+  }
+
+  .report-sub-table tr > th:last-child,
+  .report-sub-table tr > td:last-child {
+    border-left: none !important;
+  }
+
+  /* Keep headings attached to their succeeding content (never orphan headers) */
+  h1, h2, h3, h4, h5, h6, .print-keep-together {
+    page-break-after: avoid !important;
+    break-after: avoid-page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .print-force-break, .print-page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  /* 8. Global Reset of Scrollable Containers & Flexboxes that Clip Tables/Reports in Print */
+  div:has(table),
+  div:has(.report-table),
+  div:has(.report-sub-table),
+  div[class*="overflow-"],
+  div[class*="min-h-"],
+  div[class*="max-h-"],
+  div.overflow-x-auto,
+  div.overflow-y-auto,
+  div.overflow-hidden,
+  div[class*="overflow-"] {
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* Force table elements to preserve semantic display in print */
+  table {
+    display: table !important;
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    overflow: visible !important;
+  }
+  thead {
+    display: table-header-group !important;
+  }
+  tbody {
+    display: table-row-group !important;
+  }
+  tr {
+    display: table-row !important;
+  }
+
+  /* Print Area Isolation Support */
+  body.printing-mode * {
+    visibility: hidden;
+  }
+  body.printing-mode .print-area,
+  body.printing-mode .print-area * {
+    visibility: visible;
+  }
+  body.printing-mode .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+
+/* ==========================================================
+   Mobile POS Simplified View (CSS Media Query)
+   إخفاء خيارات التهيئة المتقدمة وتبسيط واجهة الكاشير على الهواتف
+   مع إظهار الحقول الأساسية فقط (الباركود، الكمية، السعر، زر الإضافة)
+   والحفاظ على الحد الأدنى لحجم الخط 14 بكسل لسهولة القراءة
+   ========================================================== */
+
+@media screen and (max-width: 768px) {
+  /* 1. إخفاء خيارات التهيئة المتقدمة وشاشات التخصيص غير الضرورية في وضع الهاتف */
+  .pos-advanced-config,
+  .pos-layout-customizer-btn,
+  .pos-live-customizer-banner,
+  .pos-extra-options,
+  .pos-advanced-toolbar,
+  .pos-custom-buttons-toolbar,
+  .pos-advanced-table-cols,
+  .pos-quotation-flow-banner,
+  .pos-workflow-status-bar,
+  [data-pos-section="advanced-config"],
+  [data-pos-section="layout-designer"],
+  [data-pos-section="extra-header-options"],
+  [title*="تخصيص الشاشة"],
+  [title*="مصمم الواجهة"] {
+    display: none !important;
+  }
+
+  /* 2. إبراز وتبسيط الحقول الأساسية الأربعة (الباركود، الكمية، السعر، زر الإضافة) */
+  .pos-essential-inputs,
+  [data-pos-section="essential-inputs"] {
+    display: block !important;
+    width: 100% !important;
+    margin-bottom: 8px !important;
+  }
+
+  .pos-essential-inputs input,
+  .pos-essential-inputs button,
+  .pos-essential-inputs select {
+    min-height: 42px !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+  }
+
+  /* 3. تطبيق قاعدة عدم نزول الخط عن 14 بكسل بشكل صارم على الهواتف لضمان وضوح القراءة */
+  .pos-view-container,
+  .pos-view-container *,
+  .mobile-pos-container,
+  .mobile-pos-container * {
+    font-size: max(14px, 1rem) !important;
+    line-height: 1.45 !important;
+  }
+
+  /* تكبير الأرقام والأسعار والباركود في شاشة الهاتف لمنع إجهاد العين ومنع التكبير التلقائي */
+  .pos-view-container input[type="text"],
+  .pos-view-container input[type="number"],
+  .pos-view-container input[type="search"],
+  .mobile-pos-container input[type="text"],
+  .mobile-pos-container input[type="number"],
+  .mobile-pos-container input[type="search"] {
+    font-size: 15px !important;
+    font-weight: 700 !important;
+  }
+
+  /* ضبط مساحات النقر لتكون مريحة للمس على الهواتف */
+  .pos-view-container button,
+  .mobile-pos-container button {
+    min-height: 40px !important;
+    touch-action: manipulation;
+  }
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > input:nth-of-type(1) {
+  width: 506px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(2) {
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > span:nth-of-type(2) {
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > span:nth-of-type(2) {
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(4) > span:nth-of-type(2) {
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(5) > span:nth-of-type(2) {
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(6) > span:nth-of-type(2) {
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(7) > span:nth-of-type(2) {
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(8) > span:nth-of-type(2) {
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > input:nth-of-type(1) {
+  font-size: 18px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > button:nth-of-type(1) > svg:nth-of-type(1) {
+  width: 18.25px !important;
+  height: 18.25px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > span:nth-of-type(1) {
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > select:nth-of-type(1) {
+  width: 80px !important;
+  height: 30px !important;
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(3) > select:nth-of-type(1) {
+  width: 80px !important;
+  height: 30px !important;
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(5) > select:nth-of-type(1) {
+  font-size: 16px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > input:nth-of-type(1) {
+  width: 551px !important;
+  height: 35px !important;
+}
+
+/* Global Native Date Input Overlay style */
+.date-input-overlay::-webkit-calendar-picker-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+/* Hide native calendar icon for custom DateInput */
+.hide-calendar-indicator::-webkit-calendar-picker-indicator {
+  display: none;
+  -webkit-appearance: none;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > input:nth-of-type(1) {
+  width: 324.631px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > button:nth-of-type(1) > svg:nth-of-type(1) {
+  width: 14.5px !important;
+  height: 17.5px !important;
+  margin-left: 1px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > button:nth-of-type(2) > svg:nth-of-type(1) {
+  width: 16.2437px !important;
+  height: 19.2437px !important;
+  padding-left: 3px !important;
+  margin-left: 6px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > button:nth-of-type(1) > svg:nth-of-type(1) > path:nth-of-type(1) {
+  padding-right: -5px !important;
+  margin-right: -9px !important;
+  margin-left: -2px !important;
+  padding-left: -1px !important;
+  padding-top: -7px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > header:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) {
+  margin-left: 200px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(5) {
+  margin-right: -8px !important;
+  margin-left: 250px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) {
+  margin-left: 245px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > input:nth-of-type(1) {
+  padding-left: -12px !important;
+  width: 102.2px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > select:nth-of-type(1) {
+  width: 122.275px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(4) > input:nth-of-type(1) {
+  width: 90px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > input:nth-of-type(1) {
+  width: 147.1px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) {
+  margin-right: -4px !important;
+}
+
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) {
+  width: 172.5px !important;
+  padding-right: 8.75px !important;
+  padding-left: 7.75px !important;
+  padding-bottom: 2.5px !important;
+  margin-left: -9px !important;
+  margin-right: 35px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > button:nth-of-type(2) > svg:nth-of-type(1) {
+  margin-right: -2px !important;
+  margin-left: -1px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > button:nth-of-type(1) {
+  margin-right: 5px !important;
+  margin-left: 0px !important;
+  margin-bottom: 2px !important;
+  padding-right: 14.25px !important;
+  padding-bottom: 6.25px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > button:nth-of-type(2) {
+  padding-right: 11.25px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > input:nth-of-type(1) {
+  width: 200px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > button:nth-of-type(1) > svg:nth-of-type(1) > path:nth-of-type(1) {
+  width: 300px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > button:nth-of-type(3) {
+  width: 33px !important;
+  padding-right: 7px !important;
+  margin-left: 0px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > input:nth-of-type(1) {
+  width: 602.55px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) {
+  width: 651.931px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) {
+  width: 199px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > input:nth-of-type(1) {
+  width: 500px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) {
+  width: 667px !important;
+  padding-right: 5.5px !important;
+  padding-left: 5.5px !important;
+  padding-top: 8.25px !important;
+  padding-bottom: 4.25px !important;
+  margin-left: 0px !important;
+  margin-right: 3px !important;
+  margin-top: 0px !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(3) > div:nth-of-type(1) > button:nth-of-type(1) {
+  width: 33.9875px !important;
+  margin-left: 2px !important;
+  margin-right: 17px !important;
+  padding-right: 15.25px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) > span:nth-of-type(2) {
+  font-size: 18px !important;
+  padding-left: 0px !important;
+  margin-left: 0px !important;
+  width: 64.2px !important;
+  height: 24.9812px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) {
+  margin-left: -18px !important;
+  margin-right: 51px !important;
+  padding-right: 12.75px !important;
+  width: 185.5px !important;
+  padding-left: 10.75px !important;
+  padding-top: 3.75px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > header:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > select:nth-of-type(1) {
+  width: 400px !important;
+  margin-left: 0px !important;
+  margin-right: 10px !important;
+  height: 22.6px !important;
+  padding-right: -11px !important;
+  padding-left: -7px !important;
+  margin-top: -2px !important;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > header:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) {
+  width: 229.994px !important;
+}
+
+/* ==========================================================
+   Visual Basic & Classic Desktop Application Theme
+   مظهر وتصميم برامج سطح المكتب وفيجوال بيسك الكلاسيكية
+   ========================================================== */
+
+/* 1. Desktop Workspace Background */
+html, body, #root {
+  background-color: #eef2f6 !important;
+}
+
+/* 2. Visual Basic TextBoxes, Selects & Inputs */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]),
+select,
+textarea {
+  border: 1px solid #7f9db9 !important;
+  border-radius: 2px !important;
+  background-color: #ffffff !important;
+  box-shadow: inset 1px 1px 1.5px rgba(0, 0, 0, 0.08) !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]):focus,
+select:focus,
+textarea:focus {
+  background-color: #fffde7 !important;
+  border-color: #0055ea !important;
+  box-shadow: 0 0 0 1.5px #0055ea, inset 1px 1px 1.5px rgba(0, 0, 0, 0.08) !important;
+  outline: none !important;
+}
+
+/* 3. Visual Basic CommandButtons */
+button:not([data-no-vb]) {
+  border-radius: 3px;
+  transition: all 0.08s ease;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* 4. Windows DataGridView / Classic Desktop Tables (جدول محاسبي حقيقي كلاسيكي) */
+.pos-table-container {
+  border: 1px solid #94a3b8 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+table {
+  border-collapse: collapse !important;
+  border: 1px solid #94a3b8 !important;
+  width: 100% !important;
+}
+
+table thead th {
+  background: linear-gradient(180deg, #edf3f9 0%, #cbdceb 100%) !important;
+  border: 1px solid #94a3b8 !important;
+  color: #0f172a !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  font-size: 12px !important;
+  padding: 5px 6px !important;
+}
+
+table tbody td {
+  border: 1px solid #cbd5e1 !important;
+  padding: 0 !important;
+  background-color: #ffffff;
+}
+
+.pos-table-grid {
+  table-layout: fixed !important;
+}
+
+.pos-table-grid thead th {
+  position: relative !important;
+  user-select: none !important;
+}
+
+.pos-table-col-resizer {
+  position: absolute !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 12px !important;
+  cursor: col-resize !important;
+  z-index: 25 !important;
+  user-select: none !important;
+  touch-action: none;
+}
+
+/* إلغاء الإطارات والحدود الخارجية لمدخلات الخلايا لتظهر كجدول محاسبي حقيقي */
+table input:not([type="checkbox"]):not([type="radio"]),
+table select,
+table textarea,
+.pos-table-grid input:not([type="checkbox"]):not([type="radio"]),
+.pos-table-grid select,
+.pos-table-grid textarea {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  padding: 4px 6px !important;
+  margin: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  outline: none !important;
+  font-size: 12px !important;
+}
+
+/* الخلية النشطة داخل الجدول كشيت إكسل / داتا جريد دون إطارات مكررة */
+table input:not([type="checkbox"]):not([type="radio"]):focus,
+table select:focus,
+table textarea:focus,
+.pos-table-grid input:not([type="checkbox"]):not([type="radio"]):focus,
+.pos-table-grid select:focus,
+.pos-table-grid textarea:focus {
+  background-color: #fff9c4 !important;
+  border: none !important;
+  box-shadow: inset 0 0 0 1.5px #2563eb !important;
+  outline: none !important;
+}
+
+table td:has(input:focus),
+table td:has(select:focus),
+table td:has(textarea:focus) {
+  background-color: #fff9c4 !important;
+  outline: 1.5px solid #2563eb !important;
+  outline-offset: -1.5px;
+  z-index: 10;
+  position: relative;
+}
+
+table tbody tr:hover td {
+  background-color: #f1f7fe !important;
+}
+
+table tbody tr.active-row td {
+  background-color: #e0f2fe !important;
+}
+
+/* 5. Visual Basic GroupBoxes / Frames */
+fieldset, .vb-groupbox, .vb-frame {
+  border: 1px solid #b5c7de !important;
+  border-radius: 3px !important;
+  padding: 8px 12px !important;
+  margin-top: 6px !important;
+  background-color: #ffffff !important;
+}
+
+fieldset legend, .vb-groupbox legend {
+  padding: 0 6px !important;
+  font-weight: 700 !important;
+  color: #1e3a8a !important;
+  font-size: 13px !important;
+}
+
+/* 6. Desktop Window Cards / Panels */
+.bg-white.rounded-xl,
+.bg-white.rounded-2xl,
+.bg-white.rounded-3xl,
+.bg-slate-50.rounded-xl,
+.bg-slate-50.rounded-2xl {
+  border-radius: 4px !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* 7. Classic Windows Thin Scrollbars */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-left: 1px solid #e2e8f0;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 1px solid #94a3b8;
+  border-radius: 1px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 8. Print Exact Color Adjust & Custom Invoice Table Styles */
+@media print {
+  html, body, #root, main, .print-modal-container {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body, *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .a4-custom-outer-frame,
+  div.a4-custom-outer-frame,
+  div[class*="a4-custom-outer-frame"] {
+    border: 3px solid #2b3a67 !important;
+    outline: 2px solid #2b3a67 !important;
+    padding: 6px !important;
+    box-sizing: border-box !important;
+    background-color: #ffffff !important;
+  }
+
+  .a4-custom-inner-frame,
+  div.a4-custom-inner-frame,
+  div[class*="a4-custom-inner-frame"] {
+    border: 2px solid #2b3a67 !important;
+    outline: 1px solid #2b3a67 !important;
+    padding: 8px !important;
+    box-sizing: border-box !important;
+    background-color: #ffffff !important;
+  }
+
+  .a4-totals-box,
+  div.a4-totals-box,
+  .a4-notes-box,
+  div.a4-notes-box {
+    border: 2.5px solid #2b3a67 !important;
+    outline: 2px solid #2b3a67 !important;
+    box-sizing: border-box !important;
+    background-color: #ffffff !important;
+  }
+}
+
+.a4-totals-box,
+div.a4-totals-box,
+.a4-notes-box,
+div.a4-notes-box {
+  border: 2.5px solid #2b3a67 !important;
+  outline: 2px solid #2b3a67 !important;
+  box-sizing: border-box !important;
+  background-color: #ffffff !important;
+}
+
+.invoice-print-table {
+  border-collapse: collapse !important;
+  border: 2.5px solid #2b3a67 !important;
+}
+
+.invoice-print-table thead th {
+  background-color: #2b3a67 !important;
+  background-image: none !important;
+  border: 2px solid #2b3a67 !important;
+  color: #ffffff !important;
+  font-weight: 900 !important;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+
+.invoice-print-table tbody td {
+  border: 2px solid #2b3a67 !important;
+}
+
+.invoice-print-table tbody tr.empty-row-shaded td,
+td.empty-row-shaded {
+  background-color: rgba(43, 58, 103, 0.05) !important;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+

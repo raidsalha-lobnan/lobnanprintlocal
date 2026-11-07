@@ -6,7 +6,7 @@ export const ENTITIES = new Set([
 'stockMovements','printOrders','debtClearings','companies','branches','warehouses',
 'warehouseOperations','roles','users','dailyEntrySheets','settings']);
 export class InputError extends Error { constructor(message, status=422, detail=null) { super(message);this.status=status;this.detail=detail; } }
-export const validId = v => typeof v==='string' && v.length>0 && v.length<=180 && !/[/\u001f]/.test(v);
+export const validId = v => typeof v==='string' && v.length>0 && v.length<=180 && !/[\/\u001f]/.test(v);
 export function validateCommand(cmd, workspace) {
   if (!cmd || !validId(cmd.id) || cmd.workspaceId !== workspace ||
       !Array.isArray(cmd.changes) || cmd.changes.length<1 || cmd.changes.length>80)
@@ -49,6 +49,7 @@ export function validateJournal(value) {
   }
   if(!Number.isSafeInteger(d)||!Number.isSafeInteger(c)||d===0||d!==c)throw new InputError('UNBALANCED_JOURNAL');
 }
+
 export function fingerprint(command) {
   return crypto.createHash('sha256').update(JSON.stringify({workspaceId:command.workspaceId,changes:command.changes})).digest('hex');
 }

@@ -28,6 +28,7 @@ export class SyncService {
     validateCommand(command,workspace);
     const hash=fingerprint(command);
     return this.withTx(async client=>{
+      // Serializing all commits per workspace guarantees a commit-ordered, gap-free cursor.
       await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING',[workspace]);
       const ws=await client.query('SELECT next_sequence,next_invoice FROM sync_workspaces WHERE id=$1 FOR UPDATE',[workspace]);
       const duplicate=await client.query('SELECT fingerprint,receipt FROM sync_commands WHERE workspace=$1 AND command_id=$2',[workspace,command.id]);

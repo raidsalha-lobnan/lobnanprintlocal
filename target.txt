@@ -1,0 +1,431 @@
+        </div>
+      </div>
+
+      {/* Step 3: Granular Item Selection */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs">
+              3
+            </div>
+            <div>
+              <h3 className="font-bold text-xs text-slate-900">
+                الخطوة الثالثة: اختيار المراد تصفيره بدقة (البنود والعمليات)
+              </h3>
+              <p className="text-[10px] text-slate-500">حدد البنود التي ترغب بتصفيرها لبدء نسختك الفعلية:</p>
+            </div>
+          </div>
+
+          {/* أزرار الاختيار السريع */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={handleSelectRecommendedLive}
+              disabled={!isSystemAdmin}
+              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-md font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+              title="تصفير كل الحركات والكميات والديون مع الإبقاء على العملاء والأصناف والدليل"
+            >
+              <Sparkles className="w-3 h-3 text-amber-600" />
+              <span>توصية الاعتماد الفعلي</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleSelectAll}
+              disabled={!isSystemAdmin}
+              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-semibold text-[11px] cursor-pointer"
+            >
+              تحديد الكل
+            </button>
+            <button
+              type="button"
+              onClick={handleDeselectAll}
+              disabled={!isSystemAdmin}
+              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-semibold text-[11px] cursor-pointer"
+            >
+              إلغاء التحديد
+            </button>
+          </div>
+        </div>
+
+        {/* أقسام الاختيارات */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          {/* القسم 1: الحركات والعمليات المالية */}
+          <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2.5">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 text-slate-900 font-bold">
+              <span className="flex items-center gap-1.5">
+                <Receipt className="w-4 h-4 text-blue-600" />
+                <span>1. الحركات والفواتير والعمليات المالية</span>
+              </span>
+              <span className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 font-mono">
+                {counts.invCount + counts.purCount + counts.vchCount + counts.jeCount} حركة
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetInvoices}
+                    onChange={(e) => setOptions({ ...options, resetInvoices: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <span className="font-semibold text-slate-800 text-[11px]">فواتير المبيعات ونقاط البيع (POS)</span>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.invCount} فاتورة
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetPurchases}
+                    onChange={(e) => setOptions({ ...options, resetPurchases: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <span className="font-semibold text-slate-800 text-[11px]">فواتير المشتريات ومشتريات الخامات</span>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.purCount} فاتورة
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetSalesReturns && options.resetPurchaseReturns}
+                    onChange={(e) => setOptions({ ...options, resetSalesReturns: e.target.checked, resetPurchaseReturns: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <span className="font-semibold text-slate-800 text-[11px]">مردودات المبيعات ومردودات المشتريات</span>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.srCount + counts.prCount} مردود
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetVouchers}
+                    onChange={(e) => setOptions({ ...options, resetVouchers: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <span className="font-semibold text-slate-800 text-[11px]">سندات القبض والصرف المالي</span>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.vchCount} سند
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetJournalEntries}
+                    onChange={(e) => setOptions({ ...options, resetJournalEntries: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <span className="font-semibold text-slate-800 text-[11px]">قيود اليومية المحاسبية وحركات الأستاذ</span>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.jeCount} قيد
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetPrintOrders}
+                    onChange={(e) => setOptions({ ...options, resetPrintOrders: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <span className="font-semibold text-slate-800 text-[11px]">أوامر تشغيل المطبعة والورشة</span>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.poCount} أمر
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetStockMovements && options.resetWarehouseOperations}
+                    onChange={(e) => setOptions({ ...options, resetStockMovements: e.target.checked, resetWarehouseOperations: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <span className="font-semibold text-slate-800 text-[11px]">حركات المخزون والمناقلات وعمليات المستودعات</span>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.smCount + counts.woCount} حركة
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetPayroll}
+                    onChange={(e) => setOptions({ ...options, resetPayroll: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <span className="font-semibold text-slate-800 text-[11px]">مسيرات الرواتب وسلف وخصومات الموظفين</span>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.psCount} مسير
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* القسم 2: العملاء والموردين والأطراف */}
+          <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2.5 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 text-slate-900 font-bold">
+                <span className="flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-emerald-600" />
+                  <span>2. العملاء والموردين (الأطراف والذمم)</span>
+                </span>
+                <span className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 font-mono">
+                  {parties.length} طرف مسجل
+                </span>
+              </div>
+
+              <div className="space-y-1.5 mt-2.5">
+                <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={options.resetManualParties}
+                      onChange={(e) => setOptions({ ...options, resetManualParties: e.target.checked })}
+                      disabled={!isSystemAdmin}
+                      className="w-4 h-4 text-rose-600 rounded-sm"
+                    />
+                    <div>
+                      <div className="font-semibold text-slate-800 text-[11px]">
+                        حذف أسماء العملاء والموردين المضافة يدوياً
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        حذف السجلات التجريبية المضافة والإبقاء على الأطراف النظامية
+                      </div>
+                    </div>
+                  </span>
+                  <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                    {counts.manualParties} مضاف
+                  </span>
+                </label>
+
+                <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={options.zeroPartyBalances}
+                      onChange={(e) => setOptions({ ...options, zeroPartyBalances: e.target.checked })}
+                      disabled={!isSystemAdmin}
+                      className="w-4 h-4 text-rose-600 rounded-sm"
+                    />
+                    <div>
+                      <div className="font-semibold text-slate-800 text-[11px]">
+                        تصفير أرصدة الذمم والمديونيات لجميع الأطراف
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        جعل كافة أرصدة العملاء والموردين = (0.00 ₪) لبدء حسابات نظيفة
+                      </div>
+                    </div>
+                  </span>
+                  <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                    {counts.partiesWithBalance} رصيد
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-[10px] text-emerald-900 mt-2">
+              💡 نصيحة: إذا كنت أدخلت عملاءك الحقيقيين بالفعل، يمكنك ترك خيار حذف الأسماء معطلاً وتفعيل تصفير الأرصدة فقط لبدء التعاملات المالية الفعلية.
+            </div>
+          </div>
+
+          {/* القسم 3: المخازن والأصناف والمستودعات */}
+          <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2.5">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 text-slate-900 font-bold">
+              <span className="flex items-center gap-1.5">
+                <Boxes className="w-4 h-4 text-amber-600" />
+                <span>3. المخازن والأصناف والمستودعات</span>
+              </span>
+              <span className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 font-mono">
+                {inventory.length} صنف مسجل
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.zeroInventoryStock}
+                    onChange={(e) => setOptions({ ...options, zeroInventoryStock: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-800 text-[11px]">
+                      تصفير كميات وأرصدة المخزون لكافة الأصناف (0.00)
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      تصفير الكميات في كل المستودعات لتكون جاهزة للجرد الفعلي الافتتاحي
+                    </div>
+                  </div>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.itemsWithStock} صنف به كميات
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetManualInventoryItems}
+                    onChange={(e) => setOptions({ ...options, resetManualInventoryItems: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-800 text-[11px]">
+                      حذف الأصناف والمنتجات والخامات المضافة يدوياً
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      حذف الأصناف التجريبية التي تمت إضافتها للتجربة
+                    </div>
+                  </div>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.manualItems} صنف مضاف
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetManualWarehouses}
+                    onChange={(e) => setOptions({ ...options, resetManualWarehouses: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-800 text-[11px]">
+                      حذف المستودعات والمخازن الإضافية المضافة يدوياً
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      الإبقاء على المستودعات الافتراضية للشركة
+                    </div>
+                  </div>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.manualWhs} مستودع مضاف
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* القسم 4: الصناديق والخزنات والدليل المحاسبي */}
+          <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2.5">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 text-slate-900 font-bold">
+              <span className="flex items-center gap-1.5">
+                <Wallet className="w-4 h-4 text-indigo-600" />
+                <span>4. الصناديق والخزنات والدليل المحاسبي</span>
+              </span>
+              <span className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 font-mono">
+                {treasuries.length} خزنة / {accounts.length} حساب
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.zeroTreasuryBalances}
+                    onChange={(e) => setOptions({ ...options, zeroTreasuryBalances: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-800 text-[11px]">
+                      تصفير أرصدة الصناديق والخزنات وحذف حركاتها
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      تصفير الرصيد النقدي والعملات المتعددة (₪ 0.00) لبدء إيداع رأس المال الفعلي
+                    </div>
+                  </div>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.treasWithBal} خزنة بها رصيد
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.resetManualTreasuries}
+                    onChange={(e) => setOptions({ ...options, resetManualTreasuries: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-800 text-[11px]">
+                      حذف الصناديق والحسابات البنكية المضافة يدوياً
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      الإبقاء على الخزينة النقدية الرئيسية الافتراضية
+                    </div>
+                  </div>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {counts.manualTreas} مضاف
+                </span>
+              </label>
+
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.zeroAccountBalances}
+                    onChange={(e) => setOptions({ ...options, zeroAccountBalances: e.target.checked })}
+                    disabled={!isSystemAdmin}
+                    className="w-4 h-4 text-rose-600 rounded-sm"
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-800 text-[11px]">
+                      تصفير أرصدة شجرة الحسابات في الدليل المحاسبي
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      تصفير موازين الأصول والخصوم والإيرادات والمصروفات إلى 0.00
+                    </div>
+                  </div>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                  {accounts.length} حساب
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+

@@ -1,4 +1,4 @@
--- Authoritative event log and records. Never expose port 5432 to the public Internet.
+-- One authoritative PostgreSQL database per server. Never put database credentials on clients.
 CREATE TABLE IF NOT EXISTS sync_workspaces (
   id text PRIMARY KEY,
   next_sequence bigint NOT NULL DEFAULT 0 CHECK(next_sequence>=0),
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS sync_records (
   workspace text NOT NULL REFERENCES sync_workspaces(id),
   entity text NOT NULL,
   record_id text NOT NULL,
-  version bigint NOT NULL CHECK(version>0),
+  version bigint NOT NULL CHECK (version>0),
   value jsonb,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY(workspace,entity,record_id)
