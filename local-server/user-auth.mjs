@@ -33,10 +33,10 @@ export class UserAuth {
     if(!normalized||normalized.length>254||typeof password!=='string'||!password||password.length>1024)
       return null;
     const q=await this.pool.query(
-      'SELECT u.user_id, u.username_normalized, u.email_normalized, u.display_name, u.role_id, u.status, u.password_hash, p.value AS profile
+      `SELECT u.user_id, u.username_normalized, u.email_normalized, u.display_name, u.role_id, u.status, u.password_hash, p.value AS profile
        FROM sync_auth_users u LEFT JOIN sync_records p
        ON p.workspace=u.workspace AND p.entity='users' AND p.record_id=u.user_id
-       WHERE u.workspace=$1 AND (u.username_normalized=$2 OR u.email_normalized=$2) LIMIT 1',
+       WHERE u.workspace=$1 AND (u.username_normalized=$2 OR u.email_normalized=$2) LIMIT 1`,
       [this.workspace,normalized]);
     const user=q.rows[0];
     // Never reveal which usernames exist, and never accept inactive accounts.
