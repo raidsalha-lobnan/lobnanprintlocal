@@ -504,14 +504,14 @@ const MainLayout: React.FC = () => {
       <TransactionLifecycleModal />
       <OfflineIndicator />
       <TelegramBotIntegration />
-      <GoogleDriveAutoBackupWorker />
+      {/* Google Drive/Firebase backup is disabled in PostgreSQL-only edition. */}
     </div>
   );
 };
 
 export default function App() {
   // Local PostgreSQL is the primary target in this edition. Each device must be paired once.
-  if (import.meta.env.VITE_SYNC_BACKEND === 'local-postgres' && !localStorage.getItem('lobnan_local_sync_server_url')) return <LocalServerSetup />;
+  if (!localStorage.getItem('lobnan_local_sync_server_url')) return <LocalServerSetup />;
   const [localUserId, setLocalUserId] = React.useState<string | null>(() => {
     return localStorage.getItem('alnoor_press_accounting_v1_current_user_id');
   });
