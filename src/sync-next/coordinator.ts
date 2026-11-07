@@ -1,4 +1,5 @@
 import { LocalSyncDb } from './localDb';
+import {getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
 
 import {
   sleep, PermanentSyncError,
@@ -317,7 +318,10 @@ export class SyncCoordinator {
         continue;
       }
       if (keys.some(k => blocked.has(k))) continue;
-      if (cmd.retryAt > Date.now()) {
+      const refreshedSession=secureLoginEnabled() &&
+        cmd.error?.includes('SESSION_LOGIN_REQUIRED') &&
+        !!getCurrentSessionToken();
+      if (cmd.retryAt > Date.now() && !refreshedSession) {
         keys.forEach(k => blocked.add(k));
         continue;
       }
@@ -407,7 +411,7 @@ export class SyncCoordinator {
   async syncNow(timeoutMs = 30000): Promise<SyncState> {
     if (!this.started) throw new Error('Synchronizer is not running');
     if (!this.cloudAllowed()) throw new Error('Reconciliation required before cloud synchronization');
-    if (!this.online()) throw new Error('Offline: records are saved locally but not synced to Firebase');
+    if (!this.online()) throw new Error('Offline: records are retained in IndexedDB until PostgreSQL sync resumes');
     // A follower tab is not allowed to report the leader's unknown cloud state as its own success.
     if (!this.state.isLeader) {
       this.coordChannel?.postMessage('REQUEST_SYNC');
