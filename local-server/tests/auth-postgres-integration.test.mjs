@@ -104,7 +104,7 @@ test('isolated PostgreSQL server enforces login, branch ACL, no secret leakage, 
       value:{id:'new1',branchId:'b1',companyId:'comp1',totalAmount:18,invoiceNumber:'TEMP-new1'}}]
   };
   const push=await api('/api/v1/push',{method:'POST',token:worker.data.token,body:accepted});
-  assert.equal(push.status,200);
+  assert.equal(push.status,200,'PostgreSQL push response: '+JSON.stringify(push.data));
   assert.equal(push.data.changes[0].value.invoiceNumber,'INV-0003');
   const replay=await api('/api/v1/push',{method:'POST',token:worker.data.token,body:accepted});
   assert.equal(replay.status,200);
