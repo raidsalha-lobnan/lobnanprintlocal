@@ -35,7 +35,7 @@ export function createAccessVerifier({teamDomain, audience, fetcher = fetch, now
   }
 
   return async token => {
-    if (typeof token !== 'string' || token.length > 12000) throw new Error('ACCESS_JWT_MISSING');
+    if (typeof token !== 'string' || !token || token.length > 12000) throw new Error('ACCESS_JWT_MISSING');
     const parts = token.split('.');
     if (parts.length !== 3 || !parts.every(Boolean)) throw new Error('ACCESS_JWT_INVALID');
     let header, payload;
