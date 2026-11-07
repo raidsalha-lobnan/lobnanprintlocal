@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { syncAuditService, SyncAuditItem, SyncConnectionIssue, ENTITY_ARABIC_NAMES } from '../services/syncAuditService';
-import firebaseConfig from '../../firebase-applet-config.json';
+import firebaseConfig from '../../firebase-applet-config.example.json';
 
 // Inlined self-contained reconciliation helpers to eliminate external module resolution issues in remote CI/CD builds
 export type ComparisonStatus = 'NOT_CHECKED' | 'MATCH' | 'DIFFERENT';

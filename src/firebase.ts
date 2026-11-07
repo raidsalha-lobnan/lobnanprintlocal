@@ -30,7 +30,7 @@ import {
   persistentMultipleTabManager
 } from 'firebase/firestore';
 
-import firebaseConfig from '../firebase-applet-config.json';
+import firebaseConfig from '../firebase-applet-config.example.json';
 
 // Silence non-fatal internal SDK connection warnings (e.g. 10s backend unreachable notice)
 try {

@@ -3,7 +3,7 @@
 
 import { isFirestoreQuotaExceeded, markQuotaExceeded } from './firebaseFirestoreSyncService';
 import { db, doc, getDocFromServer } from '../firebase';
-import firebaseConfig from '../../firebase-applet-config.json';
+import firebaseConfig from '../../firebase-applet-config.example.json';
 
 export interface FirebaseQuotaStats {
   readsLimit: number;

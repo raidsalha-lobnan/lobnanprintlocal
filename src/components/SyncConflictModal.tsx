@@ -16,7 +16,7 @@ import {
 import { SyncCommand } from '../sync-next/types';
 import { assessLocalStorageHealth } from '../sync-next/storageHealth';
 import { useAccounting } from '../context/AccountingContext';
-import firebaseConfig from '../../firebase-applet-config.json';
+import firebaseConfig from '../../firebase-applet-config.example.json';
 
 interface SyncConflictModalProps {
   isOpen: boolean;
