@@ -24,6 +24,8 @@ if (-not (Test-Path $cfg)) {
 POSTGRES_PASSWORD=$password
 SYNC_DEVICE_TOKEN=$sharedToken
 CLOUDFLARE_TUNNEL_TOKEN=REPLACE_WITH_YOUR_PRIVATE_CLOUDFLARE_TUNNEL_TOKEN
+CF_ACCESS_TEAM_DOMAIN=REPLACE_WITH_HTTPS_TEAM_DOMAIN
+CF_ACCESS_AUD=REPLACE_WITH_ACCESS_APP_AUD_TAG
 "@
   [System.IO.File]::WriteAllText($cfg, $data + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding $false))
   Write-Host 'Created local secret file .env.cloud-preview; it is ignored by Git.'
@@ -31,8 +33,10 @@ CLOUDFLARE_TUNNEL_TOKEN=REPLACE_WITH_YOUR_PRIVATE_CLOUDFLARE_TUNNEL_TOKEN
   exit 2
 }
 $envText = [System.IO.File]::ReadAllText($cfg)
-if ($envText -match 'REPLACE_WITH_|YOUR_PRIVATE|CLOUDFLARE_TUNNEL_TOKEN=\s*(\r?\n|$)') {
-  throw 'Cloudflare Tunnel token missing. Fill the private .env.cloud-preview and rerun.'
+if ($envText -match 'REPLACE_WITH_|YOUR_PRIVATE|CLOUDFLARE_TUNNEL_TOKEN=\s*(\r?\n|$)' -or
+    $envText -notmatch 'CF_ACCESS_TEAM_DOMAIN=https://[a-z0-9-]+\.cloudflareaccess\.com' -or
+    $envText -notmatch 'CF_ACCESS_AUD=[a-zA-Z0-9_-]{12,180}') {
+  throw 'Cloudflare Tunnel token, Access team domain or application AUD missing. Fill the private .env.cloud-preview and rerun.'
 }
 Write-Host 'Starting isolated demo database, API, UI and Cloudflare connector...'
 & docker compose --env-file $cfg -f $compose up -d --build
