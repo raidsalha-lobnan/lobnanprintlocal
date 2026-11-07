@@ -113,6 +113,23 @@ test('isolated PostgreSQL server enforces login, branch ACL, no secret leakage, 
     method:'POST',token:admin.data.token,body:accepted
   });
   assert.equal(otherUserReplay.status,403,'Other users cannot replay a cashier operation');
+  const concurrent=[1,2].map(n=>({
+    id:'concurrent-device-'+n,workspaceId:'lobnan_main',
+    changes:[{entity:'invoices',id:'concurrent-inv-'+n,expectedVersion:0,
+      value:{id:'concurrent-inv-'+n,branchId:'b1',companyId:'comp1',
+        totalAmount:10*n,invoiceNumber:'TEMP-concurrent-'+n}}]
+  }));
+  const concurrentlyPosted=await Promise.all(concurrent.map(cmd=>
+    api('/api/v1/push',{method:'POST',token:worker.data.token,body:cmd})));
+  assert.deepEqual(concurrentlyPosted.map(x=>x.status),[200,200]);
+  const official=concurrentlyPosted.map(x=>x.data.changes[0].value.invoiceNumber);
+  assert.equal(new Set(official).size,2);
+  assert.deepEqual([...official].sort(),['INV-0004','INV-0005']);
+  const synced=await api('/api/v1/events?after=0',{token:worker.data.token});
+  assert.equal(synced.status,200);
+  assert.equal(synced.data.events.length,3);
+  assert.ok(synced.data.events.every(e=>e.changes.every(c=>c.value?.branchId==='b1')));
+
   const o=await fetch(url+'/api/v1/bootstrap',{method:'OPTIONS',headers:{
     Origin:origin,'Access-Control-Request-Headers':'authorization,skip_zrok_interstitial',
     'Access-Control-Request-Method':'GET'
