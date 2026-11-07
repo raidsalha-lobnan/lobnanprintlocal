@@ -23,7 +23,9 @@ test('allows a verified and non-expired Cloudflare Access JWT',async()=>{
 });
 test('rejects token missing, invalid signature or wrong signing algorithm',async()=>{
   await assert.rejects(verify(''),/ACCESS_JWT_MISSING/);
-  await assert.rejects(verify(makeJwt().replace(/.$/,'A')),/ACCESS_SIGNATURE_REJECTED/);
+  const parts=makeJwt().split('.');
+  parts[2]=(parts[2][0]==='A'?'B':'A')+parts[2].slice(1);
+  await assert.rejects(verify(parts.join('.')),/ACCESS_SIGNATURE_REJECTED/);
   await assert.rejects(verify(makeJwt({}, {alg:'none'})),/ACCESS_ALG_REJECTED/);
 });
 test('rejects wrong audience, issuer, expired token and token not yet valid',async()=>{
