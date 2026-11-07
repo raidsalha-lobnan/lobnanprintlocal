@@ -37,17 +37,20 @@ if(!apply){
 if(!confirmed)throw Error('EXPLICIT_CONFIRM_EMPTY_WORKSPACE_REQUIRED');
 if(!process.env.DATABASE_URL)throw Error('DATABASE_URL_MISSING');
 const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,max:2});
+await pool.query(fs.readFileSync(new URL('./schema.sql',import.meta.url),'utf8'));
 const client=await pool.connect();
 try{
   await client.query('BEGIN');
   // Serialize imports to prevent concurrent writes or concurrent importers.
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['lobnan-migrate-'+workspace]);
   await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT (id) DO NOTHING',[workspace]);
+  await client.query('SELECT id FROM sync_workspaces WHERE id=$1 FOR UPDATE',[workspace]);
   const existing=await client.query(`SELECT
     (SELECT count(*) FROM sync_records WHERE workspace=$1) AS records,
     (SELECT count(*) FROM sync_commands WHERE workspace=$1) AS commands,
     (SELECT count(*) FROM sync_events WHERE workspace=$1) AS events,
     (SELECT count(*) FROM sync_auth_users WHERE workspace=$1) AS users,
+    (SELECT count(*) FROM invoice_claims WHERE workspace=$1) AS invoices,
     (SELECT next_sequence FROM sync_workspaces WHERE id=$1) AS sequence`,[workspace]);
   const state=existing.rows[0];
   if(Object.values(state).some(v=>Number(v)>0))throw Error('WORKSPACE_NOT_EMPTY_REFUSING_TO_OVERWRITE');
