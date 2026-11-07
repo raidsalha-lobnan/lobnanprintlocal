@@ -13,6 +13,19 @@ import {
 
 const LOCAL_POSTGRES = import.meta.env.VITE_SYNC_BACKEND === 'local-postgres';
 
+// Legacy Firebase configurations may point to retired or unreachable projects.
+// Never leave the login spinner waiting indefinitely for an inaccessible server.
+function withDeadline<T>(operation: Promise<T>, timeoutMs = 10000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('LOGIN_DIRECTORY_TIMEOUT')), timeoutMs);
+  });
+  return Promise.race([operation, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+
 export const LoginView: React.FC<{ onLocalLogin?: (id: string) => void }> = ({ onLocalLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -35,7 +48,7 @@ export const LoginView: React.FC<{ onLocalLogin?: (id: string) => void }> = ({ o
           setDirectoryNotice(users.length ? '' : 'قاعدة PostgreSQL متصلة ولكنها لا تحتوي على حسابات مستخدمين. يلزم نقل الحسابات المحفوظة أو إعدادها بصلاحيات صحيحة قبل الدخول.');
           return;
         }
-        const snap = await getDocs(collection(db, 'users'));
+        const snap = await withDeadline(getDocs(collection(db, 'users')));
         if (!mounted) return;
         const users = snap.docs.map(doc => doc.data()).filter(
           (user): user is SystemUser =>
@@ -92,7 +105,7 @@ export const LoginView: React.FC<{ onLocalLogin?: (id: string) => void }> = ({ o
         [u.email, u.username].some(value => typeof value === 'string' && value.trim().toLowerCase() === googleEmail)
       );
       if (!matched) {
-        const snap = await getDocs(collection(db, 'users'));
+        const snap = await withDeadline(getDocs(collection(db, 'users')));
         users = snap.docs.map(doc => doc.data() as SystemUser).filter(
           user => user && typeof user.id === 'string'
         );
@@ -151,7 +164,7 @@ export const LoginView: React.FC<{ onLocalLogin?: (id: string) => void }> = ({ o
         const existing = findSavedUser(users, email, password);
         if (!existing) {
           try {
-            const snap = await getDocs(collection(db, 'users'));
+            const snap = await withDeadline(getDocs(collection(db, 'users')));
             const cloudUsers = snap.docs.map(doc => doc.data() as SystemUser).filter(
               user => user && typeof user.id === 'string'
             );
