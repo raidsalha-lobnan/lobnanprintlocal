@@ -1,20 +1,53 @@
-# Lobnan Print Local — Development Workspace
+# مطبعة لبنان — Lobnan Print Local
 
-This repository is for the Lobnan Print local-first accounting application.
+مشروع برنامج محاسبة مطبعة لبنان، بنظام مزامنة محلي قيد التطوير.
 
-## Status
-**Development / testing only.** The PostgreSQL synchronization prototype has not passed production acceptance tests. Do not record real invoices or rely on it for financial reporting yet.
+## الحالة الحالية
 
-## Data safety
-Never commit customer records, invoices, receipts, device databases, PostgreSQL data directories, backups, API tokens, passwords, or .env files.
+**فرع المراجعة `setup/postgres-offline-review` يحتوي الآن على نواة خادم PostgreSQL وملفات Docker والاختبارات وتعليمات Cloudflare فقط.**
 
-## Source bundle
-The full project source currently exists as a separate reviewed ZIP package. Publishing the source must follow a privacy review because **this repository is public**.
+- لا يحتوي هذا الفرع بعد على واجهة React/Electron الكاملة من حزمة المصدر السابقة.
+- لا توجد قاعدة بيانات فعلية أو مستخدمون حقيقيون أو كلمات مرور داخل المستودع.
+- قاعدة البيانات الرئيسية تُشغَّل على جهاز المالك الشخصي، وتخزن الأجهزة الأخرى عملياتها محليًا عند انقطاع الاتصال إذا اكتمل إعداد الواجهة.
+- لم تُختبر بعد جميع عمليات الفواتير والقيود والمخزون والصندوق بشكل ذري ضمن تطبيق الواجهة الكامل.
+- **ممنوع استخدام هذا الإصدار لإدخالات محاسبية حقيقية حتى إكمال اختبارات القبول على جهازين.**
 
-## Planned architecture
-- Main PC: PostgreSQL and local Node.js API
-- Other devices: durable local queue while offline
-- Centralized authorization of invoice numbers and accounting postings
-- Reconciliation and two-device acceptance tests before release
+## البنية الموجودة على GitHub
 
-To publish the local ZIP without replacing this branch, use the reviewed `scripts/publish-to-lobnanprintlocal.ps1` script included in the source package, after examining its content and installing Git on your own computer.
+| المسار | الوظيفة |
+|---|---|
+| `local-server/` | خادم Node.js، وSQL، وقواعد تحقق، وسجل مزامنة |
+| `docker-compose.local.yml` | تشغيل PostgreSQL والخادم على جهازك |
+| `docker-compose.public.yml` | نفق Cloudflare اختياري للوصول إلى الخادم عبر HTTPS |
+| `.env.local-server.example` | إعداد نموذجي دون أسرار |
+| `PUBLIC_ACCESS_AR.md` | دليل جعل الخدمة متاحة للأجهزة عبر الإنترنت |
+| `.github/workflows/local-server-checks.yml` | اختبارات آلية للوحدة وفحص صياغة الخادم |
+
+## بدء تجربة الخادم على جهازك الرئيسي
+
+يتطلب Docker Desktop مُثبتًا على الجهاز الرئيسي فقط. لا تثبّت PostgreSQL على الأجهزة الأخرى.
+
+```powershell
+Copy-Item .env.local-server.example .env.local-server
+# عدّل .env.local-server بقيم سرية عشوائية قوية قبل المتابعة
+docker compose --env-file .env.local-server -f docker-compose.local.yml up -d --build
+```
+
+لا تتصل بقاعدة PostgreSQL عبر الإنترنت مباشرة. إذا أردت رابطًا عامًا للأجهزة، اتبع ملف `PUBLIC_ACCESS_AR.md` وشغّل Cloudflare Access.
+
+## فتح الواجهة من المتصفح فقط
+
+يمكن الوصول من متصفح أجهزة الموظفين بعد نشر واجهة React آمنة ومجهزة للعمل دون اتصال. لم تُنشر هذه الواجهة بعد، لذلك لا يوجد رابط تشغيل مباشر للبرنامج حتى الآن.
+
+## الاختبارات المتاحة
+
+```bash
+cd local-server
+npm test
+```
+
+اختبارات الوحدة تستعمل قاعدة محاكاة ولا تؤكد تشغيل PostgreSQL الحقيقي أو تكامل كل الشاشات.
+
+## تحذير الخصوصية
+
+المستودع عام. لا ترفع إليه ملفات .env أو كلمات مرور أو بيانات عملاء أو فواتير أو أرصدة أو صور ممسوحة أو لقطات احتياطية، حتى لو أخفتها لاحقًا؛ قد تبقى في تاريخ Git.
