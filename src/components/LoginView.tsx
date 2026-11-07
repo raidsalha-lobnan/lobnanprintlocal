@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, KeyRound, Lock, LogIn, Mail, RefreshCw, WifiOff } from 'lucide-react';
 import type { SystemUser } from '../types';
+import {loginOnline,loginOffline,secureLoginEnabled} from '../services/secureAuth';
 import {
   cacheSavedUsers,
   fetchUsersFromLocalServer,
@@ -18,9 +19,14 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
   const [error, setError] = useState('');
   const [directoryNotice, setDirectoryNotice] = useState('');
   const [loading, setLoading] = useState(false);
-  const [users, setUsers] = useState<SystemUser[]>(readCachedUsers);
+  const [users, setUsers] = useState<SystemUser[]>(() => secureLoginEnabled()?[]:readCachedUsers());
 
   useEffect(() => {
+    if(secureLoginEnabled()){
+      if(navigator.onLine===false)
+        setDirectoryNotice('الجهاز دون إنترنت. يمكنك الدخول بكلمة مرورك بعد تسجيل دخول ناجح سابق على هذا الجهاز.');
+      return;
+    }
     let active = true;
     void fetchUsersFromLocalServer().then(list => {
       if (!active) return;
@@ -39,8 +45,30 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
     setError('');
     setLoading(true);
     try {
-      // Never authorize against a stale browser-only directory. The remote
-      // workspace is authoritative; unsupported offline login stays disabled.
+      if(secureLoginEnabled()){
+        let matched:SystemUser;
+        try {
+          matched=await loginOnline(identifier,password);
+        }catch(onlineErr){
+          // Only network unavailability qualifies for offline credential unlock.
+          // Invalid remote passwords and server-side rejections MUST NOT fall back.
+          const networkFailure=navigator.onLine===false || onlineErr instanceof TypeError;
+          if(!networkFailure)throw onlineErr;
+          matched=await loginOffline(identifier,password);
+          setDirectoryNotice('تم فتح الحساب أوفلاين باستخدام بيانات دخول سبق التحقق منها. العمليات محفوظة محليًا حتى إعادة المزامنة.');
+        }
+        cacheSavedUsers([matched],getCurrentWorkspace());
+        setUsers([matched]);
+        const {password:_secret,...safeUser}=matched;
+        localStorage.setItem('auth_type','postgres');
+        localStorage.setItem('alnoor_press_accounting_v1_current_user_id',matched.id);
+        localStorage.setItem('alnoor_press_accounting_v1_logged_in_user_id',matched.id);
+        localStorage.setItem('alnoor_press_accounting_v1_current_user',JSON.stringify(safeUser));
+        localStorage.setItem('alnoor_press_accounting_v1_session_admin','false');
+        if(onLocalLogin)onLocalLogin(matched.id);else window.location.reload();
+        return;
+      }
+      // Legacy paired-server login is supported only for local testing.
       const remoteUsers = await fetchUsersFromLocalServer();
       cacheSavedUsers(remoteUsers, getCurrentWorkspace());
       setUsers(remoteUsers);
@@ -68,7 +96,17 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
       console.warn('PostgreSQL user directory unavailable', err);
       const message = err instanceof Error ? err.message : '';
       setError(
-        message === 'LOCAL_SERVER_NOT_CONFIGURED'
+        message === 'BAD_USERNAME_OR_PASSWORD'
+          ? 'اسم المستخدم أو كلمة المرور غير صحيحة.'
+          : message === 'AUTH_RATE_LIMIT'
+          ? 'محاولات كثيرة لتسجيل الدخول. حاول بعد 15 دقيقة.'
+          : message === 'OFFLINE_LOGIN_NOT_ENROLLED'
+          ? 'لا يمكن تسجيل الدخول أوفلاين قبل تسجيل الدخول مرة واحدة بالإنترنت على هذا الجهاز.'
+          : message === 'OFFLINE_LOGIN_EXPIRED'
+          ? 'انتهت صلاحية الدخول دون اتصال. يلزم الاتصال بالخادم لتجديد الجلسة.'
+          : message.startsWith('AUTH_HTTP_')
+          ? 'تعذر إكمال تسجيل الدخول من خادم PostgreSQL (رمز '+message.slice(10)+').'
+          : message === 'LOCAL_SERVER_NOT_CONFIGURED'
           ? 'لم يتم تعريف خادم PostgreSQL. افتح إعداد الاتصال وحدد عنوان الخادم ورمز الربط.'
           : message.includes('401') || message.includes('403')
             ? 'خادم PostgreSQL رفض الاتصال. تحقق من رمز الربط والصلاحيات.'
@@ -119,19 +157,19 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
           <button type="submit" disabled={loading}
             className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 disabled:opacity-70 text-sm">
             {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
-            {loading ? 'جارٍ التحقق من خادم PostgreSQL...' : 'تسجيل الدخول للموظفين والمستخدمين'}
+            {loading ? 'جارٍ التحقق من الحساب...' : 'تسجيل الدخول'}
           </button>
         </form>
         <div className="mt-5 flex items-center justify-center gap-2 text-xs text-slate-500">
-          <WifiOff className="w-4 h-4" /><span>لا يوجد تسجيل دخول عبر Firebase أو Google في هذه النسخة</span>
+          <WifiOff className="w-4 h-4" /><span>{secureLoginEnabled() ? 'دخول PostgreSQL آمن — يدعم فتح الحساب دون اتصال بعد التفعيل الأول' : 'لا يوجد تسجيل دخول عبر Firebase أو Google في هذه النسخة'}</span>
         </div>
-        <button type="button" className="mt-4 w-full text-center text-sm text-blue-700 underline"
+        {!secureLoginEnabled() && <button type="button" className="mt-4 w-full text-center text-sm text-blue-700 underline"
           onClick={() => {
             // Clear pairing details only; do not erase saved invoices, users or offline outbox.
             localStorage.removeItem('lobnan_local_sync_server_url');
             localStorage.removeItem('lobnan_local_sync_device_token');
             window.location.reload();
-          }}>إعادة إعداد الاتصال بالخادم</button>
+          }}>إعادة إعداد الاتصال بالخادم</button>}
       </div>
     </div>
   );
