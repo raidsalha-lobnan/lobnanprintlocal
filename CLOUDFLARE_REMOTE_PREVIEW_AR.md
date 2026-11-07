@@ -15,12 +15,14 @@
 4. **قبل نشر المسار:** من Cloudflare Zero Trust > Access > Applications، أنشئ تطبيقًا من نوع Self-hosted بنفس اسم المضيف. اضبط Policy إلى Allow **البريد الإداري الذي تملكه فقط**، واجعل Default deny. اختبر نافذة خفية أن الزوار غير المصرح لهم يُمنعون. لا تضع العملاء الحقيقيين في هذا الاختبار.
 5. في إعداد النفق > Routes > Add route > Published application، أدخل نفس hostname، واجعل Service URL هو: `http://web:8080` **عندما يعمل cloudflared داخل Docker Compose أدناه**.
 6. من النفق انسخ **Token فقط إلى جهازك الرئيسي** (ليس إلى GitHub أو الدردشة).
+7. افتح Access > Applications > تطبيقك، ثم انسخ قيمة **Application Audience (AUD) Tag**. كذلك انسخ نطاق فريق Cloudflare Access الكامل، بصيغة `https://your-team.cloudflareaccess.com`. يحتفظ بها ملف إعداد الجهاز الخاص.
+8. فعّل **Protect with Access** في إعدادات Public Hostname داخل Tunnel مع فريقك والـ AUD، لتتحقق خدمة النفق من JWT أيضًا. خادم API نفسه يتحقق من توقيع JWT والجهة الصادرة وAUD وتاريخ الانتهاء، ويرفض أي اتصال بلا تصريح.
 
 ## 2. على جهاز المطبعة
 1. يجب وجود PostgreSQL الحاوي للبيانات في جهاز دائم التشغيل. هذه التجربة تشغّل PostgreSQL **منفصلة جديدة داخل Docker** ولا تلمس قواعدك السابقة. يتطلب ذلك تثبيت Docker Desktop على الجهاز الرئيسي.
 2. اسحب ملفات المستودع من فرع `feature/cloudflare-remote-preview`، أو من `main` فقط بعد اعتماد ودمج التغييرات.
 3. من PowerShell في مجلد المشروع: `powershell -ExecutionPolicy Bypass -File .\scripts\start-cloud-preview.ps1`.
-4. في التشغيل الأول ينشئ السكربت `.env.cloud-preview` مع كلمات مرور عشوائية؛ افتح هذا الملف على جهاز المطبعة فقط واستبدل قيمة `CLOUDFLARE_TUNNEL_TOKEN` برمز النفق. أعد تشغيل الأمر نفسه.
+4. في التشغيل الأول ينشئ السكربت `.env.cloud-preview` مع كلمات مرور عشوائية؛ افتح هذا الملف على جهاز المطبعة فقط واستبدل **الثلاثة**: `CLOUDFLARE_TUNNEL_TOKEN` و`CF_ACCESS_TEAM_DOMAIN` و`CF_ACCESS_AUD` بالقيم الحقيقية الخاصة بحسابك. لا تنشر هذه القيم. أعد تشغيل الأمر نفسه.
 5. تأكد من تشغيل الحاويات باستخدام `docker compose --env-file .env.cloud-preview -f docker-compose.cloud-preview.yml ps`.
 6. افتح الاسم الذي اخترته في Cloudflare بمتصفح بعيد، وتأكد أولًا من ظهور صفحة Cloudflare Access ومنع أي بريد غير مصرح له.
 
@@ -39,3 +41,9 @@
 
 ## 5. لماذا لا يمكنني تسليم الرابط الفعلي من الدردشة بعد؟
 لا يوجد اتصال تحكم بجهاز المطبعة أو حساب Cloudflare يتيح إنشاء Tunnel/Access/DNS باسمه، ولا يوجد نطاق محدد. لا يمكن استنتاج رابط حقيقي من ملفات الكود. عند إعداد المضيف وربط النفق على الجهاز سيصبح الرابط الحقيقي هو **اسم المضيف الذي اعتمدته في Cloudflare**، وليس عنوانًا افتراضيًا.
+
+
+## 6. ضمانة سلامة إضافية
+عند تشغيل `docker-compose.cloud-preview.yml` يرفض خادم API أي طلب لا يحمل JWT موقّعًا من Cloudflare Access للنطاق والـ AUD المحددين في الملف الخاص. لذلك **مجرد نشر اسم المضيف دون سياسة Access لا يفتح سجلات التجربة**. لا تغيّر `CF_ACCESS_REQUIRED=1`.
+
+الرابط الثابت لا يأتي من Vercel. هو اسم المضيف الذي تنشئه في Cloudflare؛ إعداد المشروع على Vercel لا يمنحه تلقائيًا صلاحية الاتصال بجهاز المطبعة.
