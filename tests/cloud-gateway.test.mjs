@@ -10,7 +10,7 @@ test('cloud preview removes per-device pairing in same-origin mode', () => {
   assert.match(app,/VITE_SYNC_GATEWAY_MODE !== 'true'/);
   assert.match(transport,/window\.location\.origin/);
   assert.match(users,/gateway \? window\.location\.origin/);
-  assert.match(transport,/this\.token \? \{/);
+  assert.match(transport,/authHeaders\(this\.url/);
   assert.match(users,/headers: token \? /);
 });
 
