@@ -1,0 +1,26 @@
+name: Local Sync API Checks
+on:
+  push:
+    paths:
+      - 'local-server/**'
+      - 'docker-compose.*.yml'
+      - '.github/workflows/local-server-checks.yml'
+  pull_request:
+    paths:
+      - 'local-server/**'
+      - 'docker-compose.*.yml'
+      - '.github/workflows/local-server-checks.yml'
+jobs:
+  syntax-and-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check local-server/server.mjs
+      - run: node --check local-server/sync-domain.mjs
+      - run: node --check local-server/sync-service.mjs
+      - run: npm test
+        working-directory: local-server
+      - run: docker compose --env-file .env.local-server.example -f docker-compose.local.yml config -q
