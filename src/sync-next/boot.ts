@@ -4,6 +4,7 @@ import {LocalSyncDb} from './localDb';
 import {SyncCoordinator} from './coordinator';
 import {UnifiedRepository} from './repository';
 import type {EntityName} from './types';
+import {secureLoginEnabled} from '../services/secureAuth';
 
 /** New database is intentionally isolated from historical Firebase IndexedDB queues. */
 export async function createUnifiedDataLayer(workspaceId:string){
@@ -25,6 +26,8 @@ export async function createUnifiedDataLayer(workspaceId:string){
     if(segments.length!==2)return false;
     const entity=segments[0]==='journals'?'journalEntries':segments[0];
     if(!supported.has(entity))return false;
+    if(secureLoginEnabled() && (entity==='users'||entity==='roles'))
+      throw new Error('USER_AND_ROLE_MANAGEMENT_REQUIRES_SERVER_ADMIN_API');
     const id=segments[1];
     if(!id)throw new Error('Missing stable record identity');
     if(operation==='delete') await repository.tombstone(entity as EntityName,id);
