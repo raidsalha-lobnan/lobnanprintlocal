@@ -638,12 +638,14 @@ function syncHubPlugin() {
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import {defineConfig} from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(({mode}) => {
-  const localMode = loadEnv(mode, process.cwd(), '').VITE_SYNC_BACKEND === 'local-postgres';
+export default defineConfig(() => {
+  // Force all new builds to use the local PostgreSQL transport; no Firebase fallback.
+  const localMode = true;
   return {
+    define: { 'import.meta.env.VITE_SYNC_BACKEND': JSON.stringify('local-postgres') },
     server: {
       hmr: false,
     },
