@@ -2324,60 +2324,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (e) {}
   };
 
-  // Sync Firebase user to System User only when needed without overriding manual user switches
-  useEffect(() => {
-    const fUser = auth.currentUser;
-    const authType = localStorage.getItem('auth_type');
-    
-    // If user explicitly signed in with local credentials, do not override
-    if (authType === 'local') {
-      return;
-    }
-
-    if (fUser && fUser.email && isCloudHydratedRef.current) {
-      const isOwner = fUser.email.toLowerCase() === 'press@example.invalid' || fUser.email.toLowerCase() === 'admin@example.invalid' || fUser.email.toLowerCase().includes('lobnan') || fUser.email.toLowerCase().includes('raid');
-      const existingUser = users.find(u => u.email?.toLowerCase() === fUser.email?.toLowerCase() || u.username?.toLowerCase() === fUser.email?.toLowerCase());
-      
-      if (existingUser) {
-        // Automatically upgrade owner to full admin
-        if (isOwner && existingUser.roleId !== 'role-admin') {
-          setUsers(prev => {
-            const updated = prev.map(u => u.id === existingUser.id ? { ...u, roleId: 'role-admin', allowedBranchIds: ['*'] } : u);
-            localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(updated));
-            return updated;
-          });
-        }
-        const savedId = localStorage.getItem(`${STORAGE_KEY}_current_user_id`);
-        if (!savedId) {
-          setCurrentUserId(existingUser.id);
-        }
-      } else if (users.length > 0) {
-        // Create new user for this email only if cloud database users are loaded and email is truly new
-        const newUser: SystemUser = {
-          id: 'user-' + Date.now(),
-          companyId: 'comp-1',
-          username: fUser.email,
-          email: fUser.email,
-          fullName: fUser.displayName || fUser.email.split('@')[0],
-          roleId: isOwner ? 'role-admin' : 'role-cashier', 
-          defaultBranchId: 'br-1',
-          allowedBranchIds: isOwner ? ['*'] : ['br-1'],
-          status: 'active',
-          createdAt: new Date().toISOString()
-        };
-        setUsers(prev => {
-          const updated = [...prev, newUser];
-          localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(updated));
-          return updated;
-        });
-        const savedId = localStorage.getItem(`${STORAGE_KEY}_current_user_id`);
-        if (!savedId) {
-          setCurrentUserId(newUser.id);
-        }
-      }
-    }
-  }, [auth.currentUser?.email, users.length]);
-
+  // PostgreSQL-only edition: user identities and privileges must be provisioned
+  // by a trusted server-side administrator. Never grant admin rights from a
+  // matching email substring or create a privileged user from a Google session.
 
   // Debt Clearings (المقاصة بين عميل ومورد)
   const [debtClearings, setDebtClearings] = useState<DebtClearingRecord[]>(() => {
