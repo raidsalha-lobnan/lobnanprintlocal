@@ -125,7 +125,7 @@ export class UnifiedRepository {
       'purchases', 'purchaseReturns', 'salesReturns', 'accounts',
       'treasuries', 'employees', 'journalEntries', 'expenses',
       'stockMovements', 'warehouseOperations', 'dailyEntrySheets',
-      'companies', 'branches', 'warehouses', 'settings'
+      'companies', 'branches', 'warehouses', 'roles', 'users', 'settings'
     ];
     const result: Record<string, any[]> = {};
     for (const ent of supported) {
