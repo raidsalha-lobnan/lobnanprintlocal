@@ -109,6 +109,10 @@ test('isolated PostgreSQL server enforces login, branch ACL, no secret leakage, 
   const replay=await api('/api/v1/push',{method:'POST',token:worker.data.token,body:accepted});
   assert.equal(replay.status,200);
   assert.deepEqual(replay.data,push.data);
+  const otherUserReplay=await api('/api/v1/push',{
+    method:'POST',token:admin.data.token,body:accepted
+  });
+  assert.equal(otherUserReplay.status,403,'Other users cannot replay a cashier operation');
   const o=await fetch(url+'/api/v1/bootstrap',{method:'OPTIONS',headers:{
     Origin:origin,'Access-Control-Request-Headers':'authorization,skip_zrok_interstitial',
     'Access-Control-Request-Method':'GET'
