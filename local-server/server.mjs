@@ -8,6 +8,7 @@ import {SyncService} from './sync-service.mjs';
 import {InputError} from './sync-domain.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
+import {stripPrivateFields} from './legacy-snapshot.mjs';
 import {createAccessVerifier} from './access-verifier.mjs';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 const PORT=Number(process.env.SYNC_PORT||4577);
@@ -61,12 +62,16 @@ async function parseBody(req,maxBytes){
   catch{throw new InputError('INVALID_JSON',400);}
 }
 function safeSnapshot(snapshot){
-  return {...snapshot,records:snapshot.records.map(row=>
-    row.entity==='users'?{...row,value:stripUserSecrets(row.value)}:row)};
+  return {...snapshot,records:snapshot.records.map(row=>({
+    ...row,value:stripPrivateFields(
+      row.entity==='users'?stripUserSecrets(row.value):row.value)
+  }))};
 }
 function safeEvent(event){
-  return {...event,changes:event.changes.map(change=>
-    change.entity==='users'?{...change,value:stripUserSecrets(change.value)}:change)};
+  return {...event,changes:event.changes.map(change=>({
+    ...change,value:stripPrivateFields(
+      change.entity==='users'?stripUserSecrets(change.value):change.value)
+  }))};
 }
 
 const safeEq=(a,b)=>{const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length && crypto.timingSafeEqual(x,y);};
@@ -132,8 +137,9 @@ const srv=http.createServer(async(req,res)=>{
         // Finalized financial operations need further end-to-end validation.
       }
       const receipt=await service.push(workspace,command,STRICT_AUTH?user.id:null);
-      return json(res,200,STRICT_AUTH?{...receipt,changes:receipt.changes.map(c=>
-        c.entity==='users'?{...c,value:stripUserSecrets(c.value)}:c)}:receipt,cors);
+      return json(res,200,STRICT_AUTH?{...receipt,changes:receipt.changes.map(c=>({
+        ...c,value:stripPrivateFields(c.entity==='users'?stripUserSecrets(c.value):c.value)
+      }))}:receipt,cors);
     }
     json(res,404,{code:'NOT_FOUND'},cors);
   }catch(e){
