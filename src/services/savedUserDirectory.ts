@@ -51,7 +51,7 @@ export function isTrustedOfflineCache(): boolean {
 }
 
 export async function fetchUsersFromLocalServer(timeoutMs = 9000): Promise<SystemUser[]> {
-  const gateway = import.meta.env.VITE_SYNC_GATEWAY_MODE === 'true';
+  const gateway = import.meta.env?.VITE_SYNC_GATEWAY_MODE === 'true';
   const url = gateway ? window.location.origin : (localStorage.getItem(SERVER_KEY) || '').replace(/\/+$/, '');
   const token = gateway ? '' : (localStorage.getItem(TOKEN_KEY) || '');
   const workspace = getCurrentWorkspace();
