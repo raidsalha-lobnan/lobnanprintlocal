@@ -25,5 +25,7 @@ jobs:
           node --check local-server/server.mjs
           node --check local-server/import-users.mjs
           node --check local-server/access-policy.mjs
+          node --check local-server/legacy-snapshot.mjs
+          node --check local-server/import-legacy-snapshot.mjs
       - name: Verify salted login and server-side authorization
-        run: node --test local-server/tests/user-auth.test.mjs local-server/tests/access-policy.test.mjs
+        run: node --test local-server/tests/user-auth.test.mjs local-server/tests/access-policy.test.mjs local-server/tests/snapshot-import.test.mjs
