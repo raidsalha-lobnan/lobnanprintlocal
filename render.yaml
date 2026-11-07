@@ -1,0 +1,45 @@
+# Staging infrastructure only. NOT approved for real accounting data.
+# Free PostgreSQL is temporary and MUST NOT be used for financial production.
+services:
+  - type: web
+    name: lobnanprintlocal-ui-preview
+    runtime: static
+    branch: setup/postgres-offline-review
+    autoDeployTrigger: off
+    buildCommand: npm ci --ignore-scripts --no-audit --no-fund && npx vite build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_SYNC_BACKEND
+        value: local-postgres
+      - key: VITE_PUBLIC_PREVIEW_MODE
+        value: "true"
+  - type: web
+    name: lobnanprintlocal-api-staging
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: setup/postgres-offline-review
+    rootDir: local-server
+    autoDeployTrigger: off
+    buildCommand: npm install --omit=dev --no-audit --no-fund
+    startCommand: node server.mjs
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lobnanprintlocal-db-staging
+          property: connectionString
+      - key: SYNC_DEVICE_TOKEN
+        generateValue: true
+      - key: SYNC_WORKSPACE
+        value: lobnan_staging
+      - key: SYNC_PORT
+        value: "10000"
+      - key: SYNC_ALLOWED_ORIGINS
+        value: "http://localhost:3000"
+databases:
+  - name: lobnanprintlocal-db-staging
+    plan: free
+    region: frankfurt
+    postgresMajorVersion: "17"
+    databaseName: lobnanprintlocal_test
+    ipAllowList: []
