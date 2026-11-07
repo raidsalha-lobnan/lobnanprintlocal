@@ -35,7 +35,11 @@ export class LocalHttpSyncTransport implements SyncTransport {
         const d=data.detail;
         throw new VersionConflict(d.entity,d.id,d.expectedVersion,d.actualVersion);
       }
-      if(response.status===401||response.status===403||response.status===422||response.status===409){
+      if(response.status===401){
+        // Token expiry requires re-login, NOT permanent rejection of offline work.
+        throw new Error('SESSION_LOGIN_REQUIRED');
+      }
+      if(response.status===403||response.status===422||response.status===409){
         throw new PermanentSyncError(`${data.code || 'REJECTED'}: ${response.status}`);
       }
       throw new Error(`LOCAL_SYNC_HTTP_${response.status}`);
