@@ -5,7 +5,7 @@ export const URL_KEY='lobnan_local_sync_server_url';
 export const TOKEN_KEY='lobnan_local_sync_device_token';
 export const WORKSPACE_KEY='lobnan_local_sync_workspace';
 export function getLocalSyncConfig() {
-  if (import.meta.env.VITE_SYNC_GATEWAY_MODE === 'true') {
+  if (import.meta.env?.VITE_SYNC_GATEWAY_MODE === 'true') {
     if (typeof window === 'undefined' || window.location.protocol !== 'https:') {
       throw new Error('CLOUD_GATEWAY_REQUIRES_HTTPS');
     }
