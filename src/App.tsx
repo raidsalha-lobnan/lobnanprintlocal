@@ -510,7 +510,10 @@ const MainLayout: React.FC = () => {
 
 export default function App() {
   // Local PostgreSQL is the primary target in this edition. Each device must be paired once.
-  if (!localStorage.getItem('lobnan_local_sync_server_url')) return <LocalServerSetup />;
+  // Local Cloudflare preview: the private API gateway is at this HTTPS origin.
+  // No shared device token or manual server URL is shown to the browser.
+  if (import.meta.env.VITE_SYNC_GATEWAY_MODE !== 'true' &&
+      !localStorage.getItem('lobnan_local_sync_server_url')) return <LocalServerSetup />;
   // A persisted browser user ID is not proof of authentication. Require
   // re-verification against PostgreSQL after each fresh application load.
   const [localUserId, setLocalUserId] = React.useState<string | null>(null);
