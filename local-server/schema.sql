@@ -19,9 +19,12 @@ CREATE TABLE IF NOT EXISTS sync_commands (
   command_id text NOT NULL,
   fingerprint text NOT NULL,
   receipt jsonb NOT NULL,
+  actor_id text,
   committed_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY(workspace,command_id)
 );
+-- Compatible with already-created tables from earlier local PostgreSQL builds.
+ALTER TABLE sync_commands ADD COLUMN IF NOT EXISTS actor_id text;
 CREATE TABLE IF NOT EXISTS sync_events (
   workspace text NOT NULL REFERENCES sync_workspaces(id),
   sequence bigint NOT NULL CHECK(sequence>0),
