@@ -1286,6 +1286,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(grouped.vouchers) && (canonical || grouped.vouchers.length > 0)) setVouchers(grouped.vouchers);
             if (Array.isArray(grouped.purchases) && (canonical || grouped.purchases.length > 0)) setPurchases(grouped.purchases);
             if (Array.isArray(grouped.employees) && (canonical || grouped.employees.length > 0)) setEmployees(grouped.employees);
+            if (Array.isArray(grouped.roles) && (canonical || grouped.roles.length > 0)) setRoles(grouped.roles);
+            if (Array.isArray(grouped.users) && (canonical || grouped.users.length > 0)) setUsers(grouped.users);
           } catch (e) {
             console.warn('Repository sync to React state notice:', e);
           }
@@ -3170,12 +3172,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Helper accessors and CRUD for Multi-Company, Multi-Branch & Granular RBAC
   const currentUser: SystemUser = React.useMemo(() => {
     return users.find(u => u.id === currentUserId) || users[0] || {
-      id: 'usr-admin',
-      companyId: 'comp-1',
-      username: 'admin',
-      fullName: 'مدير النظام',
-      roleId: 'role-admin',
-      roleName: 'مدير النظام',
+      id: 'session-not-verified',
+      companyId: '',
+      username: '',
+      fullName: 'جلسة غير مصرح بها',
+      roleId: 'role-none',
+      roleName: 'بدون صلاحيات',
       defaultBranchId: 'br-1',
       allowedBranchIds: ['*'],
       status: 'active',
@@ -3185,12 +3187,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const getCurrentUser = (): SystemUser => {
     return users.find(u => u.id === currentUserId) || users[0] || {
-      id: 'usr-admin',
-      companyId: 'comp-1',
-      username: 'admin',
-      fullName: 'مدير النظام',
-      roleId: 'role-admin',
-      roleName: 'مدير النظام',
+      id: 'session-not-verified',
+      companyId: '',
+      username: '',
+      fullName: 'جلسة غير مصرح بها',
+      roleId: 'role-none',
+      roleName: 'بدون صلاحيات',
       defaultBranchId: 'br-1',
       allowedBranchIds: ['*'],
       status: 'active',
@@ -3263,7 +3265,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const hasPermission = (permission: PermissionKey): boolean => {
     const user = users.find(u => u.id === currentUserId) || users[0];
-    if (!user) return true;
+    if (!user) return import.meta.env?.VITE_SYNC_LOGIN_MODE !== 'users';
 
     // Check custom overrides first
     if (user.customPermissions && user.customPermissions[permission] !== undefined) {
@@ -3271,7 +3273,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     const role = roles.find(r => r.id === user.roleId);
-    if (!role) return true;
+    if (!role) return import.meta.env?.VITE_SYNC_LOGIN_MODE !== 'users';
 
     // System Admins & General Managers have full access
     if (role.code === 'SYS_ADMIN' || role.code === 'GEN_MGR') {
@@ -3282,11 +3284,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const canAccessBranch = (branchId: string, user?: SystemUser): boolean => {
-    return true;
+    if(import.meta.env?.VITE_SYNC_LOGIN_MODE !== 'users')return true;
+    const actor=user||users.find(u=>u.id===currentUserId);
+    if(!actor||actor.status!=='active')return false;
+    return Array.isArray(actor.allowedBranchIds) &&
+      (actor.allowedBranchIds.includes('*')||actor.allowedBranchIds.includes(branchId));
   };
 
   const getAllowedBranchesForUser = (user?: SystemUser): Branch[] => {
-    return branches;
+    if(import.meta.env?.VITE_SYNC_LOGIN_MODE !== 'users')return branches;
+    return branches.filter(b=>canAccessBranch(b.id,user));
   };
 
   // Resolve effective price for item considering customer special prices & allowed pricing tier
