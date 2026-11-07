@@ -33,11 +33,14 @@ export class UserAuth {
     if(!normalized||normalized.length>254||typeof password!=='string'||!password||password.length>1024)
       return null;
     const q=await this.pool.query(
-      'SELECT user_id, username_normalized, email_normalized, display_name, role_id, status, password_hash FROM sync_auth_users WHERE workspace=$1 AND (username_normalized=$2 OR email_normalized=$2) LIMIT 1',
+      'SELECT u.user_id, u.username_normalized, u.email_normalized, u.display_name, u.role_id, u.status, u.password_hash, p.value AS profile
+       FROM sync_auth_users u LEFT JOIN sync_records p
+       ON p.workspace=u.workspace AND p.entity='users' AND p.record_id=u.user_id
+       WHERE u.workspace=$1 AND (u.username_normalized=$2 OR u.email_normalized=$2) LIMIT 1',
       [this.workspace,normalized]);
     const user=q.rows[0];
     // Never reveal which usernames exist, and never accept inactive accounts.
-    if(!user||user.status!=='active')return null;
+    if(!user||user.status!=='active'||!user.profile)return null;
     if(!(await checkPassword(password,user.password_hash)))return null;
     const secret=crypto.randomBytes(32).toString('base64url');
     await this.pool.query('INSERT INTO sync_auth_sessions(workspace,session_hash,user_id,expires_at) VALUES ($1,$2,$3,now()+$4::interval)',
@@ -45,21 +48,20 @@ export class UserAuth {
     return {
       token:secret,
       expiresInSeconds:SESSION_HOURS*3600,
-      user:{id:user.user_id,username:user.username_normalized,email:user.email_normalized,
-        fullName:user.display_name,roleId:user.role_id,status:user.status}
+              user:stripUserSecrets(user.profile)
     };
   }
   async authenticate(secret){
     if(typeof secret!=='string'||secret.length<40||secret.length>256)return null;
     const q=await this.pool.query(
-      `SELECT u.user_id,u.username_normalized,u.email_normalized,u.display_name,u.role_id,u.status
+      `SELECT u.user_id,u.username_normalized,u.email_normalized,u.display_name,u.role_id,u.status,p.value AS profile
        FROM sync_auth_sessions s JOIN sync_auth_users u
          ON u.user_id=s.user_id AND u.workspace=s.workspace
+       JOIN sync_records p ON p.workspace=u.workspace AND p.entity='users' AND p.record_id=u.user_id
        WHERE s.workspace=$1 AND s.session_hash=$2 AND s.expires_at>now() AND u.status='active' LIMIT 1`,
       [this.workspace,secretHash(secret)]);
     const u=q.rows[0];
-    return u?{id:u.user_id,username:u.username_normalized,email:u.email_normalized,
-      fullName:u.display_name,roleId:u.role_id,status:u.status}:null;
+    return u?stripUserSecrets(u.profile):null;
   }
   async logout(secret){
     if(typeof secret==='string'&&secret.length>=40&&secret.length<=256)
