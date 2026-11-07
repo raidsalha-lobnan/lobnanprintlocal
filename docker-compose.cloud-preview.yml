@@ -30,6 +30,9 @@ services:
       SYNC_WORKSPACE: lobnan_main
       SYNC_PORT: "4577"
       SYNC_ALLOWED_ORIGINS: "http://localhost:8080"
+      CF_ACCESS_REQUIRED: "1"
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:?Use https://your-team.cloudflareaccess.com}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:?Set Cloudflare Access application AUD tag}
     expose: ["4577"]
     networks: [private]
 
