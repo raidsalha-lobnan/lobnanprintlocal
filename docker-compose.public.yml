@@ -1,0 +1,13 @@
+# Optional override: docker compose --env-file .env.local-server -f docker-compose.local.yml -f docker-compose.public.yml up -d
+# Create a named Cloudflare Tunnel using the dashboard and configure a Published application route:
+# hostname: api.yourdomain.example -> http://api:4577
+# Protect the hostname with Cloudflare Access BEFORE adding the public route.
+# Keep the real CLOUDFLARE_TUNNEL_TOKEN out of Git.
+services:
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      - api
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set tunnel token in .env.local-server}
+    networks: [internal]
