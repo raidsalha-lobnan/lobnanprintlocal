@@ -1,0 +1,55 @@
+name: Preview UI on GitHub Pages (NOT production)
+on:
+  workflow_dispatch:
+  push:
+    branches: [setup/postgres-offline-review]
+    paths:
+      - '.github/workflows/pages-preview.yml'
+      - 'src/**'
+      - 'index.html'
+      - 'vite.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/pages-preview-warning.mjs'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages-preview
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build frontend only
+        run: npx vite build --base=/lobnanprintlocal/
+        env:
+          VITE_SYNC_BACKEND: local-postgres
+          VITE_PUBLIC_PREVIEW_MODE: 'true'
+      - name: Add prominent non-production warning
+        run: node scripts/pages-preview-warning.mjs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
