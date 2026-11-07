@@ -51,10 +51,11 @@ export function isTrustedOfflineCache(): boolean {
 }
 
 export async function fetchUsersFromLocalServer(timeoutMs = 9000): Promise<SystemUser[]> {
-  const url = (localStorage.getItem(SERVER_KEY) || '').replace(/\/+$/, '');
-  const token = localStorage.getItem(TOKEN_KEY) || '';
+  const gateway = import.meta.env.VITE_SYNC_GATEWAY_MODE === 'true';
+  const url = gateway ? window.location.origin : (localStorage.getItem(SERVER_KEY) || '').replace(/\/+$/, '');
+  const token = gateway ? '' : (localStorage.getItem(TOKEN_KEY) || '');
   const workspace = getCurrentWorkspace();
-  if (!/^https?:\/\//.test(url) || token.length < 32) {
+  if (!/^https?:\/\//.test(url) || (!gateway && token.length < 32)) {
     throw new Error('LOCAL_SERVER_NOT_CONFIGURED');
   }
 
@@ -63,7 +64,7 @@ export async function fetchUsersFromLocalServer(timeoutMs = 9000): Promise<Syste
   try {
     const response = await fetch(url + '/api/v1/bootstrap?workspace=' + encodeURIComponent(workspace), {
       method: 'GET',
-      headers: { Authorization: 'Bearer ' + token },
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
       signal: controller.signal,
       cache: 'no-store'
     });
