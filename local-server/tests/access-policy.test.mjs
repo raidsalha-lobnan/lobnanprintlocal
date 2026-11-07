@@ -9,6 +9,7 @@ function makePool(role, records={}){
   return {query:async (sql,params)=>{
     if(sql.includes("entity='roles'"))
       return {rows:role?[{value:role}]:[]};
+    if(sql.includes('SELECT fingerprint,actor_id FROM sync_commands'))return {rows:[]};
     if(sql.includes('SELECT value FROM sync_records'))
       return {rows:records[params[1]+':'+params[2]]?[{value:records[params[1]+':'+params[2]]}]:[]};
     throw Error('UNEXPECTED_QUERY '+sql);
