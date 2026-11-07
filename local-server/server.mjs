@@ -145,5 +145,8 @@ const srv=http.createServer(async(req,res)=>{
        detail:err instanceof InputError?err.detail:undefined},cors);
   }
 });
-srv.listen(PORT,'0.0.0.0',()=>console.log(`Lobnan local sync server listening on :${PORT}`));
+const BIND_HOST=process.env.SYNC_BIND_HOST||(STRICT_AUTH?'127.0.0.1':'0.0.0.0');
+if(STRICT_AUTH && BIND_HOST!=='127.0.0.1' && BIND_HOST!=='::1')
+  throw new Error('Strict authentication API must bind to loopback; access it through zrok instead');
+srv.listen(PORT,BIND_HOST,()=>console.log(`Lobnan private sync API listening on ${BIND_HOST}:${PORT}`));
 process.on('SIGTERM',()=>{srv.close();pool.end().finally(()=>process.exit(0));});
