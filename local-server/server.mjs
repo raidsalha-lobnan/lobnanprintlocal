@@ -131,7 +131,7 @@ const srv=http.createServer(async(req,res)=>{
         // Role permissions do NOT replace domain-specific accounting validation.
         // Finalized financial operations need further end-to-end validation.
       }
-      const receipt=await service.push(workspace,command);
+      const receipt=await service.push(workspace,command,STRICT_AUTH?user.id:null);
       return json(res,200,STRICT_AUTH?{...receipt,changes:receipt.changes.map(c=>
         c.entity==='users'?{...c,value:stripUserSecrets(c.value)}:c)}:receipt,cors);
     }
