@@ -7,7 +7,7 @@ export const SNAPSHOT_ENTITIES=[
   'stockMovements','printOrders','debtClearings','companies','branches','warehouses',
   'warehouseOperations','roles','users','dailyEntrySheets','settings'
 ];
-const privateField=/^(?:password|passwordHash|password_hash|passphrase|accessToken|refreshToken|apiToken|authToken|deviceToken|privateKey|clientSecret|serviceAccount|service_account|apiKey|api_key)$/i;
+const privateField=/^(?:password|passwordHash|password_hash|passphrase|token|accessToken|refreshToken|idToken|bearerToken|apiToken|authToken|deviceToken|privateKey|clientSecret|serviceAccount|service_account|apiKey|api_key|googleDriveTokens|firebaseCredentials)$/i;
 export function stripPrivateFields(value){
   if(Array.isArray(value))return value.map(stripPrivateFields);
   if(!value||typeof value!=='object')return value;
