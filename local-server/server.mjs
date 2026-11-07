@@ -6,12 +6,19 @@ import {fileURLToPath} from 'node:url';
 import pg from 'pg';
 import {SyncService} from './sync-service.mjs';
 import {InputError} from './sync-domain.mjs';
+import {createAccessVerifier} from './access-verifier.mjs';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 const PORT=Number(process.env.SYNC_PORT||4577);
 const TOKEN=process.env.SYNC_DEVICE_TOKEN||'';
 const DATABASE_URL=process.env.DATABASE_URL||'';
 const WORKSPACE=process.env.SYNC_WORKSPACE||'lobnan_main';
 if(TOKEN.length<32||!DATABASE_URL) throw new Error('SYNC_DEVICE_TOKEN (32+ characters) and DATABASE_URL are mandatory');
+const enforceCloudflareAccess = process.env.CF_ACCESS_REQUIRED === '1';
+const verifyAccess = enforceCloudflareAccess ? createAccessVerifier({
+  teamDomain: process.env.CF_ACCESS_TEAM_DOMAIN,
+  audience: process.env.CF_ACCESS_AUD
+}) : null;
+
 const allowedOrigins = new Set((process.env.SYNC_ALLOWED_ORIGINS||'http://localhost:3000,http://127.0.0.1:3000,null').split(',').map(s=>s.trim()));
 const pool=new pg.Pool({connectionString:DATABASE_URL,max:12});
 const schema=fs.readFileSync(path.join(dir,'schema.sql'),'utf8');
@@ -24,6 +31,12 @@ const srv=http.createServer(async(req,res)=>{
   const cors=origin&&allowedOrigins.has(origin)?origin:undefined;
   if(req.method==='OPTIONS'){res.writeHead(cors?204:403,cors?{'access-control-allow-origin':cors,'access-control-allow-headers':'Authorization, Content-Type','access-control-allow-methods':'GET,POST,OPTIONS'}:{});res.end();return;}
   if(origin && !cors) {json(res,403,{code:'ORIGIN_NOT_ALLOWED'});return;}
+  // Origin-side signature validation means a publicly misconfigured Tunnel
+  // cannot leak data solely by adding an untrusted request header.
+  if (verifyAccess) {
+    try { await verifyAccess(req.headers['cf-access-jwt-assertion']); }
+    catch (error) { return json(res,403,{code:'CLOUDFLARE_ACCESS_REQUIRED'},cors); }
+  }
   const bearer=(req.headers.authorization||'').replace(/^Bearer /i,'');
   if(!safeEq(bearer,TOKEN)){json(res,401,{code:'UNAUTHORIZED'},cors);return;}
   try {
