@@ -1,0 +1,42 @@
+name: Cloudflare single-origin preview checks
+on:
+  push:
+    branches: [feature/cloudflare-remote-preview]
+  pull_request:
+    paths:
+      - "src/**"
+      - "cloud/**"
+      - "Dockerfile.cloud-preview"
+      - "docker-compose.cloud-preview.yml"
+      - "scripts/start-cloud-preview.ps1"
+      - "tests/cloud-gateway.test.mjs"
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Validate remote preview architecture
+        run: node --test tests/cloud-gateway.test.mjs
+      - name: Verify Cloudflare Access JWT signature validation
+        run: node --test local-server/tests/cloudflare-access.test.mjs
+      - name: Validate Compose file without using real secrets
+        run: docker compose -f docker-compose.cloud-preview.yml config --quiet
+        env:
+          POSTGRES_PASSWORD: testpassword0123456789
+          SYNC_DEVICE_TOKEN: test-token-0123456789-0123456789
+          CLOUDFLARE_TUNNEL_TOKEN: test-dummy-token
+          CF_ACCESS_TEAM_DOMAIN: https://test-team.cloudflareaccess.com
+          CF_ACCESS_AUD: test-demo-audience-12345
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build Vite frontend with gateway mode
+        run: npm run build
+        env:
+          VITE_SYNC_GATEWAY_MODE: 'true'
+          VITE_SYNC_BACKEND: local-postgres

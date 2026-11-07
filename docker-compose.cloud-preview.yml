@@ -1,0 +1,62 @@
+# DEMONSTRATION ONLY: isolated database, no production records or real users.
+# Cloudflare Access policy MUST protect the single public hostname before use.
+name: lobnan-cloud-preview
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lobnan_preview
+      POSTGRES_USER: lobnan
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set in .env.cloud-preview}
+    volumes:
+      - preview_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lobnan -d lobnan_preview"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+
+  api:
+    build: ./local-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://lobnan:${POSTGRES_PASSWORD}@db:5432/lobnan_preview
+      SYNC_DEVICE_TOKEN: ${SYNC_DEVICE_TOKEN:?Set in .env.cloud-preview}
+      SYNC_WORKSPACE: lobnan_main
+      SYNC_PORT: "4577"
+      SYNC_ALLOWED_ORIGINS: "http://localhost:8080"
+      CF_ACCESS_REQUIRED: "1"
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:?Use https://your-team.cloudflareaccess.com}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:?Set Cloudflare Access application AUD tag}
+    expose: ["4577"]
+    networks: [private]
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.cloud-preview
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      SYNC_DEVICE_TOKEN: ${SYNC_DEVICE_TOKEN:?Set in .env.cloud-preview}
+      NGINX_ENVSUBST_FILTER: "SYNC_DEVICE_TOKEN"
+    expose: ["8080"]
+    networks: [private]
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on: [web]
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set in .env.cloud-preview}
+    networks: [private]
+
+volumes:
+  preview_pg_data:
+networks:
+  private:
+    internal: false
