@@ -25,7 +25,7 @@ jobs:
       - name: Check source layout
         run: npm run verify:clean
       - name: Verify saved users login regression cases
-        run: node --experimental-strip-types --test tests/saved-users-login.test.mjs
+        run: node --experimental-strip-types --test tests/saved-users-login.test.mjs tests/postgres-only-entrypoints.test.mjs
       - name: Build application
         run: npm run build
         env:
