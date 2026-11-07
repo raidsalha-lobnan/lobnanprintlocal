@@ -1,3 +1,4 @@
+import {fingerprint} from './sync-domain.mjs';
 /**
  * Server-enforced permissions for the single-workspace transitional API.
  * Fail closed: UI-only permissions and user-selected company/branch are not trusted.
@@ -126,6 +127,17 @@ export function filterEvents(events,access){
 export async function authorizeCommand(pool,workspace,access,command){
   if(!command||!Array.isArray(command.changes)||command.changes.length===0||
      command.changes.length>80)throw denied('INVALID_COMMAND');
+  // A confirmed command may be retried after session expiry. Replays must
+  // match the same exact request and be owned by the same authenticated user.
+  const previousCommand=await pool.query(
+    'SELECT fingerprint,actor_id FROM sync_commands WHERE workspace=$1 AND command_id=$2',
+    [workspace,command.id]);
+  if(previousCommand.rows.length){
+    const previous=previousCommand.rows[0];
+    if(previous.actor_id!==access.profile.id)throw denied('COMMAND_OWNER_MISMATCH');
+    if(previous.fingerprint!==fingerprint(command))throw denied('IDEMPOTENCY_KEY_REUSED');
+    return;
+  }
   for(const change of command.changes){
     if(!change || typeof change.id!=='string'||!change.id ||
        typeof change.entity!=='string')throw denied();
