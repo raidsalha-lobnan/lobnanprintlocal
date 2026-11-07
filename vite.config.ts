@@ -645,7 +645,10 @@ export default defineConfig(() => {
   // Force all new builds to use the local PostgreSQL transport; no Firebase fallback.
   const localMode = true;
   return {
-    define: { 'import.meta.env.VITE_SYNC_BACKEND': JSON.stringify('local-postgres') },
+    define: {
+      'import.meta.env.VITE_SYNC_BACKEND': JSON.stringify('local-postgres'),
+      'import.meta.env.VITE_SYNC_LOGIN_MODE': JSON.stringify('users')
+    },
     server: {
       hmr: false,
     },
