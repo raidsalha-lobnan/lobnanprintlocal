@@ -3,7 +3,6 @@ import { ManualInvoiceView } from './components/ManualInvoiceView';
 import React, { useEffect } from 'react';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { TelegramBotIntegration } from './components/TelegramBotIntegration';
-import { GoogleDriveAutoBackupWorker } from './components/GoogleDriveAutoBackupWorker';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Navbar } from './components/Navbar';
 import { DesktopStatusBar } from './components/DesktopStatusBar';
@@ -512,9 +511,9 @@ const MainLayout: React.FC = () => {
 export default function App() {
   // Local PostgreSQL is the primary target in this edition. Each device must be paired once.
   if (!localStorage.getItem('lobnan_local_sync_server_url')) return <LocalServerSetup />;
-  const [localUserId, setLocalUserId] = React.useState<string | null>(() => {
-    return localStorage.getItem('alnoor_press_accounting_v1_current_user_id');
-  });
+  // A persisted browser user ID is not proof of authentication. Require
+  // re-verification against PostgreSQL after each fresh application load.
+  const [localUserId, setLocalUserId] = React.useState<string | null>(null);
 
   const isAuth = !!localUserId;
 
