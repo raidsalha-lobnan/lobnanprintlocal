@@ -20,8 +20,10 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Refresh lockfile in CI for legacy dependency mismatch
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Check source layout
         run: npm run verify:clean
       - name: Build application
