@@ -1,4 +1,5 @@
 import {InputError, fingerprint, makeNumber, makeCursor, validateCommand} from './sync-domain.mjs';
+import {preserveOfficialInvoiceFields} from './invoice-amendments.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -54,6 +55,9 @@ export class SyncService {
           } else {
             const official=old?.value?.invoiceNumber;
             if(official && val.invoiceNumber!==official) throw new InputError('OFFICIAL_NUMBER_IMMUTABLE');
+            // Enforce immutable posted fields in the commit transaction too:
+            // even trusted/internal writers cannot bypass the access-policy check.
+            val=preserveOfficialInvoiceFields(old?.value,val);
           }
         }
         if(actual===0) await client.query('INSERT INTO sync_records(workspace,entity,record_id,version,value) VALUES($1,$2,$3,$4,$5)',[workspace,change.entity,change.id,1,val]);
