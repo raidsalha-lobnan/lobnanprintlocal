@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {planConflictResolution} from '../src/sync-next/conflictResolution';
+import {planConflictResolution,planAtomicCommandAlreadyConfirmed} from '../src/sync-next/conflictResolution';
 import type {SyncCommand,StoredRecord} from '../src/sync-next/types';
 const rec=(version:number,value:Record<string,any>):StoredRecord=>({
   key:'parties\u001fp1',entity:'parties',id:'p1',version,value});
@@ -43,4 +43,21 @@ test('manual when there is another queued command or when authoritative record i
  const c=cmd({...original,phone:'222'},rec(1,original));
  assert.equal(planConflictResolution(c,rec(2,original),true).kind,'manual');
  assert.equal(planConflictResolution(c,null).kind,'manual');
+});
+
+test('multi-record transaction is only auto-confirmed when every single record matches server',()=>{
+ const batch:SyncCommand={...cmd({...original}),changes:[
+  {entity:'parties',id:'p1',expectedVersion:1,value:{...original,phone:'222'}},
+  {entity:'invoices',id:'i1',expectedVersion:1,value:{id:'i1',invoiceNumber:'INV-0001',totalAmount:5}}
+ ]};
+ const records=new Map<string,StoredRecord>([
+  ['parties\u001fp1',rec(2,{...original,phone:'222'})],
+  ['invoices\u001fi1',{key:'invoices\u001fi1',entity:'invoices',id:'i1',version:2,
+    value:{id:'i1',invoiceNumber:'INV-0001',totalAmount:5}}]
+ ]);
+ assert.equal(planAtomicCommandAlreadyConfirmed(batch,records)?.length,2);
+ assert.equal(planAtomicCommandAlreadyConfirmed(batch,records,true),null);
+ records.set('invoices\u001fi1',{...records.get('invoices\u001fi1')!,
+   value:{id:'i1',invoiceNumber:'INV-0001',totalAmount:6}});
+ assert.equal(planAtomicCommandAlreadyConfirmed(batch,records),null);
 });
