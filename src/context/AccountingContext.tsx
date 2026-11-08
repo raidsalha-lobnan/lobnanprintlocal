@@ -3,6 +3,8 @@ import firebaseConfig from '../../firebase-applet-config.example.json';
 import { onlineInvoicePostingService } from '../services/onlineInvoicePostingService';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createUnifiedDataLayer } from '../sync-next/boot';
+import { secureLoginEnabled } from '../services/secureAuth';
+import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
 import { ProposedChange, EntityName, JsonObject } from '../sync-next/types';
@@ -6916,7 +6918,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     // If editing, find the old invoice and reverse its effects
     const oldInvoice = extraOptions?.editingInvoiceId ? invoices.find(inv => inv.id === extraOptions.editingInvoiceId) : undefined;
-    if (oldInvoice && oldInvoice.isAccountingPosted) {
+    if (oldInvoice && oldInvoice.isAccountingPosted && !secureLoginEnabled()) {
       // 1. Reverse Stock
       setInventory(prevInv => prevInv.map(invItem => {
         const sold = oldInvoice.items.find(i => i.itemId === invItem.id);
@@ -7207,6 +7209,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       isAccountingPosted: isAccountingEligible,
       postedAt: isAccountingEligible ? new Date().toISOString() : undefined
     };
+
+    // Secure PostgreSQL mode: Editing an official invoice is not a new sale.
+    // Never reverse/repost inventory, journals, vouchers or customer balances
+    // through the create-sale routine. Compare monetary values BEFORE writes.
+    if (secureLoginEnabled() && oldInvoice?.isOfficial) {
+      const amended = prepareSecureInvoiceDescriptionEdit(
+        oldInvoice as unknown as Record<string,any>,
+        newInvoice as unknown as Record<string,any>
+      ) as Invoice;
+      setInvoices(prev=>prev.map(inv=>inv.id===amended.id?amended:inv));
+      pushToServerSync('invoices',amended);
+      return amended;
+    }
 
     // 1. Deduct stock for physical items ONLY if invoice is accounting eligible (بيع/جديد - جاهز للتسليم - تم التسليم)
     if (isAccountingEligible) {
