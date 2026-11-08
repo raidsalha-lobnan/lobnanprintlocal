@@ -438,14 +438,22 @@ export class SyncCoordinator {
   async waitUntilIdle(
     timeoutMs = 10000
   ): Promise<void> {
+    // A call immediately after start() used to report idle while drain()
+    // had merely been scheduled, and could miss changes from another device.
+    // Explicitly request a catch-up pass before observing quiescence.
+    if (this.started && this.state.isLeader) this.requestSync();
     const start = Date.now();
-
-    while (this.busy) {
+    while (this.busy || this.requested) {
       if (Date.now() - start > timeoutMs) {
         throw new Error('Sync timeout');
       }
-
       await sleep(25);
+    }
+    // Let queued acknowledgement and onApplied callbacks settle.
+    await sleep(0);
+    if (this.busy || this.requested) {
+      if (Date.now() - start > timeoutMs) throw new Error('Sync timeout');
+      return this.waitUntilIdle(timeoutMs - (Date.now() - start));
     }
   }
 }
