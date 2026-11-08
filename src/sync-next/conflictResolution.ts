@@ -1,6 +1,6 @@
 import type {JsonObject,StoredRecord,SyncCommand,VersionedChange} from './types';
 import {isRedundantRejectedInvoiceResubmit} from './invoiceEdits';
-const contactKeys=new Set(['name','phone','mobile','email','address','notes','website','contactPerson','contactName','taxNumber']);
+const contactKeys=new Set(['phone','mobile','email','address','notes','website','contactPerson','contactName']);
 function equal(a:unknown,b:unknown):boolean{
  if(a===b)return true;
  if(Array.isArray(a)||Array.isArray(b))
