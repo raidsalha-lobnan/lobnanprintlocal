@@ -57,10 +57,29 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
   };
 
   useEffect(() => {
-    if (isOpen) {
-      loadData();
-    }
+    if (!isOpen || !unifiedRepository) return;
+    void loadData();
+    // Reconcile the diagnostics display with the actual IndexedDB state.
+    // A conflict resolved by background sync must not stay on-screen indefinitely.
+    const unsubscribe=unifiedRepository.subscribe(()=>{void loadData();});
+    const refresh=setInterval(()=>{void loadData();},15000);
+    return ()=>{unsubscribe();clearInterval(refresh);};
   }, [isOpen, unifiedRepository]);
+
+  const handleVerifiedSync = async () => {
+    if(!unifiedRepository)return;
+    setIsLoading(true);
+    setFeedback(null);
+    try {
+      const result=await unifiedRepository.getCoordinator().syncNow();
+      setFeedback(result.pending===0 && result.conflict===0
+        ? 'اكتملت المزامنة وأكد الخادم حفظ العمليات؛ لا توجد عمليات معلقة أو متعارضة.'
+        : 'لا تزال توجد عمليات محلية تحتاج إلى مراجعة قبل تأكيد المزامنة.');
+    } catch(err:any) {
+      setFeedback('لم تكتمل المزامنة على الخادم: '+(err?.message||'خطأ غير معروف')+
+        '. احتفظ بالعمليات المعلقة ولا تقم بحذفها.');
+    } finally {await loadData();setIsLoading(false);}
+  };
 
   const inspectAgainstPostgres = async () => {
     if (!unifiedRepository) return;
@@ -430,18 +449,12 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                     كشف العمليات المعلقة في طابور الانتظار بانتظار الإرسال ({pendingCommands.filter(c => c.status === 'pending').length})
                   </h3>
                   <button
-                    onClick={() => {
-                      if (unifiedRepository) {
-                        unifiedRepository.requestSync();
-                        setFeedback('تم إرسال طلب مزامنة فورية لطابور الانتظار 🔄');
-                        loadData();
-                      }
-                    }}
+                    onClick={()=>{void handleVerifiedSync();}}
                     disabled={isLoading}
                     className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>مزامنة طابور الانتظار الآن</span>
+                    <span>مزامنة الطابور والتحقق من النتيجة</span>
                   </button>
                 </div>
 
