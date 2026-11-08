@@ -55,3 +55,23 @@ export function planConflictResolution(cmd:SyncCommand,server:StoredRecord|null,
    return {kind:'already-confirmed',authoritative:server,reason:'CONTACT_EDIT_ALREADY_APPLIED'};
  return {kind:'rebase',authoritative:server,expectedVersion:server.version,merged,reason:'DISJOINT_CONTACT_FIELDS'};
 }
+
+/** Multi-entity writes are atomic. Auto-confirm only if ALL requested states
+ * already exist on the authoritative server. Partial matching never clears an
+ * accounting transaction or any of its dependent records.
+ */
+export function planAtomicCommandAlreadyConfirmed(
+  cmd:SyncCommand,index:Map<string,StoredRecord>,dependent=false
+):StoredRecord[]|null{
+ if(dependent||!cmd.changes.length)return null;
+ const confirmed:StoredRecord[]=[];
+ for(const change of cmd.changes){
+  const row=index.get(change.entity+'\u001f'+change.id);
+  if(!row||row.value===null||change.value===null)return null;
+  if(!equal(row.value,change.value)&&
+     !(change.entity==='invoices'&&isRedundantRejectedInvoiceResubmit(row.value,change.value)))
+    return null;
+  confirmed.push(row);
+ }
+ return confirmed;
+}
