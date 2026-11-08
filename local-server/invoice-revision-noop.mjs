@@ -46,7 +46,9 @@ export function isUnchangedPosInvoice(original,proposed){
  */
 export function descriptionOnlyInvoiceAmendment(original,proposed){
  if(!original||!proposed||!Array.isArray(original.items)||
-  !Array.isArray(proposed.items)||original.items.length!==proposed.items.length)
+  !Array.isArray(proposed.items)||original.items.length!==proposed.items.length||
+  !original.items.every(x=>x&&typeof x==='object')||
+  !proposed.items.every(x=>x&&typeof x==='object'))
   return null;
  const safe={...original,items:original.items.map(x=>({...x}))};
  const candidate={...proposed,items:proposed.items.map(x=>({...x}))};
