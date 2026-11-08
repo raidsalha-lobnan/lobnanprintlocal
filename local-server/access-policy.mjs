@@ -113,8 +113,11 @@ export async function resolveAccess(pool,workspace,profile,initialAdminId=''){
 
   // Financial revisions use a separate server-only command, not ordinary sync.
   function canReviseInvoice(previous,proposed){
-    if(!previous||!proposed||!can('edit')||!can('view_accounting'))return false;
+    // Authorized invoice editors need not receive journal-ledger visibility:
+    // the service alone computes and posts balancing entries atomically.
+    if(!previous||!proposed||!can('edit'))return false;
     if(!canRead('invoices',previous,previous.id))return false;
+    if(!canRead('invoices',proposed,proposed.id))return false;
     return branchScope(previous,'invoices')&&branchScope(proposed,'invoices');
   }
   return {profile,admin,role,can,canRead,canChange,canReviseInvoice};
