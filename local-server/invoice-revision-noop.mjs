@@ -13,12 +13,23 @@ const invoiceFields=['date','type','customerId','counterpartyType','counterparty
 const lineFields=['itemId','itemName','quantity','unitPrice','total','discount','tax',
  'notes','description','unit','length','width','count','hasDimensions','barcode',
  'itemCode','category'];
+const zeroDefault=new Set(['discount','tax','discountTotal','taxAmount',
+ 'additionalCharges','cashPaidAmount','bankPaidAmount','paidAmount','basePaidAmount']);
+const oneDefault=new Set(['length','width','count']);
 const numberFields=new Set(['subtotal','discountTotal','taxRate','taxAmount',
  'totalAmount','baseTotalAmount','paidAmount','basePaidAmount','remainingAmount',
  'exchangeRate','additionalCharges','cashPaidAmount','bankPaidAmount',
  'quantity','unitPrice','total','discount','tax','length','width','count']);
 const equivalent=(a,b,key)=>{
+ if(key==='currency')return (a==='₪'?'ILS':a)===(b==='₪'?'ILS':b)||
+   ((a===undefined||a===null)&&(b==='ILS'||b==='₪'));
+ if(key==='counterpartyType')return (a||'customer')===(b||'customer');
  if(numberFields.has(key)){
+  if(zeroDefault.has(key)){
+   a=a??0;b=b??0;
+  }else if(oneDefault.has(key)){
+   a=a??1;b=b??1;
+  }
   if((a===undefined||a===null||a==='')&&(b===undefined||b===null||b===''))return true;
   return Number.isFinite(Number(a))&&Number.isFinite(Number(b))&&
    Math.abs(Number(a)-Number(b))<0.0000001;
@@ -30,7 +41,22 @@ const equivalent=(a,b,key)=>{
 export function isUnchangedPosInvoice(original,proposed){
  if(!original||!proposed||original.id!==proposed.id||
   original.invoiceNumber!==proposed.invoiceNumber)return false;
- if(!invoiceFields.every(k=>equivalent(original[k],proposed[k],k)))return false;
+ if(!invoiceFields.every(k=>{
+   if(k==='counterpartyId')return equivalent(original[k]||original.customerId,
+     proposed[k]||proposed.customerId,k);
+   if(k==='counterpartyType'&&original.employeeId)return
+     (original[k]||'employee')===(proposed[k]||'employee');
+   if(k==='baseTotalAmount')return equivalent(original[k]??(
+     Number(original.totalAmount)*Number(original.exchangeRate||1)),proposed[k]??(
+     Number(proposed.totalAmount)*Number(proposed.exchangeRate||1)),k);
+   if(k==='basePaidAmount')return equivalent(original[k]??(
+     Number(original.paidAmount||0)*Number(original.exchangeRate||1)),proposed[k]??(
+     Number(proposed.paidAmount||0)*Number(proposed.exchangeRate||1)),k);
+   if(k==='remainingAmount')return equivalent(original[k]??(
+     Number(original.totalAmount)-Number(original.paidAmount||0)),proposed[k]??(
+     Number(proposed.totalAmount)-Number(proposed.paidAmount||0)),k);
+   return equivalent(original[k],proposed[k],k);
+  }))return false;
  if(!Array.isArray(original.items)||!Array.isArray(proposed.items)||
   original.items.length!==proposed.items.length)return false;
  return original.items.every((item,i)=>{
