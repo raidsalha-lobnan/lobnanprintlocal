@@ -9,10 +9,12 @@ const invoiceFields=['date','type','customerId','counterpartyType','counterparty
  'totalAmount','baseTotalAmount','paidAmount','basePaidAmount','remainingAmount',
  'paymentMethod','status','notes','currency','currencySymbol','exchangeRate',
  'additionalCharges','warehouse','branchId','subCustomerId','cashPaidAmount',
- 'bankPaidAmount','cashTreasuryCode','bankTreasuryCode'];
+ 'bankPaidAmount','cashTreasuryCode','bankTreasuryCode',
+ 'representative','paymentNotes','customCustomerText','subCustomerName',
+ 'subCustomerPhone','branch','workflowStatus','paymentStatus','deliveryDate'];
 const lineFields=['itemId','itemName','quantity','unitPrice','total','discount','tax',
  'notes','description','unit','length','width','count','hasDimensions','barcode',
- 'itemCode','category'];
+ 'itemCode','category','attachments','imageThumbnail'];
 const zeroDefault=new Set(['discount','tax','taxRate','discountTotal','taxAmount',
  'additionalCharges','cashPaidAmount','bankPaidAmount','paidAmount','basePaidAmount']);
 const oneDefault=new Set(['length','width','count']);
@@ -37,6 +39,8 @@ const equivalent=(a,b,key)=>{
    Math.abs(Number(a)-Number(b))<0.0000001;
  }
  if(a===b)return true;
+ if(a&&b&&typeof a==='object'&&typeof b==='object')
+  return JSON.stringify(a)===JSON.stringify(b);
  // New POS form controls can supply empty strings for absent legacy fields.
  return (a===undefined||a===null||a==='')&&(b===undefined||b===null||b==='');
 };
@@ -81,7 +85,9 @@ export function descriptionOnlyInvoiceAmendment(original,proposed){
  const safe={...original,items:original.items.map(x=>({...x}))};
  const candidate={...proposed,items:proposed.items.map(x=>({...x}))};
  let changed=false;
- for(const field of ['notes','representative','paymentNotes','customerName']){
+ for(const field of ['notes','representative','paymentNotes','customerName',
+  'customCustomerText','subCustomerName','subCustomerPhone','branch',
+  'workflowStatus','deliveryDate']){
   if(!equivalent(original[field],proposed[field],field)){
    safe[field]=proposed[field]??'';
    changed=true;
@@ -89,7 +95,7 @@ export function descriptionOnlyInvoiceAmendment(original,proposed){
   candidate[field]=original[field];
  }
  for(let i=0;i<safe.items.length;i++){
-  for(const field of ['itemName','notes','description']){
+  for(const field of ['itemName','notes','description','attachments','imageThumbnail']){
    if(!equivalent(original.items[i][field],proposed.items[i][field],field)){
     safe.items[i][field]=proposed.items[i][field]??'';
     changed=true;
