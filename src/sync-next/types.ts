@@ -26,6 +26,8 @@ export interface SyncCommand {
   id: string;               // stable idempotency ID, preserved across retries
   workspaceId: string;
   changes: VersionedChange[];
+  /** Local authoritative baseline for safe three-way merge; absent in old queues. */
+  baseRecords?: (StoredRecord | null)[];
   createdAt: number;
   attempts: number;
   retryAt: number;
