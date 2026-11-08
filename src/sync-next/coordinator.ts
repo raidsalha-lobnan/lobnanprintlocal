@@ -1,4 +1,6 @@
 import { LocalSyncDb } from './localDb';
+import {planConflictResolution} from './conflictResolution';
+import type {StoredRecord} from './types';
 import {getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
 
 import {
@@ -21,6 +23,8 @@ export interface SyncTransport {
     changes: any[];
     cursor: ServerCursor;
   }>>;
+
+  fetchAuthoritativeBootstrap?():Promise<{records:StoredRecord[];cursor:ServerCursor}>;
 
   watchLatest(
     onChanged: () => void,
@@ -267,6 +271,10 @@ export class SyncCoordinator {
       ) {
         this.requested = false;
 
+        // First receive other devices' committed changes. Otherwise every
+        // ordinary offline edit tries to write against an obsolete version.
+        await this.pullAllPages();
+        await this.reconcileConflicts();
         await this.pushPending();
         await this.pullAllPages();
       }
@@ -302,6 +310,38 @@ export class SyncCoordinator {
         c => c.status !== 'pending'
       ).length
     });
+  }
+
+  /** Evidence-based recovery across ALL entities, not a one-off invoice patch.
+   * Identical authoritative state is confirmed without posting again;
+   * disjoint non-financial contact edits are rebased using their saved base;
+   * monetary, same-field and unknown-base differences stay visible for review.
+   */
+  private async reconcileConflicts():Promise<void>{
+    const queued=await this.local.pending();
+    const unresolved=queued.filter(c=>c.status==='conflict'||c.status==='rejected');
+    if(!unresolved.length||!this.remote.fetchAuthoritativeBootstrap)return;
+    const snapshot=await this.remote.fetchAuthoritativeBootstrap();
+    const index=new Map(snapshot.records.map(r=>[r.entity+'\\u001f'+r.id,r]));
+    for(const cmd of unresolved){
+      if(!this.started)return;
+      const change=cmd.changes.length===1?cmd.changes[0]:null;
+      if(!change)continue;
+      const key=change.entity+'\\u001f'+change.id;
+      const record=index.get(key);
+      const related=queued.some(other=>other.id!==cmd.id&&
+        other.changes.some(c=>c.entity+'\\u001f'+c.id===key));
+      const plan=planConflictResolution(cmd,record||null,related);
+      if(plan.kind==='already-confirmed'){
+        const resolved=await this.local.reconcileAlreadyConfirmed(cmd.id,
+          [plan.authoritative],plan.reason);
+        if(resolved)this.emitApplied([{entity:plan.authoritative.entity,
+          id:plan.authoritative.id,version:plan.authoritative.version,
+          value:plan.authoritative.value}]);
+      }else if(plan.kind==='rebase' && cmd.status==='conflict'){
+        await this.local.rebaseContactChange(cmd.id,plan.authoritative,plan.merged);
+      }
+    }
   }
 
   private async pushPending() {
@@ -344,6 +384,9 @@ export class SyncCoordinator {
           );
 
           this.report({ lastError: error.message });
+          // Re-read the authoritative snapshot in a fresh pass, then either
+          // auto-confirm/rebase safely or retain the conflict for review.
+          this.requested=true;
           keys.forEach(k => blocked.add(k));
           continue;
         }
