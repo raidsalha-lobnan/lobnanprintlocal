@@ -85,7 +85,14 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
   // The date and warehouse of an already-posted movement cannot be
   // silently rewritten: stock and settlement documents retain their dates.
   for(const field of ['date','warehouse','currency','exchangeRate']){
-   if(JSON.stringify(invoice[field]??null)!==JSON.stringify(proposed[field]??null))
+   let before=invoice[field]??null,after=proposed[field]??null;
+   if(field==='currency'){
+    before=before==='₪'?'ILS':before||'ILS';
+    after=after==='₪'?'ILS':after||'ILS';
+   }else if(field==='exchangeRate'){
+    before=Number(before||1);after=Number(after||1);
+   }
+   if(JSON.stringify(before)!==JSON.stringify(after))
     throw new InputError('INVOICE_REVISION_REQUIRES_DOCUMENT_TRANSFER',422,{field});
   }
   try{validateProposedInvoice(proposed);}
