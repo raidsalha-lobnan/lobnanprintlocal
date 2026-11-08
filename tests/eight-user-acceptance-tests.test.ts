@@ -391,8 +391,11 @@ test('الاختبار الرابع: إنشاء الفواتير 65 وما بع�
   const finalB = (await db1.listVisible('invoices')).find(r => r.id === invB_Id)?.value as any;
 
   assert.ok(finalA && finalB, 'كلا الفاتورتين يجب حفظهما بنجاح دون أي رفض');
-  assert.equal(finalA.invoiceNumber, 'INV-0065', 'الفاتورة الأولى يجب أن تأخذ بالتسلسل INV-0065');
-  assert.equal(finalB.invoiceNumber, 'INV-0066', 'الفاتورة الثانية يجب أن تأخذ بالتسلسل INV-0066');
+  // Concurrent requests may reach the authoritative server in either order.
+  // Uniqueness and contiguous numbering matter; device identity must not decide
+  // which user gets the earlier official number.
+  assert.deepEqual([finalA.invoiceNumber,finalB.invoiceNumber].sort(),
+    ['INV-0065','INV-0066'], 'الفاتورتان يجب أن تتسلما رقمين متتاليين دون تصادم');
   assert.notEqual(finalA.invoiceNumber, finalB.invoiceNumber, 'ممنوع حدوث أي تصادم أرقام');
 
   coord1.stop();
