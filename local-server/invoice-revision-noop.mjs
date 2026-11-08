@@ -38,3 +38,34 @@ export function isUnchangedPosInvoice(original,proposed){
   return item&&next&&lineFields.every(k=>equivalent(item[k],next[k],k));
  });
 }
+
+/**
+ * Permit a real description-only amendment even when an unrelated historical
+ * ledger needs reconciliation. Build the persisted value exclusively from
+ * original authoritative data and explicitly permitted text fields.
+ */
+export function descriptionOnlyInvoiceAmendment(original,proposed){
+ if(!original||!proposed||!Array.isArray(original.items)||
+  !Array.isArray(proposed.items)||original.items.length!==proposed.items.length)
+  return null;
+ const safe={...original,items:original.items.map(x=>({...x}))};
+ const candidate={...proposed,items:proposed.items.map(x=>({...x}))};
+ let changed=false;
+ for(const field of ['notes','representative','paymentNotes','customerName']){
+  if(!equivalent(original[field],proposed[field],field)){
+   safe[field]=proposed[field]??'';
+   changed=true;
+  }
+  candidate[field]=original[field];
+ }
+ for(let i=0;i<safe.items.length;i++){
+  for(const field of ['itemName','notes','description']){
+   if(!equivalent(original.items[i][field],proposed.items[i][field],field)){
+    safe.items[i][field]=proposed.items[i][field]??'';
+    changed=true;
+   }
+   candidate.items[i][field]=original.items[i][field];
+  }
+ }
+ return changed&&isUnchangedPosInvoice(original,candidate)?safe:null;
+}
