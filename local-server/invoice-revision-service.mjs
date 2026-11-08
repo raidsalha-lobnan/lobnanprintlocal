@@ -146,6 +146,17 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     .filter(([,amountMinor])=>amountMinor!==0)
     .map(([partyId,amountMinor])=>({partyId,amountMinor}));
   }
+  // Never attach a receivable to a sub-customer from another parent account.
+  if(proposed.subCustomerId){
+   if(nextType!=='customer')
+    throw new InputError('INVOICE_REVISION_SUBCUSTOMER_WRONG_TARGET',422);
+   const sub=(await client.query(
+    "SELECT value FROM sync_records WHERE workspace=$1 AND entity='parties' AND record_id=$2",
+    [workspace,proposed.subCustomerId])).rows[0]?.value;
+   if(!sub||!sub.isSubCustomer||
+      (sub.parentPartyId&&sub.parentPartyId!==proposed.customerId))
+    throw new InputError('INVOICE_REVISION_SUBCUSTOMER_PARENT_MISMATCH',409);
+  }
   const partyIds=[...new Set(plan.customerBalanceChanges.map(x=>x.partyId))];
   const itemIds=[...new Set([
    ...plan.stockDeltas.map(x=>x.itemId),
