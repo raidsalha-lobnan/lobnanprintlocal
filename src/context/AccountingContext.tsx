@@ -5681,18 +5681,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     pushToServerSync('journalEntries', newEntry);
 
-    // Telegram Notification - Do not send daily journal proofs for invoice/POS transactions
-    try {
-      const isInvoiceRelated =
-        entry.referenceType === 'pos_invoice' ||
-        entry.referenceType === 'cogs' ||
-        entry.referenceType === ('invoice' as any) ||
-        (entry.description && (entry.description.includes('فاتورة مبيعات') || entry.description.includes('تكلفة البضاعة المباعة')));
-      if (!isInvoiceRelated) {
-        const msg2 = `📝 <b>قيد يومية جديد</b>\nالبيان: ${entry.description}\nالقيمة: ${validLines.reduce((sum, l) => sum + l.debit, 0)} ${settings?.currency || ''}`;
-        TelegramService.sendMessage(msg2, settings);
-      }
-    } catch(e) {}
+    // Telegram proof is generated exclusively by the Node/PostgreSQL server
+    // AFTER a durable successful commit. Local/offline writes are not confirmed.
 
     // Update account balances according to double entry rule
     setAccounts(prev => {
@@ -7508,76 +7498,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Direct immediate cloud save for multi-user synchronization
     pushToServerSync('invoices', newInvoice);
 
-    // Telegram Notification - Send: Name, Item(s), Amount, Payment Box (صندوق الدفع)
-    try {
-      const itemsList = (newInvoice.items || [])
-        .map((it, idx) => {
-          const hasDims = Boolean(it.hasDimensions && Number(it.length) > 0 && Number(it.width) > 0);
-          const lengthStr = hasDims && Number(it.length) > 0 ? String(it.length) : '-';
-          const widthStr = hasDims && Number(it.width) > 0 ? String(it.width) : '-';
-          const countStr = hasDims ? String(it.count || 1) : '-';
-          const noteStr = (it.notes || it.description) ? ` (${it.notes || it.description})` : '';
-          const itemName = (it.itemName || (it as any).name || 'صنف') + noteStr;
-          const lineTotal = Number(it.total ?? (it.unitPrice * it.quantity)).toFixed(2);
-          return `▪️ <b>${idx + 1}. ${itemName}</b>\n   الطول: ${lengthStr} | العرض: ${widthStr} | العدد: ${countStr}\n   الكمية: ${it.quantity} | السعر: ${it.unitPrice} | الإجمالي: ${lineTotal} ${newInvoice.currencySymbol || settings.currency || '₪'}`;
-        })
-        .join('\n\n') || 'بدون أصناف';
-      const currencySymbol = newInvoice.currencySymbol || settings.currency || '₪';
-      const customerDisplayName = formatInvoiceCustomerDisplay(newInvoice, parties) || newInvoice.customerName || 'عميل نقدي';
-
-      // دقة تحديد صندوق / خزينة الدفع
-      const resolveTreasuryName = (codeOrId?: string, fallback: string = 'الصندوق النقدي'): string => {
-        if (!codeOrId) return fallback;
-        const matchedT = treasuries.find(t => t.id === codeOrId || t.accountCode === codeOrId);
-        if (matchedT && matchedT.name) return matchedT.name;
-        const matchedA = accounts.find(a => a.id === codeOrId || a.code === codeOrId);
-        if (matchedA && matchedA.name) return matchedA.name;
-        if (codeOrId === '1102') {
-          const bankT = treasuries.find(t => t.accountCode === '1105' || t.type === 'bank_account' || t.type === 'bank_app' || t.type === 'pos_terminal');
-          if (bankT && bankT.name) return bankT.name;
-        }
-        return fallback;
-      };
-
-      let paymentBoxInfo = '';
-      const isCredit = newInvoice.paymentMethod === 'credit' || (!newInvoice.paidAmount && (newInvoice.remainingAmount ?? newInvoice.totalAmount) === newInvoice.totalAmount);
-
-      if (isCredit) {
-        paymentBoxInfo = 'آجل (ذمم مدينة - غير مدفوع)';
-      } else {
-        const hasCash = (newInvoice.cashPaidAmount && newInvoice.cashPaidAmount > 0) || newInvoice.paymentMethod === 'cash';
-        const hasBank = (newInvoice.bankPaidAmount && newInvoice.bankPaidAmount > 0) || newInvoice.paymentMethod === 'card' || (newInvoice.paymentMethod as string) === 'bank_transfer';
-
-        if (hasCash && hasBank && (newInvoice.cashPaidAmount || 0) > 0 && (newInvoice.bankPaidAmount || 0) > 0) {
-          const cashName = resolveTreasuryName(newInvoice.cashTreasuryCode || '1101', 'الصندوق النقدي');
-          let bankCode = newInvoice.bankTreasuryCode || '1105';
-          if (bankCode === '1102' && !treasuries.some(t => t.accountCode === '1102' || t.id === '1102')) {
-            bankCode = '1105';
-          }
-          const bankName = resolveTreasuryName(bankCode, 'البنك / الشبكة');
-          paymentBoxInfo = `${cashName} (${newInvoice.cashPaidAmount} ${currencySymbol}) + ${bankName} (${newInvoice.bankPaidAmount} ${currencySymbol})`;
-        } else if (hasBank && (!newInvoice.cashPaidAmount || newInvoice.cashPaidAmount <= 0)) {
-          let bCode = newInvoice.bankTreasuryCode || newInvoice.treasuryAccountCode || '1105';
-          if (bCode === '1102' && !treasuries.some(t => t.accountCode === '1102' || t.id === '1102')) {
-            bCode = '1105';
-          }
-          const bankName = resolveTreasuryName(bCode, 'البنك / الشبكة');
-          paymentBoxInfo = bankName;
-        } else {
-          const cCode = newInvoice.cashTreasuryCode || newInvoice.treasuryAccountCode || '1101';
-          const cashName = resolveTreasuryName(cCode, 'الصندوق النقدي (الخزينة الرئيسية)');
-          paymentBoxInfo = cashName;
-        }
-
-        if (newInvoice.remainingAmount > 0 && newInvoice.paidAmount > 0) {
-          paymentBoxInfo += ` (مدفوع: ${newInvoice.paidAmount} ${currencySymbol} / متبقي: ${newInvoice.remainingAmount} ${currencySymbol})`;
-        }
-      }
-
-      const boxIcon = isCredit ? '⏳' : (newInvoice.paymentMethod === 'card' || (newInvoice.paymentMethod as string) === 'bank_transfer' ? '💳' : '💵');
-      const msg = `🧾 <b>فاتورة مبيعات (${newInvoice.invoiceNumber})</b>\n👤 <b>الاسم:</b> ${customerDisplayName}\n\n📦 <b>بنود الفاتورة:</b>\n${itemsList}\n\n💰 <b>إجمالي المبلغ:</b> ${newInvoice.totalAmount} ${currencySymbol}\n${boxIcon} <b>صندوق الدفع:</b> ${paymentBoxInfo}`;
-      TelegramService.sendMessage(msg, settings);
-    } catch(e) {}
+    // The PostgreSQL sync server confirms successful financial commits via Telegram.
+    // Browser-side or offline drafts NEVER send accounting confirmations.
 
     return newInvoice;
   };

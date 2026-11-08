@@ -69,3 +69,20 @@ CREATE TABLE IF NOT EXISTS sync_auth_sessions (
   FOREIGN KEY(workspace,user_id) REFERENCES sync_auth_users(workspace,user_id)
 );
 CREATE INDEX IF NOT EXISTS sync_auth_sessions_expiry_idx ON sync_auth_sessions(expires_at);
+
+-- Transactionally queued, post-commit Telegram confirmations.
+-- This is NOT a separate database; it is an outbox table in lobnan_main.
+CREATE TABLE IF NOT EXISTS sync_telegram_outbox (
+ workspace text NOT NULL REFERENCES sync_workspaces(id),
+ command_id text NOT NULL,
+ changes jsonb NOT NULL,
+ committed_at timestamptz NOT NULL DEFAULT now(),
+ attempts integer NOT NULL DEFAULT 0,
+ next_attempt_at timestamptz NOT NULL DEFAULT now(),
+ delivered_at timestamptz,
+ last_error text,
+ PRIMARY KEY(workspace,command_id)
+);
+CREATE INDEX IF NOT EXISTS sync_telegram_outbox_pending_idx
+ ON sync_telegram_outbox(workspace,next_attempt_at)
+ WHERE delivered_at IS NULL;

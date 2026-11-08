@@ -1,5 +1,6 @@
 import {InputError, fingerprint, makeNumber, makeCursor, validateCommand} from './sync-domain.mjs';
 import {preserveOfficialInvoiceFields} from './invoice-amendments.mjs';
+import {telegramRelevantChanges} from './telegram-delivery.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -69,6 +70,12 @@ export class SyncService {
       await client.query('UPDATE sync_workspaces SET next_sequence=$2,next_invoice=$3 WHERE id=$1',[workspace,nextSequence,nextInvoice]);
       await client.query('INSERT INTO sync_commands(workspace,command_id,fingerprint,receipt,actor_id) VALUES($1,$2,$3,$4,$5)',[workspace,command.id,hash,JSON.stringify(receipt),actorId]);
       await client.query('INSERT INTO sync_events(workspace,sequence,command_id,changes) VALUES($1,$2,$3,$4)',[workspace,nextSequence,command.id,JSON.stringify(applied)]);
+      // Durable notification is committed atomically with the accounting record.
+      // No Telegram send takes place until PostgreSQL has committed.
+      if (telegramRelevantChanges(applied).length) {
+        await client.query('INSERT INTO sync_telegram_outbox(workspace,command_id,changes) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
+          [workspace,command.id,JSON.stringify(applied)]);
+      }
       return receipt;
     });
   }

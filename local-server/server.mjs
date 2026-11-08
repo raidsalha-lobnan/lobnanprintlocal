@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import pg from 'pg';
 import {SyncService} from './sync-service.mjs';
+import {TelegramDelivery} from './telegram-delivery.mjs';
 import {InputError} from './sync-domain.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
@@ -38,6 +39,9 @@ const pool=new pg.Pool({connectionString:DATABASE_URL,max:12});
 const schema=fs.readFileSync(path.join(dir,'schema.sql'),'utf8');
 await pool.query(schema);
 const service=new SyncService(pool);
+const telegramDelivery=new TelegramDelivery(pool,WORKSPACE);
+const telegramTimer=setInterval(()=>{void telegramDelivery.drainOnce().catch(e=>console.error('telegram worker',e.message));},10000);
+telegramTimer.unref?.();
 const userAuth=new UserAuth(pool,WORKSPACE);
 function loginBlocked(key){
   const now=Date.now();
@@ -161,4 +165,4 @@ const BIND_HOST=process.env.SYNC_BIND_HOST||(STRICT_AUTH?'127.0.0.1':'0.0.0.0');
 if(STRICT_AUTH && BIND_HOST!=='127.0.0.1' && BIND_HOST!=='::1')
   throw new Error('Strict authentication API must bind to loopback; access it through zrok instead');
 srv.listen(PORT,BIND_HOST,()=>console.log(`Lobnan private sync API listening on ${BIND_HOST}:${PORT}`));
-process.on('SIGTERM',()=>{srv.close();pool.end().finally(()=>process.exit(0));});
+process.on('SIGTERM',()=>{clearInterval(telegramTimer);srv.close();pool.end().finally(()=>process.exit(0));});
