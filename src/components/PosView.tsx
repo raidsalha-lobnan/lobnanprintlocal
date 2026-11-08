@@ -2597,7 +2597,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
     });
 
     // الترحيل المتزامن المباشر للسيرفر مع حماية عدم فقدان البيانات
-    const postRes = await postPosSaleOnline(
+    let postRes: Awaited<ReturnType<typeof postPosSaleOnline>>;
+    try {
+      postRes = await postPosSaleOnline(
       itemsForContext,
       customerName || customCustomerText || 'عميل كاشير نقدي',
       effectiveMethod,
@@ -2639,6 +2641,12 @@ const getInitialPosDraft = (): PosFullDraftData => {
         workflowStatus: invoiceWorkflowStatus
       }
     );
+    } catch (error) {
+      setIsPostingCloudInvoice(false);
+      posSound.error();
+      alert(`تعذر حفظ الفاتورة: ${String(error)}\nمدخلاتك ما زالت موجودة على الشاشة، ولم نؤكد حفظها مركزيًا.`);
+      return;
+    }
 
     setIsPostingCloudInvoice(false);
 
@@ -2647,7 +2655,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
         setIsOfflineFrozen(true);
         setOfflinePendingPrintMode(printMode);
       } else {
-        alert(`تعذر الترحيل السحابي للفاتورة: ${postRes.error || 'خطأ غير معروف'}\nكافة مدخلات الفاتورة محفوظة على الشاشة لمنع فقدان البيانات.`);
+        posSound.error();
+        alert(`لم يُعتمد تعديل الفاتورة:\n${postRes.error || 'خطأ غير معروف'}\nمدخلات الفاتورة ما زالت على الشاشة. لا تعتبر العملية محفوظة في PostgreSQL.`);
       }
       return;
     }
