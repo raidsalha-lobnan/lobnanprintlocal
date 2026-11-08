@@ -1,5 +1,5 @@
 import {
-  AppliedChange, EntityName, LocalView,
+  AppliedChange, EntityName, JsonObject, LocalView,
   ProposedChange, VersionedChange, recordKey, ServerCursor,
   ServerEvent, StoredRecord, SyncCommand,
   toJsonObject, validateChanges
