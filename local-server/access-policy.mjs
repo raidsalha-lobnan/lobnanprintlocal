@@ -1,4 +1,5 @@
 import {fingerprint} from './sync-domain.mjs';
+import {officialInvoiceAmendment} from './invoice-amendments.mjs';
 /**
  * Server-enforced permissions for the single-workspace transitional API.
  * Fail closed: UI-only permissions and user-selected company/branch are not trusted.
@@ -95,8 +96,10 @@ export async function resolveAccess(pool,workspace,profile,initialAdminId=''){
     if(!Object.prototype.hasOwnProperty.call(PERMISSIONS,entity))return false;
     if(entity==='users'||entity==='roles')return false;
     if(value===null && FINANCIAL_ENTITIES.has(entity))return false;
-    // Finalized invoices and journal postings cannot be edited in place.
-    if(previous?.isOfficial === true && entity==='invoices')return false;
+    // Official invoices allow descriptive amendments only; money and posted
+    // financial dimensions remain protected by the domain service.
+    if(previous?.isOfficial === true && entity==='invoices' &&
+       !officialInvoiceAmendment(previous,value).allowed)return false;
     if(!canRead(entity,value||previous,null))return false;
     if(!branchScope(value,entity)||!branchScope(previous,entity))return false;
     // Financial and configuration writes require explicit role permissions.
