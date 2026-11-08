@@ -44,8 +44,8 @@ export function isUnchangedPosInvoice(original,proposed){
  if(!invoiceFields.every(k=>{
    if(k==='counterpartyId')return equivalent(original[k]||original.customerId,
      proposed[k]||proposed.customerId,k);
-   if(k==='counterpartyType'&&original.employeeId)return
-     (original[k]||'employee')===(proposed[k]||'employee');
+   if(k==='counterpartyType'&&original.employeeId)
+     return (original[k]||'employee')===(proposed[k]||'employee');
    if(k==='baseTotalAmount')return equivalent(original[k]??(
      Number(original.totalAmount)*Number(original.exchangeRate||1)),proposed[k]??(
      Number(proposed.totalAmount)*Number(proposed.exchangeRate||1)),k);
