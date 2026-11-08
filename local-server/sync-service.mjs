@@ -61,6 +61,26 @@ export class SyncService {
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
         if(actual!==change.expectedVersion) throw new InputError('VERSION_CONFLICT',409,{entity:change.entity,id:change.id,expectedVersion:change.expectedVersion,actualVersion:actual});
         let val=change.value;
+        // Never accept journal/stock correction markers from an ordinary client.
+        // Only the authenticated, server-built invoice revision can create them.
+        if((change.entity==='journalEntries'||change.entity==='stockMovements') &&
+          val?.referenceType==='invoice_correction' &&
+          authorizedRevisionInvoiceId!==val.referenceId &&
+          authorizedRevisionInvoiceId!==val.sourceInvoiceId)
+          throw new InputError('INVOICE_CORRECTION_REQUIRES_SERVER_REVISION',403);
+        // Old POS clients can retry the same business action using new IDs.
+        // A second revenue or COGS journal must never silently double-post it.
+        if(actual===0 && change.entity==='journalEntries' &&
+           ['pos_invoice','cogs'].includes(val?.referenceType)){
+          if(!val.referenceId)throw new InputError('INVOICE_JOURNAL_REFERENCE_REQUIRED',422);
+          const existing=await client.query(
+            "SELECT record_id FROM sync_records WHERE workspace=$1 AND entity='journalEntries' AND value->>'referenceId'=$2 AND value->>'referenceType'=$3 LIMIT 1",
+            [workspace,val.referenceId,val.referenceType]);
+          if(existing.rows.length)
+            throw new InputError('DUPLICATE_INVOICE_JOURNAL_REJECTED',409,{
+              invoiceId:val.referenceId,referenceType:val.referenceType,
+              existingEntryId:existing.rows[0].record_id});
+        }
         if(change.entity==='invoices' && val) {
           if(actual===0) {
             nextInvoice++;

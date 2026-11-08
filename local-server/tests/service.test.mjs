@@ -33,6 +33,9 @@ class FakePostgres {
       const v=s.commands.get(key(p[0],p[1]));if(v)rows.push(v);
     } else if(sql.startsWith('SELECT version,value FROM sync_records')) {
       const v=s.records.get(key(p[0],p[1],p[2]));if(v)rows.push({...v});
+    } else if(sql.startsWith('SELECT record_id FROM sync_records')) {
+      const found=Array.from(s.records.values()).find(v=>v.workspace===p[0]&&v.entity==='journalEntries'&&v.value?.referenceId===p[1]&&v.value?.referenceType===p[2]);
+      if(found)rows.push({record_id:found.record_id});
     } else if(sql.startsWith('INSERT INTO sync_records')) {
       const k=key(p[0],p[1],p[2]);if(s.records.has(k))throw new Error('UNIQUE_RECORD');s.records.set(k,{workspace:p[0],entity:p[1],record_id:p[2],version:p[3],value:p[4]});
     } else if(sql.startsWith('UPDATE sync_records SET')) {
@@ -95,4 +98,31 @@ test('bootstrap cursor and change feed preserve versions with pagination',async(
  let after=0,total=0;
  while(true){const page=await svc.pull('lobnan_main',after,100); if(!page.length)break;after=page.at(-1).cursor.sequence;total+=page.length;}
  assert.equal(total,205);assert.equal(after,205);
+});
+
+test('replayed invoice posting with different journal ids is rejected, not doubled',async()=>{
+ const pool=new FakePostgres(),svc=new SyncService(pool);
+ const id='inv-protect';
+ const revenue=(id)=>record('journalEntries',id,{id,referenceType:'pos_invoice',referenceId:'inv-protect',
+  lines:[{accountCode:'1201',debit:8,credit:0},{accountCode:'4101',debit:0,credit:8}]});
+ await svc.push('lobnan_main',make('sale-first',[
+  record('invoices',id,{id,invoiceNumber:'TEMP-'+id,totalAmount:8}),
+  revenue('journal-1')
+ ]));
+ await assert.rejects(svc.push('lobnan_main',make('sale-replay-different-id',[
+  revenue('journal-2')
+ ])),e=>e instanceof InputError&&e.message==='DUPLICATE_INVOICE_JOURNAL_REJECTED');
+ assert.equal((await svc.bootstrap('lobnan_main')).records.filter(x=>x.entity==='journalEntries').length,1);
+ assert.equal(await svc.head('lobnan_main'),1);
+});
+test('ordinary browser cannot forge internal accounting correction entries',async()=>{
+ const pool=new FakePostgres(),svc=new SyncService(pool);
+ const illegal=make('fake-adjustment',[record('journalEntries','journal-internal',{
+  id:'journal-internal',referenceType:'invoice_correction',referenceId:'inv-1',
+  internalCorrection:true,approvedRevision:true,lines:[
+    {accountCode:'1201',debit:8,credit:0},{accountCode:'4101',debit:0,credit:8}]
+  })]);
+ await assert.rejects(svc.push('lobnan_main',illegal),
+   e=>e instanceof InputError&&e.message==='INVOICE_CORRECTION_REQUIRES_SERVER_REVISION');
+ assert.equal(await svc.head('lobnan_main'),0);
 });

@@ -30,10 +30,10 @@ test('simultaneous edits to the same contact field remain manual',()=>{
  const c=cmd({...original,phone:'222'},rec(1,original));
  assert.deepEqual(planConflictResolution(c,rec(3,{...original,phone:'333'})).kind,'manual');
 });
-test('never auto-merge financial balance, legal name, deletes or absent baseline',()=>{
+test('never auto-merge financial balance, conflicting names, deletes or absent baseline',()=>{
  const remote=rec(3,{...original,balance:750});
  assert.equal(planConflictResolution(cmd({...original,balance:620},rec(1,original)),remote).kind,'manual');
- assert.equal(planConflictResolution(cmd({...original,name:'Different'},rec(1,original)),remote).kind,'manual');
+ assert.equal(planConflictResolution(cmd({...original,name:'Different'},rec(1,original)),rec(3,{...original,name:'Another',balance:750})).kind,'manual');
  assert.equal(planConflictResolution(cmd({...original,phone:'222'}),remote).kind,'manual');
  const noValue=cmd({...original,phone:'222'},rec(1,original));
  noValue.changes[0].value=null;
@@ -60,4 +60,32 @@ test('multi-record transaction is only auto-confirmed when every single record m
  records.set('invoices\u001fi1',{...records.get('invoices\u001fi1')!,
    value:{id:'i1',invoiceNumber:'INV-0001',totalAmount:6}});
  assert.equal(planAtomicCommandAlreadyConfirmed(batch,records),null);
+});
+
+test('client name edit can rebase safely over a newer server balance without overwriting money',()=>{
+ const local=cmd({...original,name:'Updated customer name'},rec(1,original));
+ const result=planConflictResolution(local,rec(3,{...original,balance:750,phone:'999'}));
+ assert.equal(result.kind,'rebase');
+ if(result.kind==='rebase'){
+  assert.equal(result.merged.name,'Updated customer name');
+  assert.equal(result.merged.balance,750);
+  assert.equal(result.merged.phone,'999');
+  assert.equal(result.expectedVersion,3);
+ }
+});
+test('inventory display name merges over latest stock but never merges an old stock quantity',()=>{
+ const base:StoredRecord={key:'inventory\\u001fsku1',entity:'inventory',id:'sku1',version:1,
+  value:{id:'sku1',name:'Old label',stockQuantity:12,purchasePrice:2}};
+ const command:SyncCommand={...cmd({...original}),changes:[{entity:'inventory',id:'sku1',expectedVersion:1,
+  value:{...base.value,name:'New label'}}],baseRecords:[base]};
+ const server:StoredRecord={...base,version:4,value:{...base.value,stockQuantity:14,purchasePrice:3}};
+ const plan=planConflictResolution(command,server);
+ assert.equal(plan.kind,'rebase');
+ if(plan.kind==='rebase'){
+  assert.equal(plan.merged.stockQuantity,14);
+  assert.equal(plan.merged.purchasePrice,3);
+  assert.equal(plan.merged.name,'New label');
+ }
+ const dangerous={...command,changes:[{...command.changes[0],value:{...base.value,stockQuantity:10}}]};
+ assert.equal(planConflictResolution(dangerous,server).kind,'manual');
 });

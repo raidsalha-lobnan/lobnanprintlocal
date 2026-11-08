@@ -21,6 +21,7 @@ class PgFake{
   else if(sql.startsWith('SELECT next_sequence FROM sync_workspaces')){const w=s.workspaces.get(p[0]);if(w)rows.push(w);}
   else if(sql.startsWith('SELECT fingerprint,receipt')){const v=s.commands.get(key(p[0],p[1]));if(v)rows.push(v);}
   else if(sql.startsWith('SELECT version,value FROM sync_records')){const v=s.records.get(key(p[0],p[1],p[2]));if(v)rows.push(v);}
+  else if(sql.startsWith('SELECT record_id FROM sync_records')){const found=Array.from(s.records.values()).find(v=>v.workspace===p[0]&&v.entity==='journalEntries'&&v.value?.referenceId===p[1]&&v.value?.referenceType===p[2]);if(found)rows.push({record_id:found.record_id});}
   else if(sql.startsWith('INSERT INTO sync_records')){s.records.set(key(p[0],p[1],p[2]),{workspace:p[0],entity:p[1],record_id:p[2],version:p[3],value:p[4]});}
   else if(sql.startsWith('UPDATE sync_records SET')){const v=s.records.get(key(p[0],p[1],p[2]));v.version=p[3];v.value=p[4];}
   else if(sql.startsWith('INSERT INTO invoice_claims')){s.claims.set(key(p[0],p[1]),p[2]);}

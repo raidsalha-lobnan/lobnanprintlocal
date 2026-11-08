@@ -1,6 +1,9 @@
 import type {JsonObject,StoredRecord,SyncCommand,VersionedChange} from './types';
 import {isRedundantRejectedInvoiceResubmit} from './invoiceEdits';
-const contactKeys=new Set(['phone','mobile','email','address','notes','website','contactPerson','contactName']);
+const editableNonfinancialFields:Record<string,Set<string>>={
+ parties:new Set(['name','phone','mobile','email','address','notes','website','contactPerson','contactName']),
+ inventory:new Set(['name','itemName','description','notes','imageThumbnail'])
+};
 function equal(a:unknown,b:unknown):boolean{
  if(a===b)return true;
  if(Array.isArray(a)||Array.isArray(b))
@@ -29,7 +32,7 @@ export function planConflictResolution(cmd:SyncCommand,server:StoredRecord|null,
  if(change.entity==='invoices' && change.value &&
    isRedundantRejectedInvoiceResubmit(server.value,change.value))
    return {kind:'already-confirmed',authoritative:server,reason:'SERVER_ASSIGNED_INVOICE_FIELDS_ONLY'};
- if(change.entity!=='parties'||!change.value||!cmd.baseRecords||
+ if(!editableNonfinancialFields[change.entity]||!change.value||!cmd.baseRecords||
     cmd.baseRecords.length!==1||!cmd.baseRecords[0]||
     cmd.baseRecords[0].entity!==change.entity||
     cmd.baseRecords[0].id!==change.id||
@@ -40,7 +43,7 @@ export function planConflictResolution(cmd:SyncCommand,server:StoredRecord|null,
  const modified=[...new Set([...Object.keys(base),...Object.keys(proposed)])]
    .filter(k=>!equal(base[k],proposed[k]));
  if(modified.length===0)return {kind:'manual',reason:'NOT_AN_EDIT'};
- if(!modified.every(k=>contactKeys.has(k)))
+ if(!modified.every(k=>editableNonfinancialFields[change.entity].has(k)))
    return {kind:'manual',reason:'FINANCIAL_OR_IDENTITY_FIELD_CHANGED'};
  if(modified.some(k=>!equal(base[k],current[k])&&!equal(proposed[k],current[k])))
    return {kind:'manual',reason:'SAME_FIELD_CHANGED_ON_TWO_DEVICES'};
@@ -53,7 +56,7 @@ export function planConflictResolution(cmd:SyncCommand,server:StoredRecord|null,
  }
  if(equal(merged,current))
    return {kind:'already-confirmed',authoritative:server,reason:'CONTACT_EDIT_ALREADY_APPLIED'};
- return {kind:'rebase',authoritative:server,expectedVersion:server.version,merged,reason:'DISJOINT_CONTACT_FIELDS'};
+ return {kind:'rebase',authoritative:server,expectedVersion:server.version,merged,reason:'DISJOINT_NONFINANCIAL_FIELDS'};
 }
 
 /** Multi-entity writes are atomic. Auto-confirm only if ALL requested states
