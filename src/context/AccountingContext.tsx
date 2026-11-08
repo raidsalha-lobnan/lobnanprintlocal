@@ -7213,7 +7213,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Secure PostgreSQL mode: Editing an official invoice is not a new sale.
     // Never reverse/repost inventory, journals, vouchers or customer balances
     // through the create-sale routine. Compare monetary values BEFORE writes.
-    if (secureLoginEnabled() && oldInvoice?.isOfficial) {
+    if (secureLoginEnabled() && oldInvoice) {
       const amended = prepareSecureInvoiceDescriptionEdit(
         oldInvoice as unknown as Record<string,any>,
         newInvoice as unknown as Record<string,any>
