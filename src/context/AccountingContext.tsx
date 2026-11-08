@@ -7551,6 +7551,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const cashPaidAmount=Number(extraOptions?.cashPaidAmount||0);
     const bankPaidAmount=Number(extraOptions?.bankPaidAmount||0);
     const remainingAmount=round(totalAmount-paidAmount);
+    const cashBaseAmount=round(cashPaidAmount*Number(extraOptions?.cashExchangeRate||1));
+    const bankBaseAmount=round(bankPaidAmount*Number(extraOptions?.bankExchangeRate||1));
     return {
       id:extraOptions?.editingInvoiceId||`inv-pos-${Date.now()}`,
       invoiceNumber:extraOptions?.invoiceNumber||'',
@@ -7574,10 +7576,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       currency:extraOptions?.currency||'ILS',
       currencySymbol:extraOptions?.currencySymbol||'₪',exchangeRate,
       baseTotalAmount:round(totalAmount*exchangeRate),
-      basePaidAmount:round(paidAmount*exchangeRate),
-      cashPaidAmount,bankPaidAmount,
-      cashBaseAmount:round(cashPaidAmount*Number(extraOptions?.cashExchangeRate||1)),
-      bankBaseAmount:round(bankPaidAmount*Number(extraOptions?.bankExchangeRate||1)),
+      basePaidAmount:cashBaseAmount+bankBaseAmount>0
+        ?round(cashBaseAmount+bankBaseAmount):round(paidAmount*exchangeRate),
+      cashPaidAmount,bankPaidAmount,cashBaseAmount,bankBaseAmount,
       cashTreasuryCode:extraOptions?.cashTreasuryCode,
       bankTreasuryCode:extraOptions?.bankTreasuryCode,
       treasuryAccountCode:extraOptions?.treasuryAccountCode,
