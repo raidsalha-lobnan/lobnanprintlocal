@@ -1,10 +1,14 @@
 import {VersionConflict, PermanentSyncError, type ServerCursor, type ServerEvent, type SyncCommand, type CommitReceipt, type StoredRecord} from './types';
 import type {SyncTransport} from './coordinator';
+import {secureLoginEnabled,publicSyncApiUrl,getCurrentSessionToken,authHeaders} from '../services/secureAuth';
 
 export const URL_KEY='lobnan_local_sync_server_url';
 export const TOKEN_KEY='lobnan_local_sync_device_token';
 export const WORKSPACE_KEY='lobnan_local_sync_workspace';
 export function getLocalSyncConfig() {
+  if (secureLoginEnabled()) {
+    return { url:publicSyncApiUrl(), token:'', workspace:'lobnan_main' };
+  }
   if (import.meta.env?.VITE_SYNC_GATEWAY_MODE === 'true') {
     if (typeof window === 'undefined' || window.location.protocol !== 'https:') {
       throw new Error('CLOUD_GATEWAY_REQUIRES_HTTPS');
@@ -22,7 +26,7 @@ export class LocalHttpSyncTransport implements SyncTransport {
   constructor(private url:string, private token:string, private workspaceId:string){}
   private async request<T>(path:string, options:RequestInit={}):Promise<T> {
     const response=await fetch(`${this.url}/api/v1/${path}`,{
-      ...options, headers:{...(this.token ? {'Authorization':`Bearer ${this.token}`} : {}),'Content-Type':'application/json',...options.headers},cache:'no-store'
+      ...options, headers:{...authHeaders(this.url,secureLoginEnabled()?getCurrentSessionToken():this.token),'Content-Type':'application/json',...options.headers},cache:'no-store'
     });
     let data:any;
     try {data=await response.json();} catch {throw new Error('INVALID_SERVER_REPLY');}
@@ -31,7 +35,11 @@ export class LocalHttpSyncTransport implements SyncTransport {
         const d=data.detail;
         throw new VersionConflict(d.entity,d.id,d.expectedVersion,d.actualVersion);
       }
-      if(response.status===401||response.status===403||response.status===422||response.status===409){
+      if(response.status===401){
+        // Token expiry requires re-login, NOT permanent rejection of offline work.
+        throw new Error('SESSION_LOGIN_REQUIRED');
+      }
+      if(response.status===403||response.status===422||response.status===409){
         throw new PermanentSyncError(`${data.code || 'REJECTED'}: ${response.status}`);
       }
       throw new Error(`LOCAL_SYNC_HTTP_${response.status}`);

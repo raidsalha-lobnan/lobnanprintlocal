@@ -19,9 +19,12 @@ CREATE TABLE IF NOT EXISTS sync_commands (
   command_id text NOT NULL,
   fingerprint text NOT NULL,
   receipt jsonb NOT NULL,
+  actor_id text,
   committed_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY(workspace,command_id)
 );
+-- Compatible with already-created tables from earlier local PostgreSQL builds.
+ALTER TABLE sync_commands ADD COLUMN IF NOT EXISTS actor_id text;
 CREATE TABLE IF NOT EXISTS sync_events (
   workspace text NOT NULL REFERENCES sync_workspaces(id),
   sequence bigint NOT NULL CHECK(sequence>0),
@@ -38,3 +41,31 @@ CREATE TABLE IF NOT EXISTS invoice_claims (
   PRIMARY KEY(workspace,invoice_number),
   UNIQUE(workspace,invoice_id)
 );
+
+-- New individually authenticated accounts, independent of legacy Firebase records.
+-- No plaintext passwords or browser-shared device credentials belong here.
+CREATE TABLE IF NOT EXISTS sync_auth_users (
+  workspace text NOT NULL,
+  user_id text NOT NULL,
+  username_normalized text NOT NULL,
+  email_normalized text,
+  display_name text NOT NULL DEFAULT '',
+  role_id text NOT NULL DEFAULT '',
+  status text NOT NULL CHECK (status IN ('active','inactive')),
+  password_hash text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(workspace,user_id),
+  UNIQUE(workspace,username_normalized)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sync_auth_users_email_unique
+  ON sync_auth_users(workspace,email_normalized) WHERE email_normalized IS NOT NULL;
+CREATE TABLE IF NOT EXISTS sync_auth_sessions (
+  workspace text NOT NULL,
+  session_hash text NOT NULL,
+  user_id text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(workspace,session_hash),
+  FOREIGN KEY(workspace,user_id) REFERENCES sync_auth_users(workspace,user_id)
+);
+CREATE INDEX IF NOT EXISTS sync_auth_sessions_expiry_idx ON sync_auth_sessions(expires_at);

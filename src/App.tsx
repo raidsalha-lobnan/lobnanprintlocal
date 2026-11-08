@@ -1,4 +1,5 @@
 import {LocalServerSetup} from './components/LocalServerSetup';
+import {secureLoginEnabled} from './services/secureAuth';
 import { ManualInvoiceView } from './components/ManualInvoiceView';
 import React, { useEffect } from 'react';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -512,7 +513,7 @@ export default function App() {
   // Local PostgreSQL is the primary target in this edition. Each device must be paired once.
   // Local Cloudflare preview: the private API gateway is at this HTTPS origin.
   // No shared device token or manual server URL is shown to the browser.
-  if (import.meta.env.VITE_SYNC_GATEWAY_MODE !== 'true' &&
+  if (!secureLoginEnabled() && import.meta.env.VITE_SYNC_GATEWAY_MODE !== 'true' &&
       !localStorage.getItem('lobnan_local_sync_server_url')) return <LocalServerSetup />;
   // A persisted browser user ID is not proof of authentication. Require
   // re-verification against PostgreSQL after each fresh application load.

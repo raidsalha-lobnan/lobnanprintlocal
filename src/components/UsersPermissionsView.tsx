@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import {secureLoginEnabled} from '../services/secureAuth';
+import {sendAdminDirectoryAction} from '../services/adminDirectoryApi';
 import { useAccounting } from '../context/AccountingContext';
 import { shareDriveFolderWithEmail, getSavedDriveToken } from '../services/googleDriveService';
 import { SystemUser, Role, PermissionKey, PERMISSION_DEFINITIONS, PermissionDefinition, AllowedPriceTierScope } from '../types';
@@ -206,6 +208,40 @@ export const UsersPermissionsView: React.FC = () => {
       return;
     }
 
+    if (secureLoginEnabled()) {
+      // Authoritative PostgreSQL user changes are committed by the server.
+      // Do not fall back to localStorage/Firebase or pretend a pending change succeeded.
+      const allowed = userForm.allBranchesAllowed ? ['*'] : userForm.allowedBranchIds;
+      const nextPassword = String((userForm as any).password || '').trim();
+      if (!editingUser && !nextPassword) {
+        alert('يرجى تعيين كلمة مرور قوية للمستخدم الجديد (10 أحرف على الأقل).');
+        return;
+      }
+      try {
+        const role=roles.find(r=>r.id===userForm.roleId);
+        await sendAdminDirectoryAction('user.upsert',{
+          ...(editingUser ? {id:editingUser.id} : {}),
+          profile:{
+            username:userForm.username.trim(),fullName:userForm.fullName.trim(),
+            companyId:editingUser?.companyId||'comp-1',
+            email:userForm.email.trim(),phone:userForm.phone.trim(),
+            roleId:userForm.roleId,roleName:role?.name||'مستخدم',
+            defaultBranchId:userForm.defaultBranchId,
+            allowedBranchIds:allowed.length?allowed:[userForm.defaultBranchId],
+            status:userForm.status,
+            customPermissions:{...(editingUser?.customPermissions||{}),edit_prices:userForm.canEditPrices}
+          },
+          ...(nextPassword ? {password:nextPassword} : {})
+        });
+        setSaveSuccessNotice('حُفظ حساب الموظف في PostgreSQL بنجاح. ستظهر التحديثات في الأجهزة بعد المزامنة.');
+        setIsUserModalOpen(false);
+        setTimeout(()=>setSaveSuccessNotice(null),8000);
+      } catch(error) {
+        alert('لم يُحفظ حساب الموظف: '+String((error as Error).message||error));
+      }
+      return;
+    }
+
     let driveNotice = '';
     if (userForm.shareDriveAttachments && userForm.email) {
       setIsSharingDrive(true);
@@ -308,10 +344,23 @@ export const UsersPermissionsView: React.FC = () => {
   };
 
   // Save Role
-  const handleSaveRole = (e: React.FormEvent) => {
+  const handleSaveRole = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roleForm.name.trim() || !roleForm.code.trim()) {
       alert('يرجى إدخال اسم الدور الوظيفي وكوده');
+      return;
+    }
+
+    if (secureLoginEnabled()) {
+      try {
+        await sendAdminDirectoryAction('role.upsert',{
+          ...(editingRole ? {id:editingRole.id} : {}),
+          profile:{...roleForm,code:roleForm.code.toUpperCase()}
+        });
+        setIsRoleModalOpen(false);
+        setSaveSuccessNotice('تم حفظ الدور والصلاحيات في PostgreSQL، وستصل التحديثات عبر المزامنة.');
+        setTimeout(()=>setSaveSuccessNotice(null),8000);
+      }catch(error){alert('تعذر حفظ الدور: '+String((error as Error).message||error));}
       return;
     }
 
@@ -655,8 +704,14 @@ export const UsersPermissionsView: React.FC = () => {
                         <button
                           onClick={() => {
                             if (window.confirm(`هل أنت متأكد من حذف المستخدم ${user.fullName}؟`)) {
-                              const res = deleteUser(user.id);
-                              if (!res.success) alert(res.message);
+                              if (secureLoginEnabled()) {
+                                void sendAdminDirectoryAction('user.disable',{id:user.id})
+                                  .then(()=>setSaveSuccessNotice('تم تعطيل حساب الموظف على الخادم؛ لم تُحذف سجلاته المالية.'))
+                                  .catch(error=>alert('تعذر تعطيل المستخدم: '+String(error.message||error)));
+                              } else {
+                                const res=deleteUser(user.id);
+                                if(!res.success)alert(res.message);
+                              }
                             }
                           }}
                           className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition cursor-pointer"
@@ -743,7 +798,11 @@ export const UsersPermissionsView: React.FC = () => {
                               <button
                                 onClick={() => {
                                   if (window.confirm(`هل أنت متأكد من حذف دور ${role.name}؟`)) {
-                                    deleteRole(role.id);
+                                    if(secureLoginEnabled()) {
+                                      void sendAdminDirectoryAction('role.delete',{id:role.id})
+                                        .then(()=>setSaveSuccessNotice('تم حذف الدور غير المستخدم من PostgreSQL.'))
+                                        .catch(error=>alert('تعذر حذف الدور: '+String(error.message||error)));
+                                    }else{deleteRole(role.id);}
                                   }
                                 }}
                                 className="p-1 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition"

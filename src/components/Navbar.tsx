@@ -58,6 +58,7 @@ import { AboutAppModal } from './AboutAppModal';
 import { FirebaseQuotaModal } from './FirebaseQuotaModal';
 import { LocalDatabaseModal } from './LocalDatabaseModal';
 import { ServerOff } from 'lucide-react';
+import {authHeaders,clearSession,getCurrentSessionToken,publicSyncApiUrl,secureLoginEnabled} from '../services/secureAuth';
 
 interface SubMenuItem {
   id: string;
@@ -173,8 +174,18 @@ export const Navbar: React.FC = () => {
 
   const handleExitApp = () => {
     if (window.confirm('هل تريد إغلاق جلسة العمل وتسجيل الخروج من البرنامج؟')) {
-      import('../firebase').then(({ auth }) => auth.signOut());
+      if(secureLoginEnabled()){
+        const token=getCurrentSessionToken();
+        const base=publicSyncApiUrl();
+        clearSession();
+        if(token) void fetch(base+'/api/v1/auth/logout',{
+          method:'POST',headers:authHeaders(base,token),cache:'no-store'
+        }).catch(()=>{ /* Local logout must work even when the server is offline. */ });
+      }
       localStorage.removeItem('alnoor_press_accounting_v1_current_user_id');
+      localStorage.removeItem('alnoor_press_accounting_v1_logged_in_user_id');
+      localStorage.removeItem('alnoor_press_accounting_v1_current_user');
+      localStorage.removeItem('alnoor_press_accounting_v1_session_admin');
       localStorage.removeItem('active_session_id');
       window.location.reload();
     }

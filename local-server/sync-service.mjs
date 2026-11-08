@@ -24,16 +24,18 @@ export class SyncService {
     const r=await this.pool.query('SELECT sequence,command_id,changes FROM sync_events WHERE workspace=$1 AND sequence>$2 ORDER BY sequence ASC LIMIT $3',[workspace,after,limit]);
     return r.rows.map(x=>({commandId:x.command_id,changes:x.changes,cursor:makeCursor(x.sequence)}));
   }
-  async push(workspace,command) {
+  async push(workspace,command,actorId=null) {
     validateCommand(command,workspace);
     const hash=fingerprint(command);
     return this.withTx(async client=>{
       // Serializing all commits per workspace guarantees a commit-ordered, gap-free cursor.
       await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING',[workspace]);
       const ws=await client.query('SELECT next_sequence,next_invoice FROM sync_workspaces WHERE id=$1 FOR UPDATE',[workspace]);
-      const duplicate=await client.query('SELECT fingerprint,receipt FROM sync_commands WHERE workspace=$1 AND command_id=$2',[workspace,command.id]);
+      const duplicate=await client.query('SELECT fingerprint,receipt,actor_id FROM sync_commands WHERE workspace=$1 AND command_id=$2',[workspace,command.id]);
       if (duplicate.rows.length) {
         if (duplicate.rows[0].fingerprint!==hash) throw new InputError('IDEMPOTENCY_KEY_REUSED',409);
+        if (actorId !== null && duplicate.rows[0].actor_id!==actorId)
+          throw new InputError('COMMAND_OWNER_MISMATCH',403);
         return duplicate.rows[0].receipt;
       }
       let nextInvoice=Number(ws.rows[0].next_invoice);
@@ -61,7 +63,7 @@ export class SyncService {
       const nextSequence=Number(ws.rows[0].next_sequence)+1;
       const receipt={commandId:command.id,changes:applied};
       await client.query('UPDATE sync_workspaces SET next_sequence=$2,next_invoice=$3 WHERE id=$1',[workspace,nextSequence,nextInvoice]);
-      await client.query('INSERT INTO sync_commands(workspace,command_id,fingerprint,receipt) VALUES($1,$2,$3,$4)',[workspace,command.id,hash,JSON.stringify(receipt)]);
+      await client.query('INSERT INTO sync_commands(workspace,command_id,fingerprint,receipt,actor_id) VALUES($1,$2,$3,$4,$5)',[workspace,command.id,hash,JSON.stringify(receipt),actorId]);
       await client.query('INSERT INTO sync_events(workspace,sequence,command_id,changes) VALUES($1,$2,$3,$4)',[workspace,nextSequence,command.id,JSON.stringify(applied)]);
       return receipt;
     });

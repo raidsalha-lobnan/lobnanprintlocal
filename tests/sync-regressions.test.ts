@@ -42,10 +42,10 @@ test('server failure cannot mark queued accounting invoice as synced', async () 
   const coordinator = new SyncCoordinator(local as unknown as LocalSyncDb,
     makeRemote(async()=>{throw new VersionConflict('invoices','invoice-1',0,2);}));
   await coordinator.start(); await coordinator.waitUntilIdle();
-  const result = await coordinator.syncNow();
+  // Conflicted financial work must never be reported as a successful sync.
+  await assert.rejects(()=>coordinator.syncNow(),/SYNC_INCOMPLETE/);
   assert.equal(local.commands.length,1);
   assert.equal(local.commands[0].status,'conflict');
-  assert.equal(result.pending,1);
   coordinator.stop();
 });
 test('server ACK publishes record to active UI subscribers',async()=>{

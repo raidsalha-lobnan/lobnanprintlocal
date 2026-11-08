@@ -1,4 +1,5 @@
 import { LocalSyncDb } from './localDb';
+import {getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
 
 import {
   sleep, PermanentSyncError,
@@ -88,7 +89,7 @@ export class SyncCoordinator {
     private remote: SyncTransport,
     private workspaceId: string = 'default'
   ) {
-    if (typeof BroadcastChannel !== 'undefined') {
+    if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
       this.coordChannel = new BroadcastChannel(`lobnan-coord-${this.workspaceId}`);
       this.coordChannel.onmessage = (ev) => {
         if (ev.data === 'REQUEST_SYNC' && this.state.isLeader) {
@@ -146,7 +147,7 @@ export class SyncCoordinator {
     }
 
     // Single-leader election using Web Locks when available
-    if (typeof navigator !== 'undefined' && (navigator as any).locks?.request) {
+    if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && (navigator as any).locks?.request) {
       this.lockAbortController = new AbortController();
       (navigator as any).locks.request(
         `lobnan_sync_leader_${this.workspaceId}`,
@@ -317,7 +318,10 @@ export class SyncCoordinator {
         continue;
       }
       if (keys.some(k => blocked.has(k))) continue;
-      if (cmd.retryAt > Date.now()) {
+      const refreshedSession=secureLoginEnabled() &&
+        cmd.error?.includes('SESSION_LOGIN_REQUIRED') &&
+        !!getCurrentSessionToken();
+      if (cmd.retryAt > Date.now() && !refreshedSession) {
         keys.forEach(k => blocked.add(k));
         continue;
       }
@@ -407,7 +411,7 @@ export class SyncCoordinator {
   async syncNow(timeoutMs = 30000): Promise<SyncState> {
     if (!this.started) throw new Error('Synchronizer is not running');
     if (!this.cloudAllowed()) throw new Error('Reconciliation required before cloud synchronization');
-    if (!this.online()) throw new Error('Offline: records are saved locally but not synced to Firebase');
+    if (!this.online()) throw new Error('Offline: records are retained in IndexedDB until PostgreSQL sync resumes');
     // A follower tab is not allowed to report the leader's unknown cloud state as its own success.
     if (!this.state.isLeader) {
       this.coordChannel?.postMessage('REQUEST_SYNC');
@@ -434,14 +438,22 @@ export class SyncCoordinator {
   async waitUntilIdle(
     timeoutMs = 10000
   ): Promise<void> {
+    // A call immediately after start() used to report idle while drain()
+    // had merely been scheduled, and could miss changes from another device.
+    // Explicitly request a catch-up pass before observing quiescence.
+    if (this.started && this.state.isLeader) this.requestSync();
     const start = Date.now();
-
-    while (this.busy) {
+    while (this.busy || this.requested) {
       if (Date.now() - start > timeoutMs) {
         throw new Error('Sync timeout');
       }
-
       await sleep(25);
+    }
+    // Let queued acknowledgement and onApplied callbacks settle.
+    await sleep(0);
+    if (this.busy || this.requested) {
+      if (Date.now() - start > timeoutMs) throw new Error('Sync timeout');
+      return this.waitUntilIdle(timeoutMs - (Date.now() - start));
     }
   }
 }
