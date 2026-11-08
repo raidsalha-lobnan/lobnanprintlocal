@@ -33,7 +33,15 @@ export function validateProposedInvoice(invoice){
  if(invoice.baseTotalAmount!==undefined&&
   Math.abs(minor(invoice.baseTotalAmount)-minor(Number(invoice.totalAmount)*rate))>1)
   throw new Error('REVISION_BASE_TOTAL_MISMATCH');
- if(invoice.basePaidAmount!==undefined&&
-  Math.abs(minor(invoice.basePaidAmount)-minor(Number(invoice.paidAmount||0)*rate))>1)
-  throw new Error('REVISION_BASE_PAYMENT_MISMATCH');
+ if(invoice.basePaidAmount!==undefined){
+  const base=minor(invoice.basePaidAmount);
+  const roundedFromInvoice=minor(Number(invoice.paidAmount||0)*rate);
+  const tolerance=Math.max(1,Math.ceil(rate/2));
+  if(Math.abs(base-roundedFromInvoice)>tolerance)
+   throw new Error('REVISION_BASE_PAYMENT_MISMATCH');
+  if(invoice.cashBaseAmount!==undefined||invoice.bankBaseAmount!==undefined){
+   const split=minor(invoice.cashBaseAmount||0)+minor(invoice.bankBaseAmount||0);
+   if(split!==base)throw new Error('REVISION_BASE_PAYMENT_SPLIT_MISMATCH');
+  }
+ }
 }
