@@ -144,7 +144,7 @@ export function buildVerifiedInvoiceRevisionBundle({
   const updated=current+amountMinor;
   if(updated<0)throw new Error('REVISION_TREASURY_INSUFFICIENT_BALANCE:'+accountCode);
   const currency=treasury.value.currency||'ILS';
-  if(currency!=='ILS' && Object.keys(treasury.value.currencyBalances||{}).length)
+  if(currency!=='ILS')
    throw new Error('REVISION_MULTICURRENCY_SETTLEMENT_NEEDS_CURRENCY_RECONCILIATION');
   const currencyBalances=treasury.value.currencyBalances?
    {...treasury.value.currencyBalances,
@@ -174,9 +174,12 @@ export function buildVerifiedInvoiceRevisionBundle({
   changes.push({entity:'vouchers',id:voucherId,expectedVersion:0,value:{
    id:voucherId,voucherNumber:'REV-'+commandId.slice(0,12)+'-'+accountCode,
    type:amountMinor>0?'receipt':'payment',
-   date:String(now).slice(0,10),partyId:proposed.customerId||'',
-   partyName:proposed.customerName||'',amount:money(Math.abs(amountMinor)),
-   paymentMethod:'cash',accountCode:'1201',
+   date:String(now).slice(0,10),
+   partyId:(amountMinor>0?proposed.customerId:invoice.customerId)||'',
+   partyName:amountMinor>0?(proposed.customerName||''):(invoice.customerName||''),
+   amount:money(Math.abs(amountMinor)),
+   paymentMethod:treasury.value.type==='cash_box'?'cash':'bank_transfer',
+   accountCode:'1201',
    treasuryAccountCode:accountCode,
    referenceInvoiceId:invoice.id,relatedDocType:'invoice_revision',
    relatedDocId:invoice.id,description:'سند تسوية تحصيل الفاتورة '+invoice.invoiceNumber,
