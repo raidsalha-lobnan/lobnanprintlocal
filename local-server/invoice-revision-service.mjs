@@ -61,13 +61,16 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
   }
   const descriptionAmendment=descriptionOnlyInvoiceAmendment(invoice,proposed);
   if(descriptionAmendment){
+   if(invoice.isAccountingPosted!==true &&
+      proposed.workflowStatus!==invoice.workflowStatus)
+    throw new InputError('INVOICE_REQUIRES_INITIAL_POSTING_WORKFLOW',422);
    const now=new Date().toISOString();
    const amended={...descriptionAmendment,updatedAt:now,
     statusHistory:[...(invoice.statusHistory||[]),{
      id:'revision-'+request.commandId,userName:'معالجة مركزية',
      date:now.slice(0,10),createdAt:now,
      previousStatus:invoice.workflowStatus||'new',
-     newStatus:invoice.workflowStatus||'new',
+     newStatus:proposed.workflowStatus||invoice.workflowStatus||'new',
      notes:'تعديل بيانات وصفية دون أثر محاسبي'
     }]};
    const command={id:request.commandId,workspaceId:workspace,changes:[{
