@@ -1,6 +1,6 @@
 import { LocalSyncDb } from './localDb';
 import {planConflictResolution} from './conflictResolution';
-import type {StoredRecord} from './types';
+import {recordKey,type StoredRecord} from './types';
 import {getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
 
 import {
@@ -322,15 +322,15 @@ export class SyncCoordinator {
     const unresolved=queued.filter(c=>c.status==='conflict'||c.status==='rejected');
     if(!unresolved.length||!this.remote.fetchAuthoritativeBootstrap)return;
     const snapshot=await this.remote.fetchAuthoritativeBootstrap();
-    const index=new Map(snapshot.records.map(r=>[r.entity+'\\u001f'+r.id,r]));
+    const index=new Map(snapshot.records.map(r=>[recordKey(r.entity,r.id),r]));
     for(const cmd of unresolved){
       if(!this.started)return;
       const change=cmd.changes.length===1?cmd.changes[0]:null;
       if(!change)continue;
-      const key=change.entity+'\\u001f'+change.id;
+      const key=recordKey(change.entity,change.id);
       const record=index.get(key);
       const related=queued.some(other=>other.id!==cmd.id&&
-        other.changes.some(c=>c.entity+'\\u001f'+c.id===key));
+        other.changes.some(c=>recordKey(c.entity,c.id)===key));
       const plan=planConflictResolution(cmd,record||null,related);
       if(plan.kind==='already-confirmed'){
         const resolved=await this.local.reconcileAlreadyConfirmed(cmd.id,
