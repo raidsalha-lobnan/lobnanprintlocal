@@ -43,6 +43,9 @@ class FakePostgres {
       s.workspaces.get(p[0]).next_sequence=p[1];s.workspaces.get(p[0]).next_invoice=p[2];
     } else if(sql.startsWith('INSERT INTO sync_commands')) {
       s.commands.set(key(p[0],p[1]),{fingerprint:p[2],receipt:JSON.parse(p[3])});
+    } else if(sql.startsWith('INSERT INTO sync_telegram_outbox')) {
+      // Side-effect notification queue is committed in the same PostgreSQL transaction.
+      // The in-memory fake deliberately does not send any Telegram messages.
     } else if(sql.startsWith('INSERT INTO sync_events')) {
       s.events.push({workspace:p[0],sequence:p[1],command_id:p[2],changes:JSON.parse(p[3])});
     } else if(sql.startsWith('SELECT sequence,command_id,changes FROM sync_events')) {

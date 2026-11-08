@@ -5,6 +5,9 @@ import {committedTelegramText,telegramRelevantChanges,TelegramDelivery} from '..
 test('only accounting commit changes trigger notifications',()=>{
  assert.equal(telegramRelevantChanges([{entity:'settings',id:'global',value:{enabled:true}}]).length,0);
  assert.equal(telegramRelevantChanges([{entity:'invoices',id:'i1',value:{invoiceNumber:'INV-0077'}}]).length,1);
+ assert.equal(telegramRelevantChanges([{entity:'journalEntries',id:'j1',value:{referenceType:'pos_invoice'}}]).length,0);
+ assert.equal(telegramRelevantChanges([{entity:'journalEntries',id:'j2',value:{referenceType:'cogs'}}]).length,0);
+ assert.equal(telegramRelevantChanges([{entity:'stockMovements',id:'m1',value:{referenceType:'pos_invoice'}}]).length,0);
 });
 
 test('Telegram confirmation explicitly names the committed PostgreSQL operation',()=>{
@@ -40,6 +43,8 @@ test('Telegram failure keeps committed notification for retry rather than faking
    command_id:'cmd123',committed_at:new Date(),attempts:0,changes:[{entity:'invoices',id:'a',version:1,value:{invoiceNumber:'INV-0077'}}]
   }]};
   if(sql.includes("value->'telegramConfig'"))return {rows:[{config:{enabled:true,botToken:'placeholder',defaultChatId:'123'}}]};
+  if(sql.includes('FROM sync_records')&&sql.includes("entity='parties'"))return {rows:[]};
+  if(sql.includes('FROM sync_records')&&sql.includes('treasuries'))return {rows:[]};
   if(sql.includes('UPDATE sync_telegram_outbox')){rows.push(1);return {rows:[]}};
   throw Error('unexpected');
  },release(){}};

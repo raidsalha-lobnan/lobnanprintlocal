@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS sync_telegram_outbox (
  changes jsonb NOT NULL,
  committed_at timestamptz NOT NULL DEFAULT now(),
  attempts integer NOT NULL DEFAULT 0,
+ next_part integer NOT NULL DEFAULT 0,
  next_attempt_at timestamptz NOT NULL DEFAULT now(),
  delivered_at timestamptz,
  last_error text,
@@ -86,3 +87,5 @@ CREATE TABLE IF NOT EXISTS sync_telegram_outbox (
 CREATE INDEX IF NOT EXISTS sync_telegram_outbox_pending_idx
  ON sync_telegram_outbox(workspace,next_attempt_at)
  WHERE delivered_at IS NULL;
+
+ALTER TABLE sync_telegram_outbox ADD COLUMN IF NOT EXISTS next_part integer NOT NULL DEFAULT 0;
