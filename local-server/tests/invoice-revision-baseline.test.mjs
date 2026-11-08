@@ -66,3 +66,26 @@ test('a second amendment uses the net approved journal and stock history, not on
  assert.equal(plan.expectedNextCOGSMinor,1400);
  assert.deepEqual(plan.stockDeltas,[]);
 });
+
+test('a second paid-off credit invoice edit builds on approved deltas, not original postings',()=>{
+ const editedOnce={...inv,subtotal:51,totalAmount:51,baseTotalAmount:51,items:[
+  {...inv.items[0],quantity:1,unitPrice:14,total:14},
+  {...inv.items[1],quantity:1,unitPrice:13,total:13},inv.items[2]]};
+ const editedTwice={...editedOnce,subtotal:52,totalAmount:52,baseTotalAmount:52,
+  items:[{...editedOnce.items[0],unitPrice:15,total:15},...editedOnce.items.slice(1)]};
+ const extraJournal={value:{id:'adjustment-sales',referenceId:'i66',referenceType:'invoice_correction',
+  correctionGroupId:'revision-1',correctionKind:'revenue',approvedRevision:true,internalCorrection:true,
+  lines:[{accountCode:'1201',debit:0.6,credit:0},{accountCode:'4101',debit:0,credit:0.6}]}};
+ const extraCost={value:{id:'adjustment-cost',referenceId:'i66',referenceType:'invoice_correction',
+  correctionGroupId:'revision-1',correctionKind:'cogs',approvedRevision:true,internalCorrection:true,
+  lines:[{accountCode:'1301',debit:130,credit:0},{accountCode:'5101',debit:0,credit:130}]}};
+ const stockCredit={value:{id:'credit-movement',itemId:'paper',sourceInvoiceId:'i66',
+  referenceNumber:'INV-0066',referenceType:'invoice_correction',correctionGroupId:'revision-1',
+  approvedRevision:true,internalCorrection:true,type:'in_adjustment',quantity:130,unitPrice:1,totalValue:130}};
+ const result=verifyInvoiceRevisionBaseline({invoice:editedOnce,proposed:editedTwice,
+  journals:[...linked,extraJournal,extraCost],movements:[...movements,stockCredit]});
+ assert.equal(result.totalDeltaMinor,100);
+ assert.equal(result.currentCOGSMinor,1400);
+ assert.equal(result.expectedNextCOGSMinor,1400);
+ assert.deepEqual(result.stockDeltas,[]);
+});
