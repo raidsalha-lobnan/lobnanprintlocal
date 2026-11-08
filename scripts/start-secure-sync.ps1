@@ -38,7 +38,16 @@ try{
   $env:SYNC_ALLOWED_ORIGINS=$FrontendOrigin
   $env:CF_ACCESS_REQUIRED='0'
   if(Get-NetTCPConnection -State Listen -LocalPort 4577 -ErrorAction SilentlyContinue){
-    throw 'Port 4577 already has a listener. Inspect the process instead of replacing it.'
+    # Safe for Windows Startup: do not replace an existing listener, and only
+    # succeed when the local service identifies itself as the user-auth API.
+    try {
+      $existing=Invoke-RestMethod -Uri 'http://127.0.0.1:4577/api/v1/health' -TimeoutSec 5
+      if($existing.authMode -ne 'users' -or $existing.workspace -ne 'lobnan_main'){
+        throw 'Unexpected local listener'
+      }
+      Write-Host 'SECURE_API_ALREADY_RUNNING: 127.0.0.1:4577' -ForegroundColor Green
+      exit 0
+    }catch{throw 'Port 4577 is occupied by an unknown or unhealthy service; refusing to replace it.'}
   }
   $stdout=Join-Path $logdir 'sync-api.stdout.log'
   $stderr=Join-Path $logdir 'sync-api.stderr.log'
