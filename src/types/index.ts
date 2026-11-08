@@ -317,6 +317,9 @@ export interface Invoice {
   invoiceNumber: string;
   date: string;
   customerId?: string;
+  /** Authoritative sale recipient namespace; no name-based identity matching. */
+  counterpartyType?: 'customer' | 'supplier' | 'employee';
+  counterpartyId?: string;
   customerName: string;
   customerPhone?: string;
   customerTaxNumber?: string;

@@ -2503,6 +2503,19 @@ const getInitialPosDraft = (): PosFullDraftData => {
       return;
     }
 
+    // Validate selection against its own ID namespace. A supplier or employee
+    // is not a customer record and must never be silently replaced by one.
+    const selectedTarget = posTargetType === 'employee'
+      ? employees.find(e => e.id === selectedCustomerId)
+      : posTargetType === 'supplier'
+        ? suppliers.find(p => p.id === selectedCustomerId)
+        : customers.find(p => p.id === selectedCustomerId);
+    if ((posTargetType !== 'customer' && !selectedTarget) ||
+      (selectedCustomerId && !selectedTarget)) {
+      alert('يرجى اختيار سجل صحيح من قائمة '+(posTargetType === 'employee' ? 'الموظفين' : posTargetType === 'supplier' ? 'الموردين' : 'العملاء')+'؛ لا يكفي إدخال الاسم وحده.');
+      return;
+    }
+
     // 2. Validation for cash customers without sub-customer name when invoice is unpaid (آجل):
     const hasSubCustomerName = !!(subCustomerName?.trim() || customCustomerText?.trim());
 
@@ -2622,6 +2635,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
         userId: currentUser?.id,
         userName: currentUser?.fullName || currentUser?.username,
         editingInvoiceId: currentEditingInvoiceIdRef.current || editingPosInvoiceId || undefined,
+        counterpartyType: posTargetType,
+        counterpartyId: selectedCustomerId || undefined,
         customCustomerText,
         subCustomerId: subCustomerId || undefined,
         subCustomerName: subCustomerName || undefined,
@@ -2854,6 +2869,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
         : '',
       date: invoiceDate || new Date().toISOString().split('T')[0],
       customerId: selectedCustomerId || undefined,
+      counterpartyType: posTargetType,
+      counterpartyId: selectedCustomerId || undefined,
       customerName: customerName || customCustomerText || 'عميل كاشير نقدي',
       customerPhone: subCustomerPhone || selectedCust?.phone || '',
       customerTaxNumber: selectedCust?.taxNumber || '',
@@ -3026,14 +3043,17 @@ const getInitialPosDraft = (): PosFullDraftData => {
     currentEditingInvoiceIdRef.current = inv.id;
     lastLoadedInvoiceIdRef.current = inv.id;
 
-    const invCustId = inv.customerId || '';
+    const invCustId = inv.counterpartyId || inv.customerId || '';
+    const recipientType = inv.counterpartyType || (
+      employees.some(e => e.id === invCustId || e.id === inv.employeeId) ? 'employee' :
+      suppliers.some(s => s.id === invCustId) ? 'supplier' : 'customer'
+    );
+    setPosTargetType(recipientType);
     setSelectedCustomerId(invCustId);
-    if (invCustId) {
-      const matchedParty = parties.find(p => p.id === invCustId);
-      setCustomerCode(matchedParty?.code || (inv as any).customerCode || '');
-    } else {
-      setCustomerCode((inv as any).customerCode || '');
-    }
+    const matchedTarget = recipientType === 'employee'
+      ? employees.find(e => e.id === invCustId)
+      : parties.find(p => p.id === invCustId);
+    setCustomerCode(matchedTarget?.code || (inv as any).customerCode || '');
     setCustomerName(inv.customerName || 'زبون نقدي');
     setCustomCustomerText(inv.customCustomerText || '');
     setSubCustomerId(inv.subCustomerId || '');

@@ -3,6 +3,7 @@ import {preserveOfficialInvoiceFields} from './invoice-amendments.mjs';
 import {telegramRelevantChanges} from './telegram-delivery.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
 import {assertStableEntitySerial} from './entity-identity.mjs';
+import {validateInvoiceCounterparty} from './invoice-counterparty.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -86,6 +87,9 @@ export class SyncService {
               existingEntryId:existing.rows[0].record_id});
         }
         if(change.entity==='invoices' && val) {
+          // Sales targets are namespace-qualified: customer/supplier/employee.
+          // Historical invoices with no explicit target type remain intact.
+          await validateInvoiceCounterparty(client,workspace,val);
           if(actual===0) {
             nextInvoice++;
             const invoiceNumber=makeNumber(nextInvoice);

@@ -46,7 +46,7 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
    throw new InputError('INVOICE_REVISION_IDENTITY_IMMUTABLE',422);
   // These cases need a distinct posting algorithm. Do not silently alter
   // treasury, customer, tax or warehouse with only sales/COGS adjustments.
-  const immutableForRevision=['customerId','subCustomerId','warehouse','branchId',
+  const immutableForRevision=['customerId','employeeId','subCustomerId','warehouse','branchId',
     'currency','exchangeRate','paymentMethod','paidAmount','basePaidAmount',
     'cashPaidAmount','bankPaidAmount','cashTreasuryCode','bankTreasuryCode',
     'discountTotal','taxRate','taxAmount','additionalCharges','date'];
@@ -113,6 +113,25 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     throw new InputError('INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION',409,
      {reason:String(error.message),legacyReason:String(recoveryError.message)});
    }
+  }
+  // Employee receivables are projected by the employee statement from invoice
+  // IDs, not stored in the customer/supplier 'parties' balance table.
+  // A posted invoice to an employee must never create a fictitious party row.
+  const employeeSale=invoice.counterpartyType==='employee' ||
+    (invoice.employeeId && invoice.employeeId===invoice.customerId) ||
+    (!invoice.counterpartyType && /^emp-/.test(invoice.customerId||''));
+  if(employeeSale){
+   const target=(await client.query(
+    "SELECT record_id FROM sync_records WHERE workspace=$1 AND entity='employees' AND record_id=$2",
+    [workspace,invoice.customerId])).rows[0];
+   if(!target)throw new InputError('INVOICE_REVISION_EMPLOYEE_NOT_FOUND',409);
+   if(proposed.counterpartyType && proposed.counterpartyType!=='employee')
+    throw new InputError('INVOICE_REVISION_TARGET_TYPE_IMMUTABLE',422);
+   // Both sales and revisions continue to post to the main A/R control
+   // account; the employee subledger is derived from the invoice itself.
+   plan.customerBalanceChanges=[];
+  } else if(invoice.counterpartyType && proposed.counterpartyType!==invoice.counterpartyType){
+   throw new InputError('INVOICE_REVISION_TARGET_TYPE_IMMUTABLE',422);
   }
   const partyIds=[...new Set(plan.customerBalanceChanges.map(x=>x.partyId))];
   const itemIds=[...new Set(plan.stockDeltas.map(x=>x.itemId))];

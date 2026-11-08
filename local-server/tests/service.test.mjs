@@ -77,8 +77,8 @@ test('conflicting update does not overwrite existing invoice or advance cursor',
 });
 test('transaction rolls back all changes if any record fails version validation',async()=>{
  const pool=new FakePostgres(),svc=new SyncService(pool);
- await svc.push('lobnan_main',make('seed-cash',[record('treasuries','cash',{id:'cash',balance:500})]));
- const cmd=make('transaction-reject',[record('parties','new-customer',{id:'new-customer',name:'New'}),record('treasuries','cash',{id:'cash',balance:0},0)]);
+ await svc.push('lobnan_main',make('seed-cash',[record('treasuries','cash',{id:'cash',accountCode:'1101',balance:500})]));
+ const cmd=make('transaction-reject',[record('parties','new-customer',{id:'new-customer',code:'CUST-NEW',name:'New'}),record('treasuries','cash',{id:'cash',balance:0},0)]);
  await assert.rejects(svc.push('lobnan_main',cmd),/VERSION_CONFLICT/);
  assert.equal((await svc.bootstrap('lobnan_main')).records.some(r=>r.id==='new-customer'),false);
 });
@@ -93,7 +93,7 @@ test('legacy 71-customer balance snapshot is rejected atomically without touchin
 
 test('bootstrap cursor and change feed preserve versions with pagination',async()=>{
  const pool=new FakePostgres(),svc=new SyncService(pool);
- for(let i=0;i<205;i++) await svc.push('lobnan_main',make('command-'+String(i),[record('parties','cust-'+i,{id:'cust-'+i,name:'Customer '+i})]));
+ for(let i=0;i<205;i++) await svc.push('lobnan_main',make('command-'+String(i),[record('parties','cust-'+i,{id:'cust-'+i,code:'CUST-'+i,name:'Customer '+i})]));
  const snap=await svc.bootstrap('lobnan_main');assert.equal(snap.records.length,205);assert.equal(snap.cursor.sequence,205);
  let after=0,total=0;
  while(true){const page=await svc.pull('lobnan_main',after,100); if(!page.length)break;after=page.at(-1).cursor.sequence;total+=page.length;}

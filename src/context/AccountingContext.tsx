@@ -402,6 +402,8 @@ interface AccountingContextType {
       userId?: string;
       userName?: string;
       editingInvoiceId?: string;
+      counterpartyType?: 'customer' | 'supplier' | 'employee';
+      counterpartyId?: string;
       paymentNotes?: string;
     }
   ) => Promise<{ success: boolean; invoice?: Invoice; error?: string; isOffline?: boolean; isBusy?: boolean }>;
@@ -6885,11 +6887,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       userId?: string;
       userName?: string;
       editingInvoiceId?: string;
+      counterpartyType?: 'customer' | 'supplier' | 'employee';
+      counterpartyId?: string;
       paymentNotes?: string;
     }
   ): Invoice => {
     // ربط العميل النقدي برمز CUST-0001
-    if (!customerId || customerName === 'عميل كاشير نقدي' || customerName === 'عميل نقدي' || customerName === 'زبون عام' || customerId === 'pt-cust-1') {
+    if ((extraOptions?.counterpartyType || 'customer') === 'customer' &&
+        (!customerId || customerName === 'عميل كاشير نقدي' || customerName === 'عميل نقدي' || customerName === 'زبون عام' || customerId === 'pt-cust-1')) {
       const defaultCashCust = parties.find(p => p.code === 'CUST-0001');
       if (defaultCashCust) {
         customerId = defaultCashCust.id;
@@ -7149,6 +7154,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       invoiceNumber,
       date: today,
       customerId,
+      counterpartyType: extraOptions?.counterpartyType || 'customer',
+      counterpartyId: extraOptions?.counterpartyId || customerId,
+      employeeId: extraOptions?.counterpartyType === 'employee' ? customerId : undefined,
       customerName: customerName || 'عميل كاشير نقدي',
       type: 'pos',
       items: invoiceItems,
@@ -7559,6 +7567,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       date: extraOptions?.date || new Date().toISOString().split('T')[0],
       type: 'pos',
       customerId,
+      counterpartyType: extraOptions?.counterpartyType || 'customer',
+      counterpartyId: extraOptions?.counterpartyId || customerId,
+      employeeId: extraOptions?.counterpartyType === 'employee' ? customerId : undefined,
       customerName: customerName || 'عميل كاشير نقدي',
       items: invItems as any,
       subtotal,

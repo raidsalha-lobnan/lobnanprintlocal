@@ -26,6 +26,9 @@ const req={commandId:'revision-command-0066',invoiceId:'i66',expectedVersion:2,
   {...invoice.items[1],quantity:1,unitPrice:13,total:13},invoice.items[2]]}};
 const fixture=(options={})=>{
  const history=new Map();
+ const sourceInvoice=options.employee?{
+  ...invoice,customerId:'emp1',counterpartyType:'employee',counterpartyId:'emp1',employeeId:'emp1'
+ }:invoice;
  const records={
   journalEntries:options.duplicate?[...originalJournals,j('duplicate','pos_invoice',8)]:originalJournals,
   stockMovements:movements,
@@ -37,7 +40,8 @@ const fixture=(options={})=>{
  let commands=0;
  const client={async query(sql,values){
   if(sql.startsWith('SELECT request_fingerprint')){const saved=history.get(values[1]);return {rows:saved?[saved]:[]}}
-  if(sql.includes("entity='invoices'"))return {rows:[{version:2,value:invoice}]};
+  if(sql.includes("entity='invoices'"))return {rows:[{version:2,value:sourceInvoice}]};
+  if(sql.includes("entity='employees'"))return {rows:options.employee?[{record_id:'emp1'}]:[]};
   if(sql.includes("entity='journalEntries'"))return {rows:records.journalEntries};
   if(sql.includes("entity='stockMovements'"))return {rows:records.stockMovements};
   if(sql.includes("entity='parties'"))return {rows:records.parties};
@@ -84,4 +88,16 @@ test('stale expected version and insufficient permissions fail closed',async()=>
  await assert.rejects(revisePostedInvoice(f.svc,'lobnan_main',
   req,'nonadmin',{canReviseInvoice:()=>false}),/PERMISSION_DENIED/);
  assert.equal(f.commands,0);
+});
+
+test('employee invoice correction updates posted invoice and journal without inventing a customer party balance',async()=>{
+ const f=fixture({employee:true});
+ const proposal={...req.proposed,customerId:'emp1',counterpartyType:'employee',
+  counterpartyId:'emp1',employeeId:'emp1'};
+ const result=await revisePostedInvoice(f.svc,'lobnan_main',
+  {...req,commandId:'employee-revision',proposed:proposal},'admin',access);
+ assert.equal(f.commands,1);
+ assert.equal(result.changes.find(c=>c.entity==='invoices').value.customerId,'emp1');
+ assert.equal(result.changes.find(c=>c.entity==='journalEntries'&&c.value.correctionKind==='revenue').value.lines[0].debit,0.6);
+ assert.equal(result.changes.filter(c=>c.entity==='parties').length,0);
 });

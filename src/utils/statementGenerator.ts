@@ -1000,12 +1000,12 @@ export function generateEmployeeStatement(params: {
   invoices.forEach(inv => {
     if (!isInvoiceAccountingEligible(inv.workflowStatus)) return;
 
+    // A sale to an employee is identified by the permanent employee ID,
+    // never by an editable name, phone, notes, or a shared display code.
     const isDirectEmployeeCust =
-      (inv.customerId === empId) ||
-      (empCode && inv.customerId?.toLowerCase() === empCode.toLowerCase()) ||
-      (inv.employeeId === empId) ||
-      (empCode && inv.employeeId?.toLowerCase() === empCode.toLowerCase()) ||
-      (inv.customerName && empName && inv.customerName.trim().toLowerCase() === empName.toLowerCase());
+      (inv.counterpartyType === 'employee' && inv.counterpartyId === empId) ||
+      inv.employeeId === empId ||
+      (inv.customerId === empId && (!inv.counterpartyType || inv.counterpartyType === 'employee'));
 
     const isLinkedByRepOrNote = !isDirectEmployeeCust && (
       (inv.representative && isMatched(undefined, inv.representative, undefined)) ||
