@@ -1,5 +1,5 @@
 import { LocalSyncDb } from './localDb';
-import {planConflictResolution} from './conflictResolution';
+import {planConflictResolution,planAtomicCommandAlreadyConfirmed} from './conflictResolution';
 import {recordKey,type StoredRecord} from './types';
 import {getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
 
@@ -325,12 +325,25 @@ export class SyncCoordinator {
     const index=new Map(snapshot.records.map(r=>[recordKey(r.entity,r.id),r]));
     for(const cmd of unresolved){
       if(!this.started)return;
-      const change=cmd.changes.length===1?cmd.changes[0]:null;
+      const keys=new Set(cmd.changes.map(c=>recordKey(c.entity,c.id)));
+      const hasDependents=queued.some(other=>other.id!==cmd.id&&
+        other.changes.some(c=>keys.has(recordKey(c.entity,c.id))));
+      if(cmd.changes.length>1) {
+        const confirmed=planAtomicCommandAlreadyConfirmed(cmd,index,hasDependents);
+        if(confirmed){
+          const settled=await this.local.reconcileAlreadyConfirmed(
+            cmd.id,confirmed,'ATOMIC_SERVER_STATE_VERIFIED');
+          if(settled)this.emitApplied(confirmed.map(r=>({
+            entity:r.entity,id:r.id,version:r.version,value:r.value
+          })));
+        }
+        continue;
+      }
+      const change=cmd.changes[0];
       if(!change)continue;
       const key=recordKey(change.entity,change.id);
       const record=index.get(key);
-      const related=queued.some(other=>other.id!==cmd.id&&
-        other.changes.some(c=>recordKey(c.entity,c.id)===key));
+      const related=hasDependents;
       const plan=planConflictResolution(cmd,record||null,related);
       if(plan.kind==='already-confirmed'){
         const resolved=await this.local.reconcileAlreadyConfirmed(cmd.id,
