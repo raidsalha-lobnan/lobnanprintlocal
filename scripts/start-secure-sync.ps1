@@ -34,6 +34,9 @@ try{
   $env:DATABASE_URL='postgres://lobnan_pg_admin:'+([Uri]::EscapeDataString($pwd))+'@127.0.0.1:5432/lobnan_main'
   $env:SYNC_WORKSPACE='lobnan_main'
   $env:SYNC_AUTH_MODE='users'
+  # Enable the authenticated, server-validated invoice revision transaction.
+  # Unsupported payment/tax/legacy ledger states still fail closed.
+  $env:SYNC_ENABLE_INVOICE_REVISIONS='1'
   $env:SYNC_BIND_HOST='127.0.0.1'
   $env:SYNC_PORT='4577'
   $env:SYNC_ALLOWED_ORIGINS=($allowedOrigins -join ',')
