@@ -32,13 +32,14 @@ export function invoiceTelegramReceipt(invoice,{mainCustomer,subCustomer,treasur
   '',
   '📦 بنود الفاتورة ('+items.length+'):'
  ];
+ const isDimension=(it)=>it.hasDimensions===true || (it.hasDimensions!==false && /(?:م²|م2|متر مربع|m²|m2|sqm|square meter)/i.test(String(it.unit||'')));
  const lines=items.flatMap((it,i)=>[
   '',
   'بند '+(i+1)+' | '+field(it.itemName||it.name||it.itemCode),
   '  الملاحظات: '+field(it.notes||it.description),
-  '  الطول: '+number(it.length)+(present(it.lengthUnit)?' '+plain(it.lengthUnit,15):'')+
-    ' | العرض: '+number(it.width)+(present(it.widthUnit)?' '+plain(it.widthUnit,15):''),
-  '  العدد: '+number(it.count, '1')+' | الكمية: '+number(it.quantity,'0'),
+  '  الطول: '+(isDimension(it)?number(it.length):'-')+(isDimension(it)&&present(it.lengthUnit)?' '+plain(it.lengthUnit,15):'')+
+    ' | العرض: '+(isDimension(it)?number(it.width):'-')+(isDimension(it)&&present(it.widthUnit)?' '+plain(it.widthUnit,15):''),
+  '  العدد: '+(isDimension(it)?number(it.count,'1'):'-')+' | الكمية: '+number(it.quantity,'0'),
   '  السعر: '+money(it.unitPrice,curr)+' | الإجمالي: '+money(it.total??(Number(it.quantity||0)*Number(it.unitPrice||0)),curr),
   ...(Number(it.discount||0)>0?['  خصم البند: '+money(it.discount,curr)]:[])
  ]);

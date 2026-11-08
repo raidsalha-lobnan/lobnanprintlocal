@@ -6,7 +6,7 @@ const invoice={
  customerName:'مطبعة السراج - أبو مؤمن هاشم',
  notes:'تسليم صباحاً',
  items:[{itemName:'ورق سبلميشن - مطبوع',notes:'الطباعة على الوجهين',
-  length:25,width:35,count:1,quantity:2,unitPrice:4,total:8}],
+  length:25,width:35,count:1,quantity:2,unitPrice:4,total:8,hasDimensions:true,unit:'م²'}],
  totalAmount:8,discountTotal:0,paidAmount:0,remainingAmount:8,
  paymentMethod:'credit',currencySymbol:'₪'
 };
@@ -39,4 +39,14 @@ test('all line items retained by splitting long Telegram receipts below Telegram
  assert.ok(chunks.some(x=>x.includes('صنف 0')));
  assert.ok(chunks.some(x=>x.includes('صنف 39')));
  assert.ok(chunks.at(-1).includes('إجمالي الفاتورة'));
+});
+
+test('non-measured invoice line uses dash for length, width and count but keeps quantity',()=>{
+ const receipt=invoiceTelegramReceipt({...invoice,items:[{
+  itemName:'ورق مطبوع',notes:'بند عادي',hasDimensions:false,
+  unit:'حبة',length:1,width:1,count:1,quantity:8,unitPrice:4,total:32
+ }]});
+ assert.match(receipt,/الطول: - | العرض: -/);
+ assert.match(receipt,/العدد: - | الكمية: 8/);
+ assert.match(receipt,/السعر: 4 ₪ | الإجمالي: 32 ₪/);
 });

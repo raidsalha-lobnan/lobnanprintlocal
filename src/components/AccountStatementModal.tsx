@@ -10,6 +10,7 @@ import {
   EmployeeStatementRow
 } from '../utils/statementGenerator';
 import { formatNumber } from '../utils/numberFormat';
+import { isDimensionalInvoiceItem, displayDimension } from '../utils/invoiceDimensions';
 import { tafqeet } from '../utils/tafqeet';
 import {
   X,
@@ -949,9 +950,9 @@ export const AccountStatementModal: React.FC = () => {
                                               
                                             </div>
                                           </td>
-                                          <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
-                                          <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.width != null && it.width !== 0 ? it.width : '-'}</td>
-                                          <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{it.count || 1}</td>
+                                          <td className="text-center font-mono text-slate-800 border-l border-slate-200">{displayDimension(it.length, isDimensionalInvoiceItem(it))}</td>
+                                          <td className="text-center font-mono text-slate-800 border-l border-slate-200">{displayDimension(it.width, isDimensionalInvoiceItem(it))}</td>
+                                          <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{isDimensionalInvoiceItem(it) ? (it.count || 1) : '-'}</td>
                                           <td className="text-center font-mono font-bold text-slate-900 border-l border-slate-200">
                                             {it.quantity}
                                           </td>
@@ -1381,9 +1382,9 @@ export const AccountStatementModal: React.FC = () => {
                                                 
                                               </div>
                                             </td>
-                                            <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
-                                            <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.width != null && it.width !== 0 ? it.width : '-'}</td>
-                                            <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{it.count || 1}</td>
+                                            <td className="text-center font-mono text-slate-800 border-l border-slate-200">{displayDimension(it.length, isDimensionalInvoiceItem(it))}</td>
+                                            <td className="text-center font-mono text-slate-800 border-l border-slate-200">{displayDimension(it.width, isDimensionalInvoiceItem(it))}</td>
+                                            <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{isDimensionalInvoiceItem(it) ? (it.count || 1) : '-'}</td>
                                             <td className="text-center font-mono font-bold text-slate-900 border-l border-slate-200">{it.quantity}</td>
                                             <td className="text-left font-mono text-slate-800 border-l border-slate-200">{it.unitPrice.toFixed(2)}</td>
                                             <td className="text-left font-mono font-bold text-slate-900">{it.total.toFixed(2)}</td>

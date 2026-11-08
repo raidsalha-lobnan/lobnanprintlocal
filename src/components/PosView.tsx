@@ -27,6 +27,7 @@ import { useHardwareBarcodeScanner } from '../utils/useBarcodeScanner';
 import { matchItemByBarcode } from '../utils/barcodeGenerator';
 import { findPartyByCodeOrNumber, isCashCustomerParty } from '../utils/partyUtils';
 import { getAvailableUnitsOfMeasure, isSquareMeterUnit } from '../utils/unitsOfMeasure';
+import { isDimensionalInvoiceItem } from '../utils/invoiceDimensions';
 import { matchKeyboardShortcut } from '../utils/keyboardShortcuts';
 import { calculatePartyTrueBalance, calculateEmployeeTrueBalance } from '../utils/statementGenerator';
 import {
@@ -2128,7 +2129,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
         const isSqCurrently = isSquareMeterUnit(line.unit);
 
         // إذا كانت وحدة الصنف ليست متر مربع فتغلق الطول والعرض والعدد
-        if (!isSqCurrently && (field === 'length' || field === 'width' || field === 'count')) {
+        if (!(isSqCurrently && line.hasDimensions) && (field === 'length' || field === 'width' || field === 'count')) {
           return line;
         }
 
@@ -2800,9 +2801,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     }
 
     const itemsForInvoice: InvoiceItem[] = linesToUse.map((line, idx) => {
-      const hasDims = Boolean(
-        line.hasDimensions || (line.length && line.width && (line.length !== 1 || line.width !== 1 || (line.count && line.count > 1)))
-      );
+      const hasDims = isDimensionalInvoiceItem(line);
       return {
         id: line.id || `line-${idx}`,
         itemId: line.inventoryItemId || `item-${idx}`,
@@ -3119,7 +3118,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
 
     const loadedLines: PosTableLine[] = rawItems.map((it: any, idx) => {
       const invItem = inventory.find(i => (it.itemId && i.id === it.itemId) || (it.itemCode && i.code === it.itemCode));
-      const hasDims = Boolean(it.hasDimensions || (Number(it.length) > 0 && Number(it.width) > 0));
+      const hasDims = isDimensionalInvoiceItem(it);
       const lengthVal = Number(it.length) || (hasDims ? 1 : 0);
       const widthVal = Number(it.width) || (hasDims ? 1 : 0);
       const countVal = Number(it.count) || 1;

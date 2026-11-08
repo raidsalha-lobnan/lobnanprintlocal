@@ -15,6 +15,7 @@ import {
   LineAttachment
 } from '../types';
 import { isInvoiceAccountingEligible } from './invoiceStatusUtils';
+import { isDimensionalInvoiceItem } from './invoiceDimensions';
 
 export interface StatementItemDetail {
   itemId?: string;

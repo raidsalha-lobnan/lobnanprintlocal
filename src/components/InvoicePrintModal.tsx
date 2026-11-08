@@ -4,6 +4,7 @@ import { Printer, X, FileText, QrCode } from 'lucide-react';
 import { PrintHeader, ThermalReceiptHeader } from './common/PrintHeader';
 import { ReportSignatures } from './common/ReportSignatures';
 import { formatDateDisplay } from '../utils/dateUtils';
+import { isDimensionalInvoiceItem } from '../utils/invoiceDimensions';
 import { formatInvoiceCustomerDisplay } from '../utils/partyUtils';
 
 const parseThumbnails = (val?: string): string[] => {
@@ -207,9 +208,7 @@ export const InvoicePrintModal: React.FC = () => {
                     <tbody className="divide-y divide-slate-200 font-sans">
                       {chunk.map((it, idxWithinChunk) => {
                         const overallIndex = chunkIdx * ITEMS_PER_PAGE + idxWithinChunk + 1;
-                        const hasDimensions = Boolean(
-                          it.hasDimensions || (it.length && it.width && (it.length !== 1 || it.width !== 1 || (it.count && it.count > 1)))
-                        );
+                        const hasDimensions = isDimensionalInvoiceItem(it);
                         const length = Number(it.length) || 0;
                         const width = Number(it.width) || 0;
                         const count = Number(it.count) || 1;
@@ -578,9 +577,7 @@ export const InvoicePrintModal: React.FC = () => {
 
             <div className="space-y-2 text-right text-[11px]">
               {inv.items.map((it, idx) => {
-                const hasDimensions = Boolean(
-                  it.hasDimensions || (it.length && it.width && (it.length !== 1 || it.width !== 1 || (it.count && it.count > 1)))
-                );
+                const hasDimensions = isDimensionalInvoiceItem(it);
                 return (
                   <div key={idx} className="border-b border-dotted border-slate-300 pb-1">
                     <div className="flex justify-between font-bold text-slate-900">
