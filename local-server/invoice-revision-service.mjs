@@ -3,6 +3,7 @@ import {InputError,validId} from './sync-domain.mjs';
 import {verifyInvoiceRevisionBaseline} from './invoice-revision-baseline.mjs';
 import {buildVerifiedInvoiceRevisionBundle} from './invoice-revision-bundle.mjs';
 import {planFailedInvoiceEditRecovery} from './invoice-legacy-recovery.mjs';
+import {isUnchangedPosInvoice} from './invoice-revision-noop.mjs';
 
 /**
  * Authenticated server-side invoice correction. There are no client-provided
@@ -44,6 +45,18 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
   if(invoice.id!==request.invoiceId||proposed.id!==invoice.id||
      proposed.invoiceNumber!==invoice.invoiceNumber)
    throw new InputError('INVOICE_REVISION_IDENTITY_IMMUTABLE',422);
+  // A review/save without business changes must never re-post or repair accounting.
+  // Confirm the authoritative invoice version and permissions first; return its
+  // existing row as an acknowledgement without touching journals, balances or stock.
+  if(isUnchangedPosInvoice(invoice,proposed)){
+   const receipt={commandId:request.commandId,changes:[{
+    entity:'invoices',id:invoice.id,version:actual,value:invoice
+   }]};
+   await client.query(
+    'INSERT INTO sync_invoice_revision_requests(workspace,request_id,invoice_id,request_fingerprint,actor_id,receipt) VALUES($1,$2,$3,$4,$5,$6)',
+    [workspace,request.commandId,invoice.id,hash,actorId,JSON.stringify(receipt)]);
+   return receipt;
+  }
   // These cases need a distinct posting algorithm. Do not silently alter
   // treasury, customer, tax or warehouse with only sales/COGS adjustments.
   const immutableForRevision=['customerId','employeeId','subCustomerId','warehouse','branchId',
