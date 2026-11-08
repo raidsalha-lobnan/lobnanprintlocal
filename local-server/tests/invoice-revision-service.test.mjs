@@ -132,3 +132,19 @@ test('unchanged invoice cannot bypass version or permissions',async()=>{
   unchanged,'operator',{canReviseInvoice:()=>false}),/PERMISSION_DENIED/);
  assert.equal(f.commands,0);
 });
+
+test('description-only revision is posted once without financial side effects, even with duplicated legacy journals',async()=>{
+ const f=fixture({duplicate:true});
+ const proposed={...invoice,notes:'توضيح بعد المراجعة',
+  items:invoice.items.map((item,index)=>({...item,id:'recreated-'+index,
+   ...(index===0?{description:'ملاحظة طباعية'}:{})}))};
+ const result=await revisePostedInvoice(f.svc,'lobnan_main',
+  {...req,commandId:'descriptive-review-66',proposed},'admin',access);
+ assert.equal(f.commands,1);
+ assert.equal(result.changes.length,1);
+ assert.equal(result.changes[0].entity,'invoices');
+ assert.equal(result.changes[0].value.notes,'توضيح بعد المراجعة');
+ assert.equal(result.changes[0].value.items[0].description,'ملاحظة طباعية');
+ assert.equal(result.changes[0].value.items[0].id,invoice.items[0].id);
+ assert.equal(result.changes.filter(c=>['journalEntries','inventory','stockMovements','parties'].includes(c.entity)).length,0);
+});
