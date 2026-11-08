@@ -89,7 +89,7 @@ export class SyncCoordinator {
     private remote: SyncTransport,
     private workspaceId: string = 'default'
   ) {
-    if (typeof BroadcastChannel !== 'undefined') {
+    if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
       this.coordChannel = new BroadcastChannel(`lobnan-coord-${this.workspaceId}`);
       this.coordChannel.onmessage = (ev) => {
         if (ev.data === 'REQUEST_SYNC' && this.state.isLeader) {
@@ -147,7 +147,7 @@ export class SyncCoordinator {
     }
 
     // Single-leader election using Web Locks when available
-    if (typeof navigator !== 'undefined' && (navigator as any).locks?.request) {
+    if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && (navigator as any).locks?.request) {
       this.lockAbortController = new AbortController();
       (navigator as any).locks.request(
         `lobnan_sync_leader_${this.workspaceId}`,
