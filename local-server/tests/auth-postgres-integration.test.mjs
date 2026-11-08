@@ -35,6 +35,7 @@ const fixture={
     {id:'cash-id',username:'cashier',password:'test-cashier-only',roleId:'role-cashier',
       companyId:'comp1',defaultBranchId:'b1',allowedBranchIds:['b1'],status:'active',fullName:'Worker'}
   ],
+  companies:[{id:'comp1',name:'Test Company'}],
   branches:[{id:'b1',name:'One',companyId:'comp1'},{id:'b2',name:'Two',companyId:'comp1'}],
   invoices:[{id:'inv1',invoiceNumber:'INV-0001',branchId:'b1',companyId:'comp1',totalAmount:6},
     {id:'inv2',invoiceNumber:'INV-0002',branchId:'b2',companyId:'comp1',totalAmount:7}]
