@@ -89,3 +89,15 @@ CREATE INDEX IF NOT EXISTS sync_telegram_outbox_pending_idx
  WHERE delivered_at IS NULL;
 
 ALTER TABLE sync_telegram_outbox ADD COLUMN IF NOT EXISTS next_part integer NOT NULL DEFAULT 0;
+-- Idempotent financial invoice amendments; receipt and audit linkage remain in the SAME PostgreSQL transaction.
+CREATE TABLE IF NOT EXISTS sync_invoice_revision_requests (
+ workspace text NOT NULL REFERENCES sync_workspaces(id),
+ request_id text NOT NULL,
+ invoice_id text NOT NULL,
+ request_fingerprint text NOT NULL,
+ actor_id text,
+ receipt jsonb NOT NULL,
+ approved_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace,request_id)
+);
+CREATE INDEX IF NOT EXISTS sync_invoice_revision_invoice_idx ON sync_invoice_revision_requests(workspace,invoice_id);

@@ -54,9 +54,9 @@ export function buildAtomicInvoicePosting(posting:AtomicInvoicePosting): Propose
 }
 
 export async function enqueueAtomicInvoicePosting(
-  repo:{commit(changes:ProposedChange[],commandId?:string):Promise<string>},
+  repo:{commit(changes:ProposedChange[],commandId?:string,atomicInvoiceId?:string):Promise<string>},
   posting:AtomicInvoicePosting
 ):Promise<string>{
   const changes=buildAtomicInvoicePosting(posting);
-  return repo.commit(changes,posting.commandId);
+  return repo.commit(changes,posting.commandId,posting.invoiceId);
 }

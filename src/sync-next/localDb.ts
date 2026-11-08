@@ -116,7 +116,8 @@ export class LocalSyncDb {
 
   async enqueue(
     changes: ProposedChange[],
-    commandId: string = crypto.randomUUID()
+    commandId: string = crypto.randomUUID(),
+    atomicInvoiceId?: string
   ): Promise<SyncCommand> {
     validateChanges(changes);
 
@@ -215,6 +216,7 @@ export class LocalSyncDb {
       const cmd: SyncCommand = {
         id: commandId,
         workspaceId: this.workspaceId,
+        ...(atomicInvoiceId ? { atomicInvoiceId } : {}),
         changes: versioned,
         baseRecords: safeChanges.map(change=>bases.get(recordKey(change.entity,change.id))??null),
         createdAt: Date.now(),

@@ -25,6 +25,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { CATEGORY_DEFINITIONS } from '../utils/barcodeGenerator';
 import { posSound } from '../utils/audio';
 import { PrintHeader } from './common/PrintHeader';
+import { projectBusinessStockMovements } from '../utils/stockMovementProjection';
 
 interface StockMovementModalProps {
   isOpen: boolean;
@@ -42,6 +43,7 @@ export const StockMovementModal: React.FC<StockMovementModalProps> = ({
   const {
     inventory,
     stockMovements,
+    invoices,
     adjustStock,
     settings
   } = useAccounting();
@@ -77,11 +79,18 @@ export const StockMovementModal: React.FC<StockMovementModalProps> = ({
     }
   };
 
+  // Business-facing consolidated stock movements. Correction entries remain
+  // intact in PostgreSQL's audit ledger and are never deleted.
+  const businessMovements = useMemo(() => projectBusinessStockMovements(
+    stockMovements,invoices.map(i=>({id:i.id,invoiceNumber:i.invoiceNumber,
+      date:i.date,tempInvoiceNumber:(i as any).tempInvoiceNumber}))
+  ),[stockMovements,invoices]);
+
   // Filtered movements for selected item
   const itemMovements = useMemo(() => {
     if (!selectedItem) return [];
 
-    return stockMovements
+    return businessMovements
       .filter(m => m.itemId === selectedItem.id)
       .filter(m => {
         if (movementTypeFilter === 'all') return true;
@@ -105,7 +114,7 @@ export const StockMovementModal: React.FC<StockMovementModalProps> = ({
         );
       })
       .sort((a, b) => new Date(`${b.date} ${b.time || '00:00'}`).getTime() - new Date(`${a.date} ${a.time || '00:00'}`).getTime());
-  }, [stockMovements, selectedItem, movementTypeFilter, startDate, endDate, searchNotes]);
+  }, [businessMovements, selectedItem, movementTypeFilter, startDate, endDate, searchNotes]);
 
   // Overall statistics for the selected item
   const stats = useMemo(() => {
@@ -113,7 +122,7 @@ export const StockMovementModal: React.FC<StockMovementModalProps> = ({
       return { totalIn: 0, totalOut: 0, totalAdjustments: 0, isLowStock: false };
     }
 
-    const allItemMoves = stockMovements.filter(m => m.itemId === selectedItem.id);
+    const allItemMoves = businessMovements.filter(m => m.itemId === selectedItem.id);
     const totalIn = allItemMoves
       .filter(m => m.type.startsWith('in_'))
       .reduce((sum, m) => sum + m.quantity, 0);
@@ -134,7 +143,7 @@ export const StockMovementModal: React.FC<StockMovementModalProps> = ({
       totalAdjustments,
       isLowStock
     };
-  }, [stockMovements, selectedItem]);
+  }, [businessMovements, selectedItem]);
 
   // Low stock items list across all inventory
   const lowStockItems = useMemo(() => {

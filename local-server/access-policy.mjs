@@ -111,7 +111,13 @@ export async function resolveAccess(pool,workspace,profile,initialAdminId=''){
     return true;
   }
 
-  return {profile,admin,role,can,canRead,canChange};
+  // Financial revisions use a separate server-only command, not ordinary sync.
+  function canReviseInvoice(previous,proposed){
+    if(!previous||!proposed||!can('edit')||!can('view_accounting'))return false;
+    if(!canRead('invoices',previous,previous.id))return false;
+    return branchScope(previous,'invoices')&&branchScope(proposed,'invoices');
+  }
+  return {profile,admin,role,can,canRead,canChange,canReviseInvoice};
 }
 
 export function filterSnapshot(snapshot,access){
