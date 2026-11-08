@@ -392,6 +392,85 @@ export class LocalSyncDb {
     }
   }
 
+  /** A cryptographically identified server snapshot proves the requested state
+   * was already stored. Preserve a permanent local reconciliation receipt.
+   */
+  async reconcileAlreadyConfirmed(commandId:string,authoritative:StoredRecord[],reason:string):Promise<boolean> {
+    const db=await this.dbPromise;
+    const tx=db.transaction([RECORDS,OUTBOX,RECEIPTS],'readwrite');
+    const done=completed(tx);
+    try {
+      const outbox=tx.objectStore(OUTBOX);
+      const cmd=await request(outbox.get(commandId)) as SyncCommand|undefined;
+      if(!cmd || !['conflict','rejected'].includes(cmd.status)){
+        await done;return false;
+      }
+      const other=await request(outbox.getAll()) as SyncCommand[];
+      const affected=new Set(cmd.changes.map(c=>recordKey(c.entity,c.id)));
+      if(other.some(op=>op.id!==commandId&&op.changes.some(c=>affected.has(recordKey(c.entity,c.id))))){
+        await done;return false;
+      }
+      if(authoritative.length!==cmd.changes.length || authoritative.some((r,i)=>
+        r.key!==recordKey(cmd.changes[i].entity,cmd.changes[i].id) || r.version<1)){
+        await done;return false;
+      }
+      const store=tx.objectStore(RECORDS);
+      for(const row of authoritative){
+        const previous=await request(store.get(row.key)) as StoredRecord|undefined;
+        if(!previous||previous.version<row.version)store.put(row);
+      }
+      tx.objectStore(RECEIPTS).put({id:commandId,
+        resolution:'SERVER_STATE_VERIFIED',reason,originalCommand:cmd,
+        authoritativeVersions:authoritative.map(r=>({entity:r.entity,id:r.id,version:r.version})),
+        resolvedAt:new Date().toISOString()});
+      outbox.delete(commandId);
+      await done;
+      this.changed();
+      return true;
+    }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
+  }
+
+  /** Replace a conflicting *contact-only* change by a new idempotency key,
+   * retaining the original payload in the local audit receipts store.
+   * The server will recheck version and authorization before committing.
+   */
+  async rebaseContactChange(commandId:string,authoritative:StoredRecord,
+    value:JsonObject):Promise<boolean>{
+    const db=await this.dbPromise;
+    const tx=db.transaction([RECORDS,OUTBOX,RECEIPTS],'readwrite');
+    const done=completed(tx);
+    try{
+      const outbox=tx.objectStore(OUTBOX);
+      const cmd=await request(outbox.get(commandId)) as SyncCommand|undefined;
+      if(!cmd||cmd.status!=='conflict'||cmd.changes.length!==1||
+        recordKey(cmd.changes[0].entity,cmd.changes[0].id)!==authoritative.key||
+        cmd.changes[0].expectedVersion>=authoritative.version){
+        await done;return false;
+      }
+      const cmds=await request(outbox.getAll()) as SyncCommand[];
+      if(cmds.some(op=>op.id!==commandId&&
+          op.changes.some(c=>recordKey(c.entity,c.id)===authoritative.key))){
+        await done;return false;
+      }
+      const nextId=crypto.randomUUID();
+      const next:SyncCommand={...cmd,id:nextId,
+        changes:[{entity:authoritative.entity,id:authoritative.id,
+          expectedVersion:authoritative.version,value}],
+        baseRecords:[authoritative],attempts:0,retryAt:0,status:'pending',error:undefined};
+      const records=tx.objectStore(RECORDS);
+      const previous=await request(records.get(authoritative.key)) as StoredRecord|undefined;
+      if(!previous||previous.version<authoritative.version)records.put(authoritative);
+      tx.objectStore(RECEIPTS).put({id:commandId,
+        resolution:'SAFE_CONTACT_REBASE',reason:'DISJOINT_FIELDS',
+        originalCommand:cmd,newCommandId:nextId,resolvedAt:new Date().toISOString()});
+      outbox.delete(commandId);
+      outbox.add(next);
+      await done;
+      this.changed();
+      return true;
+    }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
+  }
+
   async markError(
     commandId: string,
     status: SyncCommand['status'],
