@@ -1,56 +1,24 @@
+// Vercel hosts the static application only. PostgreSQL remains on the owner's PC.
+// Never acknowledge a financial write unless the real PostgreSQL sync service commits it.
 export default function handler(req, res) {
-  // CORS Headers
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
-  );
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
-  const url = req.url || '';
-
-  if (url.includes('/api/app-version') || url.includes('app-version')) {
+  if (req.method === 'GET' && req.url?.split('?')[0] === '/api/app-version') {
     return res.status(200).json({
       version: '1.0.0',
-      timestamp: new Date().toISOString()
+      storage: 'local-postgresql',
+      syncApi: 'external',
     });
   }
 
-  if (url.includes('/api/sync/status') || url.includes('/status')) {
-    return res.status(200).json({
-      status: 'online',
-      mode: 'Vercel Serverless Sync Engine',
-      seq: Date.now(),
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  if (url.includes('/api/sync/state') || url.includes('/state')) {
-    return res.status(200).json({
-      status: 'online',
-      message: 'State synced via Firebase Cloud',
-      data: {}
-    });
-  }
-
-  if (url.includes('/api/sync/full-sync') || url.includes('/full-sync') || url.includes('/delta') || url.includes('/push')) {
-    return res.status(200).json({
-      success: true,
-      message: 'تم استقبال وتحفظ المزامنة عبر السيرفر بنجاح',
-      seq: Date.now(),
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  return res.status(200).json({
-    status: 'online',
-    message: 'API serverless endpoint operational',
-    timestamp: new Date().toISOString()
+  // In particular, /api/sync/push, /api/sync/full-sync, and /api/sync/state
+  // must NEVER return success from this stateless function.
+  // The browser uses VITE_PUBLIC_SYNC_API_URL for the authenticated zrok API.
+  res.setHeader('Allow', 'GET');
+  return res.status(503).json({
+    ok: false,
+    code: 'POSTGRES_SYNC_API_REQUIRED',
+    message: 'خادم Vercel لا يحفظ البيانات. يجب الاتصال بخادم PostgreSQL المحلي عبر جسر HTTPS الموثق.',
   });
 }
