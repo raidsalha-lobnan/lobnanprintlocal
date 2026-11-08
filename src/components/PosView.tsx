@@ -3064,6 +3064,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setSubCustomerPhone(inv.subCustomerPhone || '');
     setInvoiceNotes(inv.notes || '');
     setPaymentNotes(inv.paymentNotes || '');
+    setRepresentative(inv.representative || '');
     if (inv.workflowStatus) setInvoiceWorkflowStatus(inv.workflowStatus);
 
     try {
