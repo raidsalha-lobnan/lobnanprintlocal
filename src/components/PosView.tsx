@@ -3076,7 +3076,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     // Stored discountTotal includes per-line discounts. Restore only the
     // invoice-level remainder or re-opening would silently double-discount.
     const appliedLineDiscounts=(inv.items||[]).reduce((sum,it)=>sum+Number(it.discount||0),0);
-    setDiscountType('fixed');
+    setDiscountType('amount');
     setOverallDiscount(Math.max(0,Number((Number(inv.discountTotal||0)-appliedLineDiscounts).toFixed(2))));
     if (inv.paymentMethod) setPaymentMethod(inv.paymentMethod);
 
