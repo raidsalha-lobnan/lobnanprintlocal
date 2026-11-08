@@ -4,6 +4,8 @@ import {verifyInvoiceRevisionBaseline} from './invoice-revision-baseline.mjs';
 import {buildVerifiedInvoiceRevisionBundle} from './invoice-revision-bundle.mjs';
 import {planFailedInvoiceEditRecovery} from './invoice-legacy-recovery.mjs';
 import {isUnchangedPosInvoice,descriptionOnlyInvoiceAmendment} from './invoice-revision-noop.mjs';
+import {isPhysical,isDelivery,minor,invoiceAmounts} from './invoice-revision-ledger.mjs';
+import {validateProposedInvoice} from './invoice-revision-arithmetic.mjs';
 
 /**
  * Authenticated server-side invoice correction. There are no client-provided
@@ -77,45 +79,15 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     [workspace,request.commandId,invoice.id,hash,actorId,JSON.stringify(receipt)]);
    return receipt;
   }
-  // These cases need a distinct posting algorithm. Do not silently alter
-  // treasury, customer, tax or warehouse with only sales/COGS adjustments.
-  const immutableForRevision=['customerId','employeeId','subCustomerId','warehouse','branchId',
-    'currency','exchangeRate','paymentMethod','paidAmount','basePaidAmount',
-    'cashPaidAmount','bankPaidAmount','cashTreasuryCode','bankTreasuryCode',
-    'discountTotal','taxRate','taxAmount','additionalCharges','date'];
-  for(const field of immutableForRevision){
+  // The date and warehouse of an already-posted movement cannot be
+  // silently rewritten: stock and settlement documents retain their dates.
+  for(const field of ['date','warehouse','currency','exchangeRate']){
    if(JSON.stringify(invoice[field]??null)!==JSON.stringify(proposed[field]??null))
-    throw new InputError('INVOICE_REVISION_COMPLEX_FIELD_REQUIRES_APPROVED_WORKFLOW',422,{field});
+    throw new InputError('INVOICE_REVISION_REQUIRES_DOCUMENT_TRANSFER',422,{field});
   }
-  // Validate arithmetic for the supported zero-discount credit-only sale.
-  if(Number(invoice.paidAmount||0)!==0||
-     Number(proposed.paidAmount||0)!==0||
-     invoice.paymentMethod!=='credit'||
-     Number(invoice.discountTotal||0)!==0||
-     Number(proposed.discountTotal||0)!==0||
-     Number(invoice.taxAmount||0)!==0||
-     Number(proposed.taxAmount||0)!==0||
-     Number(invoice.additionalCharges||0)!==0||
-     Number(proposed.additionalCharges||0)!==0)
-   throw new InputError('INVOICE_REVISION_COMPLEX_PAYMENT_OR_TAX',422);
-  const minor=value=>{
-   const num=Number(value);
-   if(!Number.isFinite(num)||Math.abs(num*100-Math.round(num*100))>0.00001)
-    throw new InputError('INVOICE_REVISION_INVALID_AMOUNT',422);
-   return Math.round(num*100);
-  };
-  let itemSum=0;
-  for(const it of proposed.items||[]){
-   const qty=Number(it.quantity),price=Number(it.unitPrice);
-   if(!Number.isFinite(qty)||qty<=0||!Number.isFinite(price)||price<0||
-      minor(it.total)!==minor(qty*price)||
-      Number(it.tax||0)!==0||Number(it.discount||0)!==0)
-    throw new InputError('INVOICE_REVISION_INVALID_LINE_TOTAL',422);
-   itemSum+=minor(it.total);
-  }
-  if(!Array.isArray(proposed.items)||!proposed.items.length||
-     itemSum!==minor(proposed.subtotal)||itemSum!==minor(proposed.totalAmount))
-   throw new InputError('INVOICE_REVISION_TOTAL_INCONSISTENT',422);
+  try{validateProposedInvoice(proposed);}
+  catch(error){throw new InputError('INVOICE_REVISION_INVALID_ARITHMETIC',422,
+   {reason:String(error.message)});}
   const journalRows=(await client.query(
    "SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='journalEntries' AND value->>'referenceId'=$2",
    [workspace,invoice.id])).rows;
@@ -142,44 +114,80 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
      party:{...partyRow.value,id:partyRow.id},partyEvents:eventRows
     });
     plan=legacyRecovery.plan;
+    // Evidence-based legacy recovery only. Never repeat the already-applied
+    // customer delta or silently alter cash/bank receipts.
+    plan.accountDeltas={'1201':plan.totalDeltaMinor,'4101':-plan.totalDeltaMinor};
+    plan.paymentDeltas={};
    }catch(recoveryError){
     throw new InputError('INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION',409,
      {reason:String(error.message),legacyReason:String(recoveryError.message)});
    }
   }
-  // Employee receivables are projected by the employee statement from invoice
-  // IDs, not stored in the customer/supplier 'parties' balance table.
-  // A posted invoice to an employee must never create a fictitious party row.
-  const employeeSale=invoice.counterpartyType==='employee' ||
-    (invoice.employeeId && invoice.employeeId===invoice.customerId) ||
-    (!invoice.counterpartyType && /^emp-/.test(invoice.customerId||''));
-  if(employeeSale){
-   const target=(await client.query(
-    "SELECT record_id FROM sync_records WHERE workspace=$1 AND entity='employees' AND record_id=$2",
-    [workspace,invoice.customerId])).rows[0];
-   if(!target)throw new InputError('INVOICE_REVISION_EMPLOYEE_NOT_FOUND',409);
-   if(proposed.counterpartyType && proposed.counterpartyType!=='employee')
-    throw new InputError('INVOICE_REVISION_TARGET_TYPE_IMMUTABLE',422);
-   // Both sales and revisions continue to post to the main A/R control
-   // account; the employee subledger is derived from the invoice itself.
-   plan.customerBalanceChanges=[];
-  } else if(invoice.counterpartyType && proposed.counterpartyType!==invoice.counterpartyType){
-   throw new InputError('INVOICE_REVISION_TARGET_TYPE_IMMUTABLE',422);
+  const counterpartyType=inv=>inv.counterpartyType||
+   ((inv.employeeId&&inv.employeeId===inv.customerId)||
+    /^emp-/.test(inv.customerId||'')?'employee':'customer');
+  const originalType=counterpartyType(invoice),nextType=counterpartyType(proposed);
+  // Employee receivables are computed by the employee subledger. Never
+  // create fictitious employee rows inside 'parties'.
+  if(!legacyRecovery){
+   const oldParty=invoice.subCustomerId||invoice.customerId;
+   const newParty=proposed.subCustomerId||proposed.customerId;
+   const contributions=new Map();
+   const apply=(id,delta)=>{
+    if(!id||!delta)return;
+    contributions.set(id,(contributions.get(id)||0)+delta);
+   };
+   if(originalType!=='employee')apply(oldParty,-invoiceAmounts(invoice).outstanding);
+   if(nextType!=='employee')apply(newParty,invoiceAmounts(proposed).outstanding);
+   plan.customerBalanceChanges=[...contributions]
+    .filter(([,amountMinor])=>amountMinor!==0)
+    .map(([partyId,amountMinor])=>({partyId,amountMinor}));
   }
   const partyIds=[...new Set(plan.customerBalanceChanges.map(x=>x.partyId))];
-  const itemIds=[...new Set(plan.stockDeltas.map(x=>x.itemId))];
+  const itemIds=[...new Set([
+   ...plan.stockDeltas.map(x=>x.itemId),
+   ...[...(proposed.items||[]),...(invoice.items||[])].filter(x=>!isDelivery(x))
+    .map(x=>x.itemId).filter(Boolean)
+  ])];
   const partyRecords=partyIds.length?(await client.query(
    "SELECT record_id AS id,version,value FROM sync_records WHERE workspace=$1 AND entity='parties' AND record_id=ANY($2::text[])",
    [workspace,partyIds])).rows:[];
   const inventoryRecords=itemIds.length?(await client.query(
    "SELECT record_id AS id,version,value FROM sync_records WHERE workspace=$1 AND entity='inventory' AND record_id=ANY($2::text[])",
    [workspace,itemIds])).rows:[];
+  const inventoryById=new Map(inventoryRecords.map(row=>[row.id,row]));
+  for(const item of proposed.items){
+   if(isDelivery(item))continue;
+   const inventory=inventoryById.get(item.itemId);
+   if(!inventory&&isPhysical(item))
+    throw new InputError('INVOICE_REVISION_INVENTORY_ITEM_NOT_FOUND',409,{itemId:item.itemId});
+   if(inventory&&isPhysical(item)!==isPhysical(inventory.value))
+    throw new InputError('INVOICE_REVISION_ITEM_STOCK_CLASSIFICATION_MISMATCH',422,
+     {itemId:item.itemId});
+  }
+  if(!legacyRecovery){
+   for(const id of plan.unpricedPhysicalIds||[]){
+    const stock=inventoryById.get(id)?.value;
+    const price=Number(stock?.purchasePrice);
+    if(!stock||!Number.isFinite(price)||price<0)
+     throw new InputError('INVOICE_REVISION_NEW_ITEM_COST_NOT_VERIFIED',409,{itemId:id});
+    plan.costByItem[id]=price;
+   }
+   plan.expectedNextCOGSMinor=proposed.items.filter(isPhysical).reduce(
+    (sum,item)=>sum+minor(Number(item.quantity)*plan.costByItem[item.itemId]),0);
+  }
+  const treasuryCodes=Object.keys(plan.paymentDeltas||{}).filter(
+   code=>plan.paymentDeltas[code]!==0);
+  const treasuryRecords=treasuryCodes.length?(await client.query(
+   "SELECT record_id AS id,version,value FROM sync_records WHERE workspace=$1 AND entity='treasuries' AND value->>'accountCode'=ANY($2::text[])",
+   [workspace,treasuryCodes])).rows:[];
   let command;
   try{
    command=buildVerifiedInvoiceRevisionBundle({
     invoice,proposed,invoiceVersion:actual,plan,
     partyRecords:partyRecords.map(r=>({...r,version:Number(r.version)})),
     inventoryRecords:inventoryRecords.map(r=>({...r,version:Number(r.version)})),
+    treasuryRecords:treasuryRecords.map(r=>({...r,version:Number(r.version)})),
     commandId:request.commandId,now:new Date().toISOString()
    });
   }catch(error){throw new InputError('INVOICE_REVISION_UNVERIFIED_ACCOUNTING_STATE',409,{reason:String(error.message)})}
