@@ -42,3 +42,13 @@ test('strip private fields recursively, preserve accounting amounts and checksum
     {id:'i',items:[{value:100}]});
   assert.equal(fileChecksum(Buffer.from('abc')).length,64);
 });
+
+test('same user may have username equal to their own email; cross-account aliases stay rejected',()=>{
+  const self=fixture();
+  self.users[0].email='owner';
+  assert.equal(prepareLegacySnapshot(self).users.length,1);
+  const cross=fixture();
+  cross.users.push({id:'u2',username:'other',email:'owner',password:'SECOND_PRIVATE_PASSWORD',
+    roleId:'role-admin',companyId:'c1',allowedBranchIds:['*'],status:'active'});
+  assert.throws(()=>prepareLegacySnapshot(cross),/AMBIGUOUS_USERNAME_EMAIL/);
+});
