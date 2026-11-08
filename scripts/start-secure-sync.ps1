@@ -15,7 +15,7 @@ $logdir=Join-Path $pgRoot 'logs'
 if(!(Test-Path $passwordFile) -or !(Test-Path $pgctl) -or !(Test-Path $cluster)){
   throw 'PostgreSQL must be prepared on D: first, using scripts/prepare-postgres-windows.ps1'
 }
-if(!(Test-Path $server))throw 'Local API source file missing.'
+if(!(Test-Path $server)){throw 'Local API source file missing.'}
 if(!(Test-Path (Join-Path $root 'local-server\node_modules\pg'))){
   throw 'Install local-server dependencies first with npm.cmd install --prefix <project>\local-server'
 }
@@ -23,7 +23,7 @@ New-Item -ItemType Directory -Path $logdir -Force|Out-Null
 & $pgctl -D $cluster status | Out-Null
 if($LASTEXITCODE -ne 0){
   & $pgctl -D $cluster -l (Join-Path $pgRoot 'postgres.log') -o '-h 127.0.0.1 -p 5432' -w start
-  if($LASTEXITCODE -ne 0)throw 'Cannot start local PostgreSQL.'
+  if($LASTEXITCODE -ne 0){throw 'Cannot start local PostgreSQL.'}
 }
 $encryptedText=(Get-Content -LiteralPath $passwordFile -Raw).Trim()
 $secure=ConvertTo-SecureString -String $encryptedText
@@ -43,11 +43,11 @@ try{
   $stdout=Join-Path $logdir 'sync-api.stdout.log'
   $stderr=Join-Path $logdir 'sync-api.stderr.log'
   $process=Start-Process -FilePath 'node.exe' -ArgumentList @('"' + $server + '"') -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-  if(!$process)throw 'Unable to start Node server'
+  if(!$process){throw 'Unable to start Node server'}
   Start-Sleep -Seconds 3
   try{
     $response=Invoke-RestMethod -Uri 'http://127.0.0.1:4577/api/v1/health' -TimeoutSec 5
-    if($response.authMode -ne 'users')throw 'Refusing legacy shared-device token mode.'
+    if($response.authMode -ne 'users'){throw 'Refusing legacy shared-device token mode.'}
     Write-Host 'SECURE_API_LOCAL_ONLY_READY: 127.0.0.1:4577' -ForegroundColor Green
   }catch{
     throw 'API health check failed. Inspect D:\LobnanData\logs\sync-api.stderr.log'
