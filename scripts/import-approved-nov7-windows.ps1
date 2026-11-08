@@ -24,7 +24,7 @@ try{
  $queries="SELECT (SELECT COUNT(*) FROM sync_records WHERE workspace='lobnan_main'),(SELECT COUNT(*) FROM sync_auth_users WHERE workspace='lobnan_main'),(SELECT COUNT(*) FROM sync_commands WHERE workspace='lobnan_main'),(SELECT COUNT(*) FROM sync_events WHERE workspace='lobnan_main')"
  $before=(& $psql -X -w -h 127.0.0.1 -p 5432 -U lobnan_pg_admin -d lobnan_main -tAc $queries)
  if($LASTEXITCODE -ne 0){throw 'CANNOT_VERIFY_MAIN_DATABASE'}
- $numbers=@(($before -join '').Trim().Split('|') | ForEach-Object { [long]$_ }))
+ $numbers=@(($before -join '').Trim().Split('|') | ForEach-Object { [long]$_ })
  if($numbers.Count -ne 4 -or @($numbers | Where-Object {$_ -ne 0}).Count -ne 0){
   throw ('REFUSING_NONEMPTY_ACCOUNTING_DATABASE: '+($numbers -join '|'))
  }
@@ -55,7 +55,7 @@ try{
  } finally {Pop-Location}
  $after=(& $psql -X -w -h 127.0.0.1 -p 5432 -U lobnan_pg_admin -d lobnan_main -tAc "SELECT (SELECT COUNT(*) FROM sync_records WHERE workspace='lobnan_main'),(SELECT COUNT(*) FROM sync_records WHERE workspace='lobnan_main' AND entity='invoices'),(SELECT COUNT(*) FROM sync_auth_users WHERE workspace='lobnan_main'),(SELECT COUNT(*) FROM sync_records WHERE workspace='lobnan_main' AND entity='users' AND value ? 'password')")
  if($LASTEXITCODE -ne 0){throw 'IMPORT_VERIFY_QUERY_FAILED'}
- $values=@(($after -join '').Trim().Split('|') | ForEach-Object {[int]$_}))
+ $values=@(($after -join '').Trim().Split('|') | ForEach-Object {[int]$_})
  if($values.Count -ne 4 -or $values[0] -ne 679 -or $values[1] -ne 66 -or $values[2] -ne 5 -or $values[3] -ne 0){
   throw ('IMPORT_COUNTS_MISMATCH_REVIEW_REQUIRED: '+($values -join '|'))
  }
