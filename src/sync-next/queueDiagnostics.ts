@@ -1,4 +1,5 @@
 import type {StoredRecord,SyncCommand} from './types';
+import {isRedundantRejectedInvoiceResubmit} from './invoiceEdits';
 export type ChangeComparison={
   entity:string;
   id:string;
@@ -12,6 +13,7 @@ export type QueueComparison={
   status:string;
   changes:ChangeComparison[];
   allIdentical:boolean;
+  redundantInvoiceResubmit:boolean;
 };
 function canonical(value:unknown):string {
   if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
@@ -41,7 +43,16 @@ export function compareQueueWithAuthoritativeRecords(commands:SyncCommand[],reco
         serverVersion:remote?.version??null,status,
         differentFields:status==='different'?fields(change.value,remote?.value):[]};
     });
+    const redundantInvoiceResubmit=
+      cmd.status==='rejected' && /ENTITY_PERMISSION_DENIED/.test(cmd.error||'') &&
+      cmd.changes.length===1 && cmd.changes[0].entity==='invoices' &&
+      !!index.get('invoices\\u001f'+cmd.changes[0].id) &&
+      cmd.changes[0].expectedVersion===index.get('invoices\\u001f'+cmd.changes[0].id)!.version &&
+      isRedundantRejectedInvoiceResubmit(
+        index.get('invoices\\u001f'+cmd.changes[0].id)!.value as Record<string,any>,
+        cmd.changes[0].value as Record<string,any>);
     return {commandId:cmd.id,status:cmd.status,changes,
-      allIdentical:changes.length>0&&changes.every(c=>c.status==='identical')};
+      allIdentical:changes.length>0&&changes.every(c=>c.status==='identical'),
+      redundantInvoiceResubmit};
   });
 }
