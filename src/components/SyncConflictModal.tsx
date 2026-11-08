@@ -14,6 +14,7 @@ import {
   Layers
 } from 'lucide-react';
 import { SyncCommand } from '../sync-next/types';
+import type {QueueComparison} from '../sync-next/queueDiagnostics';
 import { assessLocalStorageHealth } from '../sync-next/storageHealth';
 import { useAccounting } from '../context/AccountingContext';
 import firebaseConfig from '../../firebase-applet-config.example.json';
@@ -27,6 +28,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
   const { unifiedRepository, isOnline, invoices } = useAccounting();
   const [conflicts, setConflicts] = useState<SyncCommand[]>([]);
   const [pendingCommands, setPendingCommands] = useState<SyncCommand[]>([]);
+  const [authoritativeComparison,setAuthoritativeComparison]=useState<QueueComparison[]|null>(null);
   const [selectedCommand, setSelectedCommand] = useState<SyncCommand | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -60,6 +62,47 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
     }
   }, [isOpen, unifiedRepository]);
 
+  const inspectAgainstPostgres = async () => {
+    if (!unifiedRepository) return;
+    setIsLoading(true);
+    setFeedback(null);
+    try {
+      const report=await unifiedRepository.inspectPendingAgainstServer();
+      setAuthoritativeComparison(report);
+      const identical=report.reduce((n,c)=>n+c.changes.filter(v=>v.status==='identical').length,0);
+      const different=report.reduce((n,c)=>n+c.changes.filter(v=>v.status==='different').length,0);
+      const absent=report.reduce((n,c)=>n+c.changes.filter(v=>v.status==='absent').length,0);
+      setFeedback('مقارنة PostgreSQL للقراءة فقط: '+identical+' سجل مطابق، '+different+' سجل مختلف، '+absent+' سجل غير موجود على الخادم. لم تُحذف أو تُرسل أي عملية.');
+    } catch(err:any) {
+      setFeedback('تعذر فحص النسخة المعتمدة من PostgreSQL: '+(err?.message||'خطأ غير معروف'));
+    } finally {setIsLoading(false);}
+  };
+
+  const saveEmergencyQueueCopy = async () => {
+    if(!unifiedRepository)return;
+    setIsLoading(true);
+    try {
+      const queue=await unifiedRepository.getLocalDb().pending();
+      const data=JSON.stringify({
+        kind:'LOBNA_PENDING_OUTBOX_EMERGENCY_BACKUP',savedAt:new Date().toISOString(),
+        warning:'PRIVATE ACCOUNTING DATA. Keep locally in a restricted encrypted folder. Never upload to a public site.',
+        queue
+      },null,2);
+      const blob=new Blob([data],{type:'application/json'});
+      const url=URL.createObjectURL(blob);
+      const link=document.createElement('a');
+      link.href=url;
+      link.download='lobnan-pending-queue-'+new Date().toISOString().slice(0,10)+'.json';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+      setFeedback('تم إعداد تنزيل نسخة إنقاذ خاصة من الطابور. يحتوي الملف بيانات حقيقية؛ لا تشاركه أو ترفعه إلى مستودع عام.');
+    } catch(err:any) {
+      setFeedback('لم تنجح نسخة الإنقاذ: '+(err?.message||'خطأ غير معروف'));
+    } finally {setIsLoading(false);}
+  };
+
   const handleSearchDiagnostic = async () => {
     if (!searchQuery.trim() || !unifiedRepository) return;
     setIsLoading(true);
@@ -91,7 +134,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
     setFeedback(null);
     try {
       await unifiedRepository.retryCommand(commandId);
-      setFeedback('تمت إعادة محاولة الإرسال لنفس الإصدار المعلق دون تجاوز التعارض.');
+      setFeedback('أُرسلت محاولة مجدولة؛ إذا اختلف إصدار الخادم تبقى العملية معلقة للمراجعة.');
       await loadData();
     } catch (err: any) {
       setFeedback(`فشلت إعادة المحاولة: ${err?.message || 'خطأ غير معروف'}`);
@@ -116,22 +159,6 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
     }
   };
 
-  const handleClearAllConflicts = async () => {
-    if (!unifiedRepository) return;
-    if (!window.confirm('هل أنت متأكد من رغبتك في تنظيف وتعطيل كافة التعارضات العالقة واستئناف الحفظ الفوري؟')) return;
-    setIsLoading(true);
-    setFeedback(null);
-    try {
-      await (unifiedRepository as any).clearAllConflicts();
-      setFeedback('تم تنظيف وتعطيل كافة التعارضات العالقة واستئناف الحفظ الفوري بنجاح تام 🟢');
-      setSelectedCommand(null);
-      await loadData();
-    } catch (err: any) {
-      setFeedback(`فشل التنظيف: ${err?.message || 'خطأ غير معروف'}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleDiscard = async (commandId: string) => {
     if (!unifiedRepository) return;
@@ -275,16 +302,36 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                     <AlertTriangle className="w-4 h-4 text-amber-400" />
                     قائمة العمليات التي تتطلب مراجعة
                   </h3>
-                  {conflicts.length > 0 && (
-                    <button
-                      onClick={handleClearAllConflicts}
-                      disabled={isLoading}
-                      className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-xs text-white font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
-                      title="تنظيف وتعطيل كافة التعارضات العالقة واستئناف الحفظ الفوري"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>تنظيف وتعطيل كافة التعارضات واستئناف الحفظ الفوري</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={inspectAgainstPostgres} disabled={isLoading}
+                      className="px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-xs text-white font-bold disabled:opacity-50">
+                      مقارنة الطابور مع PostgreSQL (دون تعديل)
                     </button>
+                    <button type="button" onClick={saveEmergencyQueueCopy} disabled={isLoading}
+                      className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs text-white font-bold disabled:opacity-50">
+                      حفظ نسخة إنقاذ خاصة للطابور
+                    </button>
+                  </div>
+                  {authoritativeComparison && (
+                    <div className="w-full text-xs p-3 rounded-lg bg-slate-950 border border-slate-700 space-y-2">
+                      {authoritativeComparison.map(cmd=>(
+                        <div key={cmd.commandId} className="border-b border-slate-800 pb-2">
+                          <div className="font-mono text-slate-300 break-all">العملية {cmd.commandId} — {cmd.changes.length} سجل</div>
+                          <div className="text-slate-300">
+                            مطابق: {cmd.changes.filter(c=>c.status==='identical').length}؛
+                            مختلف: {cmd.changes.filter(c=>c.status==='different').length}؛
+                            غير موجود على الخادم: {cmd.changes.filter(c=>c.status==='absent').length}
+                          </div>
+                          {cmd.changes.filter(c=>c.status==='different').slice(0,10).map(c=>(
+                            <div key={c.entity+'-'+c.id} className="text-amber-300 break-all">
+                              {c.entity}/{c.id} — محلي {c.expectedVersion}، خادم {c.serverVersion}؛
+                              حقول مختلفة: {c.differentFields.join('، ')||'غير محدد'}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                      <div className="text-amber-200">هذا تقرير مقارنة فقط. لن تُزال أي عملية أو تُستبدل بيانات الخادم تلقائيًا.</div>
+                    </div>
                   )}
                 </div>
 
@@ -293,7 +340,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                     <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-2 opacity-80" />
                     <h4 className="text-sm font-bold text-slate-200">لا توجد أي تعارضات معلقة</h4>
                     <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                      جميع القيود والفواتير والسجلات متطابقة ومتزامنة مع سحابة Firebase بنجاح تام وفق النواة المحاسبية الآمنة.
+                      لا توجد عمليات تعارض مسجلة محليًا. تحقق من حالة المزامنة على PostgreSQL قبل اعتبار كافة البيانات معتمدة.
                     </p>
                   </div>
                 ) : (
@@ -347,7 +394,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                               className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold transition flex items-center gap-1.5 disabled:opacity-50"
                             >
                               <RefreshCw className="w-3.5 h-3.5" />
-                              <span>إعادة المحاولة مع التحديث</span>
+                              <span>إعادة محاولة دون تجاوز التعارض</span>
                             </button>
 
                             <button
