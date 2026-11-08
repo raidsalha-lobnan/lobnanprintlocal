@@ -130,6 +130,28 @@ test('isolated PostgreSQL server enforces login, branch ACL, no secret leakage, 
   assert.equal(synced.data.events.length,3);
   assert.ok(synced.data.events.every(e=>e.changes.every(c=>c.value?.branchId==='b1')));
 
+  // Server-side admin directory must reject cashiers and issue revocable accounts.
+  const extraProfile={username:'integration-new-user',fullName:'Integration User',
+    roleId:'role-cashier',companyId:'comp1',defaultBranchId:'b1',
+    allowedBranchIds:['b1'],status:'active'};
+  const directoryRequest={action:'user.upsert',requestId:'integration-user-create-0001',
+    profile:extraProfile,password:'Integration-Only-Strong-Password'};
+  const denied=await api('/api/v1/admin/directory',{token:worker.data.token,
+    method:'POST',body:directoryRequest});
+  assert.equal(denied.status,403);
+  const created=await api('/api/v1/admin/directory',{token:admin.data.token,
+    method:'POST',body:directoryRequest});
+  assert.equal(created.status,200,JSON.stringify(created.data));
+  assert.equal(Object.hasOwn(created.data.value,'password'),false);
+  const duplicate=await api('/api/v1/admin/directory',{token:admin.data.token,
+    method:'POST',body:directoryRequest});
+  assert.equal(duplicate.data.id,created.data.id);
+  const disabled=await api('/api/v1/admin/directory',{token:admin.data.token,
+    method:'POST',body:{action:'user.disable',requestId:'integration-user-disable-0001',id:created.data.id}});
+  assert.equal(disabled.status,200);
+  const loginDisabled=await api('/api/v1/auth/login',{method:'POST',
+    body:{identifier:extraProfile.username,password:directoryRequest.password}});
+  assert.equal(loginDisabled.status,401);
   const o=await fetch(url+'/api/v1/bootstrap',{method:'OPTIONS',headers:{
     Origin:origin,'Access-Control-Request-Headers':'authorization,skip_zrok_interstitial',
     'Access-Control-Request-Method':'GET'
