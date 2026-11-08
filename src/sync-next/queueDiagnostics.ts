@@ -46,10 +46,10 @@ export function compareQueueWithAuthoritativeRecords(commands:SyncCommand[],reco
     const redundantInvoiceResubmit=
       cmd.status==='rejected' && /ENTITY_PERMISSION_DENIED/.test(cmd.error||'') &&
       cmd.changes.length===1 && cmd.changes[0].entity==='invoices' &&
-      !!index.get('invoices\\u001f'+cmd.changes[0].id) &&
-      cmd.changes[0].expectedVersion===index.get('invoices\\u001f'+cmd.changes[0].id)!.version &&
+      !!index.get('invoices\u001f'+cmd.changes[0].id) &&
+      cmd.changes[0].expectedVersion===index.get('invoices\u001f'+cmd.changes[0].id)!.version &&
       isRedundantRejectedInvoiceResubmit(
-        index.get('invoices\\u001f'+cmd.changes[0].id)!.value as Record<string,any>,
+        index.get('invoices\u001f'+cmd.changes[0].id)!.value as Record<string,any>,
         cmd.changes[0].value as Record<string,any>);
     return {commandId:cmd.id,status:cmd.status,changes,
       allIdentical:changes.length>0&&changes.every(c=>c.status==='identical'),
