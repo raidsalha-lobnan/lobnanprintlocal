@@ -45,7 +45,10 @@ export async function adminDirectoryCommand(pool,workspace,access,payload){
         const admins=await client.query(`SELECT count(*)::int AS total FROM sync_auth_users u
           JOIN sync_records r ON r.workspace=u.workspace AND r.entity='roles' AND r.record_id=u.role_id
           WHERE u.workspace=$1 AND u.status='active' AND r.value->>'code' IN ('SYS_ADMIN','GEN_MGR')`,[workspace]);
-        if(['SYS_ADMIN','GEN_MGR'].includes(previous.roleName) && admins.rows[0].total<=1)deny('LAST_ADMIN_REQUIRED',403);
+        const existingRole=await client.query("SELECT value->>'code' AS code FROM sync_records WHERE workspace=$1 AND entity='roles' AND record_id=$2",
+          [workspace,previous.roleId]);
+        if(['SYS_ADMIN','GEN_MGR'].includes(existingRole.rows[0]?.code) && admins.rows[0].total<=1)
+          deny('LAST_ADMIN_REQUIRED',403);
         value={...previous,status:'inactive',updatedAt:new Date().toISOString()};
         await client.query("UPDATE sync_auth_users SET status='inactive' WHERE workspace=$1 AND user_id=$2",[workspace,id]);
         await client.query("DELETE FROM sync_auth_sessions WHERE workspace=$1 AND user_id=$2",[workspace,id]);
