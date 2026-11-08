@@ -153,6 +153,20 @@ test('isolated PostgreSQL server enforces login, branch ACL, no secret leakage, 
   const loginDisabled=await api('/api/v1/auth/login',{method:'POST',
     body:{identifier:extraProfile.username,password:directoryRequest.password}});
   assert.equal(loginDisabled.status,401);
+  const roleCommand={action:'role.upsert',requestId:'integration-role-create-0001',
+    profile:{code:'TEMP_AUDITOR',name:'Temporary Auditor',description:'Integration role',
+      permissions:{view:true,add:false,edit:false,view_reports:true}}};
+  const roleSaved=await api('/api/v1/admin/directory',{token:admin.data.token,
+    method:'POST',body:roleCommand});
+  assert.equal(roleSaved.status,200,JSON.stringify(roleSaved.data));
+  assert.equal(roleSaved.data.entity,'roles');
+  const roleRemoved=await api('/api/v1/admin/directory',{token:admin.data.token,
+    method:'POST',body:{action:'role.delete',requestId:'integration-role-delete-0001',id:roleSaved.data.id}});
+  assert.equal(roleRemoved.status,200,JSON.stringify(roleRemoved.data));
+  assert.equal(roleRemoved.data.value,null);
+  const unauthorizedRole=await api('/api/v1/admin/directory',{token:worker.data.token,
+    method:'POST',body:roleCommand});
+  assert.equal(unauthorizedRole.status,403);
   const o=await fetch(url+'/api/v1/bootstrap',{method:'OPTIONS',headers:{
     Origin:origin,'Access-Control-Request-Headers':'authorization,skip_zrok_interstitial',
     'Access-Control-Request-Method':'GET'
