@@ -10,6 +10,7 @@ import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
 import {stripPrivateFields} from './legacy-snapshot.mjs';
 import {createAccessVerifier} from './access-verifier.mjs';
+import {adminDirectoryCommand} from './admin-directory.mjs';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 const PORT=Number(process.env.SYNC_PORT||4577);
 const TOKEN=process.env.SYNC_DEVICE_TOKEN||'';
@@ -107,6 +108,11 @@ const srv=http.createServer(async(req,res)=>{
     if(STRICT_AUTH&&!user)return json(res,401,{code:'LOGIN_REQUIRED'},cors);
     const access=STRICT_AUTH?await resolveAccess(pool,workspace,user,ADMIN_USER_ID):null;
     if(!STRICT_AUTH&&!safeEq(bearer,TOKEN))return json(res,401,{code:'UNAUTHORIZED'},cors);
+    if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/admin/directory'){
+      const command=await parseBody(req,32768);
+      const receipt=await adminDirectoryCommand(pool,workspace,access,command);
+      return json(res,200,receipt,cors);
+    }
     if(STRICT_AUTH && req.method==='GET' && url.pathname==='/api/v1/auth/me')
       return json(res,200,{user},cors);
     if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/auth/logout'){
