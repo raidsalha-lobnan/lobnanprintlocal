@@ -62,8 +62,18 @@ export function prepareLegacySnapshot(snapshot){
       throw Error('DUPLICATE_LEGACY_ACCOUNT');
     usernames.add(name);userIds.add(u.id);if(email)emails.add(email);
   }
-  if([...usernames].some(name=>emails.has(name)))
-    throw Error('AMBIGUOUS_USERNAME_EMAIL');
+  // A username identical to the SAME account's email is legitimate.
+  // Reject only aliases that could authenticate two different user IDs.
+  const loginOwners=new Map();
+  for(const u of users){
+    for(const alias of [u.username,u.email]){
+      const normalized=String(alias||'').trim().toLowerCase();
+      if(!normalized)continue;
+      if(loginOwners.has(normalized) && loginOwners.get(normalized)!==u.id)
+        throw Error('AMBIGUOUS_USERNAME_EMAIL');
+      loginOwners.set(normalized,u.id);
+    }
+  }
   const invoiceNumbers=new Set();
   let maxInvoice=0;
   for(const invoice of Array.isArray(snapshot.invoices)?snapshot.invoices:[]){
