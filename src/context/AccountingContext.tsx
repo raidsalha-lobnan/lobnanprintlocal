@@ -6,6 +6,7 @@ import { createUnifiedDataLayer } from '../sync-next/boot';
 import { secureLoginEnabled } from '../services/secureAuth';
 import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
+import { LocalHttpSyncTransport, getLocalSyncConfig } from '../sync-next/httpTransport';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
 import { ProposedChange, EntityName, JsonObject } from '../sync-next/types';
 import {
@@ -7583,9 +7584,75 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     notes?: string,
     extraOptions?: Parameters<typeof createPosSale>[5]
   ): Promise<{ success: boolean; invoice?: Invoice; error?: string; isOffline?: boolean; isBusy?: boolean }> => {
-    // Validation of edits can reject posted financial changes before enqueue.
-    // Catch those errors here rather than leaving POS indefinitely busy.
+    // The new centrally verified revision protocol is opt-in. Until warehouse
+    // balance reconciliation is complete, production keeps its fail-closed
+    // behavior rather than allowing unbalanced monetary changes.
+    if (secureLoginEnabled() && extraOptions?.editingInvoiceId &&
+        import.meta.env.VITE_ENABLE_VERIFIED_INVOICE_REVISIONS === 'true') {
+      try {
+        const repo=unifiedRepoRef.current;
+        if(!repo)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
+        const visible=(await repo.all('invoices')).find(row=>row.id===extraOptions.editingInvoiceId);
+        if(!visible||!visible.value||visible.version<1)
+          throw new Error('INVOICE_AUTHORITATIVE_BASELINE_NOT_FOUND');
+        if(visible.pending)
+          throw new Error('INVOICE_HAS_PENDING_LOCAL_CHANGES_REVIEW_FIRST');
+        const original=visible.value as unknown as Invoice;
+        const draft=preparePosInvoiceDraft(items,customerName,paymentMethod,
+          customerId,notes,extraOptions);
+        const currencyRate=Number(extraOptions.exchangeRate||1);
+        const proposed:Invoice={
+          ...original,
+          ...draft,
+          id:original.id,
+          invoiceNumber:original.invoiceNumber,
+          date:extraOptions.date||original.date,
+          notes,
+          items:draft.items.map((it,index)=>({
+            ...original.items[index],
+            ...it,
+            id:(original.items[index] as any)?.id||`line-${original.id}-${index}`,
+            category:items[index]?.item?.category||original.items[index]?.category,
+            itemId:items[index]?.item?.id||it.itemId
+          })),
+          baseTotalAmount:Number((draft.totalAmount*currencyRate).toFixed(2)),
+          basePaidAmount:Number((draft.paidAmount*currencyRate).toFixed(2)),
+          isAccountingPosted:true,
+          statusHistory:original.statusHistory,
+          postedAt:original.postedAt,
+          createdAt:original.createdAt,
+          updatedAt:original.updatedAt
+        } as Invoice;
+        const stableKey='lobnan_verified_invoice_revision_'+original.id;
+        const signature=JSON.stringify({version:visible.version,proposed});
+        let pending:{signature:string;commandId:string}|null=null;
+        try{pending=JSON.parse(localStorage.getItem(stableKey)||'null');}catch{}
+        const commandId=pending?.signature===signature&&pending.commandId
+          ?pending.commandId:crypto.randomUUID();
+        localStorage.setItem(stableKey,JSON.stringify({signature,commandId}));
+        const cfg=getLocalSyncConfig();
+        const transport=new LocalHttpSyncTransport(cfg.url,cfg.token,cfg.workspace);
+        const result=await transport.reviseInvoice({
+          commandId,invoiceId:original.id,expectedVersion:visible.version,
+          proposed:proposed as unknown as Record<string,unknown>
+        });
+        await repo.getLocalDb().ack(result.commandId,result.changes);
+        repo.requestSync();
+        localStorage.removeItem(stableKey);
+        const confirmed=result.changes.find(row=>row.entity==='invoices'&&row.id===original.id);
+        if(!confirmed?.value)throw new Error('CENTRAL_INVOICE_ACK_MISSING');
+        const authoritative=confirmed.value as unknown as Invoice;
+        setInvoices(prev=>prev.map(inv=>inv.id===original.id?authoritative:inv));
+        return {success:true,invoice:authoritative};
+      }catch(error){
+        return {success:false,error:String(error),
+          isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
+      }
+    }
+    // Legacy behavior: fail closed for financial edits until revision protocol
+    // is enabled; do not re-run postings for an existing official invoice.
     try {
+
       const localInvoice = createPosSale(
         items,
         customerName,

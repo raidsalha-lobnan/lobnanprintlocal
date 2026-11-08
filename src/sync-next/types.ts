@@ -25,6 +25,8 @@ export interface AppliedChange extends ProposedChange {
 export interface SyncCommand {
   id: string;               // stable idempotency ID, preserved across retries
   workspaceId: string;
+  /** Opt-in all-or-nothing accounting bundle. Absent for legacy queued commands. */
+  atomicInvoiceId?: string;
   changes: VersionedChange[];
   /** Local authoritative baseline for safe three-way merge; absent in old queues. */
   baseRecords?: (StoredRecord | null)[];

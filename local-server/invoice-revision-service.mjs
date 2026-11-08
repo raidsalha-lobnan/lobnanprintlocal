@@ -1,0 +1,120 @@
+import crypto from 'node:crypto';
+import {InputError,validId} from './sync-domain.mjs';
+import {verifyInvoiceRevisionBaseline} from './invoice-revision-baseline.mjs';
+import {buildVerifiedInvoiceRevisionBundle} from './invoice-revision-bundle.mjs';
+
+/**
+ * Authenticated server-side invoice correction. There are no client-provided
+ * journals or stock movements. The source document, ledger and versions are
+ * loaded and locked in one PostgreSQL transaction.
+ */
+export async function revisePostedInvoice(service,workspace,request,actorId,access){
+ if(!request||!validId(request.commandId)||!validId(request.invoiceId)||
+   !Number.isSafeInteger(request.expectedVersion)||request.expectedVersion<1||
+   !request.proposed||typeof request.proposed!=='object'||Array.isArray(request.proposed))
+  throw new InputError('INVALID_INVOICE_REVISION_REQUEST',422);
+ const hash=crypto.createHash('sha256').update(JSON.stringify({
+  invoiceId:request.invoiceId,expectedVersion:request.expectedVersion,proposed:request.proposed
+ })).digest('hex');
+ return service.withTx(async client=>{
+  await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING',[workspace]);
+  await client.query('SELECT next_sequence,next_invoice FROM sync_workspaces WHERE id=$1 FOR UPDATE',[workspace]);
+  const duplicate=await client.query(
+   'SELECT request_fingerprint,actor_id,receipt FROM sync_invoice_revision_requests WHERE workspace=$1 AND request_id=$2',
+   [workspace,request.commandId]);
+  if(duplicate.rows.length){
+   const d=duplicate.rows[0];
+   if(d.request_fingerprint!==hash)throw new InputError('INVOICE_REVISION_ID_REUSED',409);
+   if(d.actor_id!==actorId)throw new InputError('INVOICE_REVISION_WRONG_OWNER',403);
+   return d.receipt;
+  }
+  const result=await client.query(
+   "SELECT version,value FROM sync_records WHERE workspace=$1 AND entity='invoices' AND record_id=$2",
+   [workspace,request.invoiceId]);
+  const stored=result.rows[0];
+  if(!stored)throw new InputError('INVOICE_REVISION_NOT_FOUND',404);
+  const actual=Number(stored.version);
+  if(actual!==request.expectedVersion)
+   throw new InputError('VERSION_CONFLICT',409,
+    {entity:'invoices',id:request.invoiceId,expectedVersion:request.expectedVersion,actualVersion:actual});
+  const invoice=stored.value,proposed=request.proposed;
+  if(!access?.canReviseInvoice?.(invoice,proposed))
+   throw new InputError('INVOICE_REVISION_PERMISSION_DENIED',403);
+  if(invoice.id!==request.invoiceId||proposed.id!==invoice.id||
+     proposed.invoiceNumber!==invoice.invoiceNumber)
+   throw new InputError('INVOICE_REVISION_IDENTITY_IMMUTABLE',422);
+  // These cases need a distinct posting algorithm. Do not silently alter
+  // treasury, customer, tax or warehouse with only sales/COGS adjustments.
+  const immutableForRevision=['customerId','subCustomerId','warehouse','branchId',
+    'currency','exchangeRate','paymentMethod','paidAmount','basePaidAmount',
+    'cashPaidAmount','bankPaidAmount','cashTreasuryCode','bankTreasuryCode',
+    'discountTotal','taxRate','taxAmount','additionalCharges','date'];
+  for(const field of immutableForRevision){
+   if(JSON.stringify(invoice[field]??null)!==JSON.stringify(proposed[field]??null))
+    throw new InputError('INVOICE_REVISION_COMPLEX_FIELD_REQUIRES_APPROVED_WORKFLOW',422,{field});
+  }
+  // Validate arithmetic for the supported zero-discount credit-only sale.
+  if(Number(invoice.paidAmount||0)!==0||
+     Number(proposed.paidAmount||0)!==0||
+     invoice.paymentMethod!=='credit'||
+     Number(invoice.discountTotal||0)!==0||
+     Number(proposed.discountTotal||0)!==0||
+     Number(invoice.taxAmount||0)!==0||
+     Number(proposed.taxAmount||0)!==0||
+     Number(invoice.additionalCharges||0)!==0||
+     Number(proposed.additionalCharges||0)!==0)
+   throw new InputError('INVOICE_REVISION_COMPLEX_PAYMENT_OR_TAX',422);
+  const minor=value=>{
+   const num=Number(value);
+   if(!Number.isFinite(num)||Math.abs(num*100-Math.round(num*100))>0.00001)
+    throw new InputError('INVOICE_REVISION_INVALID_AMOUNT',422);
+   return Math.round(num*100);
+  };
+  let itemSum=0;
+  for(const it of proposed.items||[]){
+   const qty=Number(it.quantity),price=Number(it.unitPrice);
+   if(!Number.isFinite(qty)||qty<=0||!Number.isFinite(price)||price<0||
+      minor(it.total)!==minor(qty*price)||
+      Number(it.tax||0)!==0||Number(it.discount||0)!==0)
+    throw new InputError('INVOICE_REVISION_INVALID_LINE_TOTAL',422);
+   itemSum+=minor(it.total);
+  }
+  if(!Array.isArray(proposed.items)||!proposed.items.length||
+     itemSum!==minor(proposed.subtotal)||itemSum!==minor(proposed.totalAmount))
+   throw new InputError('INVOICE_REVISION_TOTAL_INCONSISTENT',422);
+  const journalRows=(await client.query(
+   "SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='journalEntries' AND value->>'referenceId'=$2",
+   [workspace,invoice.id])).rows;
+  const movementRows=(await client.query(
+   "SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='stockMovements' AND (value->>'referenceNumber'=$2 OR value->>'referenceNumber'=$3)",
+   [workspace,invoice.invoiceNumber,'TEMP-'+invoice.id])).rows;
+  let plan;
+  try{
+   plan=verifyInvoiceRevisionBaseline({invoice,proposed,journals:journalRows,movements:movementRows});
+  }catch(error){throw new InputError('INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION',409,{reason:String(error.message)})}
+  const partyIds=[...new Set(plan.customerBalanceChanges.map(x=>x.partyId))];
+  const itemIds=[...new Set(plan.stockDeltas.map(x=>x.itemId))];
+  const partyRecords=partyIds.length?(await client.query(
+   "SELECT record_id AS id,version,value FROM sync_records WHERE workspace=$1 AND entity='parties' AND record_id=ANY($2::text[])",
+   [workspace,partyIds])).rows:[];
+  const inventoryRecords=itemIds.length?(await client.query(
+   "SELECT record_id AS id,version,value FROM sync_records WHERE workspace=$1 AND entity='inventory' AND record_id=ANY($2::text[])",
+   [workspace,itemIds])).rows:[];
+  let command;
+  try{
+   command=buildVerifiedInvoiceRevisionBundle({
+    invoice,proposed,invoiceVersion:actual,plan,
+    partyRecords:partyRecords.map(r=>({...r,version:Number(r.version)})),
+    inventoryRecords:inventoryRecords.map(r=>({...r,version:Number(r.version)})),
+    commandId:request.commandId,now:new Date().toISOString()
+   });
+  }catch(error){throw new InputError('INVOICE_REVISION_UNVERIFIED_ACCOUNTING_STATE',409,{reason:String(error.message)})}
+  command.workspaceId=workspace;
+  // The server is the only caller allowed to approve this revision bypass.
+  const receipt=await service.pushInTx(workspace,command,actorId,client,invoice.id);
+  await client.query(
+   'INSERT INTO sync_invoice_revision_requests(workspace,request_id,invoice_id,request_fingerprint,actor_id,receipt) VALUES($1,$2,$3,$4,$5,$6)',
+   [workspace,request.commandId,invoice.id,hash,actorId,JSON.stringify(receipt)]);
+  return receipt;
+ });
+}

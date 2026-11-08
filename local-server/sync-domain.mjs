@@ -51,7 +51,10 @@ export function validateJournal(value) {
 }
 
 export function fingerprint(command) {
-  return crypto.createHash('sha256').update(JSON.stringify({workspaceId:command.workspaceId,changes:command.changes})).digest('hex');
+  // Preserve fingerprints of every legacy command for safe cross-version retries.
+  const payload={workspaceId:command.workspaceId,changes:command.changes};
+  if(command.atomicInvoiceId)payload.atomicInvoiceId=command.atomicInvoiceId;
+  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 export const makeNumber = seq => 'INV-'+String(seq).padStart(4,'0');
 export const makeCursor = seq => ({sequence:Number(seq),seconds:0,nanoseconds:0,eventId:String(seq)});

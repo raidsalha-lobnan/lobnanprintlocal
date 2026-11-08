@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import pg from 'pg';
 import {SyncService} from './sync-service.mjs';
+import {revisePostedInvoice} from './invoice-revision-service.mjs';
 import {TelegramDelivery} from './telegram-delivery.mjs';
 import {InputError} from './sync-domain.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
@@ -133,6 +134,14 @@ const srv=http.createServer(async(req,res)=>{
       const pulled=await service.pull(workspace,Number(url.searchParams.get('after')||0),
         Math.min(500,Number(url.searchParams.get('limit')||100)));
       return json(res,200,{events:STRICT_AUTH?filterEvents(pulled,access).map(safeEvent):pulled},cors);
+    }
+    if(req.method==='POST' && url.pathname==='/api/v1/invoices/revise'){
+      if(process.env.SYNC_ENABLE_INVOICE_REVISIONS!=='1')
+        throw new InputError('INVOICE_REVISION_NOT_YET_ENABLED',503);
+      if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);
+      const request=await parseBody(req,350000);
+      const receipt=await revisePostedInvoice(service,workspace,request,user.id,access);
+      return json(res,200,receipt,cors);
     }
     if(req.method==='POST' && url.pathname==='/api/v1/push'){
       const command=await parseBody(req,1024*1024);

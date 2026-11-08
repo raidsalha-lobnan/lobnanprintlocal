@@ -49,6 +49,14 @@ export class LocalHttpSyncTransport implements SyncTransport {
   async push(cmd:SyncCommand):Promise<CommitReceipt> {
     return this.request('push?workspace='+encodeURIComponent(this.workspaceId),{method:'POST',body:JSON.stringify(cmd)});
   }
+  /** A posted invoice revision is calculated, validated and committed by PostgreSQL.
+   * This method is deliberately separate from the ordinary local invoice put.
+   */
+  async reviseInvoice(request:{commandId:string;invoiceId:string;expectedVersion:number;proposed:Record<string,unknown>}):Promise<CommitReceipt>{
+    return this.request('invoices/revise?workspace='+encodeURIComponent(this.workspaceId),{
+      method:'POST',body:JSON.stringify(request)
+    });
+  }
   async pull(cursor:ServerCursor|null,pageSize=100):Promise<ServerEvent[]> {
     const after=cursor?.sequence??0;
     if(!Number.isSafeInteger(after) || after<0)throw new Error('INVALID_LOCAL_SERVER_CURSOR');

@@ -1,6 +1,7 @@
 import {InputError, fingerprint, makeNumber, makeCursor, validateCommand} from './sync-domain.mjs';
 import {preserveOfficialInvoiceFields} from './invoice-amendments.mjs';
 import {telegramRelevantChanges} from './telegram-delivery.mjs';
+import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -28,8 +29,15 @@ export class SyncService {
   }
   async push(workspace,command,actorId=null) {
     validateCommand(command,workspace);
+    validateAtomicInvoicePosting(command);
+    return this.withTx(client=>this.pushInTx(workspace,command,actorId,client));
+  }
+  // Internal only: must be called inside an open PostgreSQL transaction.
+  async pushInTx(workspace,command,actorId,client,authorizedRevisionInvoiceId=null) {
+    validateCommand(command,workspace);
+    validateAtomicInvoicePosting(command);
     const hash=fingerprint(command);
-    return this.withTx(async client=>{
+
       // Serializing all commits per workspace guarantees a commit-ordered, gap-free cursor.
       await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING',[workspace]);
       const ws=await client.query('SELECT next_sequence,next_invoice FROM sync_workspaces WHERE id=$1 FOR UPDATE',[workspace]);
@@ -64,7 +72,11 @@ export class SyncService {
             if(official && val.invoiceNumber!==official) throw new InputError('OFFICIAL_NUMBER_IMMUTABLE');
             // Enforce immutable posted fields in the commit transaction too:
             // even trusted/internal writers cannot bypass the access-policy check.
-            val=preserveOfficialInvoiceFields(old?.value,val);
+            if(authorizedRevisionInvoiceId===change.id && old?.value?.id===change.id &&
+              val?.invoiceNumber===old.value.invoiceNumber) {
+              val={...val,id:old.value.id,invoiceNumber:old.value.invoiceNumber,
+                isOfficial:true,postedAt:old.value.postedAt};
+            } else val=preserveOfficialInvoiceFields(old?.value,val);
           }
         }
         if(actual===0) await client.query('INSERT INTO sync_records(workspace,entity,record_id,version,value) VALUES($1,$2,$3,$4,$5)',[workspace,change.entity,change.id,1,val]);
@@ -83,6 +95,5 @@ export class SyncService {
           [workspace,command.id,JSON.stringify(applied)]);
       }
       return receipt;
-    });
   }
 }

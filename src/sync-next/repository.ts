@@ -61,11 +61,13 @@ export class UnifiedRepository {
 
   async commit(
     changes: ProposedChange[],
-    commandId?: string
+    commandId?: string,
+    atomicInvoiceId?: string
   ): Promise<string> {
     const command = await this.local.enqueue(
       changes,
-      commandId
+      commandId,
+      atomicInvoiceId
     );
 
     this.sync.requestSync();
