@@ -26,7 +26,7 @@ const journal=(id,invoice,group,kind,from,to,amountMinor,description,now)=>{
  */
 export function buildVerifiedInvoiceRevisionBundle({
  invoice,proposed,invoiceVersion,plan,
- partyRecords,inventoryRecords,commandId,now
+ partyRecords,inventoryRecords,treasuryRecords=[],commandId,now
 }){
  if(!commandId||!now||!invoice?.id||!Number.isSafeInteger(invoiceVersion)||invoiceVersion<1)
   throw new Error('REVISION_MISSING_IDENTIFIERS_OR_VERSION');
@@ -43,6 +43,13 @@ export function buildVerifiedInvoiceRevisionBundle({
   if(matches.length===1)return matches[0];
   throw new Error('REVISION_WAREHOUSE_MISSING_OR_AMBIGUOUS:'+label);
  };
+ const treasuryByCode=new Map();
+ for(const row of treasuryRecords){
+  const code=row.value?.accountCode;
+  if(!code||treasuryByCode.has(code))
+   throw new Error('REVISION_TREASURY_ACCOUNT_AMBIGUOUS:'+code);
+  treasuryByCode.set(code,row);
+ }
  const changes=[];
  const amended={...invoice,...proposed,id:invoice.id,invoiceNumber:invoice.invoiceNumber,
   isOfficial:true,isAccountingPosted:true,postedAt:invoice.postedAt,
@@ -55,10 +62,26 @@ export function buildVerifiedInvoiceRevisionBundle({
    notes:'اعتماد تعديل الفاتورة محاسبيًا - '+group
   }]};
  changes.push({entity:'invoices',id:invoice.id,expectedVersion:invoiceVersion,value:amended});
- const revenue=journal('je-'+commandId+'-revenue',invoice,group,'revenue',
-  '1201','4101',plan.totalDeltaMinor,
-  'صافي تعديل مبيعات '+invoice.invoiceNumber,now);
- if(revenue)changes.push({...revenue,expectedVersion:0});
+ const accountDeltas=plan.accountDeltas||{
+  '1201':plan.totalDeltaMinor,'4101':-plan.totalDeltaMinor
+ };
+ const lines=Object.entries(accountDeltas).filter(([,amount])=>amount!==0)
+  .map(([accountCode,amount])=>({
+   accountCode,debit:amount>0?money(amount):0,
+   credit:amount<0?money(-amount):0,
+   description:'تسوية الفاتورة '+invoice.invoiceNumber
+  }));
+ if(lines.length){
+  const financial={id:'je-'+commandId+'-financial',
+   date:String(now).slice(0,10),createdAt:now,
+   description:'تصحيح مالي معتمد للفاتورة '+invoice.invoiceNumber,
+   referenceType:'invoice_correction',referenceId:invoice.id,
+   correctionGroupId:group,correctionKind:'financial',
+   internalCorrection:true,approvedRevision:true,lines};
+  validateJournal(financial);
+  changes.push({entity:'journalEntries',id:financial.id,
+   expectedVersion:0,value:financial});
+ }
  const costDelta=plan.expectedNextCOGSMinor-plan.currentCOGSMinor;
  const cogs=journal('je-'+commandId+'-cogs',invoice,group,'cogs',
   '5101','1301',costDelta,
@@ -108,6 +131,58 @@ export function buildVerifiedInvoiceRevisionBundle({
   }});
   changes.push({entity:'inventory',id:row.itemId,expectedVersion:item.version,
    value:{...item.value,stockQuantity:next,...(warehouseStocks?{warehouseStocks}:{})}});
+ }
+ // Record settlement differences without rewriting original receipts.
+ // A negative delta is a refund/reallocation, never an unrecorded cash disappearance.
+ for(const [accountCode,amountMinor] of Object.entries(plan.paymentDeltas||{})){
+  if(!amountMinor)continue;
+  const treasury=treasuryByCode.get(accountCode);
+  if(!treasury||!Number.isSafeInteger(treasury.version)||treasury.version<1||
+    !Number.isFinite(Number(treasury.value?.balance)))
+   throw new Error('REVISION_TREASURY_AUTHORITATIVE_RECORD_REQUIRED:'+accountCode);
+  const current=minor(treasury.value.balance);
+  const updated=current+amountMinor;
+  if(updated<0)throw new Error('REVISION_TREASURY_INSUFFICIENT_BALANCE:'+accountCode);
+  const currency=treasury.value.currency||'ILS';
+  if(currency!=='ILS' && Object.keys(treasury.value.currencyBalances||{}).length)
+   throw new Error('REVISION_MULTICURRENCY_SETTLEMENT_NEEDS_CURRENCY_RECONCILIATION');
+  const currencyBalances=treasury.value.currencyBalances?
+   {...treasury.value.currencyBalances,
+    ILS:money(minor(treasury.value.currencyBalances.ILS||0)+amountMinor)}:undefined;
+  if(currencyBalances&&currencyBalances.ILS<0)
+   throw new Error('REVISION_TREASURY_CURRENCY_INSUFFICIENT:'+accountCode);
+  const id='tt-'+commandId+'-'+accountCode;
+  const movement={
+   id,treasuryId:treasury.id,treasuryName:treasury.value.name,
+   date:String(now).slice(0,10),type:amountMinor>0?'deposit':'withdrawal',
+   amount:money(Math.abs(amountMinor)),currency:'ILS',currencySymbol:'₪',
+   exchangeRate:1,baseCurrency:'ILS',baseAmount:money(Math.abs(amountMinor)),
+   balanceAfter:money(updated),referenceType:'invoice',referenceId:invoice.id,
+   voucherNumber:invoice.invoiceNumber,partyName:proposed.customerName,
+   description:'تسوية تحصيل فاتورة معتمدة '+invoice.invoiceNumber,
+   contraAccountCode:'1201',paymentMethod:proposed.paymentMethod,
+   notes:'revision-'+commandId
+  };
+  changes.push({entity:'treasuryTransactions',id,expectedVersion:0,value:movement});
+  changes.push({entity:'treasuries',id:treasury.id,
+   expectedVersion:treasury.version,value:{
+    ...treasury.value,balance:money(updated),
+    ...(currencyBalances?{currencyBalances}:{}),
+    transactions:[...(treasury.value.transactions||[]),movement]
+   }});
+  const voucherId='vch-revision-'+commandId+'-'+accountCode;
+  changes.push({entity:'vouchers',id:voucherId,expectedVersion:0,value:{
+   id:voucherId,voucherNumber:'REV-'+commandId.slice(0,12)+'-'+accountCode,
+   type:amountMinor>0?'receipt':'payment',
+   date:String(now).slice(0,10),partyId:proposed.customerId||'',
+   partyName:proposed.customerName||'',amount:money(Math.abs(amountMinor)),
+   paymentMethod:'cash',accountCode:'1201',
+   treasuryAccountCode:accountCode,
+   referenceInvoiceId:invoice.id,relatedDocType:'invoice_revision',
+   relatedDocId:invoice.id,description:'سند تسوية تحصيل الفاتورة '+invoice.invoiceNumber,
+   currency:'ILS',currencySymbol:'₪',exchangeRate:1,
+   baseAmount:money(Math.abs(amountMinor))
+  }});
  }
  for(const row of plan.customerBalanceChanges){
   const party=partyIndex.get(row.partyId);
