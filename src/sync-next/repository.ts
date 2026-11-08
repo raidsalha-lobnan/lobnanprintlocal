@@ -1,4 +1,5 @@
 import { LocalSyncDb } from './localDb';
+import {compareQueueWithAuthoritativeRecords} from './queueDiagnostics';
 import { SyncCoordinator } from './coordinator';
 
 import {
@@ -101,6 +102,16 @@ export class UnifiedRepository {
 
   requestSync() {
     this.sync.requestSync();
+  }
+
+  /** Read-only comparison; does not retry, discard, merge, or publish data. */
+  async inspectPendingAgainstServer() {
+    const commands=await this.local.pending();
+    const remote=(this.sync as any).remote;
+    if(!remote||typeof remote.fetchAuthoritativeBootstrap!=='function')
+      throw new Error('AUTHORITATIVE_POSTGRES_SNAPSHOT_UNAVAILABLE');
+    const snapshot=await remote.fetchAuthoritativeBootstrap();
+    return compareQueueWithAuthoritativeRecords(commands,snapshot.records);
   }
 
   getCoordinator() {
