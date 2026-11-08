@@ -51,11 +51,22 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
  const sales=linked.filter(row=>(row.value||row).referenceType==='pos_invoice');
  const cogs=linked.filter(row=>(row.value||row).referenceType==='cogs');
  const corrections=linked.filter(row=>isApprovedCorrection(row.value||row,invoice));
- if(sales.length!==1||cogs.length!==1||
-    linked.length!==sales.length+cogs.length+corrections.length)
+ const legacy=invoice.legacyRepair?.kind==='VERIFIED_LEGACY_DUPLICATE_REVERSAL'
+   ? invoice.legacyRepair:null;
+ if(legacy){
+  const ids=a=>new Set(a.map(x=>(x.value||x).id));
+  const saleIds=ids(sales),costIds=ids(cogs);
+  const permitted=new Set([...legacy.originalEntryIds,...legacy.retainedEntryIds]);
+  if(sales.length!==2||cogs.length!==2||
+    [...sales,...cogs].some(j=>!permitted.has((j.value||j).id))||
+    saleIds.size!==2||costIds.size!==2)
+   throw new Error('REVISION_UNVERIFIED_REPAIRED_LEGACY_POSTINGS');
+ }else if(sales.length!==1||cogs.length!==1)
   throw new Error('REVISION_REQUIRES_RECONCILED_JOURNAL_HISTORY');
+ if(linked.length!==sales.length+cogs.length+corrections.length)
+  throw new Error('REVISION_UNKNOWN_ACCOUNTING_ENTRIES');
  for(const j of linked)validateJournal(j.value||j);
- const effectiveSalesMinor=netOn(sales[0],'1201')+
+ const effectiveSalesMinor=sales.reduce((s,j)=>s+netOn(j,'1201'),0)+
    corrections.filter(j=>(j.value||j).correctionKind==='revenue')
     .reduce((s,j)=>s+netOn(j,'1201'),0);
  const expectedSalesMinor=minor(invoice.baseTotalAmount??invoice.totalAmount);
@@ -64,20 +75,22 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
  const correctionCosts=corrections.filter(j=>(j.value||j).correctionKind==='cogs');
  if(corrections.some(j=>!['cogs','revenue'].includes((j.value||j).correctionKind)))
   throw new Error('REVISION_UNKNOWN_CORRECTION_JOURNAL');
- const effectiveCOGSMinor=netOn(cogs[0],'5101')+
+ const effectiveCOGSMinor=cogs.reduce((s,j)=>s+netOn(j,'5101'),0)+
   correctionCosts.reduce((s,j)=>s+netOn(j,'5101'),0);
  const movementCandidates=movements.filter(row=>{
   const v=row.value||row;
-  return isOriginalSale(row,invoice)||isStockCorrection(v,invoice);
+  return isOriginalSale(row,invoice)||isStockCorrection(v,invoice)||
+    (legacy&&v.id===legacy.correctedStockMovementId&&v.type==='out_sale');
  });
- const out=movementCandidates.filter(row=>isOriginalSale(row,invoice));
+ const out=movementCandidates.filter(row=>isOriginalSale(row,invoice)||
+  (legacy&&(row.value||row).id===legacy.correctedStockMovementId));
  const verifiedCorrections=movementCandidates.filter(row=>
   isStockCorrection(row.value||row,invoice));
  const effective=new Map(),unitCostByItem=new Map();
  let effectiveStockCostMinor=0;
  for(const row of [...out,...verifiedCorrections]){
   const v=row.value||row;
-  const kind=isOriginalSale(row,invoice)?1:(v.type==='in_adjustment'?-1:1);
+  const kind=v.type==='out_sale'?1:(v.type==='in_adjustment'?-1:1);
   if(!v.itemId||!Number.isFinite(Number(v.quantity))||Number(v.quantity)<0)
    throw new Error('REVISION_INVALID_STOCK_MOVEMENT');
   const cost=Number(v.unitPrice);

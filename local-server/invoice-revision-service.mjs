@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import {InputError,validId} from './sync-domain.mjs';
 import {verifyInvoiceRevisionBaseline} from './invoice-revision-baseline.mjs';
 import {buildVerifiedInvoiceRevisionBundle} from './invoice-revision-bundle.mjs';
+import {planFailedInvoiceEditRecovery} from './invoice-legacy-recovery.mjs';
 
 /**
  * Authenticated server-side invoice correction. There are no client-provided
@@ -88,10 +89,31 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
   const movementRows=(await client.query(
    "SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='stockMovements' AND (value->>'referenceNumber'=$2 OR value->>'referenceNumber'=$3)",
    [workspace,invoice.invoiceNumber,'TEMP-'+invoice.id])).rows;
-  let plan;
+  let plan,legacyRecovery=null;
   try{
    plan=verifyInvoiceRevisionBaseline({invoice,proposed,journals:journalRows,movements:movementRows});
-  }catch(error){throw new InputError('INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION',409,{reason:String(error.message)})}
+  }catch(error){
+   // Recover only fully evidenced failed historical edits. A recent customer
+   // balance event must prove that the old-to-new debit was ALREADY applied.
+   // Otherwise the legacy duplicate remains quarantined for accounting review.
+   try{
+    const partyRow=(await client.query(
+     "SELECT record_id AS id,version,value FROM sync_records WHERE workspace=$1 AND entity='parties' AND record_id=$2",
+     [workspace,invoice.customerId])).rows[0];
+    if(!partyRow)throw new Error('LEGACY_REPAIR_PARTY_MISSING');
+    const eventRows=(await client.query(
+     "SELECT e.sequence,c->'value' AS value FROM sync_events e CROSS JOIN LATERAL jsonb_array_elements(e.changes) c WHERE e.workspace=$1 AND c->>'entity'='parties' AND c->>'id'=$2 ORDER BY e.sequence",
+     [workspace,invoice.customerId])).rows;
+    legacyRecovery=planFailedInvoiceEditRecovery({
+     invoice,proposed,journals:journalRows,movements:movementRows,
+     party:{...partyRow.value,id:partyRow.id},partyEvents:eventRows
+    });
+    plan=legacyRecovery.plan;
+   }catch(recoveryError){
+    throw new InputError('INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION',409,
+     {reason:String(error.message),legacyReason:String(recoveryError.message)});
+   }
+  }
   const partyIds=[...new Set(plan.customerBalanceChanges.map(x=>x.partyId))];
   const itemIds=[...new Set(plan.stockDeltas.map(x=>x.itemId))];
   const partyRecords=partyIds.length?(await client.query(
@@ -109,6 +131,11 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     commandId:request.commandId,now:new Date().toISOString()
    });
   }catch(error){throw new InputError('INVOICE_REVISION_UNVERIFIED_ACCOUNTING_STATE',409,{reason:String(error.message)})}
+  if(legacyRecovery){
+   command.changes[0].value.legacyRepair={
+    ...legacyRecovery.repairAudit,approvedAt:new Date().toISOString()
+   };
+  }
   command.workspaceId=workspace;
   // The server is the only caller allowed to approve this revision bypass.
   const receipt=await service.pushInTx(workspace,command,actorId,client,invoice.id);
