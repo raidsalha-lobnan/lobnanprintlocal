@@ -40,6 +40,12 @@ export class SyncService {
           throw new InputError('COMMAND_OWNER_MISMATCH',403);
         return duplicate.rows[0].receipt;
       }
+      // Legacy browser balance auto-reconciliation used to send ALL 71 party
+      // snapshots as independent writes. Never let stale bulk snapshots replace
+      // authoritative party balances, even if their versions still match.
+      const partyOnlyBulk=command.changes.length>10 &&
+        command.changes.every(change=>change.entity==='parties');
+      if(partyOnlyBulk) throw new InputError('BULK_PARTY_SNAPSHOT_REJECTED_USE_LEDGER_RECONCILIATION',409);
       let nextInvoice=Number(ws.rows[0].next_invoice);
       const applied=[];
       for(const change of command.changes) {

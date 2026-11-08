@@ -11218,56 +11218,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  // Read-only diagnostic. Never replace all customer balances from stale browsers.
   const reconcileAllPartyBalances = (): { updatedCount: number; mismatchedCount: number } => {
-    let updatedCount = 0;
-    let mismatchedCount = 0;
-
-    setParties(prevParties => {
-      const nextParties = prevParties.map(party => {
-        const trueBal = calculatePartyTrueBalance(
-          party,
-          invoices,
-          vouchers,
-          purchases,
-          purchaseReturns,
-          salesReturns,
-          printOrders,
-          journalEntries,
-          debtClearings
-        );
-        const storedBal = Number((party.balance || 0).toFixed(2));
-        if (Math.abs(storedBal - trueBal) >= 0.01) {
-          mismatchedCount++;
-          updatedCount++;
-          const updatedParty = { ...party, balance: trueBal };
-          setDoc(doc(db, 'parties', party.id), cleanDocForFirestore(updatedParty)).catch(() => {});
-          return updatedParty;
-        }
-        return party;
-      });
-
-      if (updatedCount > 0) {
-        try { localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(nextParties)); } catch {}
-        pushToServerSync('parties', nextParties);
-        broadcastEntityChange('parties', nextParties);
-      }
-      return nextParties;
-    });
-
-    return { updatedCount, mismatchedCount };
+    const mismatchedCount = parties.reduce((count, party) => {
+      const projected = calculatePartyTrueBalance(
+        party, invoices, vouchers, purchases, purchaseReturns,
+        salesReturns, printOrders, journalEntries, debtClearings
+      );
+      const stored = Number((party.balance || 0).toFixed(2));
+      return count + (Math.abs(stored - projected) >= 0.01 ? 1 : 0);
+    }, 0);
+    if (mismatchedCount > 0) {
+      console.warn('BALANCE_AUDIT_ONLY: central reconciliation required, no writes performed',
+        { mismatchedCount });
+    }
+    return { updatedCount: 0, mismatchedCount };
   };
 
-  // Auto-reconciliation: ensure every party's stored balance in database matches 100% their true accounting transactions balance
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      try {
-        reconcileAllPartyBalances();
-      } catch (err) {
-        console.debug('auto reconcile party balances note:', err);
-      }
-    }, 1200);
-    return () => clearTimeout(timer);
-  }, [invoices.length, vouchers.length, purchases.length]);
+  // No automatic balance overwrites on load, invoice count changes or browser catch-up.
+  // Only server-led, audited transactions may update financial balances.
 
   const forcePushAndPullSync = async (): Promise<{ success: boolean; message: string; invoicesCount: number }> => {
     try {

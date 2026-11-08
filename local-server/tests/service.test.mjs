@@ -79,6 +79,15 @@ test('transaction rolls back all changes if any record fails version validation'
  await assert.rejects(svc.push('lobnan_main',cmd),/VERSION_CONFLICT/);
  assert.equal((await svc.bootstrap('lobnan_main')).records.some(r=>r.id==='new-customer'),false);
 });
+test('legacy 71-customer balance snapshot is rejected atomically without touching records',async()=>{
+ const pool=new FakePostgres(),svc=new SyncService(pool);
+ const all=Array.from({length:71},(_,i)=>record('parties','party-'+i,{id:'party-'+i,balance:100+i}));
+ await assert.rejects(svc.push('lobnan_main',make('stale-bulk-party-recalc',all)),
+   e=>e instanceof InputError&&e.message==='BULK_PARTY_SNAPSHOT_REJECTED_USE_LEDGER_RECONCILIATION');
+ assert.equal((await svc.bootstrap('lobnan_main')).records.length,0);
+ assert.equal(await svc.head('lobnan_main'),0);
+});
+
 test('bootstrap cursor and change feed preserve versions with pagination',async()=>{
  const pool=new FakePostgres(),svc=new SyncService(pool);
  for(let i=0;i<205;i++) await svc.push('lobnan_main',make('command-'+String(i),[record('parties','cust-'+i,{id:'cust-'+i,name:'Customer '+i})]));
