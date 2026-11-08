@@ -66,12 +66,14 @@ export const validatePostedSalesAccounts=(invoice,journalMap)=>{
 const same=(a,b)=>String(a??'')===String(b??'');
 export const plannedPaymentAccounts=(original,proposed,observed)=>{
  const previous=invoiceAmounts(original),next=invoiceAmounts(proposed);
+ const explicitlyChangedSplit=['cashPaidAmount','bankPaidAmount'].some(key=>
+  original[key]!==undefined&&proposed[key]!==undefined&&
+  Math.abs(Number(original[key])-Number(proposed[key]))>0.000001);
  if(previous.paid===next.paid&&same(original.paymentMethod,proposed.paymentMethod)&&
     same(original.cashTreasuryCode,proposed.cashTreasuryCode)&&
     same(original.bankTreasuryCode,proposed.bankTreasuryCode)&&
     same(original.treasuryAccountCode,proposed.treasuryAccountCode)&&
-    same(original.cashPaidAmount,proposed.cashPaidAmount)&&
-    same(original.bankPaidAmount,proposed.bankPaidAmount))
+    !explicitlyChangedSplit)
    return new Map(observed);
  if(next.paid===0)return new Map();
  const splitCash=proposed.cashBaseAmount;
