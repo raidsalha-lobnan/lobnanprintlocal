@@ -53,7 +53,7 @@ export function prepareSecureInvoiceDescriptionEdit<T extends Record<string,any>
     }
     return next;
   });
-  const next={...oldInvoice,items:updatedItems};
+  const next:Record<string,any>={...oldInvoice,items:updatedItems};
   for(const field of safeTop){
     if(Object.prototype.hasOwnProperty.call(computed,field))
       next[field]=computed[field];
