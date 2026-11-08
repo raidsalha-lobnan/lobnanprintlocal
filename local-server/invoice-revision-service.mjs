@@ -3,7 +3,7 @@ import {InputError,validId} from './sync-domain.mjs';
 import {verifyInvoiceRevisionBaseline} from './invoice-revision-baseline.mjs';
 import {buildVerifiedInvoiceRevisionBundle} from './invoice-revision-bundle.mjs';
 import {planFailedInvoiceEditRecovery} from './invoice-legacy-recovery.mjs';
-import {isUnchangedPosInvoice} from './invoice-revision-noop.mjs';
+import {isUnchangedPosInvoice,descriptionOnlyInvoiceAmendment} from './invoice-revision-noop.mjs';
 
 /**
  * Authenticated server-side invoice correction. There are no client-provided
@@ -52,6 +52,26 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
    const receipt={commandId:request.commandId,changes:[{
     entity:'invoices',id:invoice.id,version:actual,value:invoice
    }]};
+   await client.query(
+    'INSERT INTO sync_invoice_revision_requests(workspace,request_id,invoice_id,request_fingerprint,actor_id,receipt) VALUES($1,$2,$3,$4,$5,$6)',
+    [workspace,request.commandId,invoice.id,hash,actorId,JSON.stringify(receipt)]);
+   return receipt;
+  }
+  const descriptionAmendment=descriptionOnlyInvoiceAmendment(invoice,proposed);
+  if(descriptionAmendment){
+   const now=new Date().toISOString();
+   const amended={...descriptionAmendment,updatedAt:now,
+    statusHistory:[...(invoice.statusHistory||[]),{
+     id:'revision-'+request.commandId,userName:'معالجة مركزية',
+     date:now.slice(0,10),createdAt:now,
+     previousStatus:invoice.workflowStatus||'new',
+     newStatus:invoice.workflowStatus||'new',
+     notes:'تعديل بيانات وصفية دون أثر محاسبي'
+    }]};
+   const command={id:request.commandId,workspaceId:workspace,changes:[{
+    entity:'invoices',id:invoice.id,expectedVersion:actual,value:amended
+   }]};
+   const receipt=await service.pushInTx(workspace,command,actorId,client,invoice.id);
    await client.query(
     'INSERT INTO sync_invoice_revision_requests(workspace,request_id,invoice_id,request_fingerprint,actor_id,receipt) VALUES($1,$2,$3,$4,$5,$6)',
     [workspace,request.commandId,invoice.id,hash,actorId,JSON.stringify(receipt)]);
