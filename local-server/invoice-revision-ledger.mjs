@@ -81,6 +81,9 @@ export const plannedPaymentAccounts=(original,proposed,observed)=>{
  const cashCode=proposed.cashTreasuryCode||proposed.treasuryAccountCode||'1101';
  const bankCode=proposed.bankTreasuryCode||proposed.treasuryAccountCode||'1102';
  const result=new Map();
+ const reserved=new Set(['1201','4101','2103','2104','5101','1301']);
+ if(reserved.has(cashCode)||reserved.has(bankCode))
+  throw new Error('REVISION_TREASURY_ACCOUNT_NOT_ALLOWED');
  if(splitCash!==undefined||splitBank!==undefined){
   const cash=minor(splitCash||0),bank=minor(splitBank||0);
   if(cash+bank!==next.paid)throw new Error('REVISION_PAYMENT_SPLIT_MISMATCH');
