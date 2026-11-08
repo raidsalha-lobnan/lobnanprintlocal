@@ -7587,8 +7587,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // The new centrally verified revision protocol is opt-in. Until warehouse
     // balance reconciliation is complete, production keeps its fail-closed
     // behavior rather than allowing unbalanced monetary changes.
-    if (secureLoginEnabled() && extraOptions?.editingInvoiceId &&
-        import.meta.env.VITE_ENABLE_VERIFIED_INVOICE_REVISIONS === 'true') {
+    if (secureLoginEnabled() && extraOptions?.editingInvoiceId) {
       try {
         const repo=unifiedRepoRef.current;
         if(!repo)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');

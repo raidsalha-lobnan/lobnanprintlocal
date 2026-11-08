@@ -30,10 +30,15 @@ test('single versioned command contains invoice, sale delta, COGS delta, stock a
  assert.equal(cmd.changes[0].value.totalAmount,51);
  assert.equal(cmd.changes[0].expectedVersion,2);
 });
-test('ambiguous warehouse totals stop amendment without writing a command',()=>{
+test('legacy global/warehouse stock offset is preserved while both receive the exact invoice delta',()=>{
  const data=setup();
  data.inventoryRecords[0].value.warehouseStocks={'المستودع الرئيسي':756,'المخزن الرئيسي':4};
- assert.throws(()=>buildVerifiedInvoiceRevisionBundle(data),/WAREHOUSE_STOCK_SOURCE_AMBIGUOUS/);
+ const cmd=buildVerifiedInvoiceRevisionBundle(data);
+ const updated=cmd.changes.find(row=>row.entity==='inventory').value;
+ assert.equal(updated.stockQuantity,530);
+ assert.equal(updated.warehouseStocks['المستودع الرئيسي'],886);
+ assert.equal(updated.warehouseStocks['المخزن الرئيسي'],4);
+ assert.equal((886+4)-530,(756+4)-400);
 });
 test('future stock-negative amendment is blocked',()=>{
  const data=setup();data.plan.stockDeltas[0].inventoryChange=-405;

@@ -69,11 +69,13 @@ test('duplicate historical journals fail before any posting',async()=>{
   /BASELINE_NEEDS_RECONCILIATION/);
  assert.equal(f.commands,0);
 });
-test('ambiguous warehouse stock prevents financial mutation',async()=>{
+test('historical warehouse/global stock difference preserves the offset on approved invoice revision',async()=>{
  const f=fixture({ambiguous:true});
- await assert.rejects(revisePostedInvoice(f.svc,'lobnan_main',req,'admin',access),
-  /UNVERIFIED_ACCOUNTING_STATE/);
- assert.equal(f.commands,0);
+ const receipt=await revisePostedInvoice(f.svc,'lobnan_main',req,'admin',access);
+ assert.equal(f.commands,1);
+ const inventory=receipt.changes.find(x=>x.entity==='inventory');
+ assert.equal(inventory.value.stockQuantity,530);
+ assert.equal(inventory.value.warehouseStocks.main,890);
 });
 test('stale expected version and insufficient permissions fail closed',async()=>{
  const f=fixture();

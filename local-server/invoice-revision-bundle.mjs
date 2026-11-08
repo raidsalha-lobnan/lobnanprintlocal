@@ -33,6 +33,16 @@ export function buildVerifiedInvoiceRevisionBundle({
  const group='revision-'+commandId;
  const partyIndex=new Map(partyRecords.map(r=>[r.id,r]));
  const inventoryIndex=new Map(inventoryRecords.map(r=>[r.id,r]));
+ const resolveWarehouseKey=(stocks,label)=>{
+  const keys=Object.keys(stocks||{});
+  if(Object.hasOwn(stocks||{},label))return label;
+  // Historical invoices stored a descriptive warehouse name while inventory
+  // saved its short canonical label. Accept a unique exact prefix only.
+  const prefix=String(label||'').trim().split(/\s*[-–—]\s*/)[0];
+  const matches=keys.filter(k=>k.trim()===prefix);
+  if(matches.length===1)return matches[0];
+  throw new Error('REVISION_WAREHOUSE_MISSING_OR_AMBIGUOUS:'+label);
+ };
  const changes=[];
  const amended={...invoice,...proposed,id:invoice.id,invoiceNumber:invoice.invoiceNumber,
   isOfficial:true,isAccountingPosted:true,postedAt:invoice.postedAt,
@@ -60,22 +70,27 @@ export function buildVerifiedInvoiceRevisionBundle({
    throw new Error('REVISION_INVENTORY_AUTHORITATIVE_RECORD_REQUIRED:'+row.itemId);
   if(!Number.isFinite(Number(item.value?.stockQuantity)))
    throw new Error('REVISION_INVENTORY_STOCK_BALANCE_REQUIRED:'+row.itemId);
-  if(item.value?.warehouseStocks&&Object.keys(item.value.warehouseStocks).length){
+  const warehouseKey=item.value?.warehouseStocks&&Object.keys(item.value.warehouseStocks).length
+    ? resolveWarehouseKey(item.value.warehouseStocks,invoice.warehouse):undefined;
+  if(warehouseKey){
    const warehouses=Object.values(item.value.warehouseStocks);
    const aggregate=warehouses.reduce((s,v)=>s+Number(v),0);
-   if(!warehouses.every(v=>Number.isFinite(Number(v)))||
-      Math.abs(aggregate-Number(item.value.stockQuantity))>0.00001)
-    throw new Error('REVISION_WAREHOUSE_STOCK_SOURCE_AMBIGUOUS:'+row.itemId);
-   if(!invoice.warehouse||!Object.hasOwn(item.value.warehouseStocks,invoice.warehouse))
+   if(!warehouses.every(v=>Number.isFinite(Number(v))))
+    throw new Error('REVISION_WAREHOUSE_STOCK_INVALID:'+row.itemId);
+  // Legacy imports may have a stale global stock and a separately tracked
+  // warehouse quantity. Do NOT rewrite either to the other's value. Apply
+  // only the same verified invoice delta to both and retain their original
+  // discrepancy for an independent inventory reconciliation audit.
+   if(!Object.hasOwn(item.value.warehouseStocks,warehouseKey))
     throw new Error('REVISION_WAREHOUSE_MISSING:'+row.itemId);
   }
   const next=Number(item.value.stockQuantity)+row.inventoryChange;
   if(next<0)throw new Error('REVISION_WOULD_NEGATE_STOCK:'+row.itemId);
-  const warehouseStocks=item.value.warehouseStocks?{
+  const warehouseStocks=warehouseKey?{
    ...item.value.warehouseStocks,
-   [invoice.warehouse]:Number(item.value.warehouseStocks[invoice.warehouse])+row.inventoryChange
+   [warehouseKey]:Number(item.value.warehouseStocks[warehouseKey])+row.inventoryChange
   }:undefined;
-  if(warehouseStocks&&warehouseStocks[invoice.warehouse]<0)
+  if(warehouseStocks&&warehouseStocks[warehouseKey]<0)
    throw new Error('REVISION_WOULD_NEGATE_WAREHOUSE:'+row.itemId);
   const moveId='sm-'+commandId+'-'+row.itemId;
   const unitPrice=Number(plan.costByItem[row.itemId]);

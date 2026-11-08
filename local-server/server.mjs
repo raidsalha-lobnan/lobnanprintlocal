@@ -136,8 +136,11 @@ const srv=http.createServer(async(req,res)=>{
       return json(res,200,{events:STRICT_AUTH?filterEvents(pulled,access).map(safeEvent):pulled},cors);
     }
     if(req.method==='POST' && url.pathname==='/api/v1/invoices/revise'){
-      if(process.env.SYNC_ENABLE_INVOICE_REVISIONS!=='1')
-        throw new InputError('INVOICE_REVISION_NOT_YET_ENABLED',503);
+      // Financial amendments are routed through the authenticated, auditable
+      // PostgreSQL correction engine instead of the legacy browser repost.
+      // Operators can explicitly disable revisions during emergency recovery.
+      if(process.env.SYNC_ENABLE_INVOICE_REVISIONS==='0')
+        throw new InputError('INVOICE_REVISION_MAINTENANCE_MODE',503);
       if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);
       const request=await parseBody(req,350000);
       const receipt=await revisePostedInvoice(service,workspace,request,user.id,access);
