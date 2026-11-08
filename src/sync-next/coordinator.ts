@@ -273,7 +273,7 @@ export class SyncCoordinator {
 
         // First receive other devices' committed changes. Otherwise every
         // ordinary offline edit tries to write against an obsolete version.
-        await this.pullAllPages();
+        if(this.remote.fetchAuthoritativeBootstrap) await this.pullAllPages();
         await this.reconcileConflicts();
         await this.pushPending();
         await this.pullAllPages();
