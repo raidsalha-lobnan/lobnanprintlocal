@@ -2227,7 +2227,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
 
     if (aggregateDuplicateItems) {
       const existingLine = tableLines.find(
-        l => l.inventoryItemId === item.id || (l.barcode && matchItemByBarcode(item, l.barcode)) || l.itemName === item.name
+        // Item names and even barcodes may be reused; only the immutable inventory ID identifies a line.
+        l => l.inventoryItemId === item.id
       );
 
       if (existingLine) {

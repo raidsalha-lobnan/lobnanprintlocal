@@ -2,6 +2,7 @@ import {InputError, fingerprint, makeNumber, makeCursor, validateCommand} from '
 import {preserveOfficialInvoiceFields} from './invoice-amendments.mjs';
 import {telegramRelevantChanges} from './telegram-delivery.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
+import {assertStableEntitySerial} from './entity-identity.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -61,6 +62,9 @@ export class SyncService {
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
         if(actual!==change.expectedVersion) throw new InputError('VERSION_CONFLICT',409,{entity:change.entity,id:change.id,expectedVersion:change.expectedVersion,actualVersion:actual});
         let val=change.value;
+        // Enforce business-code identity inside the serialized PostgreSQL commit.
+        // A display-name edit cannot change account/customer/item identity.
+        await assertStableEntitySerial(client,workspace,change.entity,change.id,old?.value,val);
         // Never accept journal/stock correction markers from an ordinary client.
         // Only the authenticated, server-built invoice revision can create them.
         if((change.entity==='journalEntries'||change.entity==='stockMovements') &&

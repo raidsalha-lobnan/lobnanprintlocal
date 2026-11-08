@@ -6077,8 +6077,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let targetId = id;
 
     setParties(prev => {
-      // 1. Resolve existing party robustly (by id or code)
-      const existing = prev.find(p => p.id === id || (p.code && p.code.toLowerCase() === id.toLowerCase()));
+      // Resolve by immutable ID first. An entered public code is accepted only
+      // if it maps to exactly one record; names are never lookup keys.
+      const exact = prev.find(p => p.id === id);
+      const codeMatches = exact ? [] : prev.filter(p => p.code && p.code.toLowerCase() === id.toLowerCase());
+      const existing = exact || (codeMatches.length === 1 ? codeMatches[0] : undefined);
       if (!existing) {
         console.warn(`updateParty: Target party ${id} not found in parties list. Ignored.`);
         return prev;
@@ -7681,7 +7684,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const rawItems = invoiceData.items || [];
     const targetCustId = invoiceData.customerId;
     const itemsForSale = rawItems.map((it: any, idx: number) => {
-      const invItem = inventory.find(i => (it.inventoryItemId && i.id === it.inventoryItemId) || i.name === it.name) || {
+      // Permanent inventory ID is authoritative. A legacy code may resolve only if unique.
+      const linkedId = it.inventoryItemId || it.itemId;
+      const legacyCode = it.itemCode || it.code;
+      const matchingCodes = !linkedId && legacyCode ? inventory.filter(i => i.code === legacyCode) : [];
+      const invItem = (linkedId ? inventory.find(i => i.id === linkedId) : matchingCodes.length === 1 ? matchingCodes[0] : undefined) || {
         id: it.inventoryItemId || `itm-${Date.now()}-${idx}`,
         code: it.code || it.itemCode || `ITM-${idx + 1}`,
         barcode: it.barcode || '',
@@ -7735,7 +7742,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const rawItems = invoiceData.items || [];
     const targetCustId = invoiceData.customerId;
     const itemsForSale = rawItems.map((it: any, idx: number) => {
-      const invItem = inventory.find(i => (it.inventoryItemId && i.id === it.inventoryItemId) || i.name === it.name) || {
+      // Permanent inventory ID is authoritative. A legacy code may resolve only if unique.
+      const linkedId = it.inventoryItemId || it.itemId;
+      const legacyCode = it.itemCode || it.code;
+      const matchingCodes = !linkedId && legacyCode ? inventory.filter(i => i.code === legacyCode) : [];
+      const invItem = (linkedId ? inventory.find(i => i.id === linkedId) : matchingCodes.length === 1 ? matchingCodes[0] : undefined) || {
         id: it.inventoryItemId || `itm-${Date.now()}-${idx}`,
         code: it.code || it.itemCode || `ITM-${idx + 1}`,
         barcode: it.barcode || '',
@@ -8905,8 +8916,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setInvoices(invs => invs.map(inv => {
           if (
             inv.printJobId === id ||
-            inv.id === job.associatedInvoiceId ||
-            inv.invoiceNumber === job.orderNumber
+            (Boolean(job.associatedInvoiceId) && inv.id === job.associatedInvoiceId)
           ) {
             if (inv.workflowStatus === mappedInvoiceWorkflow) return inv;
             const now = new Date();

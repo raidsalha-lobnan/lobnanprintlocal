@@ -298,8 +298,7 @@ export function generateAccountStatement(params: {
       // 2) Check if this job is already recorded as an invoice in invoices to prevent duplicate!
       const alreadyHasInvoice = invoices.some(inv =>
         inv.printJobId === job.id ||
-        (job.associatedInvoiceId && inv.id === job.associatedInvoiceId) ||
-        (inv.invoiceNumber && job.orderNumber && inv.invoiceNumber === job.orderNumber)
+        (Boolean(job.associatedInvoiceId) && inv.id === job.associatedInvoiceId)
       );
 
       if (alreadyHasInvoice) {

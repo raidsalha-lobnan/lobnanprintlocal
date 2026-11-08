@@ -35,12 +35,10 @@ export const CustomerLedgerModal: React.FC<CustomerLedgerModalProps> = ({
     if (!customer) return false;
     if (customer.isSubCustomer) {
       return (
-        inv.subCustomerId === customer.id ||
-        (inv.subCustomerName && inv.subCustomerName.trim().toLowerCase() === customer.name.trim().toLowerCase()) ||
-        (inv.customCustomerText && inv.customCustomerText.toLowerCase().includes(customer.name.toLowerCase()))
+        inv.subCustomerId === customer.id
       );
     }
-    return inv.customerId === customer.id || inv.customerName === customer.name;
+    return inv.customerId === customer.id;
   });
 
   const totalBilled = customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);

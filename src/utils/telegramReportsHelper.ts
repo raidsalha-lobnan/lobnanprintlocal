@@ -858,13 +858,15 @@ export async function generateCustomerItemsPdfBlob(params: {
   }>();
 
   invoices.forEach(inv => {
-    const isMatch = inv.customerId === party.id || inv.customerName === party.name;
+    const isMatch = party.isSubCustomer
+      ? inv.subCustomerId === party.id
+      : inv.customerId === party.id;
     if (!isMatch) return;
     if (fromDate && inv.date < fromDate) return;
     if (toDate && inv.date > toDate) return;
 
-    (inv.items || []).forEach(line => {
-      const key = line.itemId || line.itemName;
+    (inv.items || []).forEach((line, lineIndex) => {
+      const key = line.itemId || `unlinked:${inv.id}:${lineIndex}`;
       const name = line.itemName;
       const qty = Number(line.quantity) || 1;
       const lineTotal = Number(line.total) || (line.unitPrice * qty);

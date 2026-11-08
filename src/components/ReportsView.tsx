@@ -79,6 +79,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
     purchaseReturns,
     vouchers,
     parties,
+    inventory,
     employees,
     payrollSheets,
     treasuries,
@@ -327,17 +328,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
     }>();
 
     invoices.forEach(inv => {
-      const isMatch = (inv.customerId && targetCustomerIds.has(inv.customerId)) ||
-                      (inv.subCustomerId && targetCustomerIds.has(inv.subCustomerId)) ||
-                      (cust.name && inv.customerName === cust.name);
+      // IDs are authoritative: never attach another customer's invoice by a matching name.
+      const isMatch = selectedSubCustomerId && selectedSubCustomerId !== 'all'
+        ? inv.subCustomerId === selectedSubCustomerId
+        : Boolean((inv.customerId && targetCustomerIds.has(inv.customerId)) ||
+          (inv.subCustomerId && targetCustomerIds.has(inv.subCustomerId)));
       if (!isMatch) return;
       if (fromDate && inv.date < fromDate) return;
       if (toDate && inv.date > toDate) return;
 
-      inv.items.forEach(line => {
-        const key = line.item?.id || line.description || 'unknown';
-        const name = line.item?.name || line.description || 'صنف غير محدد';
-        const code = line.item?.code || '-';
+      inv.items.forEach((line, lineIndex) => {
+        // Aggregate by permanent inventory ID, never by a mutable description.
+        const linkedId = line.itemId || line.item?.id;
+        const currentItem = linkedId ? inventory.find(item => item.id === linkedId) : undefined;
+        const key = linkedId || `unlinked:${inv.id}:${lineIndex}`;
+        const name = currentItem?.name || line.itemName || line.item?.name || line.description || 'صنف غير محدد';
+        const code = currentItem?.code || line.itemCode || line.item?.code || '-';
         const unit = line.unit || line.item?.unit || 'قطعة';
         const category = line.item?.category || 'عام';
         const qty = line.quantity || 1;
@@ -383,7 +389,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       totalQuantity,
       totalAmount
     };
-  }, [parties, selectedCustomerId, selectedSubCustomerId, subCustomersForSelected, invoices, fromDate, toDate]);
+  }, [parties, selectedCustomerId, selectedSubCustomerId, subCustomersForSelected, invoices, inventory, fromDate, toDate]);
 
   // -------------------------------------------------------------
   // REPORT 3: Detailed Supplier Statement (كشف حساب تفصيلي مورد)
