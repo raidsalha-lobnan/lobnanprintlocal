@@ -183,6 +183,7 @@ export class LocalSyncDb {
       }
 
       const versions = new Map<string, number>();
+      const bases = new Map<string, StoredRecord | null>();
       for (const c of safeChanges) {
         const key = recordKey(c.entity, c.id);
         const row = await request(tx.objectStore(RECORDS).get(key)) as StoredRecord | undefined;
@@ -203,6 +204,8 @@ export class LocalSyncDb {
           return mostRecent;
         }
         versions.set(key, (row?.version ?? 0) + pendingForRecord.length);
+        // Never invent a server baseline when another local write is queued.
+        bases.set(key,pendingForRecord.length===0 ? (row??null) : null);
       }
       const versioned = safeChanges.map(c => ({
         ...c,
@@ -213,6 +216,7 @@ export class LocalSyncDb {
         id: commandId,
         workspaceId: this.workspaceId,
         changes: versioned,
+        baseRecords: safeChanges.map(change=>bases.get(recordKey(change.entity,change.id))??null),
         createdAt: Date.now(),
         attempts: 0,
         retryAt: 0,
