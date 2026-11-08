@@ -3,7 +3,7 @@ import type {SystemUser} from '../types';
 const STORED_LOGIN_KEY='lobnan_offline_encrypted_login_v1';
 export const AUTH_TOKEN_KEY='lobnan_postgres_user_session';
 const TOKEN_EXPIRY_KEY='lobnan_postgres_user_session_expires';
-const FALLBACK_API='https://lobnan-print.shares.zrok.io';
+const FALLBACK_API='https://lobnan-api.shares.zrok.io';
 const LOCAL_CREDENTIAL_MAX_AGE=7*24*60*60*1000;
 const encode=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes)));
 const decode=value=>Uint8Array.from(atob(value),c=>c.charCodeAt(0));
