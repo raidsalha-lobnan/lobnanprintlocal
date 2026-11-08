@@ -7,7 +7,7 @@ $bin=Join-Path $root 'pgsql-17\pgsql\bin'
 $private=Join-Path $root 'private'
 $pwFile=Join-Path $private 'postgres-password.dpapi'
 $download='C:\Users\RaidSalha\Downloads'
-$matches=@(Get-ChildItem -LiteralPath $download -File | Where-Object {$_.Name -eq 'نسخة_احتياطية_كاملة_فيربيس_لبنان_2026-11-07_13-10-57.json'})
+$matches=@(Get-ChildItem -LiteralPath $download -File | Where-Object {$_.Name.EndsWith('2026-11-07_13-10-57.json')})
 if($matches.Count -ne 1){throw 'APPROVED_SNAPSHOT_MUST_BE_UNIQUE'}
 $source=$matches[0].FullName
 $expectedHash='15af3839ac12405a7059b288e7c0c357b693617e04108554dc772e934436f77b'
