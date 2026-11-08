@@ -13,7 +13,7 @@ const invoiceFields=['date','type','customerId','counterpartyType','counterparty
 const lineFields=['itemId','itemName','quantity','unitPrice','total','discount','tax',
  'notes','description','unit','length','width','count','hasDimensions','barcode',
  'itemCode','category'];
-const zeroDefault=new Set(['discount','tax','discountTotal','taxAmount',
+const zeroDefault=new Set(['discount','tax','taxRate','discountTotal','taxAmount',
  'additionalCharges','cashPaidAmount','bankPaidAmount','paidAmount','basePaidAmount']);
 const oneDefault=new Set(['length','width','count']);
 const numberFields=new Set(['subtotal','discountTotal','taxRate','taxAmount',
@@ -21,6 +21,8 @@ const numberFields=new Set(['subtotal','discountTotal','taxRate','taxAmount',
  'exchangeRate','additionalCharges','cashPaidAmount','bankPaidAmount',
  'quantity','unitPrice','total','discount','tax','length','width','count']);
 const equivalent=(a,b,key)=>{
+ if(key==='hasDimensions')return Boolean(a)===Boolean(b);
+ if(key==='currencySymbol')return (a||'₪')===(b||'₪');
  if(key==='currency')return (a==='₪'?'ILS':a)===(b==='₪'?'ILS':b)||
    ((a===undefined||a===null)&&(b==='ILS'||b==='₪'));
  if(key==='counterpartyType')return (a||'customer')===(b||'customer');
