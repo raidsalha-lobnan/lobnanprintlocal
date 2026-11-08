@@ -101,3 +101,34 @@ test('employee invoice correction updates posted invoice and journal without inv
  assert.equal(result.changes.find(c=>c.entity==='journalEntries'&&c.value.correctionKind==='revenue').value.lines[0].debit,0.6);
  assert.equal(result.changes.filter(c=>c.entity==='parties').length,0);
 });
+
+test('unchanged invoice with irreconcilable legacy journals returns an authoritative no-op without postings',async()=>{
+ const f=fixture({duplicate:true});
+ const unchanged={...req,commandId:'unchanged-legacy-66',proposed:{
+  ...invoice,items:invoice.items.map((line,index)=>({...line,id:'ui-rebuilt-'+index}))
+ }};
+ const result=await revisePostedInvoice(f.svc,'lobnan_main',unchanged,'admin',access);
+ assert.equal(f.commands,0);
+ assert.equal(result.changes.length,1);
+ assert.equal(result.changes[0].entity,'invoices');
+ assert.equal(result.changes[0].version,2);
+ assert.deepEqual(result.changes[0].value,invoice);
+ const retry=await revisePostedInvoice(f.svc,'lobnan_main',unchanged,'admin',access);
+ assert.deepEqual(retry,result);
+ assert.equal(f.commands,0);
+});
+test('real monetary change remains blocked when historical journals are duplicated',async()=>{
+ const f=fixture({duplicate:true});
+ await assert.rejects(revisePostedInvoice(f.svc,'lobnan_main',req,'admin',access),
+  /BASELINE_NEEDS_RECONCILIATION/);
+ assert.equal(f.commands,0);
+});
+test('unchanged invoice cannot bypass version or permissions',async()=>{
+ const f=fixture({duplicate:true});
+ const unchanged={...req,commandId:'unchanged-guard',proposed:invoice};
+ await assert.rejects(revisePostedInvoice(f.svc,'lobnan_main',
+  {...unchanged,expectedVersion:1},'admin',access),/VERSION_CONFLICT/);
+ await assert.rejects(revisePostedInvoice(f.svc,'lobnan_main',
+  unchanged,'operator',{canReviseInvoice:()=>false}),/PERMISSION_DENIED/);
+ assert.equal(f.commands,0);
+});
