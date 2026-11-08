@@ -29,7 +29,7 @@ function correctionRequired(detail:string):never{
 export function prepareSecureInvoiceDescriptionEdit<T extends Record<string,any>>(
   oldInvoice:T,computed:T
 ):T{
-  if(!oldInvoice?.isOfficial)correctionRequired('هذه الفاتورة ليست معتمدة بالسجل الرسمي');
+  if(!oldInvoice?.id||!oldInvoice?.invoiceNumber)correctionRequired('الفاتورة الأصلية غير موجودة');
   if(oldInvoice.id!==computed.id||oldInvoice.invoiceNumber!==computed.invoiceNumber)
     correctionRequired('رقم الفاتورة ومعرّفها ثابتان');
   const itemsOld=oldInvoice.items,itemsNew=computed.items;
