@@ -7583,20 +7583,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     notes?: string,
     extraOptions?: Parameters<typeof createPosSale>[5]
   ): Promise<{ success: boolean; invoice?: Invoice; error?: string; isOffline?: boolean; isBusy?: boolean }> => {
-    // 1. Instant Local-First Save (< 10ms): Commit accounting ledger, inventory & invoice locally immediately
-    const localInvoice = createPosSale(
-      items,
-      customerName,
-      paymentMethod,
-      customerId,
-      notes,
-      extraOptions
-    );
-
-    // Ensure at least the invoice exists in the durable local outbox BEFORE
-    // telling POS that saving succeeded. Additional journal/movement posting
-    // still needs a dedicated audited atomic command before production.
+    // Validation of edits can reject posted financial changes before enqueue.
+    // Catch those errors here rather than leaving POS indefinitely busy.
     try {
+      const localInvoice = createPosSale(
+        items,
+        customerName,
+        paymentMethod,
+        customerId,
+        notes,
+        extraOptions
+      );
+      // This only confirms local queueing, not PostgreSQL acceptance.
+      // Ledger, stock and party posting still requires atomic integration.
       const repo = unifiedRepoRef.current;
       if (!repo) throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
       await repo.put('invoices', localInvoice.id, localInvoice as unknown as JsonObject);
@@ -7604,7 +7603,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (error) {
       return {
         success: false,
-        error: `تعذر تأكيد حفظ الفاتورة محلياً: ${String(error)}`,
+        error: String(error).includes('POSTED_INVOICE_CORRECTION_REQUIRED')
+          ? 'تعديل الفاتورة المعتمدة يتضمن تغييرًا محاسبيًا في المبالغ أو الكميات أو الأصناف أو الدفعات. لم يُعتمد هذا التعديل لأن مسار التسوية المحاسبية الذرية لم يكتمل بعد. احتفظ بالمدخلات ولا تُعد إنشاء الفاتورة.'
+          : `تعذر تأكيد حفظ الفاتورة محلياً: ${String(error)}`,
         isOffline: typeof navigator !== 'undefined' && !navigator.onLine
       };
     }
