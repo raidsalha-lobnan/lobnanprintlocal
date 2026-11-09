@@ -36,6 +36,8 @@ import {
 import { SupplierModal } from './purchases/SupplierModal';
 import { SuppliersCompactDirectory } from './SuppliersCompactDirectory';
 import {PurchaseInvoiceLinesTable,emptyPurchaseLine,purchaseDraftForItem,purchaseLineAmounts,purchaseLineSummary,type PurchaseLineDraft} from './purchases/PurchaseInvoiceLinesTable';
+import {PurchaseInvoiceFooter} from './purchases/PurchaseInvoiceFooter';
+import {calculatePurchaseBreakdown,calculatePurchaseSettlement,purchaseMoney,type PurchasePaymentLeg} from '../utils/purchasePaymentConsole';
 import { PaymentVoucherModal } from './purchases/PaymentVoucherModal';
 import { AutocompleteCombobox } from './common/AutocompleteCombobox';
 
@@ -102,9 +104,15 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
   const [invoiceCurrency, setInvoiceCurrency] = useState(settings.baseCurrencyCode || 'ILS');
   const [invoiceExchangeRate, setInvoiceExchangeRate] = useState<number>(1.0);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bank_transfer');
-  const [paidAmount, setPaidAmount] = useState<number>(0);
-  const [paymentTreasuryCode, setPaymentTreasuryCode] = useState('');
+  const [cashPurchasePayment,setCashPurchasePayment]=useState<PurchasePaymentLeg>({
+    amount:0,currency:'ILS',rate:1,treasuryCode:''
+  });
+  const [bankPurchasePayment,setBankPurchasePayment]=useState<PurchasePaymentLeg>({
+    amount:0,currency:'ILS',rate:1,treasuryCode:''
+  });
+  const [overallPurchaseDiscount,setOverallPurchaseDiscount]=useState(0);
+  const [purchaseAdditionalCharges,setPurchaseAdditionalCharges]=useState(0);
+  const [purchasePaymentNotes,setPurchasePaymentNotes]=useState('');
   const [notes, setNotes] = useState('');
   const [taxRate, setTaxRate] = useState<number>(settings.vatRate || 0);
   const [items, setItems] = useState<PurchaseLineDraft[]>(()=>[emptyPurchaseLine()]);
@@ -166,20 +174,45 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   const handleCurrencyChange = (currCode: string) => {
     setInvoiceCurrency(currCode);
     const curr = currencies.find(c => c.code === currCode);
-    if (curr) {
-      setInvoiceExchangeRate(curr.rateAgainstBase || 1.0);
-    } else {
-      setInvoiceExchangeRate(1.0);
-    }
+    const rate=currCode==='ILS'?1:curr?.rateAgainstBase||1;
+    setInvoiceExchangeRate(rate);
+    setCashPurchasePayment(prev=>prev.currency===currCode?{...prev,rate}:prev);
+    setBankPurchasePayment(prev=>prev.currency===currCode?{...prev,rate}:prev);
   };
 
   // Calculations for Purchase Invoice
-  const eligiblePurchaseTreasuries=treasuries.filter(t=>t.status==='active'&&
-    (paymentMethod==='cash'?t.type==='cash_box':t.type!=='cash_box'));
   const purchaseTotals=purchaseLineSummary(items,taxRate);
-  const subtotal=purchaseTotals.subtotal;
-  const taxAmount=purchaseTotals.tax;
-  const grandTotal=purchaseTotals.total;
+  const purchaseBreakdown=(()=>{
+    try{return calculatePurchaseBreakdown(items,taxRate,
+      overallPurchaseDiscount,purchaseAdditionalCharges);}
+    catch{return null;}
+  })();
+  const subtotal=purchaseBreakdown?.subtotal||0;
+  const taxAmount=purchaseBreakdown?.tax||0;
+  const grandTotal=purchaseBreakdown?.total||0;
+  const purchaseSettlement=(()=>{
+    if(!purchaseBreakdown)return null;
+    try{return calculatePurchaseSettlement(grandTotal,invoiceExchangeRate,
+      cashPurchasePayment,bankPurchasePayment);}
+    catch{return null;}
+  })();
+  const cashPurchaseAccounts=treasuries.filter(t=>t.status==='active'&&t.type==='cash_box');
+  const bankPurchaseAccounts=treasuries.filter(t=>t.status==='active'&&t.type!=='cash_box');
+  const validPurchasePayment=!!purchaseSettlement&&
+    (cashPurchasePayment.amount===0||cashPurchaseAccounts.some(t=>t.accountCode===cashPurchasePayment.treasuryCode))&&
+    (bankPurchasePayment.amount===0||bankPurchaseAccounts.some(t=>t.accountCode===bankPurchasePayment.treasuryCode));
+  const quickPayPurchase=(method:'cash'|'bank')=>{
+    const target=method==='cash'?cashPurchasePayment:bankPurchasePayment;
+    const other=method==='cash'?bankPurchasePayment:cashPurchasePayment;
+    const limit=purchaseMoney(grandTotal*invoiceExchangeRate);
+    const otherBase=purchaseMoney(other.amount*other.rate);
+    const remainBase=Math.max(0,purchaseMoney(limit-otherBase));
+    const amount=Math.max(0,Math.floor(remainBase/target.rate*100+1e-7)/100);
+    const eligible=method==='cash'?cashPurchaseAccounts:bankPurchaseAccounts;
+    const setter=method==='cash'?setCashPurchasePayment:setBankPurchasePayment;
+    setter(prev=>({...prev,amount:purchaseMoney(amount),
+      treasuryCode:prev.treasuryCode||eligible[0]?.accountCode||''}));
+  };
 
   const handleOpenNewPurchase = (preselectedSupplier?: Party) => {
     if (preselectedSupplier) {
@@ -191,10 +224,14 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     setPurchaseDate(new Date().toISOString().split('T')[0]);
     setInvoiceCurrency(settings.baseCurrencyCode || 'ILS');
     setInvoiceExchangeRate(1.0);
-    setPaidAmount(0);
+    setCashPurchasePayment({amount:0,currency:'ILS',rate:1,
+      treasuryCode:cashPurchaseAccounts[0]?.accountCode||''});
+    setBankPurchasePayment({amount:0,currency:'ILS',rate:1,
+      treasuryCode:bankPurchaseAccounts[0]?.accountCode||''});
+    setOverallPurchaseDiscount(0);
+    setPurchaseAdditionalCharges(0);
+    setPurchasePaymentNotes('');
     setNotes('');
-    setPaymentMethod('credit');
-    setPaymentTreasuryCode('');
     setItems([emptyPurchaseLine()]);
     setShowNewPurchaseModal(true);
   };
@@ -204,40 +241,58 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     const supplier=suppliers.find(s=>s.id===supplierId);
     if(!supplier){alert('يجب اختيار المورد الصحيح.');return;}
     if(!purchaseDate){alert('يجب تحديد تاريخ الفاتورة.');return;}
-    if(!Number.isFinite(invoiceExchangeRate)||invoiceExchangeRate<=0){
-      alert('سعر صرف المشتريات يجب أن يكون أكبر من صفر.');return;
+    if(!purchaseTotals.valid||!purchaseBreakdown||!purchaseSettlement){
+      alert('راجع بنود فاتورة المشتريات والخصم والإضافة وضريبة المدخلات وسعر الصرف؛ يجب أن تكون جميع القيم صحيحة.');return;
     }
-    if(!purchaseTotals.valid){
-      alert('تحقق من الصنف والكمية والطول والعرض والعدد وسعر الشراء والخصم في كل سطر.');return;
-    }
-    const paid=paymentMethod==='credit'?0:Number(paidAmount);
-    if(paid>0&&!eligiblePurchaseTreasuries.some(t=>t.accountCode===paymentTreasuryCode)){
-      alert('حدد الصندوق النقدي أو الحساب البنكي الفعلي الذي خرجت منه الدفعة.');return;
-    }
-    if(!Number.isFinite(paid)||paid<0||paid>grandTotal){
-      alert('المبلغ المسدد لا يجوز أن يقل عن صفر أو يزيد عن إجمالي الفاتورة.');return;
+    if(!validPurchasePayment){
+      alert('تأكد من عدم تجاوز إجمالي الفاتورة وحدد الصندوق النقدي والحساب البنكي الصحيح لكل دفعة.');return;
     }
     const currencyInfo=currencies.find(curr=>curr.code===invoiceCurrency);
-    const purchaseItems=items.map(line=>{
-      const a=purchaseLineAmounts(line,taxRate);
+    const purchaseItems=items.map((line,i)=>{
+      const amount=purchaseLineAmounts(line,taxRate);
+      const final=purchaseBreakdown.lines[i];
       return {itemId:line.itemId,itemName:line.itemName,itemCode:line.itemCode,
         barcode:line.barcode,notes:line.notes,unit:line.unit,
         unitCalculationType:line.unitCalculationType,hasDimensions:line.hasDimensions,
         length:line.length,width:line.width,count:line.count,
-        quantity:a.quantity,unitPrice:line.unitPrice,discount:a.discount,
-        tax:a.tax,total:a.net,totalAfterTax:a.total};
+        quantity:amount.quantity,unitPrice:line.unitPrice,
+        discount:final.discount,tax:final.tax,total:final.net,
+        totalAfterTax:final.total};
     });
+    const paymentMethod:PaymentMethod=bankPurchasePayment.amount>0?
+      'bank_transfer':cashPurchasePayment.amount>0?'cash':'credit';
     try{
       createPurchaseInvoice({
         date:purchaseDate,supplierId:supplier.id,supplierName:supplier.name,
         supplierInvoiceNumber:supplierInvoiceNumber.trim()||undefined,
         currency:invoiceCurrency,currencySymbol:currencyInfo?.symbol||settings.currency||'₪',
         exchangeRate:invoiceExchangeRate,items:purchaseItems,
-        subtotal,taxRate,taxAmount,totalAmount:grandTotal,paidAmount:paid,
-        paymentMethod,treasuryAccountCode:paymentTreasuryCode,notes
+        subtotal,taxRate,taxAmount,totalAmount:grandTotal,
+        paidAmount:purchaseSettlement.paidInvoice,
+        paymentMethod,
+        treasuryAccountCode:paymentMethod==='cash'?cashPurchasePayment.treasuryCode:
+          bankPurchasePayment.treasuryCode,
+        notes,overallDiscountPercent:overallPurchaseDiscount,
+        overallDiscountAmount:purchaseBreakdown.overallDiscount,
+        additionalCharges:purchaseAdditionalCharges,
+        cashPaidAmount:cashPurchasePayment.amount,
+        cashPaymentCurrency:cashPurchasePayment.currency,
+        cashPaymentExchangeRate:cashPurchasePayment.rate,
+        cashTreasuryAccountCode:cashPurchasePayment.treasuryCode,
+        cashBasePaidAmount:purchaseSettlement.cashBase,
+        bankPaidAmount:bankPurchasePayment.amount,
+        bankPaymentCurrency:bankPurchasePayment.currency,
+        bankPaymentExchangeRate:bankPurchasePayment.rate,
+        bankTreasuryAccountCode:bankPurchasePayment.treasuryCode,
+        bankBasePaidAmount:purchaseSettlement.bankBase,
+        paymentReceiptNote:purchasePaymentNotes
       });
-      setShowNewPurchaseModal(false);setNotes('');setPaidAmount(0);
-    }catch(error){alert('تعذر حفظ فاتورة الشراء: '+(error instanceof Error?error.message:String(error)));}
+      setShowNewPurchaseModal(false);
+      setNotes('');
+      setPurchasePaymentNotes('');
+    }catch(error){
+      alert('تعذر حفظ فاتورة الشراء: '+(error instanceof Error?error.message:String(error)));
+    }
   };
 
   // --- Purchase Return Handlers ---
