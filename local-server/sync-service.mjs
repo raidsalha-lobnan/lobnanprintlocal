@@ -4,6 +4,7 @@ import {telegramRelevantChanges} from './telegram-delivery.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
 import {assertStableEntitySerial} from './entity-identity.mjs';
 import {validateInvoiceCounterparty} from './invoice-counterparty.mjs';
+import {normalizeSingleWarehouseInventory} from './single-warehouse-inventory.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -58,11 +59,22 @@ export class SyncService {
       if(partyOnlyBulk) throw new InputError('BULK_PARTY_SNAPSHOT_REJECTED_USE_LEDGER_RECONCILIATION',409);
       let nextInvoice=Number(ws.rows[0].next_invoice);
       const applied=[];
+      const hasInventoryUpdate=command.changes.some(change=>change.entity==='inventory');
+      const warehouses=hasInventoryUpdate?(await client.query(
+        "SELECT record_id AS id FROM sync_records WHERE workspace=$1 AND entity='warehouses'",
+        [workspace])).rows:[];
+      const singleWarehouseId=warehouses.length===1?warehouses[0].id:null;
       for(const change of command.changes) {
         const previous=await client.query('SELECT version,value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',[workspace,change.entity,change.id]);
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
         if(actual!==change.expectedVersion) throw new InputError('VERSION_CONFLICT',409,{entity:change.entity,id:change.id,expectedVersion:change.expectedVersion,actualVersion:actual});
         let val=change.value;
+        if(change.entity==='inventory'&&singleWarehouseId){
+          val=normalizeSingleWarehouseInventory({
+            previous:old?.value,next:val,warehouseId:singleWarehouseId,
+            commandId:command.id,now:new Date().toISOString()
+          });
+        }
         // Enforce business-code identity inside the serialized PostgreSQL commit.
         // A display-name edit cannot change account/customer/item identity.
         await assertStableEntitySerial(client,workspace,change.entity,change.id,old?.value,val);
