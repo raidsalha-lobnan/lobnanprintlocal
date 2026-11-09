@@ -6,6 +6,49 @@ const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,max:1});
 const dir='D:/LobnanData/audit';
 const fixed=n=>Math.round((Number(n)||0)*100)/100;
 const sumLines=j=>fixed((j.value.lines||[]).reduce((s,l)=>s+Number(l.debit||0),0));
+const netByAccount=(journals,account)=>fixed(journals.reduce((s,row)=>
+ s+(row.value.lines||[]).filter(l=>l.accountCode===account).reduce(
+ (a,l)=>a+Number(l.debit||0)-Number(l.credit||0),0),0));
+// Historical duplicates remain visible in the audit, but are no longer
+// false critical errors once documented, approved corrections reconcile
+// the latest invoice's revenue, cost and actual referenced stock history.
+const approvedNetReconciliation=(invoice,related,stocks)=>{
+ if(!invoice.legacyRepair?.repairId||Number(invoice.paidAmount||0)!==0||
+    Number(invoice.taxAmount||0)!==0||Number(invoice.additionalCharges||0)!==0||
+    Number(invoice.exchangeRate||1)!==1)return false;
+ const corrections=related.filter(row=>row.value.referenceType==='invoice_correction'&&
+  row.value.approvedRevision===true&&row.value.internalCorrection===true);
+ if(!corrections.some(row=>row.value.correctionKind==='financial')||
+    !corrections.some(row=>row.value.correctionKind==='cogs')||
+    !corrections.every(row=>row.value.correctionGroupId===
+     'revision-'+invoice.legacyRepair.repairId))return false;
+ const total=fixed(invoice.baseTotalAmount??invoice.totalAmount);
+ const cogs=netByAccount(related,'5101');
+ if(Math.abs(netByAccount(related,'1201')-total)>0.011||
+    Math.abs(netByAccount(related,'4101')+total)>0.011||cogs<0)return false;
+ const movements=stocks.filter(row=>row.value.sourceInvoiceId===invoice.id);
+ if(!movements.length)return false;
+ const qty=new Map();
+ let value=0;
+ for(const row of movements){
+  const m=row.value;
+  if(!m.itemId||!Number.isFinite(Number(m.quantity))||
+     !Number.isFinite(Number(m.totalValue))||Number(m.quantity)<0)return false;
+  const sign=m.type==='in_adjustment'?-1:
+   (m.type==='out_sale'||m.type==='out_adjustment')?1:null;
+  if(sign===null)return false;
+  qty.set(m.itemId,fixed((qty.get(m.itemId)||0)+sign*Number(m.quantity)));
+  value+=sign*Number(m.totalValue);
+ }
+ const expected=new Map();
+ for(const item of invoice.items||[]){
+  if(['services','copy_scan'].includes(item.category)||
+    ['srv-delivery','srv-delivery-mobile'].includes(item.itemId))continue;
+  expected.set(item.itemId,fixed((expected.get(item.itemId)||0)+Number(item.quantity)));
+ }
+ if(Math.abs(fixed(value)-cogs)>0.011||qty.size!==expected.size)return false;
+ return [...expected].every(([id,n])=>Math.abs((qty.get(id)||0)-n)<0.00001);
+};
 let client;
 try{
  client=await pool.connect();
@@ -25,9 +68,20 @@ try{
   else seen.set(number,i.id);
   const related=byRef.get(i.id)||[],revenue=related.filter(j=>j.value.referenceType==='pos_invoice'),cogs=related.filter(j=>j.value.referenceType==='cogs');
   const salesAmounts=revenue.map(sumLines),total=fixed(i.baseTotalAmount??i.totalAmount);
-  if(revenue.length>1)findings.critical.push({code:'MULTIPLE_SALES_JOURNALS',invoice:number,recordId:i.id,version:row.version,invoiceTotal:total,postings:salesAmounts});
-  else if(revenue.length===1 && Math.abs(salesAmounts[0]-total)>0.011) findings.critical.push({code:'INVOICE_JOURNAL_TOTAL_MISMATCH',invoice:number,recordId:i.id,invoiceTotal:total,journalTotal:salesAmounts[0]});
-  if(cogs.length>1)findings.critical.push({code:'MULTIPLE_COST_JOURNALS',invoice:number,recordId:i.id,costs:cogs.map(sumLines)});
+  const fullyReconciled=(revenue.length>1||cogs.length>1)&&
+    approvedNetReconciliation(i,related,stocks);
+  if(fullyReconciled){
+    findings.review.push({code:'APPROVED_HISTORICAL_DUPLICATES_RECONCILED',
+      invoice:number,recordId:i.id,
+      originalRevenuePostings:salesAmounts,
+      verifiedNetRevenue:total,verifiedNetCOGS:netByAccount(related,'5101'),
+      repairId:i.legacyRepair.repairId});
+  }else{
+    if(revenue.length>1)findings.critical.push({code:'MULTIPLE_SALES_JOURNALS',invoice:number,recordId:i.id,version:row.version,invoiceTotal:total,postings:salesAmounts});
+    if(cogs.length>1)findings.critical.push({code:'MULTIPLE_COST_JOURNALS',invoice:number,recordId:i.id,costs:cogs.map(sumLines)});
+  }
+  if(revenue.length===1&&Math.abs(salesAmounts[0]-total)>0.011)
+    findings.critical.push({code:'INVOICE_JOURNAL_TOTAL_MISMATCH',invoice:number,recordId:i.id,invoiceTotal:total,journalTotal:salesAmounts[0]});
   if(!revenue.length&&i.isAccountingPosted)findings.review.push({code:'MISSING_LINKED_REVENUE_JOURNAL',invoice:number,recordId:i.id});
   const subtotal=fixed(items.reduce((s,x)=>s+Number(x.total||0),0));
   if(Math.abs(subtotal-fixed(i.subtotal))>0.011)findings.critical.push({code:'LINE_SUBTOTAL_MISMATCH',invoice:number,recordId:i.id,itemsSubtotal:subtotal,invoiceSubtotal:i.subtotal});
