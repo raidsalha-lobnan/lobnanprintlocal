@@ -630,6 +630,75 @@ export class LocalSyncDb {
   }
 
   /**
+   * Refresh an already-initialized device from PostgreSQL on startup.
+   * Never discard an outbox command: an unsynced or rejected financial edit
+   * remains independently reviewable, but the confirmed server version is
+   * the displayed baseline. This also heals a device that missed events while
+   * its local cursor appeared current.
+   */
+  async refreshAuthoritativeSnapshot(
+    snapshot: StoredRecord[], serverCursor: ServerCursor
+  ): Promise<number> {
+    const db = await this.dbPromise;
+    const tx = db.transaction([RECORDS, OUTBOX, META, RECEIPTS], 'readwrite');
+    const done = completed(tx);
+    try {
+      const records = tx.objectStore(RECORDS);
+      const receipts = tx.objectStore(RECEIPTS);
+      const storedCursor = await request(
+        tx.objectStore(META).get(CURSOR_KEY)
+      ) as { value: ServerCursor } | undefined;
+      const seen = new Set<string>();
+      let replaced = 0;
+      const divergent: Array<{entity: string; id: string; previous: StoredRecord}> = [];
+      for (const row of snapshot) {
+        const key = recordKey(row.entity, row.id);
+        if (key !== row.key || seen.has(key) ||
+            !Number.isSafeInteger(row.version) || row.version < 1) {
+          throw new Error('Invalid authoritative snapshot record ' + key);
+        }
+        seen.add(key);
+        const prior = await request(records.get(key)) as StoredRecord | undefined;
+        if (!prior || prior.version !== row.version ||
+            JSON.stringify(prior.value) !== JSON.stringify(row.value)) {
+          if (prior && (prior.version > row.version ||
+              (prior.version === row.version &&
+               JSON.stringify(prior.value) !== JSON.stringify(row.value)))) {
+            divergent.push({entity:row.entity,id:row.id,previous:prior});
+          }
+          records.put(row);
+          replaced++;
+        }
+      }
+      if (divergent.length) {
+        receipts.put({
+          id: 'server-baseline-reconciliation-' + crypto.randomUUID(),
+          resolution: 'AUTHORITATIVE_POSTGRES_SNAPSHOT',
+          restoredAt: new Date().toISOString(),
+          previousRecords: divergent,
+          serverVersions: divergent.map(x => {
+            const row = snapshot.find(r => r.entity === x.entity && r.id === x.id);
+            return {entity:x.entity,id:x.id,version:row?.version};
+          })
+        });
+      }
+      // If this device somehow persisted a cursor ahead of the shared server,
+      // reset it to the verified bootstrap cursor; otherwise replay all events
+      // since the old cursor to avoid missing changes during this download.
+      if (storedCursor && compareCursor(storedCursor.value, serverCursor) > 0) {
+        tx.objectStore(META).put({key:CURSOR_KEY,value:serverCursor});
+      }
+      await done;
+      if (replaced) this.changed();
+      return replaced;
+    } catch (error) {
+      try { tx.abort(); } catch {}
+      await done.catch(() => {});
+      throw error;
+    }
+  }
+
+  /**
    * Seeds cloud snapshot records directly into local IndexedDB records store
    * with exact cloud versions and zero pending outbox write commands.
    */
