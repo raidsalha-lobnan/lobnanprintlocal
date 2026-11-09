@@ -82,20 +82,23 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     [workspace,request.commandId,invoice.id,hash,actorId,JSON.stringify(receipt)]);
    return receipt;
   }
-  // The date and warehouse of an already-posted movement cannot be
-  // silently rewritten: stock and settlement documents retain their dates.
-  for(const field of ['date','warehouse','currency','exchangeRate']){
-   let before=invoice[field]??null,after=proposed[field]??null;
-   if(field==='currency'){
-    before=before==='₪'?'ILS':before||'ILS';
-    after=after==='₪'?'ILS':after||'ILS';
-   }else if(field==='exchangeRate'){
-    before=Number(before||1);after=Number(after||1);
-   }
-   if(JSON.stringify(before)!==JSON.stringify(after))
-    throw new InputError('INVOICE_REVISION_REQUIRES_DOCUMENT_TRANSFER',422,{field});
-  }
-  try{validateProposedInvoice(proposed);}
+  // Corrective changes keep the immutable original journal and stock audit.
+  // Ordinary invoice reports read the latest stored date and warehouse.
+  const currency=v=>(v==='₪'||!v)?'ILS':String(v);
+  if(currency(invoice.currency)!==currency(proposed.currency))
+   throw new InputError('INVOICE_REVISION_CURRENCY_DENOMINATION_WORKFLOW_REQUIRED',422);
+  if(typeof proposed.date!=='string'||!/^\\d{4}-\\d{2}-\\d{2}$/.test(proposed.date)||
+     !Number.isFinite(Date.parse(proposed.date+'T00:00:00Z')))
+   throw new InputError('INVOICE_REVISION_DATE_INVALID',422);
+  if(typeof proposed.warehouse!=='string'||!proposed.warehouse.trim())
+   throw new InputError('INVOICE_REVISION_WAREHOUSE_REQUIRED',422);
+  const rate=Number(proposed.exchangeRate||1);
+  if(!Number.isFinite(rate)||rate<=0)
+   throw new InputError('INVOICE_REVISION_RATE_INVALID',422);
+  // The ILS base currency is always valued at 1 ILS per ILS.
+  if(currency(proposed.currency)==='ILS'&&Math.abs(rate-1)>0.000001)
+   throw new InputError('INVOICE_REVISION_BASE_CURRENCY_RATE_MUST_BE_ONE',422);
+  try{validateProposedInvoice(proposed,{original:invoice});}
   catch(error){throw new InputError('INVOICE_REVISION_INVALID_ARITHMETIC',422,
    {reason:String(error.message)});}
   const journalRows=(await client.query(
