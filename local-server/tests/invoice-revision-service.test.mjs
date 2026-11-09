@@ -46,6 +46,9 @@ const fixture=(options={})=>{
   if(sql.includes("entity='stockMovements'"))return {rows:records.stockMovements};
   if(sql.includes("entity='parties'"))return {rows:records.parties};
   if(sql.includes("entity='inventory'"))return {rows:records.inventory};
+  if(sql.includes("entity='warehouses'"))return {rows:[{
+   id:'wh-1',value:{id:'wh-1',name:'main',code:'WH-01',isDefault:true}
+  }]};
   if(sql.startsWith('INSERT INTO sync_invoice_revision_requests')){
    history.set(values[1],{request_fingerprint:values[3],actor_id:values[4],receipt:JSON.parse(values[5])});return {rows:[]};
   }
@@ -73,13 +76,15 @@ test('duplicate historical journals fail before any posting',async()=>{
   /BASELINE_NEEDS_RECONCILIATION/);
  assert.equal(f.commands,0);
 });
-test('historical warehouse/global stock difference preserves the offset on approved invoice revision',async()=>{
+test('one registered warehouse normalizes the historical stock cache after revision',async()=>{
  const f=fixture({ambiguous:true});
  const receipt=await revisePostedInvoice(f.svc,'lobnan_main',req,'admin',access);
  assert.equal(f.commands,1);
  const inventory=receipt.changes.find(x=>x.entity==='inventory');
  assert.equal(inventory.value.stockQuantity,530);
- assert.equal(inventory.value.warehouseStocks.main,890);
+ assert.equal(inventory.value.warehouseStocks.main,530);
+ assert.equal(inventory.value.warehouseStock['wh-1'],530);
+ assert.equal(inventory.value.inventoryBalanceReconciliations[0].priorWarehouseCache,760);
 });
 test('stale expected version and insufficient permissions fail closed',async()=>{
  const f=fixture();
@@ -98,7 +103,7 @@ test('employee invoice correction updates posted invoice and journal without inv
   {...req,commandId:'employee-revision',proposed:proposal},'admin',access);
  assert.equal(f.commands,1);
  assert.equal(result.changes.find(c=>c.entity==='invoices').value.customerId,'emp1');
- assert.equal(result.changes.find(c=>c.entity==='journalEntries'&&c.value.correctionKind==='revenue').value.lines[0].debit,0.6);
+ assert.equal(result.changes.find(c=>c.entity==='journalEntries'&&c.value.correctionKind==='financial').value.lines[0].debit,0.6);
  assert.equal(result.changes.filter(c=>c.entity==='parties').length,0);
 });
 
