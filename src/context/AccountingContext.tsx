@@ -7623,7 +7623,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           (oldCash!==undefined||oldBank!==undefined
             ?Math.abs(Number(oldCash||0)-Number(draft.cashPaidAmount||0))<0.000001&&
              Math.abs(Number(oldBank||0)-Number(draft.bankPaidAmount||0))<0.000001
-            :Math.abs((formCashBase+formBankBase)-historicalBasePaid)<0.011);
+            :Math.abs((formCashBase+formBankBase)-historicalBasePaid)<0.011||
+             (original.paymentMethod==='cash'&&
+              Math.abs(Number(draft.cashPaidAmount||0)-Number(original.paidAmount||0))<0.000001&&
+              Number(draft.bankPaidAmount||0)===0)||
+             (['card','bank_transfer'].includes(original.paymentMethod)&&
+              Math.abs(Number(draft.bankPaidAmount||0)-Number(original.paidAmount||0))<0.000001&&
+              Number(draft.cashPaidAmount||0)===0));
         const rateOnlyPayment=previousRate!==currencyRate&&sameReceipt;
         const proposed:Invoice={
           ...original,
@@ -7644,7 +7650,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           ...(rateOnlyPayment?{
             paidAmount:original.paidAmount,
             remainingAmount:Number((draft.totalAmount-Number(original.paidAmount||0)).toFixed(2)),
-            cashBaseAmount:formCashBase,bankBaseAmount:formBankBase
+            cashBaseAmount:(original as any).cashBaseAmount,
+            bankBaseAmount:(original as any).bankBaseAmount
           }:{}),
           isAccountingPosted:true,
           statusHistory:original.statusHistory,
