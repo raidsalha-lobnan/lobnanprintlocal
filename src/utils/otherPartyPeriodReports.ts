@@ -125,3 +125,30 @@ export function printDirectoryPeriodReport(title:string,company:string,filter:Di
  pop.document.open();pop.document.write(markup);pop.document.close();
  pop.onload=()=>{pop.focus();pop.print();};
 }
+
+
+/** Excel-readable UTF-8 export of exactly the filtered and printed rows. */
+export function exportDirectoryPeriodCSV(
+ title:string,filter:DirectoryDateFilter,columns:string[],
+ data:(string|number)[][]
+):void{
+ const bounds=directoryBounds(filter);
+ const escapeCSV=(v:string|number):string=>{
+  if(typeof v==='number')return String(v);
+  const raw=String(v??'');
+  const safe=/^[=+@\t\r\n]/.test(raw)||/^-\D/.test(raw)?"'"+raw:raw;
+  return '"'+safe.replace(/"/g,'""')+'"';
+ };
+ const rows:(string|number)[][]=[
+  [title],['الفترة',bounds.label],[],columns,...data
+ ];
+ const content='\uFEFF'+rows.map(row=>row.map(escapeCSV).join(',')).join('\r\n');
+ const objectUrl=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'}));
+ const a=document.createElement('a');
+ a.href=objectUrl;
+ a.download=title.replace(/\s+/g,'-')+'-'+
+  (filter.mode==='day'?filter.day:filter.mode==='range'?
+   (filter.from||'البداية')+'-'+(filter.to||'النهاية'):'كامل')+'.csv';
+ document.body.appendChild(a);a.click();a.remove();
+ window.setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);
+}
