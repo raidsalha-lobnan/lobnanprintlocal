@@ -231,3 +231,58 @@ export function printCustomerPeriodRegister(
   openingPopup.document.close();
   openingPopup.onload = () => { openingPopup.focus(); openingPopup.print(); };
 }
+
+
+/** Export the same reviewed customer data to Excel-compatible UTF-8 CSV. */
+export function exportCustomerPeriodCSV(
+  source: CustomerReportSource, filter: CustomerPeriodFilter
+): void {
+  const bounds = customerDateBounds(filter);
+  const csvText = (value: unknown): string => {
+    const raw = String(value ?? '');
+    // Customer names must never be interpreted as Excel formulae.
+    const safe = /^[=+@\t\r\n]/.test(raw) || /^-\D/.test(raw) ? "'" + raw : raw;
+    return '"' + safe.replace(/"/g, '""') + '"';
+  };
+  const headers = ['الرقم التسلسلي','اسم العميل','النوع','العميل الرئيسي',
+    'رصيد أول الفترة','مبيعات الفترة','المقبوضات','التسويات',
+    'صافي حركة الفترة','عدد الفواتير','رصيد آخر الفترة'];
+  const rows: unknown[][] = [
+    ['كشف حركة وأرصدة العملاء'],
+    ['الفترة', bounds.label],
+    ['ملاحظة','إجمالي الرئيسيين هو الإجمالي المحاسبي الموحد، والفرعيون للتفصيل فقط.']
+  ];
+  for (const entry of [
+    {list:'main' as const,label:'العملاء الرئيسيون'},
+    {list:'sub' as const,label:'العملاء الفرعيون'}
+  ]) {
+    const data = customerPeriodRows(source,{...filter,list:entry.list});
+    const totals = customerPeriodTotals(data);
+    rows.push([], [entry.label], headers);
+    for(const row of data){
+      const parent = row.party.parentPartyId
+        ? source.parties.find(p=>p.id===row.party.parentPartyId) : null;
+      rows.push([
+        row.party.code,row.party.name,entry.list==='main'?'رئيسي':'فرعي',
+        parent?.name||'',row.opening,row.sales,row.receipts,row.adjustments,
+        row.movement,row.invoiceCount,row.closing
+      ]);
+    }
+    rows.push(['إجمالي '+entry.label,'','','', totals.opening,totals.sales,
+      totals.receipts,totals.adjustments,totals.movement,
+      totals.invoiceCount,totals.closing]);
+  }
+  const csv = '\uFEFF' + rows.map(row=>row.map(value=>typeof value==='number'
+    ? String(value) : csvText(value)).join(',')).join('\r\n');
+  const blob = new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const suffix = filter.mode==='all'?'كامل':
+    filter.mode==='day'?filter.day:(filter.from||'البداية')+'-'+(filter.to||'النهاية');
+  a.download = 'كشف-العملاء-'+suffix+'.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
