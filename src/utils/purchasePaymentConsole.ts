@@ -1,5 +1,4 @@
-import type {PurchaseLineDraft} from '../components/purchases/PurchaseInvoiceLinesTable';
-import {purchaseLineAmounts} from '../components/purchases/PurchaseInvoiceLinesTable';
+import {purchaseLineAmounts,type PurchaseLineDraft} from './purchaseLineMath';
 
 export const purchaseMoney=(amount:number):number=>
  Number(Number(amount).toFixed(2));
