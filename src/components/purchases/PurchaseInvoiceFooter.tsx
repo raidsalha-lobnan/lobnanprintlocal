@@ -35,7 +35,7 @@ const money=(n:number)=>Number(n||0).toFixed(2);
 export const PurchaseInvoiceFooter:React.FC<Props>=(p)=>{
  const cashAccounts=p.treasuries.filter(t=>t.status==='active'&&t.type==='cash_box');
  const bankAccounts=p.treasuries.filter(t=>t.status==='active'&&t.type!=='cash_box');
- const paidStatus=p.remainingBase<0.005?'مدفوع بالكامل':p.paidBase>0?'مدفوع جزئياً':'آجل';
+ const paidStatus=p.totals.total>0&&p.remainingBase<0.005?'مدفوع بالكامل':p.paidBase>0?'مدفوع جزئياً':'آجل';
  const currSymbol=p.currencies.find(c=>c.code===p.currency)?.symbol||p.currency;
  const compactRate=(v:number)=>Number(v||1).toFixed(4);
  const paymentLeg=(kind:'cash'|'bank')=>{
