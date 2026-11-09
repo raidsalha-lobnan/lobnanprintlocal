@@ -22,7 +22,7 @@ test('real PostgreSQL: concurrent invoice allocation, retry safety, and rollback
   assert.deepEqual(await svc.push(workspace,commands[0]),receipts[0],'re-sending command does not create a second invoice');
   assert.equal(await svc.head(workspace),15,'retry does not advance event cursor');
   const bad={id:'failing-transaction',workspaceId:workspace,changes:[
-   {entity:'parties',id:'not-committed',expectedVersion:0,value:{id:'not-committed',name:'Transient'}},
+   {entity:'parties',id:'not-committed',expectedVersion:0,value:{id:'not-committed',code:'CUST-CI-ROLLBACK',name:'Transient'}},
    {entity:'invoices',id:'invoice-0',expectedVersion:0,value:{id:'invoice-0',invoiceNumber:'TEMP-stale'}}
   ]};
   await assert.rejects(svc.push(workspace,bad),e=>e.message==='VERSION_CONFLICT');
