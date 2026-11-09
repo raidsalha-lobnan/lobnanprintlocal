@@ -2,7 +2,7 @@ import React,{useMemo,useState} from 'react';
 import {Truck,Search,CalendarDays,Plus,FileText,Receipt,RotateCcw,Printer,Edit2,Trash2,Wallet,TrendingUp,Banknote,FileSpreadsheet} from 'lucide-react';
 import {useAccounting} from '../context/AccountingContext';
 import type {Party} from '../types';
-import {supplierPeriodRows,totalAmounts,roundMoney,moneyDisplay,directoryBounds,todayLocal,printDirectoryPeriodReport,type DirectoryDateMode} from '../utils/otherPartyPeriodReports';
+import {supplierPeriodRows,totalAmounts,roundMoney,moneyDisplay,directoryBounds,todayLocal,printDirectoryPeriodReport,exportDirectoryPeriodCSV,type DirectoryDateMode} from '../utils/otherPartyPeriodReports';
 
 interface Props{
  onAdd:()=>void;onEdit:(party:Party)=>void;onDelete:(party:Party)=>void;
@@ -46,6 +46,17 @@ export const SuppliersCompactDirectory:React.FC<Props>=({
    filter,columns,body,settings.currency,
    'الرصيد الموجب = مبلغ مستحق للمورد، والسالب = دفعات مقدمة أو مبلغ مستحق لنا. رصيد آخر الفترة = رصيد أول الفترة + مشتريات الفترة − المدفوعات − المرتجعات ± التسويات. جميع القيم مستمدة من كشف حساب المورد في البرنامج.');
  };
+ const exportCsv=()=>{
+  if(invalid)return;
+  const cols=['رقم المورد','اسم المورد','عدد المشتريات','رصيد أول الفترة',
+    'مشتريات الفترة','المدفوعات','مرتجعات المشتريات','تسويات ±','رصيد آخر الفترة'];
+  const body=rows.map(r=>[r.entity.code,r.entity.name,r.documentCount,
+    r.opening,r.purchases,r.payments,r.returns,r.adjustments,r.closing]);
+  body.push(['إجمالي الموردين المعروضين',rows.length,
+    rows.reduce((n,r)=>n+r.documentCount,0),totals.opening,totals.purchases,
+    totals.payments,totals.returns,totals.adjustments,totals.closing]);
+  exportDirectoryPeriodCSV('كشف حركة وأرصدة الموردين',filter,cols,body);
+ };
  const mini='inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[10px] font-bold whitespace-nowrap text-white';
  const cards=[
   {label:'رصيد الموردين المستحق',amount:totals.closing,cls:'bg-amber-50 border-amber-200 text-amber-900',Icon:Wallet},
@@ -64,6 +75,8 @@ export const SuppliersCompactDirectory:React.FC<Props>=({
     <button type="button" onClick={()=>onPurchase()} className={mini+' bg-blue-700 hover:bg-blue-800'}><Plus className="h-3.5 w-3.5"/> فاتورة مشتريات</button>
     <button type="button" onClick={onReturn} className={mini+' bg-amber-600 hover:bg-amber-700'}><RotateCcw className="h-3.5 w-3.5"/> مرتجع</button>
     <button type="button" onClick={()=>onPay()} className={mini+' bg-rose-700 hover:bg-rose-800'}><Receipt className="h-3.5 w-3.5"/> سند صرف</button>
+    <button type="button" onClick={exportCsv} disabled={invalid}
+     className={mini+' bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40'}><FileSpreadsheet className="h-3.5 w-3.5"/> تصدير Excel</button>
     <button type="button" onClick={print} disabled={invalid} className={mini+' bg-slate-800 hover:bg-slate-900 disabled:opacity-40'}><Printer className="h-3.5 w-3.5"/> طباعة كشف الموردين</button>
    </div>
   </div>
