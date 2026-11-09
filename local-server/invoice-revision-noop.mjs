@@ -14,7 +14,8 @@ const invoiceFields=['date','type','customerId','counterpartyType','counterparty
  'subCustomerPhone','branch','workflowStatus','paymentStatus','deliveryDate'];
 const lineFields=['itemId','itemName','quantity','unitPrice','total','discount','tax',
  'notes','description','unit','length','width','count','hasDimensions','barcode',
- 'itemCode','category','attachments','imageThumbnail'];
+ 'itemCode','category','taxRate','dimensions','unitCalculationType',
+ 'attachments','imageThumbnail'];
 const zeroDefault=new Set(['discount','tax','taxRate','discountTotal','taxAmount',
  'additionalCharges','cashPaidAmount','bankPaidAmount','paidAmount','basePaidAmount']);
 const oneDefault=new Set(['length','width','count']);
