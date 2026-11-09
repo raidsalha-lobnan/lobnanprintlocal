@@ -1,4 +1,5 @@
 import {validateJournal} from './sync-domain.mjs';
+import {computeInvoiceStockRevision} from './invoice-warehouse-stock.mjs';
 const minor=v=>{
  const n=Number(v);if(!Number.isFinite(n)||Math.abs(n*100-Math.round(n*100))>0.00001)
   throw new Error('REVISION_INVALID_MONETARY_VALUE');
@@ -33,16 +34,6 @@ export function buildVerifiedInvoiceRevisionBundle({
  const group='revision-'+commandId;
  const partyIndex=new Map(partyRecords.map(r=>[r.id,r]));
  const inventoryIndex=new Map(inventoryRecords.map(r=>[r.id,r]));
- const resolveWarehouseKey=(stocks,label)=>{
-  const keys=Object.keys(stocks||{});
-  if(Object.hasOwn(stocks||{},label))return label;
-  // Historical invoices stored a descriptive warehouse name while inventory
-  // saved its short canonical label. Accept a unique exact prefix only.
-  const prefix=String(label||'').trim().split(/\s*[-–—]\s*/)[0];
-  const matches=keys.filter(k=>k.trim()===prefix);
-  if(matches.length===1)return matches[0];
-  throw new Error('REVISION_WAREHOUSE_MISSING_OR_AMBIGUOUS:'+label);
- };
  const treasuryByCode=new Map();
  for(const row of treasuryRecords){
   const code=row.value?.accountCode;
@@ -120,38 +111,19 @@ export function buildVerifiedInvoiceRevisionBundle({
   const item=inventoryIndex.get(itemId);
   if(!item||!Number.isSafeInteger(item.version)||item.version<1)
    throw new Error('REVISION_INVENTORY_AUTHORITATIVE_RECORD_REQUIRED:'+itemId);
-  const current=Number(item.value?.stockQuantity);
-  if(!Number.isFinite(current))
-   throw new Error('REVISION_INVENTORY_STOCK_BALANCE_REQUIRED:'+itemId);
   const oldQty=originalQuantities.get(itemId)||0;
   const newQty=proposedQuantities.get(itemId)||0;
-  const globalDelta=Math.round((oldQty-newQty)*1e6)/1e6;
-  const existingStocks=item.value?.warehouseStocks;
-  const keys=existingStocks&&Object.keys(existingStocks);
-  if(warehouseChanged&&(!keys||!keys.length))
-   throw new Error('REVISION_WAREHOUSE_STOCK_NOT_PROVEN:'+itemId);
-  let stocks=keys?.length?{...existingStocks}:undefined;
-  let oldKey, newKey;
-  if(stocks){
-   oldKey=resolveWarehouseKey(stocks,invoice.warehouse);
-   newKey=resolveWarehouseKey(stocks,proposed.warehouse);
-   if(!Object.values(stocks).every(v=>Number.isFinite(Number(v))))
-    throw new Error('REVISION_WAREHOUSE_STOCK_INVALID:'+itemId);
-  }
-  const transfer=warehouseChanged&&oldKey!==newKey;
-  const next=Number((current+globalDelta).toFixed(6));
-  if(next<0)throw new Error('REVISION_WOULD_NEGATE_STOCK:'+itemId);
-  if(stocks){
-   if(transfer){
-    stocks[oldKey]=Number((Number(stocks[oldKey])+oldQty).toFixed(6));
-    stocks[newKey]=Number((Number(stocks[newKey])-newQty).toFixed(6));
-   }else{
-    stocks[oldKey]=Number((Number(stocks[oldKey])+globalDelta).toFixed(6));
-   }
-   if(Object.values(stocks).some(value=>Number(value)<0))
-    throw new Error('REVISION_WOULD_NEGATE_WAREHOUSE:'+itemId);
-  }
-  if(!transfer&&Math.abs(globalDelta)<0.000001)continue;
+  const stock=computeInvoiceStockRevision({
+   itemId,inventoryValue:item.value,
+   invoiceWarehouse:invoice.warehouse,nextWarehouse:proposed.warehouse,
+   originalQuantity:oldQty,newQuantity:newQty
+  });
+  const current=stock.previousTotal,next=stock.nextTotal;
+  const globalDelta=stock.aggregateDelta;
+  const stocks=stock.warehouseStocks;
+  const oldKey=stock.oldWarehouseKey,newKey=stock.newWarehouseKey;
+  const transfer=stock.transferred;
+  if(!transfer&&Math.abs(globalDelta)<0.000001&&!stock.normalized)continue;
   const unitPrice=Number(plan.costByItem[itemId]);
   if(!Number.isFinite(unitPrice)||unitPrice<0)
    throw new Error('REVISION_COST_UNAVAILABLE:'+itemId);
@@ -180,7 +152,22 @@ export function buildVerifiedInvoiceRevisionBundle({
     Math.abs(globalDelta),oldKey||invoice.warehouse,current,next,'difference');
   }
   changes.push({entity:'inventory',id:itemId,expectedVersion:item.version,
-   value:{...item.value,stockQuantity:next,...(stocks?{warehouseStocks:stocks}:{})}});
+   value:{
+    ...item.value,stockQuantity:next,...(stocks?{warehouseStocks:stocks}:{}),
+    ...(stock.normalized?{inventoryBalanceReconciliations:[
+     ...(item.value.inventoryBalanceReconciliations||[]),
+     {
+      id:'stock-balance-'+commandId+'-'+itemId,
+      date:now,invoiceId:invoice.id,invoiceNumber:invoice.invoiceNumber,
+      reason:'Legacy aggregate quantity disagreed with existing warehouse balances',
+      priorAggregate:stock.originalAggregate,
+      provenWarehouseAggregateBefore:stock.previousTotal,
+      provenWarehouseAggregateAfter:stock.nextTotal,
+      stockMovementDelta:globalDelta,
+      requiresStockValuationReview:true
+     }
+    ]}:{})
+   }});
  }
  // Record settlement differences without rewriting original receipts.
  // A negative delta is a refund/reallocation, never an unrecorded cash disappearance.
