@@ -859,25 +859,6 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       const { type, text, data, chatId } = action;
       const session = getSession(chatId);
 
-      // Handle chatId setup / recognition
-      if (!settingsRef.current.telegramConfig?.defaultChatId && text === 'مرحبا') {
-        await TelegramService.sendMessage(
-          `مرحباً بك! لقد تم التعرف على معرف الدردشة الخاص بك بنجاح:\n<code>${chatId}</code>\nتم ربطه بالبرنامج تلقائياً.`,
-          settingsRef.current,
-          { chatId }
-        );
-        updateSettings({
-          telegramConfig: {
-            ...settingsRef.current.telegramConfig,
-            botToken,
-            defaultChatId: chatId,
-            enabled: true,
-          },
-        });
-        await sendMainMenu(chatId);
-        return;
-      }
-
       // ==========================================
       // 1. CALLBACK QUERY ACTIONS (Buttons)
       // ==========================================
