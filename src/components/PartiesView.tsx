@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { Party } from '../types';
 import {
@@ -37,10 +37,19 @@ import { generateSequentialPartyCode, isCashCustomerParty } from '../utils/party
 import { CustomerSpecialPricesModal } from './pos/CustomerSpecialPricesModal';
 import { BalanceReconciliationModal } from './BalanceReconciliationModal';
 import { posSound } from '../utils/audio';
+import { calculatePartyTrueBalance } from '../utils/statementGenerator';
 
 export const PartiesView: React.FC = () => {
   const {
     parties,
+    invoices = [],
+    vouchers = [],
+    purchases = [],
+    purchaseReturns = [],
+    salesReturns = [],
+    printOrders = [],
+    journalEntries = [],
+    debtClearings = [],
     inventory = [],
     addParty,
     updateParty,
@@ -291,8 +300,25 @@ export const PartiesView: React.FC = () => {
   // Currently selected item for special price picker
   const selectedSpecialItem = inventory.find(i => i.id === selectedSpecialItemId);
 
+  // The cashier and the parties directory now use the SAME net balance
+  // calculator, based on the latest PostgreSQL-synced invoices, receipts,
+  // purchases, returns and approved accounting movements. Never use the
+  // potentially stale party.balance cache as a displayed receivable.
+  const displayedParties = useMemo(() => {
+    const subCustomers = parties.filter(p => p.isSubCustomer);
+    return parties.map(party => ({
+      ...party,
+      balance: calculatePartyTrueBalance(
+        party, invoices, vouchers, purchases, purchaseReturns,
+        salesReturns, printOrders, journalEntries, debtClearings,
+        party.isSubCustomer ? party.id : undefined, subCustomers
+      )
+    }));
+  }, [parties, invoices, vouchers, purchases, purchaseReturns,
+      salesReturns, printOrders, journalEntries, debtClearings]);
+
   // Filtered Parties Logic
-  const filteredParties = parties.filter(p => {
+  const filteredParties = displayedParties.filter(p => {
     const q = searchQuery.trim().toLowerCase();
     const matchSearch =
       !q ||
@@ -320,15 +346,15 @@ export const PartiesView: React.FC = () => {
     return true;
   });
 
-  const totalReceivables = parties
+  const totalReceivables = displayedParties
     .filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer)
     .reduce((acc, p) => acc + (p.balance > 0 ? p.balance : 0), 0);
 
-  const totalPayables = parties
+  const totalPayables = displayedParties
     .filter(p => (p.type === 'supplier' || p.type === 'both') && !p.isSubCustomer)
     .reduce((acc, p) => acc + (p.balance < 0 ? Math.abs(p.balance) : 0), 0);
 
-  const exceededCount = parties.filter(
+  const exceededCount = displayedParties.filter(
     p => p.type !== 'supplier' && p.creditLimit && p.balance > p.creditLimit && !p.isSubCustomer
   ).length;
 
