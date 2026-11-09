@@ -28,6 +28,7 @@ import { matchItemByBarcode } from '../utils/barcodeGenerator';
 import { findPartyByCodeOrNumber, isCashCustomerParty } from '../utils/partyUtils';
 import { getAvailableUnitsOfMeasure, isSquareMeterUnit } from '../utils/unitsOfMeasure';
 import { isDimensionalInvoiceItem } from '../utils/invoiceDimensions';
+import {invoiceEditSignature} from '../utils/invoiceEditSignature';
 import { matchKeyboardShortcut } from '../utils/keyboardShortcuts';
 import { calculatePartyTrueBalance, calculateEmployeeTrueBalance } from '../utils/statementGenerator';
 import {
@@ -937,6 +938,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
 
   // 1. Cash Payment State (العملة، سعر الصرف، الصندوق)
   const currentEditingInvoiceIdRef = useRef<string | null>(null);
+  const openedInvoiceSignatureRef = useRef<string | null>(null);
   
   useEffect(() => {
     currentEditingInvoiceIdRef.current = editingPosInvoiceId;
@@ -2638,6 +2640,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
         userId: currentUser?.id,
         userName: currentUser?.fullName || currentUser?.username,
         editingInvoiceId: currentEditingInvoiceIdRef.current || editingPosInvoiceId || undefined,
+        editingInvoiceSnapshot: openedInvoiceSignatureRef.current || undefined,
         counterpartyType: posTargetType,
         counterpartyId: selectedCustomerId || undefined,
         customCustomerText,
@@ -2763,6 +2766,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
       setEditingPosInvoiceId(null);
       currentEditingInvoiceIdRef.current = null;
       lastLoadedInvoiceIdRef.current = null;
+      openedInvoiceSignatureRef.current = null;
       // setActiveTab('invoices'); // Removed so the screen stays as is
     }
   };
@@ -3045,6 +3049,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     isInvoiceLoadingRef.current = true;
     currentEditingInvoiceIdRef.current = inv.id;
     lastLoadedInvoiceIdRef.current = inv.id;
+    openedInvoiceSignatureRef.current = invoiceEditSignature(inv);
 
     const invCustId = inv.counterpartyId || inv.customerId || '';
     const recipientType = inv.counterpartyType || (
@@ -3290,6 +3295,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setEditingPosInvoiceId(null);
     currentEditingInvoiceIdRef.current = null;
     lastLoadedInvoiceIdRef.current = null;
+    openedInvoiceSignatureRef.current = null;
     setTableLines([
       {
         id: generateUniqueLineId(),
