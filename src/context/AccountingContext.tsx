@@ -5900,8 +5900,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let merged: InventoryItem;
     if (existing) {
       // Permanent Code Immutability Guarantee: Once created, the item's SKU/Code is locked forever
-      const { code: _ignored, ...allowedUpdates } = updated;
-      merged = { ...existing, ...allowedUpdates, code: existing.code };
+      const { code: _ignored, category: _ignoredCategory, ...allowedUpdates } = updated;
+      merged = { ...existing, ...allowedUpdates, code: existing.code, category: existing.category };
     } else {
       merged = { ...updated, id } as InventoryItem;
     }

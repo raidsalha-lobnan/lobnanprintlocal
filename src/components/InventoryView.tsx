@@ -417,6 +417,7 @@ export const InventoryView: React.FC = () => {
   };
 
   const handleCategoryChange = (newCat: ItemCategory) => {
+    if (editingItem) return; // Existing category IDs are immutable outside audited migration.
     setFormCategory(newCat);
     if (!editingItem && formCode.trim()) {
       const nextCode = generateSequentialSku(newCat, inventory.map(i => i.code), allCategories);
@@ -1508,6 +1509,8 @@ export const InventoryView: React.FC = () => {
                         type="text"
                         required={Boolean(editingItem)}
                         value={formCode}
+                        disabled={Boolean(editingItem)}
+                        title={editingItem ? 'كود الصنف ثابت ولا يُعدّل إلا ضمن ترحيل إداري معتمد' : 'كود الصنف الجديد'}
                         onChange={e => setFormCode(e.target.value)}
                         placeholder="تلقائي بعد الحفظ..."
                         className={`w-full border rounded-md p-1.5 pr-2.5 pl-8 font-mono text-xs font-bold text-center outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
@@ -1517,6 +1520,7 @@ export const InventoryView: React.FC = () => {
                       <button
                         type="button"
                         onClick={handleRegenerateCode}
+                        disabled={Boolean(editingItem)}
                         className="absolute left-1 top-1/2 -translate-y-1/2 text-blue-600 hover:text-blue-800 p-1 flex items-center cursor-pointer"
                         title="توليد تلقائي"
                       >
@@ -1597,6 +1601,8 @@ export const InventoryView: React.FC = () => {
                     </label>
                     <select
                       value={formCategory}
+                      disabled={Boolean(editingItem)}
+                      title={editingItem ? 'نقل صنف بين التصنيفات يتم فقط بترحيل إداري مدقق' : 'مجموعة الصنف'}
                       onChange={e => handleCategoryChange(e.target.value as ItemCategory)}
                       className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs text-slate-700 font-semibold focus:ring-1 focus:ring-blue-500 outline-none cursor-pointer"
                     >
