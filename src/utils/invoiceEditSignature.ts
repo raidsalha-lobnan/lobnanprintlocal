@@ -22,7 +22,8 @@ export const invoiceEditSignature=(invoice:Invoice):string=>JSON.stringify([
  invoice.remainingAmount,invoice.paymentMethod,invoice.currency,
  invoice.exchangeRate,invoice.baseTotalAmount,invoice.basePaidAmount,
  invoice.cashPaidAmount,invoice.bankPaidAmount,invoice.cashTreasuryCode,
- invoice.bankTreasuryCode,invoice.cashBaseAmount,invoice.bankBaseAmount,
+ invoice.bankTreasuryCode,(invoice as Invoice & {cashBaseAmount?:number}).cashBaseAmount,
+ (invoice as Invoice & {bankBaseAmount?:number}).bankBaseAmount,
  invoice.treasuryAccountCode,invoice.notes,invoice.paymentNotes,
  invoice.representative,invoice.workflowStatus
 ]);
