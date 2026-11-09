@@ -46,9 +46,9 @@ type InvoiceDateFilterMode = 'all' | 'single' | 'range';
 const toInvoiceDateKey = (raw: string | null | undefined): string => {
   if (!raw) return '';
   const datePart = String(raw).trim().split('T')[0].replace(/[.]/g, '/');
-  const iso = /^(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})$/.exec(datePart);
+  const iso = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(datePart);
   if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  const legacy = /^(\\d{1,2})[-/](\\d{1,2})[-/](\\d{4})$/.exec(datePart);
+  const legacy = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/.exec(datePart);
   if (legacy) return `${legacy[3]}-${legacy[2].padStart(2, '0')}-${legacy[1].padStart(2, '0')}`;
   return '';
 };
