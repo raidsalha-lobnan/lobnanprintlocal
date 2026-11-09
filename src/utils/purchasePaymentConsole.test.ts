@@ -71,3 +71,12 @@ test('area-based material quantity uses exact length times width times count',()
  const r=calculatePurchaseBreakdown([area],0,0,0);
  assert.equal(r.total,177.6);
 });
+
+test('default purchase item price converts from base ILS into invoice currency',async()=>{
+ const {purchaseDraftForItem}=await import('./purchaseLineMath');
+ const stock={id:'item-1',code:'PRI-001',name:'ورق',
+  unit:'قطعة',purchasePrice:37,barcode:'',category:'خام'} as import('../types').InventoryItem;
+ const line=purchaseDraftForItem(stock,undefined,3.7);
+ assert.equal(line.unitPrice,10);
+ assert.equal(line.itemId,'item-1');
+});
