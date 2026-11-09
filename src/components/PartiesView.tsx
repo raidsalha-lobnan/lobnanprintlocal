@@ -413,23 +413,22 @@ export const PartiesView: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-3" dir="rtl">
+    <div className="relative flex h-full min-h-0 w-full flex-1 flex-col gap-1.5 overflow-hidden" dir="rtl">
       {toastMsg && (
-        <div className={`flex items-center justify-between gap-2 p-2.5 rounded-lg border text-xs font-bold ${toastMsg.type==='error'?'bg-rose-50 text-rose-800 border-rose-200':'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
+        <div className={`absolute top-10 inset-x-2 z-30 flex items-center justify-between gap-2 p-2 rounded-lg border shadow-lg text-xs font-bold ${toastMsg.type==='error'?'bg-rose-50 text-rose-800 border-rose-200':'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
           <span>{toastMsg.text}</span>
           <button type="button" onClick={() => setToastMsg(null)} aria-label="إغلاق التنبيه">✕</button>
         </div>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 shadow-xs flex flex-wrap items-center justify-between gap-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-xs min-h-[38px]">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="p-2 bg-blue-50 rounded-lg text-blue-600"><Users className="w-5 h-5" /></div>
+          <div className="p-1.5 bg-blue-50 rounded-md text-blue-600"><Users className="w-4 h-4" /></div>
           <div className="min-w-0">
-            <h2 className="text-sm font-black text-slate-900 whitespace-nowrap">دليل العملاء وكشوف الحساب</h2>
-            <div className="text-[10px] text-slate-500">العملاء الرئيسيون والفرعيون • أرصدة حقيقية من كشوف الحساب</div>
+            <h2 className="text-[12px] font-black text-slate-900 whitespace-nowrap">دليل العملاء وكشوف الحساب</h2>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap">
           <button type="button" onClick={() => setShowReconciliationModal(true)}
             className="flex items-center gap-1 bg-slate-800 hover:bg-slate-900 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
             <Scale className="w-3.5 h-3.5" /> مراجعة الأرصدة
@@ -454,87 +453,82 @@ export const PartiesView: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs space-y-2">
-        <div className="flex items-center gap-1.5 text-[12px] font-extrabold text-slate-800">
-          <SlidersHorizontal className="w-4 h-4 text-blue-600" /> التصفية والبحث
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 flex-[2] min-w-[185px] bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-9">
+      <div className="flex shrink-0 min-h-[39px] items-center gap-1.5 overflow-x-auto whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-xs">
+          <div className="flex shrink-0 items-center gap-1">
+            <button type="button" onClick={()=>setCustomerSection('main')}
+              className={`h-7 px-2.5 rounded-md text-[11px] font-black whitespace-nowrap ${customerSection==='main'?'bg-blue-700 text-white shadow-sm':'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'}`}>
+              العملاء الرئيسيون ({allMainCustomers.length})
+            </button>
+            <button type="button" onClick={()=>setCustomerSection('sub')}
+              className={`h-7 px-2.5 rounded-md text-[11px] font-black whitespace-nowrap ${customerSection==='sub'?'bg-violet-700 text-white shadow-sm':'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'}`}>
+              العملاء الفرعيون ({allSubCustomers.length})
+            </button>
+          </div>
+
+          <label className="flex items-center gap-2 w-[232px] shrink-0 bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-7">
             <Search className="w-4 h-4 text-slate-400 shrink-0" />
             <input type="search" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
               className="min-w-0 flex-1 bg-transparent outline-none text-xs"
               placeholder="الاسم أو الرقم التسلسلي أو الجوال..." aria-label="البحث عن عميل" />
           </label>
-          <label className="flex items-center gap-1.5 min-w-[180px] whitespace-nowrap text-[11px] text-slate-600 font-bold">
+          <label className="flex items-center gap-1.5 shrink-0 whitespace-nowrap text-[11px] text-slate-600 font-bold">
             <CalendarDays className="w-4 h-4 text-indigo-600"/>
             <select value={dateMode} onChange={e=>setDateMode(e.target.value as CustomerPeriodMode)}
-              className="h-9 flex-1 px-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-800 text-xs">
+              className="h-7 w-[145px] px-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-800 text-xs">
               <option value="all">جميع التواريخ</option>
               <option value="day">تاريخ محدد</option>
               <option value="range">من تاريخ إلى تاريخ</option>
             </select>
           </label>
           {dateMode==='day'&&
-            <label className="flex items-center gap-2 whitespace-nowrap text-[11px] font-bold text-slate-600">
+            <label className="flex items-center gap-1 whitespace-nowrap text-[11px] font-bold text-slate-600">
               التاريخ <input type="date" value={selectedDay} onChange={e=>setSelectedDay(e.target.value)}
-                dir="ltr" className="h-9 border border-slate-200 rounded-lg bg-slate-50 px-2 text-xs"/>
+                dir="ltr" className="h-7 w-[126px] shrink-0 border border-slate-200 rounded-lg bg-slate-50 px-2 text-xs"/>
             </label>}
           {dateMode==='range'&&<>
             <label className="flex items-center gap-1 whitespace-nowrap text-[11px] font-bold text-slate-600">
               من <input type="date" value={dateFrom} max={dateTo||undefined}
                 onChange={e=>setDateFrom(e.target.value)} dir="ltr"
-                className="h-9 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs"/>
+                className="h-7 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs"/>
             </label>
             <label className="flex items-center gap-1 whitespace-nowrap text-[11px] font-bold text-slate-600">
               إلى <input type="date" value={dateTo} min={dateFrom||undefined}
                 onChange={e=>setDateTo(e.target.value)} dir="ltr"
-                className="h-9 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs"/>
+                className="h-7 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs"/>
             </label>
           </>}
           <button type="button"
             onClick={()=>{setSearchQuery('');setDateMode('all');setDateFrom('');setDateTo('')}}
-            className="h-9 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 text-xs font-bold whitespace-nowrap">
+            className="h-7 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 text-xs font-bold whitespace-nowrap">
             إظهار الكل
           </button>
-        </div>
-        {invalidPeriod && <p className="text-rose-700 text-xs font-bold">تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.</p>}
+          <div className="ms-auto flex shrink-0 items-center gap-2 text-[10px] whitespace-nowrap font-semibold text-slate-600">
+            <span>المعروض: <b className="text-slate-900">{rows.length}</b> حساب</span>
+            <span className="text-slate-300">|</span>
+            <span>إجمالي الرصيد: <b className="text-blue-800">{money(sectionTotals.closing)} {settings.currency}</b></span>
+          </div>
       </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2.5">
+      {invalidPeriod && <p className="shrink-0 px-2 text-rose-700 text-[11px] font-bold">تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.</p>}
+      <div className="shrink-0 overflow-x-auto">
+        <div className="grid min-w-[850px] grid-cols-4 gap-1.5">
         {summaryCards.map(({key,label,amount,className,Icon})=>(
-          <div key={key} className={`rounded-xl border px-3 py-3 shadow-xs min-w-0 ${className}`}>
-            <div className="flex items-center gap-2 justify-between whitespace-nowrap min-w-0 overflow-x-auto">
-              <Icon className="w-5 h-5 shrink-0 opacity-80" />
+          <div key={key} className={`rounded-lg border px-2 py-1 shadow-xs min-w-0 ${className}`}>
+            <div className="flex h-[28px] items-center gap-1.5 justify-between whitespace-nowrap min-w-0">
+              <Icon className="w-4 h-4 shrink-0 opacity-80" />
               <span className="text-[11px] xl:text-xs font-extrabold shrink-0">{label}</span>
-              <span className="text-base xl:text-lg font-black tracking-tight tabular-nums shrink-0" dir="ltr">
+              <span className="text-[13px] font-black tracking-tight tabular-nums shrink-0" dir="ltr">
                 {money(amount)} <span className="text-xs">{settings.currency}</span>
               </span>
             </div>
           </div>
         ))}
+        </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
-        <div className="flex items-center justify-between flex-wrap gap-2 p-2.5 border-b border-slate-200 bg-slate-50/70">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button type="button" onClick={()=>setCustomerSection('main')}
-              className={`px-4 py-2 rounded-lg text-xs font-black whitespace-nowrap ${customerSection==='main'?'bg-blue-700 text-white shadow-sm':'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'}`}>
-              العملاء الرئيسيون ({allMainCustomers.length})
-            </button>
-            <button type="button" onClick={()=>setCustomerSection('sub')}
-              className={`px-4 py-2 rounded-lg text-xs font-black whitespace-nowrap ${customerSection==='sub'?'bg-violet-700 text-white shadow-sm':'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'}`}>
-              العملاء الفرعيون ({allSubCustomers.length})
-            </button>
-          </div>
-          <div className="flex items-center flex-wrap gap-2 text-[11px] whitespace-nowrap font-semibold text-slate-600">
-            <span>المعروض: <b className="text-slate-900">{rows.length}</b> حساب</span>
-            <span className="text-slate-300">|</span>
-            <span>إجمالي الرصيد: <b className="text-blue-800">{money(sectionTotals.closing)} {settings.currency}</b></span>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1140px] text-[11px] text-right border-collapse">
-            <thead className="bg-blue-950 text-white">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs">
+        <div role="region" aria-label="جدول العملاء" tabIndex={0} className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">
+          <table className="w-full min-w-[1140px] table-fixed text-[11px] text-right border-collapse">
+            <thead className="sticky top-0 z-10 bg-blue-950 text-white">
               <tr>
                 {[
                   'الرقم التسلسلي','اسم العميل','النوع / التبعية',
@@ -559,8 +553,8 @@ export const PartiesView: React.FC = () => {
                     <td className="px-2 py-2 text-center whitespace-nowrap font-mono text-blue-800 font-black">
                       {party.code||'—'}{cash&&<Lock className="inline w-3 h-3 text-amber-700 mr-1" />}
                     </td>
-                    <td className="px-2 py-2 font-bold text-slate-900 whitespace-nowrap" title={party.name}>
-                      {party.name}
+                    <td className="px-2 py-2 font-bold text-slate-900" title={party.name}>
+                      <span className="block max-w-[190px] truncate whitespace-nowrap">{party.name}</span>
                     </td>
                     <td className="px-2 py-2 text-slate-500 whitespace-nowrap">
                       {party.isSubCustomer?('فرعي'+(parent?' • '+parent.name:'')):cash?'رئيسي ثابت':'رئيسي'}
@@ -611,10 +605,6 @@ export const PartiesView: React.FC = () => {
               </tr>}
             </tbody>
           </table>
-        </div>
-        <div className="px-3 py-2 text-[10px] bg-slate-50 border-t border-slate-200 text-slate-600 leading-relaxed">
-          المبلغ الموجب مستحق لنا، والسالب رصيد دائن للعميل. أرصدة الفرعيين مستقلة للعرض والمراجعة؛
-          لا تُجمع مرة أخرى مع الإجمالي المحاسبي للرئيسيين. التاريخ يحدد حركات الفترة وليس تاريخ إنشاء اسم العميل.
         </div>
       </div>
 
