@@ -465,7 +465,7 @@ export const PartiesView: React.FC = () => {
             </button>
           </div>
 
-          <label className="flex items-center gap-2 w-[232px] shrink-0 bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-7">
+          <label className="flex items-center gap-2 w-[350px] shrink-0 bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-7">
             <Search className="w-4 h-4 text-slate-400 shrink-0" />
             <input type="search" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
               className="min-w-0 flex-1 bg-transparent outline-none text-xs"
@@ -528,24 +528,35 @@ export const PartiesView: React.FC = () => {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs">
         <div role="region" aria-label="جدول العملاء" tabIndex={0} className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">
           <table className="w-full min-w-[1140px] table-fixed text-[11px] text-right border-collapse">
+            <colgroup>
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '24%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '6%' }} />
+              <col style={{ width: '6%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '15%' }} />
+            </colgroup>
             <thead className="sticky top-0 z-10 bg-blue-950 text-white">
               <tr>
                 {[
-                  'الرقم التسلسلي','اسم العميل','النوع / التبعية',
+                  'الرقم التسلسلي','اسم العميل',
                   'رصيد أول الفترة','مبيعات الفترة','المقبوضات',
                   'عدد الفواتير','التسويات','صافي الحركة','رصيد آخر الفترة','الإجراءات'
                 ].map(h=><th key={h} className="py-2.5 px-2 text-center whitespace-nowrap font-bold border-l border-blue-900">{h}</th>)}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {rows.length===0&&<tr><td colSpan={11} className="text-center py-10 text-slate-500">
+              {rows.length===0&&<tr><td colSpan={10} className="text-center py-10 text-slate-500">
                 لا يوجد عملاء مطابقون لخيارات التصفية.
               </td></tr>}
               {rows.map((row,index)=>{
                 const party=row.party;
                 const cash=isCashCustomerParty(party);
                 const locked=deleteLocked(party);
-                const parent=party.parentPartyId?parties.find(p=>p.id===party.parentPartyId):undefined;
                 const currentBalance=displayedParties.find(p=>p.id===party.id)?.balance??row.closing;
                 return (
                   <tr key={party.id} className={cash?'bg-blue-50/90 hover:bg-blue-100/70':
@@ -554,10 +565,7 @@ export const PartiesView: React.FC = () => {
                       {party.code||'—'}{cash&&<Lock className="inline w-3 h-3 text-amber-700 mr-1" />}
                     </td>
                     <td className="px-2 py-2 font-bold text-slate-900" title={party.name}>
-                      <span className="block max-w-[190px] truncate whitespace-nowrap">{party.name}</span>
-                    </td>
-                    <td className="px-2 py-2 text-slate-500 whitespace-nowrap">
-                      {party.isSubCustomer?('فرعي'+(parent?' • '+parent.name:'')):cash?'رئيسي ثابت':'رئيسي'}
+                      <span className="block w-full truncate whitespace-nowrap">{party.name}</span>
                     </td>
                     {[row.opening,row.sales,row.receipts].map((value,k)=>(
                       <td key={k} dir="ltr" className="px-2 py-2 text-left tabular-nums whitespace-nowrap">
@@ -595,7 +603,7 @@ export const PartiesView: React.FC = () => {
                 );
               })}
               {!!rows.length&&<tr className="bg-blue-900 text-white font-black">
-                <td colSpan={3} className="px-3 py-2.5 whitespace-nowrap">إجمالي {customerSection==='main'?'العملاء الرئيسيين':'العملاء الفرعيين'}</td>
+                <td colSpan={2} className="px-3 py-2.5 whitespace-nowrap">إجمالي {customerSection==='main'?'العملاء الرئيسيين':'العملاء الفرعيين'}</td>
                 {[sectionTotals.opening,sectionTotals.sales,sectionTotals.receipts].map((n,i)=>
                   <td key={i} dir="ltr" className="px-2 py-2.5 text-left whitespace-nowrap">{money(n)}</td>)}
                 <td className="px-2 py-2.5 text-center">{sectionTotals.invoiceCount}</td>
