@@ -3,7 +3,7 @@ import {minor,isDelivery} from './invoice-revision-ledger.mjs';
  * Verify the intended invoice arithmetically before deriving any accounting
  * delta. Monetary values are always checked at the smallest currency unit.
  */
-export function validateProposedInvoice(invoice){
+export function validateProposedInvoice(invoice,{original=null}={}){
  if(!Array.isArray(invoice.items)||invoice.items.length===0)
   throw new Error('REVISION_ITEMS_REQUIRED');
  const rate=Number(invoice.exchangeRate||1);
@@ -37,8 +37,20 @@ export function validateProposedInvoice(invoice){
   const base=minor(invoice.basePaidAmount);
   const roundedFromInvoice=minor(Number(invoice.paidAmount||0)*rate);
   const tolerance=Math.max(1,Math.ceil(rate/2));
-  if(Math.abs(base-roundedFromInvoice)>tolerance)
-   throw new Error('REVISION_BASE_PAYMENT_MISMATCH');
+  if(Math.abs(base-roundedFromInvoice)>tolerance){
+   // Correcting the invoice FX rate never revalues cash already collected.
+   // An unchanged historical receipt remains fixed in the base currency.
+   const oldRate=Number(original?.exchangeRate||1);
+   const rateChanged=!!original&&Math.abs(oldRate-rate)>0.0000001;
+   const unchangedReceipt=rateChanged&&
+    minor(original.basePaidAmount??Number(original.paidAmount||0)*oldRate)===base&&
+    minor(original.paidAmount||0)===minor(invoice.paidAmount||0)&&
+    minor(original.cashPaidAmount||0)===minor(invoice.cashPaidAmount||0)&&
+    minor(original.bankPaidAmount||0)===minor(invoice.bankPaidAmount||0)&&
+    (original.cashTreasuryCode||'')===(invoice.cashTreasuryCode||'')&&
+    (original.bankTreasuryCode||'')===(invoice.bankTreasuryCode||'');
+   if(!unchangedReceipt)throw new Error('REVISION_BASE_PAYMENT_MISMATCH');
+  }
   if(invoice.cashBaseAmount!==undefined||invoice.bankBaseAmount!==undefined){
    const split=minor(invoice.cashBaseAmount||0)+minor(invoice.bankBaseAmount||0);
    if(split!==base)throw new Error('REVISION_BASE_PAYMENT_SPLIT_MISMATCH');
