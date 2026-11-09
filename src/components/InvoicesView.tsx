@@ -155,7 +155,8 @@ export const InvoicesView: React.FC = () => {
       periodLabel,
       invoiceTypeLabel,
       searchLabel: searchQuery.trim(),
-      customerName: invoice => formatInvoiceCustomerDisplay(invoice, parties)
+      customerName: invoice => formatInvoiceCustomerDisplay(invoice, parties),
+      treasuries
     });
   };
 
