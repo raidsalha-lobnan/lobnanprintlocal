@@ -11,7 +11,7 @@ export const invoiceEditSignature=(invoice:Invoice):string=>JSON.stringify([
  invoice.customerId,invoice.counterpartyType,invoice.counterpartyId,
  invoice.employeeId,invoice.subCustomerId,invoice.customerName,
  invoice.items?.map(item=>[
-  item.id,item.itemId,item.itemCode,item.itemName,item.category,
+  (item as typeof item & {id?:string}).id,item.itemId,item.itemCode,item.itemName,item.category,
   item.quantity,item.unitPrice,item.total,item.discount,item.tax,item.taxRate,
   item.length,item.width,item.count,item.hasDimensions,item.unit,
   item.description,item.notes,
