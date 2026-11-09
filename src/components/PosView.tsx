@@ -3065,6 +3065,10 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setInvoiceNotes(inv.notes || '');
     setPaymentNotes(inv.paymentNotes || '');
     setRepresentative(inv.representative || '');
+    // Reopening a posted invoice must restore its own branch and warehouse.
+    // A previous screen selection is NOT an intentional invoice amendment.
+    setBranch(inv.branch || '');
+    setWarehouse(inv.warehouse || '');
     if (inv.workflowStatus) setInvoiceWorkflowStatus(inv.workflowStatus);
 
     try {
@@ -4037,11 +4041,18 @@ const getInitialPosDraft = (): PosFullDraftData => {
                   title="اختر المستودع"
                 >
                   {warehouses && warehouses.length > 0 ? (
-                    warehouses.map(w => (
-                      <option key={w.id} value={w.name}>
-                        {w.name} ({w.code})
-                      </option>
-                    ))
+                    <>
+                      {!warehouses.some(w => w.name === warehouse) && (
+                        <option value={warehouse}>
+                          {warehouse ? `${warehouse} (المخزن المسجل في الفاتورة)` : 'اختر المخزن الصحيح'}
+                        </option>
+                      )}
+                      {warehouses.map(w => (
+                        <option key={w.id} value={w.name}>
+                          {w.name} ({w.code})
+                        </option>
+                      ))}
+                    </>
                   ) : (
                     <>
                       <option value="المخزن الرئيسي">المخزن الرئيسي</option>
