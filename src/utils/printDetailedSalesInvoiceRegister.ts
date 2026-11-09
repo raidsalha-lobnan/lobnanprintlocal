@@ -1,3 +1,4 @@
+import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 import type { Invoice, Treasury } from '../types';
 import { formatDateDisplay } from './dateUtils';
 
@@ -234,6 +235,7 @@ export function printDetailedSalesInvoiceRegister(
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<title>كشف تفصيلي لفواتير المبيعات</title>',
     '<style>',
+    REPORT_TYPOGRAPHY_CSS,
     '@page { size: A4 landscape; margin: 8mm; }',
     '* { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }',
     'html, body { background: #fff !important; }',

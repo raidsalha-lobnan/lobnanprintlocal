@@ -9,6 +9,7 @@ import { ItemUnitSelector } from './ItemUnitSelector';
 import { posSound } from '../utils/audio';
 import { useHardwareBarcodeScanner } from '../utils/useBarcodeScanner';
 import { isCashCustomerParty } from '../utils/partyUtils';
+import { sortInventoryForDisplay, inventoryCategoryOptions } from '../utils/inventoryDisplayOrder';
 import {
   CATEGORY_DEFINITIONS,
   generateSequentialSku,
@@ -330,7 +331,7 @@ export const InventoryView: React.FC = () => {
   };
 
   const filteredItems = useMemo(() => {
-    return inventory.filter(it => {
+    return sortInventoryForDisplay(inventory.filter(it => {
       const matchCat = categoryFilter === 'all' || it.category === categoryFilter;
       const isService = it.category === 'copy_scan' || it.category === 'services' || it.id === 'srv-delivery' || it.id === 'srv-delivery-mobile' || it.barcode === 'DELIVERY' || it.name === 'خدمة توصيل' || it.name?.trim().startsWith('توصيل');
       const isLowStock = !isService && it.stockQuantity <= it.minAlertQuantity;
@@ -355,8 +356,8 @@ export const InventoryView: React.FC = () => {
         Boolean(matchBarcode);
 
       return matchCat && matchSearch;
-    });
-  }, [inventory, categoryFilter, searchQuery, filterOnlyLowStock, filterOnlyFavorites, selectedWarehouseFilter]);
+    }), settings.categories || []);
+  }, [inventory, settings.categories, categoryFilter, searchQuery, filterOnlyLowStock, filterOnlyFavorites, selectedWarehouseFilter]);
 
   // Inventory financial totals
   const totalCostValue = inventory.reduce((acc, it) => acc + (it.stockQuantity * it.purchasePrice), 0);
@@ -369,6 +370,11 @@ export const InventoryView: React.FC = () => {
   const allCategories = useMemo(() => {
     return settings.categories || [];
   }, [settings.categories]);
+
+  const categoryFilterOptions = useMemo(() =>
+    inventoryCategoryOptions(inventory, allCategories, CATEGORY_DEFINITIONS),
+    [inventory, allCategories]
+  );
 
   const getCategoryDetails = (catId: string) => {
     return allCategories.find(c => c.id === catId) || (CATEGORY_DEFINITIONS as any)[catId] || CATEGORY_DEFINITIONS['stationery'];
@@ -865,14 +871,22 @@ export const InventoryView: React.FC = () => {
               <select
                 value={categoryFilter}
                 onChange={e => setCategoryFilter(e.target.value)}
+                aria-label="تصفية المجموعات"
                 className="bg-transparent border-0 text-xs text-slate-800 font-semibold focus:outline-none cursor-pointer p-0.5"
               >
                 <option value="all">كافة التصنيفات ({inventory.length})</option>
-                {allCategories.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                {categoryFilterOptions.map(cat => (
+                  <option key={cat.id} value={cat.id}>{cat.name} ({cat.count})</option>
                 ))}
               </select>
             </div>
+            {categoryFilter !== "all" && (
+              <button type="button" onClick={() => setCategoryFilter("all")}
+                className="inline-flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                title="إلغاء تصفية المجموعة وإظهار جميع الأصناف">
+                <X className="w-3.5 h-3.5" /> إظهار كل المجموعات
+              </button>
+            )}
 
             {/* Warehouse Filter */}
             <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs shrink-0">
@@ -1154,7 +1168,7 @@ export const InventoryView: React.FC = () => {
       ) : (
         <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1050px] text-right text-xs">
+            <table className="inventory-one-row-table w-full min-w-[1420px] text-right text-xs">
               <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
                 <tr>
                   <th className="p-2.5">الكود والباركود</th>
@@ -1185,8 +1199,8 @@ export const InventoryView: React.FC = () => {
                     const lineTotalCost = item.stockQuantity * item.purchasePrice;
 
                     return (
-                      <tr key={`inv-row-${item.id || idx}-${idx}`} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-2.5 font-mono">
+                      <tr key={`inv-row-${item.id || idx}-${idx}`} className={`hover:bg-slate-50 transition-colors whitespace-nowrap ${idx === 0 || item.category !== filteredItems[idx - 1]?.category ? "border-t-2 border-sky-200 bg-sky-50/30" : ""}`}>
+                        <td className="p-2 font-mono whitespace-nowrap">
                           <div className="font-bold text-blue-600">{item.code}</div>
                           <div className="text-[9px] text-slate-400 font-light">{item.barcode || '—'}</div>
                           {((item.barcodeEntries && item.barcodeEntries.length > 0) || (item.additionalBarcodes && item.additionalBarcodes.length > 0)) && (
@@ -1231,7 +1245,7 @@ export const InventoryView: React.FC = () => {
                             {/* Name, Favorite Toggle, and Description */}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-slate-900">{item.name}</span>
+                                <span className="font-bold text-slate-900 inline-block max-w-[240px] truncate" title={[item.name, item.description].filter(Boolean).join(" — ")}>{item.name}</span>
                                 <button
                                   type="button"
                                   onClick={() => updateInventoryItem(item.id, { isFavorite: !item.isFavorite })}
@@ -1243,9 +1257,7 @@ export const InventoryView: React.FC = () => {
                                   <Star className={`w-3.5 h-3.5 ${item.isFavorite ? 'fill-amber-400' : ''}`} />
                                 </button>
                               </div>
-                              {item.description && (
-                                <div className="text-[10px] text-slate-400 truncate max-w-xs">{item.description}</div>
-                              )}
+
                             </div>
                           </div>
                         </td>

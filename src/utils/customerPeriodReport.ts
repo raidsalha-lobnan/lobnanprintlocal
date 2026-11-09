@@ -1,3 +1,4 @@
+import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 import type {
   Party, Invoice, PaymentVoucher, PurchaseInvoice, PurchaseReturn,
   SalesReturn, PrintJobOrder, JournalEntry, DebtClearingRecord
@@ -184,6 +185,7 @@ export function printCustomerPeriodRegister(
   const markup = [
     '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">',
     '<title>كشف حركة وأرصدة العملاء</title><style>',
+    REPORT_TYPOGRAPHY_CSS,
     '@page{size:A4 landscape;margin:9mm}',
     '*{box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}',
     'body{font-family:Tahoma,Arial,sans-serif;color:#152b47;margin:0;font-size:11px}',

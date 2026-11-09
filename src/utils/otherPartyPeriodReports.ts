@@ -1,3 +1,4 @@
+import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 import type {Party, Employee, Invoice, PaymentVoucher, PurchaseInvoice, PurchaseReturn, SalesReturn, PrintJobOrder, JournalEntry, DebtClearingRecord, EmployeeAdvance, EmployeeDeduction, EmployeeIncentive, PayrollSheet} from '../types';
 import {generateAccountStatement, generateEmployeeStatement} from './statementGenerator';
 
@@ -102,6 +103,7 @@ export function printDirectoryPeriodReport(title:string,company:string,filter:Di
  const bounds=directoryBounds(filter);
  const markup='<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>'+
  esc(title)+'</title><style>'+
+ REPORT_TYPOGRAPHY_CSS+
  '@page{size:A4 landscape;margin:9mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}'+
  'body{font:11px Tahoma,Arial,sans-serif;color:#16304e}'+
  'header{text-align:center;border-bottom:2px solid #193f68;padding:9px 0}h1{font-size:18px;margin:5px}'+
