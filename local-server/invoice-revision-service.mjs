@@ -132,8 +132,13 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     plan.accountDeltas={'1201':plan.totalDeltaMinor,'4101':-plan.totalDeltaMinor};
     plan.paymentDeltas={};
    }catch(recoveryError){
-    throw new InputError('INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION',409,
-     {reason:String(error.message),legacyReason:String(recoveryError.message)});
+    throw new InputError('INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION',409,{
+     invoiceId:invoice.id,invoiceNumber:invoice.invoiceNumber,
+     reason:String(error.message),legacyReason:String(recoveryError.message),
+     manualReviewRequired:true,
+     linkedJournalIds:journalRows.map(r=>r.record_id).slice(0,50),
+     linkedStockMovementIds:movementRows.map(r=>r.record_id).slice(0,50)
+    });
    }
   }
   const counterpartyType=inv=>inv.counterpartyType||
