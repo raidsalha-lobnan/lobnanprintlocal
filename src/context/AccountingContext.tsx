@@ -6034,7 +6034,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     const id = 'pt-' + Date.now();
     // Enforce sequential code generated automatically by the program (cannot be duplicated or altered)
-    const code = generateSequentialPartyCode(partyData.type, parties);
+    const code = generateSequentialPartyCode(partyData.type, parties, Boolean(partyData.isSubCustomer));
 
     let initialBal = partyData.initialBalance || 0;
     if (partyData.openingBalance !== undefined && partyData.openingBalance > 0) {
