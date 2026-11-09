@@ -38,6 +38,12 @@ import { CustomerSpecialPricesModal } from './pos/CustomerSpecialPricesModal';
 import { BalanceReconciliationModal } from './BalanceReconciliationModal';
 import { posSound } from '../utils/audio';
 import { calculatePartyTrueBalance } from '../utils/statementGenerator';
+import {
+  customerPeriodRows, customerPeriodTotals, customerDateBounds,
+  printCustomerPeriodRegister, type CustomerPeriodMode,
+  type CustomerListKind
+} from '../utils/customerPeriodReport';
+import { Printer, CalendarDays, Banknote, ChartNoAxesCombined } from 'lucide-react';
 
 export const PartiesView: React.FC = () => {
   const {
@@ -68,7 +74,18 @@ export const PartiesView: React.FC = () => {
   // Filters and View Mode
   const [filterCategory, setFilterCategory] = useState<'all' | 'customer' | 'supplier' | 'debtor' | 'creditor' | 'exceeded' | 'subCustomer'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
+  const [customerSection, setCustomerSection] = useState<CustomerListKind>('main');
+  const [dateMode, setDateMode] = useState<CustomerPeriodMode>('all');
+  const localDate = () => {
+    const now = new Date();
+    return [now.getFullYear(), String(now.getMonth()+1).padStart(2,'0'),
+      String(now.getDate()).padStart(2,'0')].join('-');
+  };
+  const [selectedDay, setSelectedDay] = useState(localDate);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [addingSubCustomer, setAddingSubCustomer] = useState(false);
+  const [parentPartyId, setParentPartyId] = useState('');
 
   // Add / Edit Modal State
   const [showPartyModal, setShowPartyModal] = useState(false);
@@ -138,9 +155,11 @@ export const PartiesView: React.FC = () => {
   };
 
   // Open modal for new party - Always zeroed fields (مصفّرة)
-  const handleOpenAddModal = (defaultType?: 'customer' | 'supplier') => {
+  const handleOpenAddModal = (asSubCustomer = false) => {
     setEditingPartyId(null);
-    setPartyType(defaultType || (filterCategory === 'supplier' ? 'supplier' : 'customer'));
+    setPartyType('customer');
+    setAddingSubCustomer(asSubCustomer);
+    setParentPartyId('');
     setName('');
     setContactPerson('');
     setCity('');
@@ -162,6 +181,12 @@ export const PartiesView: React.FC = () => {
 
   // Open modal for editing existing party
   const handleOpenEditModal = (party: Party) => {
+    if (isCashCustomerParty(party)) {
+      setToastMsg({text:'العميل النقدي CUST-0001 ثابت ولا يمكن تعديله.',type:'error'});
+      return;
+    }
+    setAddingSubCustomer(!!party.isSubCustomer);
+    setParentPartyId(party.parentPartyId || '');
     setEditingPartyId(party.id);
     setPartyType(party.type);
     setName(party.name);
@@ -200,6 +225,16 @@ export const PartiesView: React.FC = () => {
   const handleSaveParty = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedName = name.trim();
+    if (editingPartyId && isCashCustomerParty(parties.find(p => p.id === editingPartyId))) {
+      setToastMsg({text:'العميل النقدي CUST-0001 لا يمكن تعديله.',type:'error'});
+      return;
+    }
+    if (!editingPartyId && addingSubCustomer &&
+        !parties.some(p => p.id === parentPartyId && !p.isSubCustomer &&
+          (p.type === 'customer' || p.type === 'both'))) {
+      setToastMsg({text:'اختر العميل الرئيسي الصحيح قبل إضافة العميل الفرعي.',type:'error'});
+      return;
+    }
     if (!trimmedName) {
       setToastMsg({ text: 'يرجى كتابة الاسم التجاري أو اسم العميل أولاً', type: 'error' });
       return;
@@ -246,7 +281,8 @@ export const PartiesView: React.FC = () => {
           openingBalanceDate,
           initialBalance: Number(openingBalance) || 0,
           notes: (notes || '').trim(),
-          isSubCustomer: false,
+          isSubCustomer: addingSubCustomer,
+          parentPartyId: addingSubCustomer ? parentPartyId : undefined,
           specialPrices
         });
         posSound.playSuccessBeep();
@@ -269,11 +305,19 @@ export const PartiesView: React.FC = () => {
   };
 
   const handleDeleteParty = (id: string, partyName: string) => {
-    if (window.confirm(`هل أنت متأكد من رغبتك في حذف الحساب: "${partyName}"؟ سيتم التحقق من عدم وجود قيود مالية معلقة.`)) {
+    const party = parties.find(p => p.id === id);
+    if (!party || isCashCustomerParty(party)) return;
+    if (invoices.some(inv => inv.customerId === id || inv.subCustomerId === id ||
+      (inv as typeof inv & {counterpartyId?:string}).counterpartyId === id)) {
+      setToastMsg({text:'لا يمكن حذف عميل له فواتير بيع مرتبطة به. يمكنك تعديل بياناته فقط.',type:'error'});
+      return;
+    }
+    if (window.confirm(`هل تريد حذف العميل "${partyName}"؟ سيتم التحقق من عدم وجود أي ارتباط محاسبي.`)) {
       const result = deleteParty(id);
-      if (!result.success) {
-        alert(result.reason);
-      }
+      setToastMsg({
+        type:result.success?'success':'error',
+        text:result.success?'تم حذف العميل غير المرتبط بأي حركات.':result.message||'تعذر حذف العميل.'
+      });
     }
   };
 
@@ -317,619 +361,260 @@ export const PartiesView: React.FC = () => {
   }, [parties, invoices, vouchers, purchases, purchaseReturns,
       salesReturns, printOrders, journalEntries, debtClearings]);
 
-  // Filtered Parties Logic
-  const filteredParties = displayedParties.filter(p => {
-    const q = searchQuery.trim().toLowerCase();
-    const matchSearch =
-      !q ||
-      (p.code && typeof p.code === 'string' && p.code.toLowerCase().includes(q)) ||
-      (p.name && typeof p.name === 'string' && p.name.toLowerCase().includes(q)) ||
-      (p.phone && typeof p.phone === 'string' && p.phone.includes(q)) ||
-      (p.contactPerson && typeof p.contactPerson === 'string' && p.contactPerson.toLowerCase().includes(q)) ||
-      (p.city && typeof p.city === 'string' && p.city.toLowerCase().includes(q)) ||
-      (p.commercialRegister && typeof p.commercialRegister === 'string' && p.commercialRegister.includes(q)) ||
-      (p.taxNumber && typeof p.taxNumber === 'string' && p.taxNumber.includes(q));
 
-    if (!matchSearch) return false;
-
-    if (filterCategory === 'all') return !p.isSubCustomer;
-    if (filterCategory === 'customer') return (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer;
-    if (filterCategory === 'supplier') return (p.type === 'supplier' || p.type === 'both') && !p.isSubCustomer;
-    if (filterCategory === 'debtor') return p.balance > 0 && !p.isSubCustomer;
-    if (filterCategory === 'creditor') return p.balance < 0 && !p.isSubCustomer;
-    if (filterCategory === 'exceeded') {
-      return p.creditLimit !== undefined && p.creditLimit > 0 && p.balance > p.creditLimit && !p.isSubCustomer;
+  const reportSource = useMemo(() => ({
+    parties, invoices, vouchers, purchases, purchaseReturns,
+    salesReturns, printOrders, journalEntries, debtClearings
+  }),[parties,invoices,vouchers,purchases,purchaseReturns,salesReturns,printOrders,
+      journalEntries,debtClearings]);
+  const dateFilter = useMemo(() => ({
+    mode:dateMode,day:selectedDay,from:dateFrom,to:dateTo,
+    list:customerSection,query:searchQuery
+  }),[dateMode,selectedDay,dateFrom,dateTo,customerSection,searchQuery]);
+  const invalidPeriod = dateMode==='range' && !!dateFrom && !!dateTo && dateFrom>dateTo;
+  const mainRows = useMemo(() => invalidPeriod?[]:customerPeriodRows(reportSource,{
+    ...dateFilter,list:'main'
+  }),[reportSource,dateFilter,invalidPeriod]);
+  const subRows = useMemo(() => invalidPeriod?[]:customerPeriodRows(reportSource,{
+    ...dateFilter,list:'sub'
+  }),[reportSource,dateFilter,invalidPeriod]);
+  const rows = customerSection==='main'?mainRows:subRows;
+  const mainTotals = customerPeriodTotals(mainRows);
+  const sectionTotals = customerPeriodTotals(rows);
+  const allMainCustomers = parties.filter(p => !p.isSubCustomer &&
+    (p.type==='customer'||p.type==='both'));
+  const allSubCustomers = parties.filter(p => p.isSubCustomer &&
+    (p.type==='customer'||p.type==='both'));
+  const money = (value:number):string =>
+    Number(value||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const deleteLocked = (party:Party):boolean =>
+    isCashCustomerParty(party) ||
+    invoices.some(inv => inv.customerId===party.id || inv.subCustomerId===party.id ||
+      (inv as typeof inv & {counterpartyId?:string}).counterpartyId===party.id) ||
+    vouchers.some(v => v.partyId===party.id) ||
+    parties.some(p => p.parentPartyId===party.id) ||
+    salesReturns.some(r => r.customerId===party.id) ||
+    printOrders.some(po => po.customerId===party.id) ||
+    debtClearings.some(dc => dc.customerId===party.id || dc.supplierId===party.id);
+  const printRegister = () => {
+    if (invalidPeriod) {
+      setToastMsg({text:'تاريخ بداية الفترة يجب ألا يكون بعد تاريخ نهايتها.',type:'error'});
+      return;
     }
-    if (filterCategory === 'subCustomer') {
-      return !!p.isSubCustomer;
-    }
-    return true;
-  });
-
-  const totalReceivables = displayedParties
-    .filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer)
-    .reduce((acc, p) => acc + (p.balance > 0 ? p.balance : 0), 0);
-
-  const totalPayables = displayedParties
-    .filter(p => (p.type === 'supplier' || p.type === 'both') && !p.isSubCustomer)
-    .reduce((acc, p) => acc + (p.balance < 0 ? Math.abs(p.balance) : 0), 0);
-
-  const exceededCount = displayedParties.filter(
-    p => p.type !== 'supplier' && p.creditLimit && p.balance > p.creditLimit && !p.isSubCustomer
-  ).length;
+    printCustomerPeriodRegister(reportSource,dateFilter,
+      settings.businessName || 'مطبعة ومكتبة لبنان',settings.currency||'₪');
+  };
+  const summaryCards = [
+    {key:'closing',label:'إجمالي رصيد آخر الفترة',amount:mainTotals.closing,
+      className:'bg-amber-50/60 border-amber-200 text-amber-800',Icon:Wallet},
+    {key:'sales',label:'إجمالي مبيعات الفترة',amount:mainTotals.sales,
+      className:'bg-blue-50/60 border-blue-200 text-blue-800',Icon:ChartNoAxesCombined},
+    {key:'receipt',label:'إجمالي المقبوضات',amount:mainTotals.receipts,
+      className:'bg-emerald-50/60 border-emerald-200 text-emerald-800',Icon:Banknote},
+    {key:'movement',label:'صافي حركة الفترة',amount:mainTotals.movement,
+      className:'bg-violet-50/60 border-violet-200 text-violet-800',Icon:FileSpreadsheet}
+  ];
 
   return (
-    <div className="space-y-3">
-      {/* Toast Alert Banner */}
+    <div className="space-y-3" dir="rtl">
       {toastMsg && (
-        <div
-          className={`p-3 rounded-lg border text-xs font-bold flex items-center justify-between shadow-sm animate-fade-in ${
-            toastMsg.type === 'success'
-              ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-              : 'bg-rose-50 text-rose-900 border-rose-300'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            {toastMsg.type === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            ) : (
-              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-            )}
-            <span>{toastMsg.text}</span>
-          </div>
-          <button
-            onClick={() => setToastMsg(null)}
-            className="p-1 hover:bg-black/5 rounded cursor-pointer"
-          >
-            ✕
-          </button>
+        <div className={`flex items-center justify-between gap-2 p-2.5 rounded-lg border text-xs font-bold ${toastMsg.type==='error'?'bg-rose-50 text-rose-800 border-rose-200':'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
+          <span>{toastMsg.text}</span>
+          <button type="button" onClick={() => setToastMsg(null)} aria-label="إغلاق التنبيه">✕</button>
         </div>
       )}
 
-      {/* Top Header & Fast Action */}
-      <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-            <Users className="w-4 h-4" />
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-slate-900">دليل العملاء والموردين وكشوف الحساب</h2>
-            <p className="text-[10px] text-slate-400 font-light">
-              إدارة البيانات التجارية، الحدود الائتمانية، الديون السابقة، واستخراج كشوف الحسابات المستمرة A4
-            </p>
+      <div className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 shadow-xs flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="p-2 bg-blue-50 rounded-lg text-blue-600"><Users className="w-5 h-5" /></div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-black text-slate-900 whitespace-nowrap">دليل العملاء وكشوف الحساب</h2>
+            <div className="text-[10px] text-slate-500">العملاء الرئيسيون والفرعيون • أرصدة حقيقية من كشوف الحساب</div>
           </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowReconciliationModal(true)}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-xs transition-colors cursor-pointer"
-            title="فتح شاشة مطابقة ومراجعة كافة الأرصدة مع دفاتر العمليات والمستندات"
-          >
-            <Scale className="w-3.5 h-3.5 text-amber-400" />
-            <span>مراجعة الأرصدة ⚖️</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button type="button" onClick={() => setShowReconciliationModal(true)}
+            className="flex items-center gap-1 bg-slate-800 hover:bg-slate-900 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
+            <Scale className="w-3.5 h-3.5" /> مراجعة الأرصدة
           </button>
-          <button
-            onClick={() => handleOpenAddModal('customer')}
-            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>إضافة عميل جديد</span>
+          <button type="button" onClick={() => handleOpenAddModal(false)}
+            className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
+            <Plus className="w-3.5 h-3.5" /> إضافة عميل رئيسي
           </button>
-          <button
-            onClick={() => handleOpenAddModal('supplier')}
-            className="flex items-center gap-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>إضافة مورد خامات</span>
+          <button type="button" onClick={() => handleOpenAddModal(true)}
+            className="flex items-center gap-1 bg-violet-600 hover:bg-violet-700 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
+            <Plus className="w-3.5 h-3.5" /> إضافة عميل فرعي
+          </button>
+          <button type="button" onClick={printRegister} disabled={invalidPeriod}
+            className="flex items-center gap-1 bg-indigo-700 hover:bg-indigo-800 disabled:bg-slate-400 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
+            <Printer className="w-3.5 h-3.5" /> طباعة كشف العملاء
           </button>
         </div>
       </div>
 
-      {/* KPI Financial Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[10px] text-slate-400 font-light font-semibold block">إجمالي ديون العملاء المستحقة (لنا):</span>
-            <div className="text-base font-black text-amber-700 mt-0.5 font-mono">
-              {totalReceivables.toLocaleString('ar-SA', { minimumFractionDigits: 2 })}{' '}
-              <span className="text-[11px] font-normal text-slate-500">{settings.currency}</span>
-            </div>
-            <span className="text-[10px] text-slate-400">ذمم مدينة جارية للمطبعة</span>
-          </div>
-          <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-            <ArrowDownLeft className="w-4 h-4" />
-          </div>
+      <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs space-y-2">
+        <div className="flex items-center gap-1.5 text-[12px] font-extrabold text-slate-800">
+          <SlidersHorizontal className="w-4 h-4 text-blue-600" /> التصفية والبحث
         </div>
-
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[10px] text-slate-400 font-light font-semibold block">مستحقات الموردين وشركات الورق (علينا):</span>
-            <div className="text-base font-black text-rose-600 mt-0.5 font-mono">
-              {totalPayables.toLocaleString('ar-SA', { minimumFractionDigits: 2 })}{' '}
-              <span className="text-[11px] font-normal text-slate-500">{settings.currency}</span>
-            </div>
-            <span className="text-[10px] text-slate-400">ذمم دائنة والتزامات خامات</span>
-          </div>
-          <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
-            <ArrowUpRight className="w-4 h-4" />
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 flex-[2] min-w-[185px] bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-9">
+            <Search className="w-4 h-4 text-slate-400 shrink-0" />
+            <input type="search" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
+              className="min-w-0 flex-1 bg-transparent outline-none text-xs"
+              placeholder="الاسم أو الرقم التسلسلي أو الجوال..." aria-label="البحث عن عميل" />
+          </label>
+          <label className="flex items-center gap-1.5 min-w-[180px] whitespace-nowrap text-[11px] text-slate-600 font-bold">
+            <CalendarDays className="w-4 h-4 text-indigo-600"/>
+            <select value={dateMode} onChange={e=>setDateMode(e.target.value as CustomerPeriodMode)}
+              className="h-9 flex-1 px-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-800 text-xs">
+              <option value="all">جميع التواريخ</option>
+              <option value="day">تاريخ محدد</option>
+              <option value="range">من تاريخ إلى تاريخ</option>
+            </select>
+          </label>
+          {dateMode==='day'&&
+            <label className="flex items-center gap-2 whitespace-nowrap text-[11px] font-bold text-slate-600">
+              التاريخ <input type="date" value={selectedDay} onChange={e=>setSelectedDay(e.target.value)}
+                dir="ltr" className="h-9 border border-slate-200 rounded-lg bg-slate-50 px-2 text-xs"/>
+            </label>}
+          {dateMode==='range'&&<>
+            <label className="flex items-center gap-1 whitespace-nowrap text-[11px] font-bold text-slate-600">
+              من <input type="date" value={dateFrom} max={dateTo||undefined}
+                onChange={e=>setDateFrom(e.target.value)} dir="ltr"
+                className="h-9 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs"/>
+            </label>
+            <label className="flex items-center gap-1 whitespace-nowrap text-[11px] font-bold text-slate-600">
+              إلى <input type="date" value={dateTo} min={dateFrom||undefined}
+                onChange={e=>setDateTo(e.target.value)} dir="ltr"
+                className="h-9 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs"/>
+            </label>
+          </>}
+          <button type="button"
+            onClick={()=>{setSearchQuery('');setDateMode('all');setDateFrom('');setDateTo('')}}
+            className="h-9 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 text-xs font-bold whitespace-nowrap">
+            إظهار الكل
+          </button>
         </div>
-
-        <div className={`p-3 rounded-lg border shadow-xs flex items-center justify-between ${
-          exceededCount > 0 ? 'bg-amber-50/70 border-amber-300' : 'bg-white border-slate-200'
-        }`}>
-          <div>
-            <span className="text-[11px] text-slate-600 font-semibold block">تنبيهات السقف والحدود الائتمانية:</span>
-            <div className="text-base font-black text-slate-900 mt-0.5 font-mono flex items-center gap-1.5">
-              <span>{exceededCount}</span>
-              <span className="text-[11px] font-normal text-slate-600">عميل تجاوزوا الحد المسموح</span>
-            </div>
-            <span className="text-[9px] text-slate-400 font-light">حماية السيولة وتجنب الديون المعدومة</span>
-          </div>
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-            exceededCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-600'
-          }`}>
-            {exceededCount > 0 ? <AlertTriangle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-          </div>
-        </div>
+        {invalidPeriod && <p className="text-rose-700 text-xs font-bold">تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.</p>}
       </div>
 
-      {/* Filter Tabs and Search Bar */}
-      <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-2.5 text-xs">
-        {/* Category Filters */}
-        <div className="flex flex-wrap items-center gap-1 w-full md:w-auto">
-          <button
-            onClick={() => setFilterCategory('all')}
-            className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer transition-colors ${
-              filterCategory === 'all' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            الكل ({parties.filter(p => !p.isSubCustomer).length})
-          </button>
-          <button
-            onClick={() => setFilterCategory('customer')}
-            className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer transition-colors ${
-              filterCategory === 'customer' ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            العملاء ({parties.filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer).length})
-          </button>
-          <button
-            onClick={() => setFilterCategory('subCustomer')}
-            className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer transition-colors flex items-center gap-1 ${
-              filterCategory === 'subCustomer' ? 'bg-amber-600 text-white shadow-xs' : 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
-            }`}
-          >
-            <LinkIcon className="w-3 h-3 text-amber-700" />
-            <span>الزبائن الفرعيين / ديون مؤقتة ({parties.filter(p => p.isSubCustomer).length})</span>
-          </button>
-          <button
-            onClick={() => setFilterCategory('supplier')}
-            className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer transition-colors ${
-              filterCategory === 'supplier' ? 'bg-purple-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            الموردون ({parties.filter(p => (p.type === 'supplier' || p.type === 'both') && !p.isSubCustomer).length})
-          </button>
-          <button
-            onClick={() => setFilterCategory('debtor')}
-            className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer transition-colors ${
-              filterCategory === 'debtor' ? 'bg-amber-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            عليهم مبالغ (مدينون)
-          </button>
-          <button
-            onClick={() => setFilterCategory('creditor')}
-            className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer transition-colors ${
-              filterCategory === 'creditor' ? 'bg-rose-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            لهم مبالغ (دائنون)
-          </button>
-          {exceededCount > 0 && (
-            <button
-              onClick={() => setFilterCategory('exceeded')}
-              className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer transition-colors flex items-center gap-1 ${
-                filterCategory === 'exceeded' ? 'bg-amber-700 text-white shadow-xs' : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-              }`}
-            >
-              <AlertTriangle className="w-3 h-3" />
-              <span>تجاوزوا السقف ({exceededCount})</span>
-            </button>
-          )}
-        </div>
-
-        {/* Search Input & View Mode */}
-        <div className="flex items-center gap-2 w-full md:w-auto justify-end">
-          <div className="relative flex-1 md:w-64">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="بحث بالاسم، الجوال، السجل التجاري، المدينة..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pr-8 pl-3 py-1 bg-slate-50 border border-slate-200 rounded-md text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-            />
+      <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2.5">
+        {summaryCards.map(({key,label,amount,className,Icon})=>(
+          <div key={key} className={`rounded-xl border px-3 py-3 shadow-xs min-w-0 ${className}`}>
+            <div className="flex items-center gap-2 justify-between whitespace-nowrap min-w-0 overflow-x-auto">
+              <Icon className="w-5 h-5 shrink-0 opacity-80" />
+              <span className="text-[11px] xl:text-xs font-extrabold shrink-0">{label}</span>
+              <span className="text-base xl:text-lg font-black tracking-tight tabular-nums shrink-0" dir="ltr">
+                {money(amount)} <span className="text-xs">{settings.currency}</span>
+              </span>
+            </div>
           </div>
-
-          <div className="bg-slate-100 p-0.5 rounded-md flex items-center">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-1 rounded cursor-pointer ${viewMode === 'grid' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500'}`}
-              title="عرض كبطاقات"
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className={`p-1 rounded cursor-pointer ${viewMode === 'table' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500'}`}
-              title="عرض كجدول"
-            >
-              <List className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Parties Content: Grid View or Table View */}
-      {viewMode === 'grid' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          {filteredParties.length === 0 ? (
-            <div className="col-span-full bg-white p-8 rounded-lg border border-slate-200 text-center text-slate-400 text-xs">
-              لم يتم العثور على عملاء أو موردين مطابقين لمعايير البحث
-            </div>
-          ) : (
-            filteredParties.map(party => {
-              const isCustomer = party.type === 'customer' || party.type === 'both';
-              const isSupplier = party.type === 'supplier' || party.type === 'both';
-              const isDebit = party.balance > 0;
-              const isCredit = party.balance < 0;
-              const isZero = party.balance === 0;
-              const creditLimit = party.creditLimit || 0;
-              const isLimitExceeded = creditLimit > 0 && party.balance > creditLimit;
-              const creditUsagePercent = creditLimit > 0 ? Math.min(100, Math.round((Math.max(0, party.balance) / creditLimit) * 100)) : 0;
-
-              return (
-                <div
-                  key={party.id}
-                  className={`bg-white rounded-lg p-3.5 border shadow-xs transition-all flex flex-col justify-between space-y-3 ${
-                    isLimitExceeded
-                      ? 'border-amber-400 bg-amber-50/10 hover:border-amber-500'
-                      : 'border-slate-200 hover:border-blue-300'
-                  }`}
-                >
-                  <div>
-                    {/* Header: Type Badges & CR / Tax */}
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200 flex items-center gap-1 shadow-2xs" title="الرقم التسلسلي الآلي الصادر من النظام">
-                          <Hash className="w-2.5 h-2.5 text-blue-600" />
-                          <span>{party.code || 'CUST-0000'}</span>
-                        </span>
-                        {party.isSubCustomer ? (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
-                            <LinkIcon className="w-2.5 h-2.5 text-amber-700" />
-                            <span>زبون فرعي / دين مؤقت</span>
-                          </span>
-                        ) : (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            party.type === 'customer' ? 'bg-blue-100 text-blue-800' :
-                            party.type === 'supplier' ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'
-                          }`}>
-                            {party.type === 'customer' ? 'عميل' : party.type === 'supplier' ? 'مورد خامات' : 'عميل ومورد'}
-                          </span>
-                        )}
-                        {party.isSubCustomer && party.parentPartyId && (
-                          <span className="text-[10px] bg-blue-50 text-blue-800 px-1.5 py-0.5 rounded border border-blue-200">
-                            تابع لـ: {parties.find(p => p.id === party.parentPartyId)?.name || 'العميل الرئيسي'}
-                          </span>
-                        )}
-                        {party.city && (
-                          <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                            <MapPin className="w-2.5 h-2.5 text-slate-400" />
-                            <span>{party.city}</span>
-                          </span>
-                        )}
-                      </div>
-
-                      {isLimitExceeded && (
-                        <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" />
-                          <span>تجاوز السقف</span>
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Party Name & Contact Person */}
-                    <h3 className="font-bold text-slate-900 text-xs flex items-center justify-between">
-                      <span>{party.name}</span>
-                      {party.contactPerson && (
-                        <span className="text-[11px] font-normal text-slate-500 flex items-center gap-1">
-                          <UserCheck className="w-3 h-3 text-slate-400" />
-                          <span>{party.contactPerson}</span>
-                        </span>
-                      )}
-                    </h3>
-
-                    {/* Quick Details List */}
-                    <div className="space-y-1 text-[10px] text-slate-400 font-light pt-2 mt-2 border-t border-slate-100">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <Phone className="w-3 h-3 text-slate-400" />
-                          <span className="font-mono text-slate-700 text-[11px]">{party.phone}</span>
-                        </div>
-                        {party.commercialRegister && (
-                          <span className="text-[10px] font-mono text-slate-400">
-                            س.ت: {party.commercialRegister}
-                          </span>
-                        )}
-                      </div>
-
-                      {party.taxNumber && (
-                        <div className="text-[10px] text-slate-400 font-mono">
-                          الرقم الضريبي: {party.taxNumber}
-                        </div>
-                      )}
-
-                      {party.address && (
-                        <div className="text-[10px] text-slate-400 font-light truncate" title={party.address}>
-                          {party.address}
-                        </div>
-                      )}
-
-                      {/* Credit Limit & Debt History */}
-                      {creditLimit > 0 && (
-                        <div className="pt-1">
-                          <div className="flex justify-between text-[10px] mb-0.5">
-                            <span className="text-slate-500">الحد الائتماني: {creditLimit.toLocaleString('ar-SA')} {settings.currency}</span>
-                            <span className={`font-mono font-bold ${isLimitExceeded ? 'text-rose-600' : 'text-slate-600'}`}>
-                              {creditUsagePercent}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${
-                                isLimitExceeded ? 'bg-rose-500' : creditUsagePercent > 80 ? 'bg-amber-500' : 'bg-blue-500'
-                              }`}
-                              style={{ width: `${Math.min(100, creditUsagePercent)}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      )}
-
-                      {party.openingBalance !== undefined && party.openingBalance > 0 && (
-                        <div className="text-[10px] text-slate-400 flex justify-between pt-0.5">
-                          <span>دين سابق / رصيد افتتاحي:</span>
-                          <span className="font-mono">{party.openingBalance.toLocaleString('ar-SA')} {settings.currency}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Financial Balance & Action Buttons */}
-                  <div className="pt-2.5 border-t border-slate-100 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-slate-400 font-light font-semibold">الرصيد الجاري المستمر:</span>
-                      <span
-                        className={`font-mono font-bold text-xs ${
-                          isDebit ? 'text-amber-700' : isCredit ? 'text-rose-600' : 'text-emerald-600'
-                        }`}
-                      >
-                        {Math.abs(party.balance).toLocaleString('ar-SA', { minimumFractionDigits: 2 })} {settings.currency}
-                        <span className="text-[10px] font-normal mr-1">
-                          {isDebit ? '(لنا مطلوب منه)' : isCredit ? '(علينا مستحق له)' : '(خالص)'}
-                        </span>
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-1 pt-1">
-                      {/* Detailed Account Statement Button */}
-                      <button
-                        onClick={() => setSelectedPartyForStatement(party)}
-                        className="col-span-2 flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-md text-[11px] transition-colors cursor-pointer"
-                        title="استخراج كشف حساب برصيد تراكمي مستمر وطباعته"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                        <span>كشف حساب</span>
-                      </button>
-
-                      {/* Quick Voucher Button */}
-                      <button
-                        onClick={() => {
-                          setVoucherModalParty(party);
-                          setVoucherType(isCustomer && !isSupplier ? 'receipt' : 'payment');
-                          setVoucherAmount(Math.abs(party.balance));
-                        }}
-                        className="flex items-center justify-center gap-0.5 px-1.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-md text-[11px] transition-colors cursor-pointer"
-                        title="إصدار سند قبض أو صرف سريع"
-                      >
-                        <Receipt className="w-3 h-3 text-slate-500" />
-                        <span>سند</span>
-                      </button>
-
-                      {/* Edit / Actions */}
-                      <div className="flex items-center justify-end gap-1">
-                        {!isCashCustomerParty(party) && party.type !== 'supplier' && (
-                          <button
-                            onClick={() => setSpecialPricesPartyForModal(party)}
-                            className={`p-1.5 rounded-md transition-colors cursor-pointer flex items-center gap-1 ${
-                              party.specialPrices && Object.keys(party.specialPrices).length > 0
-                                ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold border border-amber-200'
-                                : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
-                            }`}
-                            title={
-                              party.specialPrices && Object.keys(party.specialPrices).length > 0
-                                ? `أسعار خاصة (${Object.keys(party.specialPrices).length} أصناف)`
-                                : 'تحديد أسعار خاصة للعميل'
-                            }
-                          >
-                            <Tag className="w-3.5 h-3.5" />
-                            {party.specialPrices && Object.keys(party.specialPrices).length > 0 && (
-                              <span className="text-[10px] font-mono">{Object.keys(party.specialPrices).length}</span>
-                            )}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleOpenEditModal(party)}
-                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
-                          title="تعديل البيانات والحد الائتماني"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteParty(party.id, party.name)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                          title="حذف الحساب"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+        <div className="flex items-center justify-between flex-wrap gap-2 p-2.5 border-b border-slate-200 bg-slate-50/70">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button type="button" onClick={()=>setCustomerSection('main')}
+              className={`px-4 py-2 rounded-lg text-xs font-black whitespace-nowrap ${customerSection==='main'?'bg-blue-700 text-white shadow-sm':'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'}`}>
+              العملاء الرئيسيون ({allMainCustomers.length})
+            </button>
+            <button type="button" onClick={()=>setCustomerSection('sub')}
+              className={`px-4 py-2 rounded-lg text-xs font-black whitespace-nowrap ${customerSection==='sub'?'bg-violet-700 text-white shadow-sm':'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'}`}>
+              العملاء الفرعيون ({allSubCustomers.length})
+            </button>
+          </div>
+          <div className="flex items-center flex-wrap gap-2 text-[11px] whitespace-nowrap font-semibold text-slate-600">
+            <span>المعروض: <b className="text-slate-900">{rows.length}</b> حساب</span>
+            <span className="text-slate-300">|</span>
+            <span>إجمالي الرصيد: <b className="text-blue-800">{money(sectionTotals.closing)} {settings.currency}</b></span>
+          </div>
         </div>
-      ) : (
-        /* Tabular View */
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-xs">
-          <table className="w-full text-right border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-200">
-                <th className="py-2.5 px-3 font-mono">الرقم التسلسلي</th>
-                <th className="py-2.5 px-3">الاسم التجاري والجهة</th>
-                <th className="py-2.5 px-3">النوع</th>
-                <th className="py-2.5 px-3">الشخص المسؤول</th>
-                <th className="py-2.5 px-3">الجوال / المدينة</th>
-                <th className="py-2.5 px-3">السجل / الضريبي</th>
-                <th className="py-2.5 px-3 font-mono">الحد الائتماني</th>
-                <th className="py-2.5 px-3 font-mono">الرصيد الجاري</th>
-                <th className="py-2.5 px-3 text-center">الإجراءات والعمليات</th>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1140px] text-[11px] text-right border-collapse">
+            <thead className="bg-blue-950 text-white">
+              <tr>
+                {[
+                  'الرقم التسلسلي','اسم العميل','النوع / التبعية',
+                  'رصيد أول الفترة','مبيعات الفترة','المقبوضات',
+                  'عدد الفواتير','التسويات','صافي الحركة','رصيد آخر الفترة','الإجراءات'
+                ].map(h=><th key={h} className="py-2.5 px-2 text-center whitespace-nowrap font-bold border-l border-blue-900">{h}</th>)}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 text-slate-700">
-              {filteredParties.map(party => {
-                const isDebit = party.balance > 0;
-                const isCredit = party.balance < 0;
-                const creditLimit = party.creditLimit || 0;
-                const isLimitExceeded = creditLimit > 0 && party.balance > creditLimit;
-
+            <tbody className="divide-y divide-slate-200">
+              {rows.length===0&&<tr><td colSpan={11} className="text-center py-10 text-slate-500">
+                لا يوجد عملاء مطابقون لخيارات التصفية.
+              </td></tr>}
+              {rows.map((row,index)=>{
+                const party=row.party;
+                const cash=isCashCustomerParty(party);
+                const locked=deleteLocked(party);
+                const parent=party.parentPartyId?parties.find(p=>p.id===party.parentPartyId):undefined;
+                const currentBalance=displayedParties.find(p=>p.id===party.id)?.balance??row.closing;
                 return (
-                  <tr key={party.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-2.5 px-3 font-mono font-bold text-blue-800 text-[11px] whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        <Hash className="w-2.5 h-2.5 text-blue-600" />
-                        <span>{party.code || '-'}</span>
-                      </span>
+                  <tr key={party.id} className={cash?'bg-blue-50/90 hover:bg-blue-100/70':
+                    index%2===0?'bg-white hover:bg-blue-50/50':'bg-slate-50/80 hover:bg-blue-50/50'}>
+                    <td className="px-2 py-2 text-center whitespace-nowrap font-mono text-blue-800 font-black">
+                      {party.code||'—'}{cash&&<Lock className="inline w-3 h-3 text-amber-700 mr-1" />}
                     </td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900">
-                      <div>{party.name}</div>
-                      {isLimitExceeded && (
-                        <span className="text-[10px] text-rose-600 font-semibold block">
-                          تجاوز الحد الائتماني!
-                        </span>
-                      )}
+                    <td className="px-2 py-2 font-bold text-slate-900 whitespace-nowrap" title={party.name}>
+                      {party.name}
                     </td>
-                    <td className="py-2.5 px-3">
-                      {party.isSubCustomer ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
-                          <LinkIcon className="w-2.5 h-2.5 text-amber-700" />
-                          <span>زبون فرعي</span>
-                        </span>
-                      ) : (
-                        <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          party.type === 'customer' ? 'bg-blue-100 text-blue-800' :
-                          party.type === 'supplier' ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'
-                        }`}>
-                          {party.type === 'customer' ? 'عميل' : party.type === 'supplier' ? 'مورد' : 'كلاهما'}
-                        </span>
-                      )}
+                    <td className="px-2 py-2 text-slate-500 whitespace-nowrap">
+                      {party.isSubCustomer?('فرعي'+(parent?' • '+parent.name:'')):cash?'رئيسي ثابت':'رئيسي'}
                     </td>
-                    <td className="py-2.5 px-3 text-slate-600">{party.contactPerson || '-'}</td>
-                    <td className="py-2.5 px-3 font-mono text-[11px]">
-                      <div>{party.phone}</div>
-                      <div className="text-[10px] text-slate-400 font-sans">{party.city || '-'}</div>
+                    {[row.opening,row.sales,row.receipts].map((value,k)=>(
+                      <td key={k} dir="ltr" className="px-2 py-2 text-left tabular-nums whitespace-nowrap">
+                        {money(value)}
+                      </td>
+                    ))}
+                    <td className="px-2 py-2 text-center font-bold">{row.invoiceCount}</td>
+                    {[row.adjustments,row.movement].map((value,k)=>(
+                      <td key={k} dir="ltr" className={`px-2 py-2 text-left tabular-nums whitespace-nowrap ${value<0?'text-rose-700':'text-emerald-800'}`}>
+                        {money(value)}
+                      </td>
+                    ))}
+                    <td dir="ltr" className={`px-2 py-2 text-left font-black tabular-nums whitespace-nowrap ${row.closing<0?'text-rose-700':'text-blue-900'}`}>
+                      {money(row.closing)}
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-[9px] text-slate-400 font-light">
-                      <div>{party.commercialRegister ? `س.ت: ${party.commercialRegister}` : ''}</div>
-                      <div>{party.taxNumber ? `ض: ${party.taxNumber}` : ''}</div>
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-slate-600 font-semibold">
-                      {creditLimit > 0 ? `${creditLimit.toLocaleString('ar-SA')} ${settings.currency}` : '-'}
-                    </td>
-                    <td className="py-2.5 px-3 font-mono font-bold">
-                      <span className={isDebit ? 'text-amber-700' : isCredit ? 'text-rose-600' : 'text-emerald-600'}>
-                        {Math.abs(party.balance).toLocaleString('ar-SA', { minimumFractionDigits: 2 })} {settings.currency}
-                      </span>
-                      <span className="text-[10px] font-normal block text-slate-400">
-                        {isDebit ? '(لنا)' : isCredit ? '(علينا)' : '(خالص)'}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-center">
+                    <td className="px-2 py-2 whitespace-nowrap text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => setSelectedPartyForStatement(party)}
-                          className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-[11px] flex items-center gap-1 cursor-pointer"
-                          title="كشف حساب تفصيلي مستمر"
-                        >
-                          <FileText className="w-3 h-3" />
-                          <span>كشف حساب</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setVoucherModalParty(party);
-                            setVoucherType(party.type === 'customer' ? 'receipt' : 'payment');
-                            setVoucherAmount(Math.abs(party.balance));
-                          }}
-                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded text-[11px] flex items-center gap-1 cursor-pointer"
-                          title="سند قبض أو صرف"
-                        >
-                          <Receipt className="w-3 h-3" />
-                          <span>سند</span>
-                        </button>
-                        {!isCashCustomerParty(party) && party.type !== 'supplier' && (
-                          <button
-                            onClick={() => setSpecialPricesPartyForModal(party)}
-                            className={`p-1 rounded cursor-pointer transition-colors ${
-                              party.specialPrices && Object.keys(party.specialPrices).length > 0
-                                ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold'
-                                : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
-                            }`}
-                            title={
-                              party.specialPrices && Object.keys(party.specialPrices).length > 0
-                                ? `أسعار خاصة (${Object.keys(party.specialPrices).length} أصناف)`
-                                : 'تحديد أسعار خاصة للعميل'
-                            }
-                          >
-                            <Tag className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleOpenEditModal(party)}
-                          className="p-1 text-slate-400 hover:text-blue-600 rounded cursor-pointer"
-                          title="تعديل"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteParty(party.id, party.name)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                          title="حذف"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <button type="button" onClick={()=>setSelectedPartyForStatement(party)}
+                          className="bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-md px-2 py-1 text-blue-800 font-bold"
+                          title="فتح كشف الحساب التفصيلي">كشف حساب</button>
+                        <button type="button" onClick={()=>{setVoucherModalParty({...party,balance:currentBalance});setVoucherType('receipt');setVoucherAmount(Math.abs(currentBalance));}}
+                          className="p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md" title="سند قبض">
+                          <Receipt className="w-3.5 h-3.5" /></button>
+                        {!cash&&<button type="button" onClick={()=>handleOpenEditModal(party)}
+                          className="p-1.5 text-blue-700 hover:bg-blue-50 rounded-md" title="تعديل بيانات العميل">
+                          <Edit2 className="w-3.5 h-3.5" /></button>}
+                        <button type="button" disabled={locked}
+                          onClick={()=>handleDeleteParty(party.id,party.name)}
+                          className="p-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-30 disabled:cursor-not-allowed rounded-md"
+                          title={locked?'لا يمكن حذف العميل النقدي أو العميل المرتبط بعمليات مالية':'حذف عميل بلا حركات'}>
+                          <Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </td>
                   </tr>
                 );
               })}
+              {!!rows.length&&<tr className="bg-blue-900 text-white font-black">
+                <td colSpan={3} className="px-3 py-2.5 whitespace-nowrap">إجمالي {customerSection==='main'?'العملاء الرئيسيين':'العملاء الفرعيين'}</td>
+                {[sectionTotals.opening,sectionTotals.sales,sectionTotals.receipts].map((n,i)=>
+                  <td key={i} dir="ltr" className="px-2 py-2.5 text-left whitespace-nowrap">{money(n)}</td>)}
+                <td className="px-2 py-2.5 text-center">{sectionTotals.invoiceCount}</td>
+                {[sectionTotals.adjustments,sectionTotals.movement,sectionTotals.closing].map((n,i)=>
+                  <td key={i} dir="ltr" className="px-2 py-2.5 text-left whitespace-nowrap">{money(n)}</td>)}
+                <td />
+              </tr>}
             </tbody>
           </table>
         </div>
-      )}
+        <div className="px-3 py-2 text-[10px] bg-slate-50 border-t border-slate-200 text-slate-600 leading-relaxed">
+          المبلغ الموجب مستحق لنا، والسالب رصيد دائن للعميل. أرصدة الفرعيين مستقلة للعرض والمراجعة؛
+          لا تُجمع مرة أخرى مع الإجمالي المحاسبي للرئيسيين. التاريخ يحدد حركات الفترة وليس تاريخ إنشاء اسم العميل.
+        </div>
+      </div>
 
       {/* Modal: Add / Edit Party */}
       {showPartyModal && (
