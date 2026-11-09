@@ -1162,9 +1162,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                       {previewPurchaseNumber}
                     </span>
                   </h3>
-                  <p className="text-[10px] text-slate-400 font-light">
-                    عملية شراء وتوريد خامات تزيد أرصدة المخزن تلقائياً وتسجل استحقاق المورد
-                  </p>
+
                 </div>
               </div>
 
@@ -1176,204 +1174,98 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
               </button>
             </div>
 
-            <form onSubmit={handleSavePurchase} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {/* Supplier selection */}
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1 text-[11px]">
-                    المورد <span className="text-rose-500">*</span>:
+            <form onSubmit={handleSavePurchase} className="flex min-h-0 flex-1 flex-col overflow-hidden text-xs">
+              {/* Only identifying information stays above the item table. */}
+              <div className="shrink-0 space-y-1.5 border-b border-slate-200 bg-white px-2.5 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex min-w-[270px] flex-[2] items-center gap-1.5">
+                    <span className="shrink-0 text-[11px] font-black text-slate-700">المورد <b className="text-rose-600">*</b>:</span>
+                    <div className="min-w-0 flex-1">
+                      <AutocompleteCombobox
+                        items={suppliers.map(s=>({
+                          id:s.id,name:s.name,code:s.code,
+                          subText:s.phone?`هاتف: ${s.phone}`:undefined,
+                          badge:s.balance?`${Math.abs(s.balance).toFixed(2)} ${settings.currency}`:undefined,
+                          raw:s
+                        }))}
+                        selectedId={supplierId}
+                        entityType="supplier"
+                        placeholder="اختر المورد / ابحث بالاسم أو الرقم..."
+                        onSelect={opt=>setSupplierId(opt.id)}
+                        onQuickAdd={async name=>{
+                          const created=addParty({name,type:'supplier',phone:'',initialBalance:0});
+                          setSupplierId(created.id);
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <label className="flex min-w-[190px] flex-[0.75] items-center gap-1.5">
+                    <span className="shrink-0 whitespace-nowrap text-[10px] font-bold text-slate-600">رقم فاتورة المورد:</span>
+                    <input type="text" value={supplierInvoiceNumber}
+                      onChange={e=>setSupplierInvoiceNumber(e.target.value)}
+                      placeholder="رقم المورد الخارجي" aria-label="رقم الفاتورة الخارجية"
+                      className="h-8 min-w-0 flex-1 rounded border border-slate-300 bg-slate-50 px-2 text-[11px] font-mono"/>
                   </label>
-                  <AutocompleteCombobox
-                    items={suppliers.map(s => ({
-                      id: s.id,
-                      name: s.name,
-                      code: s.code,
-                      subText: s.phone ? `هاتف: ${s.phone}` : undefined,
-                      badge: s.balance ? `${Math.abs(s.balance).toFixed(2)} ${settings.currency}` : undefined,
-                      raw: s
-                    }))}
-                    selectedId={supplierId}
-                    entityType="supplier"
-                    placeholder="اكتب اسم المورد للمطابقة أو الإضافة..."
-                    onSelect={opt => setSupplierId(opt.id)}
-                    onQuickAdd={async name => {
-                      const created = addParty({
-                        name,
-                        type: 'supplier',
-                        phone: '',
-                        initialBalance: 0
-                      });
-                      setSupplierId(created.id);
-                    }}
-                  />
-                </div>
-
-                {/* External Supplier Invoice Number */}
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1 text-[11px]">
-                    رقم فاتورة المورد الخارجية / اليدوية:
+                  <label className="flex w-[210px] shrink-0 items-center gap-1.5">
+                    <span className="shrink-0 text-[10px] font-bold text-slate-600">التاريخ:</span>
+                    <DateInput required value={purchaseDate} onChange={e=>setPurchaseDate(e.target.value)}
+                      className="h-8 w-full min-w-0 rounded border border-slate-300 bg-slate-50 px-1 text-xs font-mono"/>
                   </label>
-                  <input
-                    type="text"
-                    value={supplierInvoiceNumber}
-                    onChange={e => setSupplierInvoiceNumber(e.target.value)}
-                    placeholder="رقم الفاتورة الورقية للمورد"
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono focus:bg-white focus:ring-2 focus:ring-blue-500"
-                  />
                 </div>
-
-                {/* Purchase Date */}
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1 text-[11px]">تاريخ الفاتورة:</label>
-                  <DateInput required value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono focus:bg-white focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                <label className="flex items-center gap-1.5">
+                  <span className="shrink-0 whitespace-nowrap text-[10px] font-black text-blue-800">ملاحظات الفاتورة:</span>
+                  <input type="text" value={notes} onChange={e=>setNotes(e.target.value)}
+                    placeholder="ملاحظات الفاتورة العامة أو شروط التوريد أو التسليم (تظهر على المستند)..."
+                    className="h-7 min-w-0 flex-1 rounded border border-slate-300 bg-slate-50 px-2 text-[11px] outline-none focus:border-blue-500"/>
+                </label>
               </div>
 
-              {/* Multi-Currency Section */}
-              <div className="bg-blue-50/70 p-3 rounded-lg border border-blue-200/80 space-y-2">
-                <div className="flex items-center gap-1.5 text-blue-900 font-bold text-xs">
-                  <Coins className="w-4 h-4 text-blue-600" />
-                  <span>عملة الشراء وسعر الصرف المعتمد:</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1 text-[10px]">عملة الفاتورة:</label>
-                    <select
-                      value={invoiceCurrency}
-                      onChange={e => handleCurrencyChange(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-semibold focus:ring-1 focus:ring-blue-500"
-                    >
-                      {currencies.map(c => (
-                        <option key={c.code} value={c.code}>
-                          {c.name} ({c.code} - {c.symbol})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1 text-[10px]">
-                      سعر الصرف مقابل الشيكل ({settings.currency}):
-                    </label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      min="0.0001"
-                      value={invoiceExchangeRate}
-                      onChange={e => setInvoiceExchangeRate(Number(e.target.value))}
-                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 font-mono font-bold text-xs focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1 text-[10px]">نسبة الضريبة (VAT):</label>
-                    <select
-                      value={taxRate}
-                      onChange={e => setTaxRate(Number(e.target.value))}
-                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-mono font-bold"
-                    >
-                      <option value={15}>15% (الضريبة القياسية)</option>
-                      <option value={16}>16% (ضريبة السلطة)</option>
-                      <option value={0}>0% (معفاة بدون ضريبة)</option>
-                    </select>
-                  </div>
-                </div>
+              {/* Item grid is the only vertically scrolling body. */}
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden px-1.5 py-1">
+                <PurchaseInvoiceLinesTable rows={items} setRows={setItems}
+                  inventory={inventory} taxRate={taxRate} currency={invoiceCurrency}
+                  onQuickAdd={handleQuickAddPurchaseItem}/>
               </div>
 
-              <PurchaseInvoiceLinesTable rows={items} setRows={setItems}
-                inventory={inventory} taxRate={taxRate} currency={invoiceCurrency}
-                onQuickAdd={handleQuickAddPurchaseItem}/>
-
-              {/* Payment Terms & Treasury */}
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2.5">
-                <span className="font-bold text-slate-800 block text-xs">طريقة السداد وصرف النقدية للمورد:</span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1 text-[11px]">نوع الدفع:</label>
-                    <select
-                      value={paymentMethod}
-                      onChange={e => {
-                        const method=e.target.value as PaymentMethod;
-                        setPaymentMethod(method);
-                        if(method==='credit'){setPaidAmount(0);setPaymentTreasuryCode('');}
-                        else {
-                          const eligible=treasuries.filter(t=>t.status==='active'&&
-                            (method==='cash'?t.type==='cash_box':t.type!=='cash_box'));
-                          setPaymentTreasuryCode(eligible[0]?.accountCode||'');
-                        }
-                      }}
-                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-semibold focus:ring-1 focus:ring-blue-500"
-                    >
-                      <option value="bank_transfer">تحويل بنكي / شيك</option>
-                      <option value="cash">نقداً من الصندوق (كاش)</option>
-                      <option value="credit">آجل بالكامل على الحساب</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1 text-[11px]">المبلغ المسدد حالياً:</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max={grandTotal}
-                      disabled={paymentMethod==='credit'}
-                      value={paidAmount}
-                      onChange={e => setPaidAmount(Number(e.target.value))}
-                      placeholder="0.00"
-                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-mono font-bold focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1 text-[11px]">الخزينة المسحوب منها:</label>
-                    <select
-                      value={paymentTreasuryCode}
-                      onChange={e => setPaymentTreasuryCode(e.target.value)}
-                      disabled={paymentMethod==='credit'}
-                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-semibold focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
-                    >
-                      <option value="">اختر الصندوق أو الحساب</option>
-                      {eligiblePurchaseTreasuries.map(t => (
-                        <option key={t.id} value={t.accountCode}>{t.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-slate-700 font-medium mb-1 text-[11px]">ملاحظات الفاتورة:</label>
-                <input
-                  type="text"
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  placeholder="ملاحظات التسليم، الجودة، شروط السداد..."
-                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs focus:bg-white focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Footer */}
-              <div className="sticky bottom-0 z-20 flex items-center justify-between gap-2 border-t border-slate-200 bg-white/95 px-2 py-2 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => setShowNewPurchaseModal(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="submit" disabled={!purchaseTotals.valid}
-                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>اعتماد المشتريات • {grandTotal.toFixed(2)} {invoiceCurrency}</span>
-                </button>
-              </div>
+              {/* Same order and visual structure as the POS bottom console. */}
+              <PurchaseInvoiceFooter
+                lineCount={items.filter(r=>!!r.itemId).length}
+                totalPieces={items.reduce((n,r)=>n+(r.hasDimensions?r.count:r.quantity),0)}
+                currency={invoiceCurrency}
+                exchangeRate={invoiceExchangeRate}
+                currencies={currencies}
+                treasuries={treasuries}
+                taxRate={taxRate}
+                discountPercent={overallPurchaseDiscount}
+                additionalCharges={purchaseAdditionalCharges}
+                cash={cashPurchasePayment}
+                bank={bankPurchasePayment}
+                paymentNotes={purchasePaymentNotes}
+                totals={purchaseBreakdown||{
+                  lines:[],gross:0,lineDiscount:0,overallDiscount:0,
+                  additionalCharges:0,subtotal:0,tax:0,total:0
+                }}
+                paidInvoice={purchaseSettlement?.paidInvoice||0}
+                remainingInvoice={purchaseSettlement?.remainingInvoice||grandTotal}
+                paidBase={purchaseSettlement?.paidBase||0}
+                remainingBase={purchaseSettlement?.remainingBase||grandTotal*invoiceExchangeRate}
+                onCurrency={handleCurrencyChange}
+                onExchangeRate={setInvoiceExchangeRate}
+                onTaxRate={setTaxRate}
+                onDiscountPercent={setOverallPurchaseDiscount}
+                onAdditionalCharges={setPurchaseAdditionalCharges}
+                onCash={patch=>setCashPurchasePayment(prev=>({...prev,...patch}))}
+                onBank={patch=>setBankPurchasePayment(prev=>({...prev,...patch}))}
+                onPaymentNotes={setPurchasePaymentNotes}
+                onFullCash={()=>quickPayPurchase('cash')}
+                onFullBank={()=>quickPayPurchase('bank')}
+                onClearPayments={()=>{
+                  setCashPurchasePayment(prev=>({...prev,amount:0}));
+                  setBankPurchasePayment(prev=>({...prev,amount:0}));
+                }}
+                onCancel={()=>setShowNewPurchaseModal(false)}
+                valid={purchaseTotals.valid&&!!purchaseBreakdown&&validPurchasePayment}
+              />
             </form>
           </div>
         </div>
