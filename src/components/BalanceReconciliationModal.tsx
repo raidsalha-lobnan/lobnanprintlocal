@@ -28,11 +28,13 @@ import {
 interface BalanceReconciliationModalProps {
   isOpen: boolean;
   onClose: () => void;
+  customerOnly?: boolean;
 }
 
 export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProps> = ({
   isOpen,
-  onClose
+  onClose,
+  customerOnly = false
 }) => {
   const {
     parties,
@@ -59,7 +61,7 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
   // Compute reconciliation for all non-sub parties (or all parties)
   const reconciliationResults = useMemo(() => {
     return parties
-      .filter(p => !p.isSubCustomer)
+      .filter(p => !p.isSubCustomer && (!customerOnly || p.type === 'customer' || p.type === 'both'))
       .map(p =>
         getPartyBalanceReconciliation(
           p,
@@ -73,7 +75,7 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
           debtClearings
         )
       );
-  }, [parties, invoices, vouchers, purchases, purchaseReturns, salesReturns, printOrders, journalEntries, debtClearings]);
+  }, [parties, invoices, vouchers, purchases, purchaseReturns, salesReturns, printOrders, journalEntries, debtClearings, customerOnly]);
 
   // Statistics
   const totalParties = reconciliationResults.length;
@@ -231,7 +233,7 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
             <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
               <span className="text-[11px] text-slate-500 font-medium">إجمالي الحسابات</span>
               <div className="font-mono font-extrabold text-xl text-slate-800 mt-1">{totalParties}</div>
-              <span className="text-[10px] text-slate-400">عملاء وموردين مسجلين</span>
+              <span className="text-[10px] text-slate-400">{customerOnly ? 'حسابات العملاء الرئيسيين' : 'عملاء وموردين مسجلين'}</span>
             </div>
 
             <div className="bg-white p-3 rounded-lg border border-emerald-200 shadow-2xs">
@@ -293,14 +295,14 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
               >
                 العملاء
               </button>
-              <button
+              {!customerOnly && <button
                 onClick={() => setFilterMode('supplier')}
                 className={`px-3 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
                   filterMode === 'supplier' ? 'bg-white text-purple-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 الموردين
-              </button>
+              </button>}
             </div>
 
             {/* Search Input */}
@@ -317,7 +319,7 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
 
             {/* Action Buttons */}
             <div className="flex items-center gap-2">
-              <button
+              {!customerOnly && <button
                 onClick={handleReconcileAll}
                 disabled={isReconciling}
                 className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-lg text-xs shadow-2xs transition-all cursor-pointer disabled:opacity-50"
@@ -325,7 +327,7 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isReconciling ? 'animate-spin' : ''}`} />
                 <span>مطابقة وتحديث الأرصدة تلقائياً</span>
-              </button>
+              </button>}
 
               <button
                 onClick={handleExportCSV}
