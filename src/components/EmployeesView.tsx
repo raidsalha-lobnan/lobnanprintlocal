@@ -74,6 +74,9 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
     employeeDeductions,
     employeeIncentives,
     payrollSheets,
+    invoices,
+    vouchers,
+    purchases,
     setSelectedEmployeeForStatement,
     settings
   } = useAccounting();
@@ -304,6 +307,18 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
 
   // Delete employee
   const handleDeleteEmployee = (emp: Employee) => {
+    const related = Boolean(emp.paymentHistory?.length) ||
+      employeeAdvances.some(x => x.employeeId === emp.id) ||
+      employeeDeductions.some(x => x.employeeId === emp.id) ||
+      employeeIncentives.some(x => x.employeeId === emp.id) ||
+      payrollSheets.some(x => x.items.some(item => item.employeeId === emp.id)) ||
+      invoices.some(x => x.counterpartyType === 'employee' && x.counterpartyId === emp.id) ||
+      vouchers.some(x => x.partyId === emp.id) ||
+      purchases.some(x => x.supplierId === emp.id);
+    if (related) {
+      alert('لا يمكن حذف الموظف لوجود عمليات أو رواتب أو سلف أو فواتير مرتبطة بمعرّفه. يمكنك تعديل بياناته.');
+      return;
+    }
     if (window.confirm(`هل أنت متأكد من حذف الموظف "${emp.name}" من سجلات المنشأة؟`)) {
       deleteEmployee(emp.id);
       posSound.playErrorBeep();
