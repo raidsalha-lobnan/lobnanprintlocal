@@ -623,7 +623,7 @@ export const PartiesView: React.FC = () => {
             <div className="flex items-center justify-between pb-2.5 border-b border-slate-200 mb-2">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <Users className="w-4 h-4 text-blue-600" />
-                <span>{editingPartyId ? 'تعديل بيانات الحساب والأسعار الخاصة' : 'تسجيل حساب جديد في الدليل'}</span>
+                <span>{editingPartyId ? 'تعديل بيانات الحساب والأسعار الخاصة' : 'تسجيل عميل جديد'}</span>
               </h3>
               <button
                 onClick={() => setShowPartyModal(false)}
@@ -634,51 +634,29 @@ export const PartiesView: React.FC = () => {
             </div>
 
             <form onSubmit={handleSaveParty} noValidate className="space-y-2 overflow-y-auto pr-1 flex-1">
-              {/* Type Selector (Compact inline) */}
-              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-700 font-bold text-xs whitespace-nowrap">نوع وطبيعة الحساب:</span>
-                  <div className="inline-flex rounded-md p-0.5 bg-slate-100 border border-slate-200 gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setPartyType('customer')}
-                      className={`px-3 py-1 rounded text-xs font-bold cursor-pointer transition-colors ${
-                        partyType === 'customer'
-                          ? 'bg-blue-600 text-white shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      عميل (مشتري مطبوعات)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPartyType('supplier')}
-                      className={`px-3 py-1 rounded text-xs font-bold cursor-pointer transition-colors ${
-                        partyType === 'supplier'
-                          ? 'bg-purple-600 text-white shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      مورد (خامات وأوراق)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPartyType('both')}
-                      className={`px-3 py-1 rounded text-xs font-bold cursor-pointer transition-colors ${
-                        partyType === 'both'
-                          ? 'bg-emerald-600 text-white shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      عميل ومورد معاً
-                    </button>
-                  </div>
-                </div>
-
-                <span className="text-[11px] font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-bold hidden sm:inline-flex items-center gap-1">
-                  <span>محمي من التكرار 🔒</span>
+              {/* Customer-only modal: no supplier controls on the customers screen. */}
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-100">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold">
+                  <Users className="w-3.5 h-3.5"/>
+                  {addingSubCustomer?'العميل الفرعي':'العميل الرئيسي'}
+                </span>
+                <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">
+                  <Lock className="w-3.5 h-3.5 inline ml-1"/> الرقم التسلسلي يصدر آليًا ولا يتكرر
                 </span>
               </div>
+              {addingSubCustomer && (
+                <label className="flex flex-wrap items-center gap-2 bg-violet-50 border border-violet-200 rounded-lg p-2 text-xs font-bold text-violet-900">
+                  تابع للعميل الرئيسي
+                  <select required disabled={!!editingPartyId} value={parentPartyId}
+                    onChange={e=>setParentPartyId(e.target.value)}
+                    className="h-9 min-w-[210px] flex-1 border border-violet-200 rounded-md bg-white px-2 text-slate-900 disabled:opacity-60">
+                    <option value="">اختر العميل الرئيسي</option>
+                    {parties.filter(p=>!p.isSubCustomer&&(p.type==='customer'||p.type==='both'))
+                      .sort((a,b)=>Number((a.code||'').match(/\\d+$/)?.[0]||0)-Number((b.code||'').match(/\\d+$/)?.[0]||0))
+                      .map(p=><option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
+                  </select>
+                </label>
+              )}
 
               {/* الثلاثة عناوين وخاناتهم في سطر واحد كلهم (الرقم التسلسلي + الاسم التجاري أو العميل + الشخص المسؤول) */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
@@ -1197,7 +1175,7 @@ export const PartiesView: React.FC = () => {
                   type="text"
                   value={voucherDesc}
                   onChange={e => setVoucherDesc(e.target.value)}
-                  placeholder="دفعة على الحساب، سداد فاتورة توريد، تصفية رصيد..."
+                  placeholder="دفعة على حساب العميل، سداد فاتورة، تصفية رصيد..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
                 />
               </div>
