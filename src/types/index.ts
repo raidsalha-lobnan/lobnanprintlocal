@@ -400,7 +400,21 @@ export interface PurchaseItem {
   itemName: string;
   quantity: number;
   unitPrice: number;
+  /** Net purchase cost before input VAT, after the line-level discount. */
   total: number;
+  /** Original price and discount are retained for purchase document auditing. */
+  discount?: number;
+  tax?: number;
+  totalAfterTax?: number;
+  itemCode?: string;
+  barcode?: string;
+  notes?: string;
+  unit?: string;
+  unitCalculationType?: UnitCalculationType;
+  hasDimensions?: boolean;
+  length?: number;
+  width?: number;
+  count?: number;
 }
 
 export interface PurchaseInvoice {
