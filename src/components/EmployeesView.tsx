@@ -5,6 +5,7 @@ import { Employee, SalaryType, EmployeeDepartment, PaymentMethod, PayrollSheet }
 import { posSound } from '../utils/audio';
 import { EmployeeAdjustmentsView } from './EmployeeAdjustmentsView';
 import { PayrollSheetsView } from './PayrollSheetsView';
+import { EmployeesCompactDirectory } from './EmployeesCompactDirectory';
 import { EmployeeAdjustmentsModal } from './EmployeeAdjustmentsModal';
 import { PayrollSheetModal } from './PayrollSheetModal';
 import {
@@ -78,15 +79,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
   } = useAccounting();
 
   // Primary Sub-navigation tab
-  const [activeSubTab, setActiveSubTabState] = useState<'employees' | 'adjustments' | 'payroll_sheets'>(() => {
-    try {
-      const saved = localStorage.getItem('employees_subtab');
-      if (saved && ['employees', 'adjustments', 'payroll_sheets'].includes(saved)) {
-        return saved as any;
-      }
-    } catch {}
-    return initialSubTab;
-  });
+  const [activeSubTab, setActiveSubTabState] = useState<'employees' | 'adjustments' | 'payroll_sheets'>(initialSubTab);
 
   const setActiveSubTab = React.useCallback((tab: 'employees' | 'adjustments' | 'payroll_sheets') => {
     setActiveSubTabState(tab);
@@ -95,11 +88,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
     } catch {}
   }, []);
 
-  React.useEffect(() => {
-    if (initialSubTab && !localStorage.getItem('employees_subtab')) {
-      setActiveSubTab(initialSubTab);
-    }
-  }, [initialSubTab, setActiveSubTab]);
+  React.useEffect(() => { setActiveSubTabState(initialSubTab); }, [initialSubTab]);
 
   // Adjustments modal state
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
@@ -360,7 +349,10 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
   }, [employees]);
 
   return (
-    <div className="space-y-4">
+    <div className={activeSubTab==='employees'
+      ? 'flex h-full min-h-0 flex-1 flex-col overflow-hidden'
+      : 'h-full overflow-y-auto space-y-4'}>
+      {activeSubTab !== 'employees' && (<>
       {/* Top Header Card */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -518,6 +510,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
         </button>
       </div>
 
+      </>)}
       {/* Tab Content: Adjustments Ledger */}
       {activeSubTab === 'adjustments' && (
         <EmployeeAdjustmentsView onOpenAddModal={handleOpenAdjustment} />
@@ -531,484 +524,18 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
         />
       )}
 
-      {/* Tab Content: Employees Directory */}
       {activeSubTab === 'employees' && (
-        <>
-      {/* Filter and Search Bar */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-3 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="بحث بالاسم، الكود (EMP)، المسمى الوظيفي، الجوال أو رقم الهوية..."
-            className="w-full pr-9 pl-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Department Filter */}
-          <select
-            value={selectedDept}
-            onChange={e => setSelectedDept(e.target.value)}
-            className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:bg-white focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="all">كل الأقسام</option>
-            <option value="printing">ورشة الطباعة والمكائن</option>
-            <option value="design">التصميم والجرافيك</option>
-            <option value="sales_pos">المبيعات ونقاط البيع</option>
-            <option value="finishing">التجليد والتشطيب</option>
-            <option value="management">الإدارة والإشراف</option>
-            <option value="accounting">المحاسبة والمالية</option>
-            <option value="delivery">التوصيل والخدمات</option>
-            <option value="other">أخرى</option>
-          </select>
-
-          {/* Salary Type Filter */}
-          <select
-            value={selectedSalaryType}
-            onChange={e => setSelectedSalaryType(e.target.value)}
-            className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:bg-white focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="all">كل أنواع الرواتب</option>
-            <option value="monthly">راتب شهري</option>
-            <option value="weekly">راتب أسبوعي</option>
-            <option value="daily">راتب يومي (يومية)</option>
-          </select>
-
-          {/* Status Filter */}
-          <select
-            value={selectedStatus}
-            onChange={e => setSelectedStatus(e.target.value)}
-            className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:bg-white focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="all">كل الحالات</option>
-            <option value="active">على رأس العمل (نشط)</option>
-            <option value="on_leave">في إجازة</option>
-            <option value="terminated">منتهي الخدمة</option>
-          </select>
-
-          {/* Toggle View Mode */}
-          <div className="flex border border-slate-200 rounded-lg overflow-hidden bg-slate-50 p-0.5">
-            <button
-              onClick={() => setViewMode('table')}
-              className={`px-2 py-1 text-xs rounded font-semibold transition-colors cursor-pointer ${
-                viewMode === 'table' ? 'bg-white shadow-xs text-blue-700 font-bold' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              جدول
-            </button>
-            <button
-              onClick={() => setViewMode('cards')}
-              className={`px-2 py-1 text-xs rounded font-semibold transition-colors cursor-pointer ${
-                viewMode === 'cards' ? 'bg-white shadow-xs text-blue-700 font-bold' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              بطاقات
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Employee Content (Table / Cards) */}
-      {filteredEmployees.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
-          <Users className="w-12 h-12 text-slate-300 mx-auto mb-2" />
-          <h3 className="text-sm font-bold text-slate-700">لا توجد نتائج مطابقة</h3>
-          <p className="text-xs text-slate-400 mt-1">جرّب تغيير عبارة البحث أو الفلتر المطبق، أو أضف موظفاً جديداً.</p>
-          <button
-            onClick={handleOpenAdd}
-            className="mt-3 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>إضافة موظف الآن</span>
-          </button>
-        </div>
-      ) : viewMode === 'table' ? (
-        /* Detailed Table View */
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-800 text-white font-semibold">
-                <tr>
-                  <th className="p-3">الموظف / الكود</th>
-                  <th className="p-3">المسمى الوظيفي والقسم</th>
-                  <th className="p-3">نوع الراتب</th>
-                  <th className="p-3">الراتب الأساسي والبدلات</th>
-                  <th className="p-3">طريقة الصرف</th>
-                  <th className="p-3">الحالة</th>
-                  <th className="p-3 text-center">الإجراءات</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredEmployees.map(emp => {
-                  const deptInfo = DEPARTMENT_LABELS[emp.department] || DEPARTMENT_LABELS.other;
-                  const salaryInfo = SALARY_TYPE_INFO[emp.salaryType];
-                  const totalSalary = (emp.salaryAmount || 0) + (emp.allowances || 0);
-
-                  return (
-                    <tr key={emp.id} className="hover:bg-blue-50/40 transition-colors">
-                      {/* Name & Code */}
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 text-slate-700 font-bold flex items-center justify-center text-xs shrink-0">
-                            {emp.name ? emp.name.slice(0, 1) : 'م'}
-                          </div>
-                          <div>
-                            <div className="font-bold text-slate-900 hover:text-blue-600 cursor-pointer" onClick={() => {
-                              setSelectedEmployeeForDetail(emp);
-                              setShowDetailModal(true);
-                            }}>
-                              {emp.name}
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="font-mono text-[9px] text-slate-400 font-light bg-slate-100 px-1 py-0.2 rounded font-semibold">
-                                {emp.code}
-                              </span>
-                              {emp.phone && (
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  {emp.phone}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Job Title & Department */}
-                      <td className="p-3">
-                        <div className="font-semibold text-slate-800">{emp.jobTitle}</div>
-                        <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-medium border mt-1 ${deptInfo.color}`}>
-                          {deptInfo.name}
-                        </span>
-                      </td>
-
-                      {/* Salary Type */}
-                      <td className="p-3">
-                        <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded border ${salaryInfo.badge}`}>
-                          <Clock className="w-3 h-3" />
-                          <span>{salaryInfo.label}</span>
-                        </span>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
-                          {salaryInfo.desc}
-                        </div>
-                      </td>
-
-                      {/* Salary Amount & Allowances */}
-                      <td className="p-3">
-                        <div className="font-mono font-bold text-slate-900 text-sm">
-                          {emp.salaryAmount.toLocaleString()}{' '}
-                          <span className="text-[10px] font-normal text-slate-500">{settings.currency}</span>
-                        </div>
-                        {emp.allowances ? (
-                          <div className="text-[9px] text-slate-400 font-light mt-0.5 flex items-center gap-1">
-                            <span>+ بدلات:</span>
-                            <span className="font-mono font-semibold text-emerald-600">
-                              {emp.allowances.toLocaleString()} {settings.currency}
-                            </span>
-                            <span className="text-slate-400 font-mono">
-                              (الإجمالي: {totalSalary.toLocaleString()})
-                            </span>
-                          </div>
-                        ) : null}
-                      </td>
-
-                      {/* Payment Method */}
-                      <td className="p-3">
-                        <div className="flex items-center gap-1 text-slate-700">
-                          {emp.paymentMethod === 'bank_transfer' ? (
-                            <>
-                              <Building2 className="w-3.5 h-3.5 text-blue-600" />
-                              <span>تحويل بنكي</span>
-                            </>
-                          ) : emp.paymentMethod === 'cheque' ? (
-                            <>
-                              <FileText className="w-3.5 h-3.5 text-amber-600" />
-                              <span>شيك بنكي</span>
-                            </>
-                          ) : (
-                            <>
-                              <Banknote className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>نقداً (كاش)</span>
-                            </>
-                          )}
-                        </div>
-                        {emp.bankName && (
-                          <div className="text-[10px] text-slate-400 truncate max-w-[140px] mt-0.5">
-                            {emp.bankName}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Status */}
-                      <td className="p-3">
-                        {emp.status === 'active' ? (
-                          <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                            <span>على رأس العمل</span>
-                          </span>
-                        ) : emp.status === 'on_leave' ? (
-                          <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            <span>في إجازة</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            <span>منتهي الخدمة</span>
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="p-3">
-                        <div className="flex items-center justify-center gap-1 flex-wrap">
-                          <button
-                            onClick={() => handleOpenAdjustment('advance', emp.id)}
-                            className="px-1.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
-                            title="تسجيل سلفة نقدية للموظف"
-                          >
-                            <CreditCard className="w-3 h-3 text-amber-600" />
-                            <span>سلفة</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenAdjustment('deduction', emp.id)}
-                            className="px-1.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
-                            title="تسجيل خصم / جزاء للموظف"
-                          >
-                            <MinusCircle className="w-3 h-3 text-rose-600" />
-                            <span>خصم</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenAdjustment('incentive', emp.id)}
-                            className="px-1.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
-                            title="تسجيل حافز ومكافأة للموظف"
-                          >
-                            <PlusCircle className="w-3 h-3 text-emerald-600" />
-                            <span>حافز</span>
-                          </button>
-
-                          <button
-                            onClick={() => setSelectedEmployeeForStatement(emp)}
-                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                            title="كشف مالي تفصيلي للموظف"
-                          >
-                            <FileText className="w-3 h-3 text-indigo-600" />
-                            <span>كشف مالي</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenPay(emp)}
-                            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                            title="صرف راتب فوري للموظف"
-                          >
-                            <DollarSign className="w-3 h-3" />
-                            <span>صرف</span>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setSelectedEmployeeForDetail(emp);
-                              setShowDetailModal(true);
-                            }}
-                            className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
-                            title="عرض الملف الكامل وسجل الرواتب"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenEdit(emp)}
-                            className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors cursor-pointer"
-                            title="تعديل بيانات الموظف"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            onClick={() => handleDeleteEmployee(emp)}
-                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
-                            title="حذف الموظف"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        /* Cards View */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {filteredEmployees.map(emp => {
-            const deptInfo = DEPARTMENT_LABELS[emp.department] || DEPARTMENT_LABELS.other;
-            const salaryInfo = SALARY_TYPE_INFO[emp.salaryType];
-            const totalSalary = (emp.salaryAmount || 0) + (emp.allowances || 0);
-
-            return (
-              <div
-                key={emp.id}
-                className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 flex flex-col justify-between hover:border-blue-300 transition-all"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-200 text-blue-700 font-bold flex items-center justify-center text-sm">
-                        {emp.name ? emp.name.slice(0, 1) : 'م'}
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-slate-900 text-sm hover:text-blue-600 cursor-pointer" onClick={() => {
-                          setSelectedEmployeeForDetail(emp);
-                          setShowDetailModal(true);
-                        }}>
-                          {emp.name}
-                        </h3>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="font-mono text-[9px] text-slate-400 font-light bg-slate-100 px-1 py-0.2 rounded font-semibold">
-                            {emp.code}
-                          </span>
-                          <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold border ${deptInfo.color}`}>
-                            {deptInfo.name}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {emp.status === 'active' ? (
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" title="على رأس العمل" />
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-amber-500" title="في إجازة أو منتهي" />
-                    )}
-                  </div>
-
-                  <div className="mt-3 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                    <div className="text-xs font-semibold text-slate-800">
-                      {emp.jobTitle}
-                    </div>
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200/60">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${salaryInfo.badge}`}>
-                        {salaryInfo.label}
-                      </span>
-                      <div className="text-right">
-                        <span className="text-sm font-black font-mono text-slate-900">
-                          {emp.salaryAmount.toLocaleString()}{' '}
-                          <span className="text-[10px] font-normal text-slate-500">{settings.currency}</span>
-                        </span>
-                        {emp.allowances ? (
-                          <div className="text-[9px] text-emerald-700 font-mono font-semibold">
-                            + {emp.allowances.toLocaleString()} بدلات
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 text-[10px] text-slate-400 font-light space-y-1">
-                    {emp.phone && (
-                      <div className="flex items-center gap-1.5">
-                        <Phone className="w-3 h-3 text-slate-400" />
-                        <span className="font-mono">{emp.phone}</span>
-                      </div>
-                    )}
-                    {emp.bankName && emp.paymentMethod === 'bank_transfer' && (
-                      <div className="flex items-center gap-1.5">
-                        <Building2 className="w-3 h-3 text-slate-400" />
-                        <span className="truncate">{emp.bankName}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-1.5">
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleOpenAdjustment('advance', emp.id)}
-                      className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
-                      title="تسجيل سلفة"
-                    >
-                      <CreditCard className="w-3 h-3 text-amber-600" />
-                      <span>سلفة</span>
-                    </button>
-                    <button
-                      onClick={() => handleOpenAdjustment('deduction', emp.id)}
-                      className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
-                      title="تسجيل خصم"
-                    >
-                      <MinusCircle className="w-3 h-3 text-rose-600" />
-                      <span>خصم</span>
-                    </button>
-                    <button
-                      onClick={() => handleOpenAdjustment('incentive', emp.id)}
-                      className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
-                      title="تسجيل حافز"
-                    >
-                      <PlusCircle className="w-3 h-3 text-emerald-600" />
-                      <span>حافز</span>
-                    </button>
-                    <button
-                      onClick={() => setSelectedEmployeeForStatement(emp)}
-                      className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
-                      title="كشف مالي تفصيلي للموظف"
-                    >
-                      <FileText className="w-3 h-3 text-indigo-600" />
-                      <span>كشف مالي</span>
-                    </button>
-                    <button
-                      onClick={() => handleOpenPay(emp)}
-                      className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
-                      title="صرف راتب فوري"
-                    >
-                      <DollarSign className="w-3 h-3" />
-                      <span>صرف</span>
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-0.5">
-                    <button
-                      onClick={() => {
-                        setSelectedEmployeeForDetail(emp);
-                        setShowDetailModal(true);
-                      }}
-                      className="p-1 text-slate-400 hover:text-blue-600 rounded cursor-pointer"
-                      title="عرض الملف"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleOpenEdit(emp)}
-                      className="p-1 text-slate-400 hover:text-amber-600 rounded cursor-pointer"
-                      title="تعديل"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteEmployee(emp)}
-                      className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                      title="حذف"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      </>
+        <EmployeesCompactDirectory
+          onAdd={handleOpenAdd}
+          onEdit={handleOpenEdit}
+          onDelete={handleDeleteEmployee}
+          onPay={handleOpenPay}
+          onAdvance={id=>handleOpenAdjustment('advance',id)}
+          onDeduction={id=>handleOpenAdjustment('deduction',id)}
+          onIncentive={id=>handleOpenAdjustment('incentive',id)}
+          onDetail={emp=>{setSelectedEmployeeForDetail(emp);setShowDetailModal(true);}}
+          onTab={setActiveSubTab}
+        />
       )}
 
       {/* ========================================================================= */}
