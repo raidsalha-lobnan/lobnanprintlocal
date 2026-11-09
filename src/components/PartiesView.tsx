@@ -430,24 +430,24 @@ export const PartiesView: React.FC = () => {
         </div>
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap">
           <button type="button" onClick={() => setShowReconciliationModal(true)}
-            className="flex items-center gap-1 bg-slate-800 hover:bg-slate-900 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
+            className="inline-flex h-7 shrink-0 items-center gap-1 bg-slate-800 hover:bg-slate-900 text-white rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap">
             <Scale className="w-3.5 h-3.5" /> مراجعة الأرصدة
           </button>
           <button type="button" onClick={() => handleOpenAddModal(false)}
-            className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
+            className="inline-flex h-7 shrink-0 items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap">
             <Plus className="w-3.5 h-3.5" /> إضافة عميل رئيسي
           </button>
           <button type="button" onClick={() => handleOpenAddModal(true)}
-            className="flex items-center gap-1 bg-violet-600 hover:bg-violet-700 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
+            className="inline-flex h-7 shrink-0 items-center gap-1 bg-violet-600 hover:bg-violet-700 text-white rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap">
             <Plus className="w-3.5 h-3.5" /> إضافة عميل فرعي
           </button>
           <button type="button" disabled={invalidPeriod}
             onClick={()=>exportCustomerPeriodCSV(reportSource,dateFilter)}
-            className="flex items-center gap-1 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-400 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
+            className="inline-flex h-7 shrink-0 items-center gap-1 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-400 text-white rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap">
             <FileSpreadsheet className="w-3.5 h-3.5"/> تصدير Excel
           </button>
           <button type="button" onClick={printRegister} disabled={invalidPeriod}
-            className="flex items-center gap-1 bg-indigo-700 hover:bg-indigo-800 disabled:bg-slate-400 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
+            className="inline-flex h-7 shrink-0 items-center gap-1 bg-indigo-700 hover:bg-indigo-800 disabled:bg-slate-400 text-white rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap">
             <Printer className="w-3.5 h-3.5" /> طباعة كشف العملاء
           </button>
         </div>
@@ -505,7 +505,7 @@ export const PartiesView: React.FC = () => {
           <div className="ms-auto flex shrink-0 items-center gap-2 text-[10px] whitespace-nowrap font-semibold text-slate-600">
             <span>المعروض: <b className="text-slate-900">{rows.length}</b> حساب</span>
             <span className="text-slate-300">|</span>
-            <span>إجمالي الرصيد: <b className="text-blue-800">{money(sectionTotals.closing)} {settings.currency}</b></span>
+            <span>إجمالي الرصيد: <b dir="ltr" className="inline-block text-blue-800 tabular-nums">{money(sectionTotals.closing)} {settings.currency}</b></span>
           </div>
       </div>
       {invalidPeriod && <p className="shrink-0 px-2 text-rose-700 text-[11px] font-bold">تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.</p>}
