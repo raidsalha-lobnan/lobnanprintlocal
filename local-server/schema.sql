@@ -101,3 +101,57 @@ CREATE TABLE IF NOT EXISTS sync_invoice_revision_requests (
  PRIMARY KEY(workspace,request_id)
 );
 CREATE INDEX IF NOT EXISTS sync_invoice_revision_invoice_idx ON sync_invoice_revision_requests(workspace,invoice_id);
+
+
+-- Public Telegram bot subscriptions: explicitly started chats receive future
+-- PostgreSQL-committed transaction notifications, without a one-chat limit.
+CREATE TABLE IF NOT EXISTS sync_telegram_subscribers (
+ workspace text NOT NULL REFERENCES sync_workspaces(id),
+ chat_id text NOT NULL,
+ active boolean NOT NULL DEFAULT true,
+ subscribed_at timestamptz NOT NULL DEFAULT now(),
+ updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace,chat_id)
+);
+
+-- One central Telegram long-poller prevents browsers from racing getUpdates.
+CREATE TABLE IF NOT EXISTS sync_telegram_bot_offsets (
+ workspace text NOT NULL REFERENCES sync_workspaces(id),
+ bot_id text NOT NULL,
+ last_update_id bigint NOT NULL DEFAULT 0,
+ PRIMARY KEY(workspace,bot_id)
+);
+
+-- Incoming report requests remain durable until one connected app instance
+-- acknowledges processing them. The bot need not expose PostgreSQL credentials.
+CREATE TABLE IF NOT EXISTS sync_telegram_inbox (
+ workspace text NOT NULL REFERENCES sync_workspaces(id),
+ update_id bigint NOT NULL,
+ payload jsonb NOT NULL,
+ received_at timestamptz NOT NULL DEFAULT now(),
+ claim_token text,
+ claimed_until timestamptz,
+ processed_at timestamptz,
+ PRIMARY KEY(workspace,update_id)
+);
+CREATE INDEX IF NOT EXISTS sync_telegram_inbox_pending_idx
+ ON sync_telegram_inbox(workspace,received_at)
+ WHERE processed_at IS NULL;
+
+-- Per-recipient delivery checkpoints ensure a failed Telegram user does not
+-- block other subscribers or cause a completed multipart message to repeat.
+CREATE TABLE IF NOT EXISTS sync_telegram_recipients (
+ workspace text NOT NULL,
+ command_id text NOT NULL,
+ chat_id text NOT NULL,
+ next_part integer NOT NULL DEFAULT 0 CHECK(next_part>=0),
+ attempts integer NOT NULL DEFAULT 0,
+ next_attempt_at timestamptz NOT NULL DEFAULT now(),
+ delivered_at timestamptz,
+ last_error text,
+ PRIMARY KEY(workspace,command_id,chat_id),
+ FOREIGN KEY(workspace,command_id) REFERENCES sync_telegram_outbox(workspace,command_id)
+);
+CREATE INDEX IF NOT EXISTS sync_telegram_recipients_pending_idx
+ ON sync_telegram_recipients(workspace,next_attempt_at)
+ WHERE delivered_at IS NULL;
