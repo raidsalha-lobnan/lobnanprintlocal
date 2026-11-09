@@ -33,7 +33,7 @@ import {
   Scale,
   RefreshCw
 } from 'lucide-react';
-import { generateSequentialPartyCode, isCashCustomerParty } from '../utils/partyUtils';
+import { isCashCustomerParty } from '../utils/partyUtils';
 import { CustomerSpecialPricesModal } from './pos/CustomerSpecialPricesModal';
 import { BalanceReconciliationModal } from './BalanceReconciliationModal';
 import { posSound } from '../utils/audio';
@@ -63,16 +63,13 @@ export const PartiesView: React.FC = () => {
     setSelectedPartyForStatement,
     createPaymentVoucher,
     treasuries,
-    settings,
-    stats,
-    reconcileAllPartyBalances
+    settings
   } = useAccounting();
 
   // Balance Reconciliation Modal State
   const [showReconciliationModal, setShowReconciliationModal] = useState(false);
 
   // Filters and View Mode
-  const [filterCategory, setFilterCategory] = useState<'all' | 'customer' | 'supplier' | 'debtor' | 'creditor' | 'exceeded' | 'subCustomer'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [customerSection, setCustomerSection] = useState<CustomerListKind>('main');
   const [dateMode, setDateMode] = useState<CustomerPeriodMode>('all');
@@ -170,7 +167,7 @@ export const PartiesView: React.FC = () => {
     setTaxNumber('');
     setCreditLimit(0); // مصفّر دائماً
     setOpeningBalance(0); // مصفّر دائماً
-    setOpeningBalanceType(defaultType === 'supplier' ? 'credit' : 'debit');
+    setOpeningBalanceType('debit');
     setOpeningBalanceDate(new Date().toISOString().split('T')[0]);
     setNotes('');
     setSpecialPrices({});
