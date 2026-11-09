@@ -165,16 +165,22 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     const trimmed=name.trim();if(!trimmed)return;
     const item=addInventoryItem({
       name:trimmed,code:'',barcode:'',category:'خامات ومستلزمات عامة',
-      unit:'قطعة',purchasePrice:Math.max(0,Number(price)||0),
+      unit:'قطعة',purchasePrice:Math.max(0,Number(price*invoiceExchangeRate)||0),
       sellingPrice:0,stockQuantity:0,minAlertQuantity:5
     });
-    setItems(prev=>prev.map((r,k)=>k===index?purchaseDraftForItem(item,r):r));
+    setItems(prev=>prev.map((r,k)=>k===index?purchaseDraftForItem(item,r,invoiceExchangeRate):r));
   };
 
   const handleCurrencyChange = (currCode: string) => {
     setInvoiceCurrency(currCode);
     const curr = currencies.find(c => c.code === currCode);
     const rate=currCode==='ILS'?1:curr?.rateAgainstBase||1;
+    const oldRate=invoiceExchangeRate>0?invoiceExchangeRate:1;
+    setItems(prev=>prev.map(row=>row.itemId?{
+      ...row,
+      unitPrice:Number((row.unitPrice*oldRate/rate).toFixed(4)),
+      discount:Number((row.discount*oldRate/rate).toFixed(2))
+    }:row));
     setInvoiceExchangeRate(rate);
     setCashPurchasePayment(prev=>prev.currency===currCode?{...prev,rate}:prev);
     setBankPurchasePayment(prev=>prev.currency===currCode?{...prev,rate}:prev);
@@ -1226,7 +1232,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
               <div className="min-h-0 min-w-0 flex-1 overflow-hidden px-1.5 py-1">
                 <PurchaseInvoiceLinesTable rows={items} setRows={setItems}
                   inventory={inventory} taxRate={taxRate} currency={invoiceCurrency}
-                  onQuickAdd={handleQuickAddPurchaseItem}/>
+                  exchangeRate={invoiceExchangeRate} onQuickAdd={handleQuickAddPurchaseItem}/>
               </div>
 
               {/* Same order and visual structure as the POS bottom console. */}
