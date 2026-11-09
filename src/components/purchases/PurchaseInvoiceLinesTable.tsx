@@ -1,7 +1,7 @@
 import React,{useMemo} from 'react';
 import {Plus,Trash2,Ruler,Image as ImageIcon,ScanBarcode} from 'lucide-react';
-import type {InventoryItem} from '../types';
-import {AutocompleteCombobox} from './common/AutocompleteCombobox';
+import type {InventoryItem} from '../../types';
+import {AutocompleteCombobox} from '../common/AutocompleteCombobox';
 
 export interface PurchaseLineDraft{
  key:string;
