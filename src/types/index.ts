@@ -441,6 +441,8 @@ export interface PurchaseInvoice {
   exchangeRate?: number;
   baseTotalAmount?: number;
   basePaidAmount?: number;
+  /** Actual cash box / bank account used when this purchase is partly or fully paid. */
+  treasuryAccountCode?: string;
 }
 
 export interface PurchaseReturnItem {
