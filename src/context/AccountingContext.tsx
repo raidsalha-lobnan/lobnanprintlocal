@@ -7611,6 +7611,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const draft=preparePosInvoiceDraft(items,customerName,paymentMethod,
           customerId,notes,extraOptions);
         const currencyRate=Number(extraOptions.exchangeRate||1);
+        const previousRate=Number(original.exchangeRate||1);
+        const historicalBasePaid=Number(original.basePaidAmount??(
+          Number(original.paidAmount||0)*previousRate));
+        const formCashBase=Number((draft as any).cashBaseAmount||0);
+        const formBankBase=Number((draft as any).bankBaseAmount||0);
+        const oldCash=original.cashPaidAmount,oldBank=original.bankPaidAmount;
+        // Changing the invoice exchange rate does not retrospectively
+        // create, destroy or revalue cash that a teller actually collected.
+        const sameReceipt=original.paymentMethod===draft.paymentMethod&&
+          (oldCash!==undefined||oldBank!==undefined
+            ?Math.abs(Number(oldCash||0)-Number(draft.cashPaidAmount||0))<0.000001&&
+             Math.abs(Number(oldBank||0)-Number(draft.bankPaidAmount||0))<0.000001
+            :Math.abs((formCashBase+formBankBase)-historicalBasePaid)<0.011);
+        const rateOnlyPayment=previousRate!==currencyRate&&sameReceipt;
         const proposed:Invoice={
           ...original,
           ...draft,
@@ -7626,7 +7640,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             itemId:items[index]?.item?.id||it.itemId
           })),
           baseTotalAmount:Number((draft.totalAmount*currencyRate).toFixed(2)),
-          basePaidAmount:draft.basePaidAmount,
+          basePaidAmount:rateOnlyPayment?historicalBasePaid:draft.basePaidAmount,
+          ...(rateOnlyPayment?{
+            paidAmount:original.paidAmount,
+            remainingAmount:Number((draft.totalAmount-Number(original.paidAmount||0)).toFixed(2)),
+            cashBaseAmount:formCashBase,bankBaseAmount:formBankBase
+          }:{}),
           isAccountingPosted:true,
           statusHistory:original.statusHistory,
           postedAt:original.postedAt,
