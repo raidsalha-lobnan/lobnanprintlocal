@@ -1230,7 +1230,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
               {/* Same order and visual structure as the POS bottom console. */}
               <PurchaseInvoiceFooter
                 lineCount={items.filter(r=>!!r.itemId).length}
-                totalPieces={items.reduce((n,r)=>n+(r.hasDimensions?r.count:r.quantity),0)}
+                totalPieces={items.filter(r=>!!r.itemId).reduce((n,r)=>n+(r.hasDimensions?r.count:r.quantity),0)}
                 currency={invoiceCurrency}
                 exchangeRate={invoiceExchangeRate}
                 currencies={currencies}
