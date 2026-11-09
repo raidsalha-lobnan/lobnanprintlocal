@@ -9,7 +9,8 @@ const invoiceFields=['date','type','customerId','counterpartyType','counterparty
  'totalAmount','baseTotalAmount','paidAmount','basePaidAmount','remainingAmount',
  'paymentMethod','status','notes','currency','currencySymbol','exchangeRate',
  'additionalCharges','warehouse','branchId','subCustomerId','cashPaidAmount',
- 'bankPaidAmount','cashTreasuryCode','bankTreasuryCode',
+ 'bankPaidAmount','cashBaseAmount','bankBaseAmount',
+ 'cashTreasuryCode','bankTreasuryCode',
  'representative','paymentNotes','customCustomerText','subCustomerName',
  'subCustomerPhone','branch','workflowStatus','paymentStatus','deliveryDate'];
 const lineFields=['itemId','itemName','quantity','unitPrice','total','discount','tax',
@@ -17,11 +18,13 @@ const lineFields=['itemId','itemName','quantity','unitPrice','total','discount',
  'itemCode','category','taxRate','dimensions','unitCalculationType',
  'attachments','imageThumbnail'];
 const zeroDefault=new Set(['discount','tax','taxRate','discountTotal','taxAmount',
- 'additionalCharges','cashPaidAmount','bankPaidAmount','paidAmount','basePaidAmount']);
+ 'additionalCharges','cashPaidAmount','bankPaidAmount',
+ 'cashBaseAmount','bankBaseAmount','paidAmount','basePaidAmount']);
 const oneDefault=new Set(['length','width','count']);
 const numberFields=new Set(['subtotal','discountTotal','taxRate','taxAmount',
  'totalAmount','baseTotalAmount','paidAmount','basePaidAmount','remainingAmount',
  'exchangeRate','additionalCharges','cashPaidAmount','bankPaidAmount',
+ 'cashBaseAmount','bankBaseAmount',
  'quantity','unitPrice','total','discount','tax','length','width','count']);
 const equivalent=(a,b,key)=>{
  if(key==='hasDimensions')return Boolean(a)===Boolean(b);
