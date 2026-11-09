@@ -441,7 +441,23 @@ export interface PurchaseInvoice {
   exchangeRate?: number;
   baseTotalAmount?: number;
   basePaidAmount?: number;
-  /** Actual cash box / bank account used when this purchase is partly or fully paid. */
+  /** Purchase-wide discount and separately identified freight/landed-cost allocation. */
+  overallDiscountPercent?: number;
+  overallDiscountAmount?: number;
+  additionalCharges?: number;
+  /** POS-style settlement breakdown; monetary amounts are in each leg's own currency. */
+  cashPaidAmount?: number;
+  cashPaymentCurrency?: string;
+  cashPaymentExchangeRate?: number;
+  cashTreasuryAccountCode?: string;
+  cashBasePaidAmount?: number;
+  bankPaidAmount?: number;
+  bankPaymentCurrency?: string;
+  bankPaymentExchangeRate?: number;
+  bankTreasuryAccountCode?: string;
+  bankBasePaidAmount?: number;
+  paymentReceiptNote?: string;
+  /** Actual cash box / bank account used in legacy single-leg purchases. */
   treasuryAccountCode?: string;
 }
 
