@@ -1,8 +1,8 @@
 import React,{useMemo,useState} from 'react';
-import {Users,UserPlus,Search,CalendarDays,Printer,FileText,Edit2,Trash2,Banknote,CreditCard,TrendingUp,Wallet,PlusCircle,MinusCircle,Eye,DollarSign} from 'lucide-react';
+import {Users,UserPlus,Search,CalendarDays,Printer,FileText,Edit2,Trash2,Banknote,CreditCard,TrendingUp,Wallet,PlusCircle,MinusCircle,Eye,DollarSign,FileSpreadsheet} from 'lucide-react';
 import {useAccounting} from '../context/AccountingContext';
 import type {Employee} from '../types';
-import {employeePeriodRows,totalAmounts,moneyDisplay,todayLocal,printDirectoryPeriodReport,type DirectoryDateMode} from '../utils/otherPartyPeriodReports';
+import {employeePeriodRows,totalAmounts,moneyDisplay,todayLocal,printDirectoryPeriodReport,exportDirectoryPeriodCSV,type DirectoryDateMode} from '../utils/otherPartyPeriodReports';
 
 interface Props{
  onAdd:()=>void;onEdit:(emp:Employee)=>void;onDelete:(emp:Employee)=>void;
@@ -62,6 +62,17 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
   {label:'السلف والخصومات',amount:totals.advances+totals.deductions,cls:'bg-violet-50 border-violet-200 text-violet-900',Icon:CreditCard},
   {label:'المدفوع للموظفين',amount:totals.payments,cls:'bg-emerald-50 border-emerald-200 text-emerald-900',Icon:Banknote}
  ];
+ const exportCsv=()=>{
+  if(invalid)return;
+  const cols=['رقم الموظف','اسم الموظف','الوظيفة','رصيد أول الفترة',
+    'المستحقات','السلف','الخصومات','المبالغ المصروفة','صافي الحركة','رصيد آخر الفترة'];
+  const body=rows.map(r=>[r.entity.code,r.entity.name,r.entity.jobTitle,r.opening,
+    r.entitlements,r.advances,r.deductions,r.payments,r.movement,r.closing]);
+  body.push(['إجمالي الموظفين المعروضين',rows.length,'',totals.opening,
+    totals.entitlements,totals.advances,totals.deductions,totals.payments,
+    totals.movement,totals.closing]);
+  exportDirectoryPeriodCSV('كشف حركة ومستحقات الموظفين',filter,cols,body);
+ };
  const mini='inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[10px] font-bold whitespace-nowrap text-white';
  return <div dir="rtl" className="flex h-full min-h-0 w-full flex-1 flex-col gap-1.5 overflow-hidden">
   <div className="flex min-h-[38px] shrink-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-xs">
@@ -72,6 +83,8 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
     <button type="button" onClick={onAdd} className={mini+' bg-blue-700 hover:bg-blue-800'}><UserPlus className="h-3.5 w-3.5"/> إضافة موظف</button>
     <button type="button" onClick={()=>onTab('adjustments')} className={mini+' bg-amber-700 hover:bg-amber-800'}><CreditCard className="h-3.5 w-3.5"/> السلف والخصومات والحوافز</button>
     <button type="button" onClick={()=>onTab('payroll_sheets')} className={mini+' bg-emerald-700 hover:bg-emerald-800'}><FileText className="h-3.5 w-3.5"/> مسيرات الرواتب</button>
+    <button type="button" onClick={exportCsv} disabled={invalid}
+     className={mini+' bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40'}><FileSpreadsheet className="h-3.5 w-3.5"/> تصدير Excel</button>
     <button type="button" onClick={print} disabled={invalid} className={mini+' bg-slate-800 hover:bg-slate-900 disabled:opacity-40'}><Printer className="h-3.5 w-3.5"/> طباعة كشف الموظفين</button>
    </div>
   </div>
