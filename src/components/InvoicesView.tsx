@@ -38,6 +38,7 @@ import {
 } from '../utils/invoiceStatusUtils';
 import { formatDateDisplay } from '../utils/dateUtils';
 import { formatInvoiceCustomerDisplay } from '../utils/partyUtils';
+import { printDetailedSalesInvoiceRegister } from '../utils/printDetailedSalesInvoiceRegister';
 
 type InvoiceDateFilterMode = 'all' | 'single' | 'range';
 
@@ -131,6 +132,33 @@ export const InvoicesView: React.FC = () => {
     });
 
   const totalInvoiced = filteredInvoices.reduce((acc, inv) => acc + inv.totalAmount, 0);
+
+  const handlePrintDetailedInvoices = () => {
+    const periodLabel = dateFilterMode === 'all'
+      ? 'جميع التواريخ'
+      : dateFilterMode === 'single'
+        ? 'يوم ' + formatDateDisplay(singleDate)
+        : dateFrom && dateTo
+          ? 'من ' + formatDateDisplay(dateFrom) + ' إلى ' + formatDateDisplay(dateTo)
+          : dateFrom
+            ? 'من ' + formatDateDisplay(dateFrom) + ' فصاعدًا'
+            : dateTo
+              ? 'حتى ' + formatDateDisplay(dateTo)
+              : 'جميع التواريخ';
+    const invoiceTypeLabel = filterType === 'pos'
+      ? 'فواتير نقطة البيع'
+      : filterType === 'print_order'
+        ? 'فواتير أوامر الطباعة'
+        : 'كافة أنواع الفواتير';
+    printDetailedSalesInvoiceRegister(filteredInvoices, {
+      companyName: settings.companyName || 'مطبعة ومكتبة لبنان',
+      periodLabel,
+      invoiceTypeLabel,
+      searchLabel: searchQuery.trim(),
+      customerName: invoice => formatInvoiceCustomerDisplay(invoice, parties)
+    });
+  };
+
 
   return (
     <div className="space-y-6">
@@ -379,6 +407,16 @@ export const InvoicesView: React.FC = () => {
               عرض كل الفواتير
             </button>
           )}
+          <button
+            type="button"
+            onClick={handlePrintDetailedInvoices}
+            disabled={filteredInvoices.length === 0}
+            className="inline-flex items-center gap-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-xl px-4 py-2 shadow-xs transition-colors"
+            title="طباعة كشف تفصيلي للفواتير المطابقة للتاريخ والبحث ونوع الفاتورة"
+          >
+            <Printer className="w-4 h-4" />
+            طباعة كشف الفواتير المعروضة
+          </button>
           <span className="text-[11px] text-slate-500" role="status">
             المعروض: {filteredInvoices.length} من {invoices.length} فاتورة
           </span>
