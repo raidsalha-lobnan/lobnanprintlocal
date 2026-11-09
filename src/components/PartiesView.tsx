@@ -40,7 +40,7 @@ import { posSound } from '../utils/audio';
 import { calculatePartyTrueBalance } from '../utils/statementGenerator';
 import {
   customerPeriodRows, customerPeriodTotals, customerDateBounds,
-  printCustomerPeriodRegister, type CustomerPeriodMode,
+  printCustomerPeriodRegister, exportCustomerPeriodCSV, type CustomerPeriodMode,
   type CustomerListKind
 } from '../utils/customerPeriodReport';
 import { Printer, CalendarDays, Banknote, ChartNoAxesCombined } from 'lucide-react';
@@ -441,6 +441,11 @@ export const PartiesView: React.FC = () => {
           <button type="button" onClick={() => handleOpenAddModal(true)}
             className="flex items-center gap-1 bg-violet-600 hover:bg-violet-700 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
             <Plus className="w-3.5 h-3.5" /> إضافة عميل فرعي
+          </button>
+          <button type="button" disabled={invalidPeriod}
+            onClick={()=>exportCustomerPeriodCSV(reportSource,dateFilter)}
+            className="flex items-center gap-1 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-400 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
+            <FileSpreadsheet className="w-3.5 h-3.5"/> تصدير Excel
           </button>
           <button type="button" onClick={printRegister} disabled={invalidPeriod}
             className="flex items-center gap-1 bg-indigo-700 hover:bg-indigo-800 disabled:bg-slate-400 text-white rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap">
