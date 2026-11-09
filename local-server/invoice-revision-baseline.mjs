@@ -5,11 +5,22 @@ const value=row=>row.value||row;
 const sumAccount=(journals,account)=>[...accountMap(journals)].find(([a])=>a===account)?.[1]||0;
 const originalMovement=(movement,invoice)=>{
  const m=value(movement);
- // The original movement keeps its historical posting date after an
- // authorized invoice-date correction. Match by immutable invoice reference.
- return m.type==='out_sale'&&
-  [invoice.invoiceNumber,'TEMP-'+invoice.id,invoice.tempInvoiceNumber]
-  .filter(Boolean).includes(m.referenceNumber);
+ if(m.type!=='out_sale')return false;
+ // An exact permanent invoice ID is authoritative; a repeated display number
+ // must never absorb stock movements belonging to another historical invoice.
+ if(m.sourceInvoiceId||m.referenceId)
+  return (m.sourceInvoiceId||m.referenceId)===invoice.id;
+ const numbers=[invoice.invoiceNumber,'TEMP-'+invoice.id,invoice.tempInvoiceNumber]
+  .filter(Boolean);
+ if(!numbers.includes(m.referenceNumber))return false;
+ // Legacy stock movements have no invoice ID. Require a proven posting date,
+ // including a prior date explicitly captured in the invoice audit history.
+ const dates=new Set([invoice.date]);
+ for(const event of invoice.statusHistory||[]){
+  const prior=event?.revisionChanges?.date?.previous;
+  if(typeof prior==='string'&&prior)dates.add(prior);
+ }
+ return dates.has(m.date);
 };
 const quantities=items=>{
  const result=new Map();
