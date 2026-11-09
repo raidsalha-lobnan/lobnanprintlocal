@@ -9224,12 +9224,51 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       invoiceNumber = `${purPrefix}${String(nextPurSeq).padStart(4, '0')}`;
     }
     
-    // Multi-currency handling for purchases
-    const exchangeRate = invoiceData.exchangeRate || 1.0;
-    const baseTotalAmount = Number((invoiceData.totalAmount * exchangeRate).toFixed(2));
-    const baseSubtotal = Number((invoiceData.subtotal * exchangeRate).toFixed(2));
-    const baseTaxAmount = Number((invoiceData.taxAmount * exchangeRate).toFixed(2));
-    const basePaidAmount = Number((invoiceData.paidAmount * exchangeRate).toFixed(2));
+    // Group repeated SKUs before touching inventory. A purchase invoice may
+    // contain several lines for the same actual item (different dimensions,
+    // costs or notes). The line total is the net cost before input VAT.
+    const groupedItems = new Map<string, {quantity:number;netCost:number}>();
+    for(const line of invoiceData.items||[]){
+      const qty=Number(line.quantity);
+      const amount=Number(line.total);
+      if(!line.itemId||!inventory.some(item=>item.id===line.itemId)||
+        !Number.isFinite(qty)||qty<=0||!Number.isFinite(amount)||amount<0)
+        throw new Error('فاتورة المشتريات تحتوي على صنف غير معروف أو كمية أو قيمة غير صحيحة.');
+      const prior=groupedItems.get(line.itemId)||{quantity:0,netCost:0};
+      prior.quantity=Number((prior.quantity+qty).toFixed(6));
+      prior.netCost=Number((prior.netCost+amount).toFixed(2));
+      groupedItems.set(line.itemId,prior);
+    }
+    if(!groupedItems.size)throw new Error('يجب إدخال صنف واحد على الأقل في فاتورة الشراء.');
+
+    const sourceSubtotal=invoiceData.subtotal!==undefined?
+      Number(invoiceData.subtotal):
+      Number(Array.from(groupedItems.values()).reduce((s,r)=>s+r.netCost,0).toFixed(2));
+    const sourceTax=Number(invoiceData.taxAmount||0);
+    const sourceTotal=Number(invoiceData.totalAmount);
+    const sourcePaid=Number(invoiceData.paidAmount||0);
+    const exchangeRate=Number(invoiceData.exchangeRate||1);
+    if(!Number.isFinite(exchangeRate)||exchangeRate<=0||!Number.isFinite(sourceSubtotal)||
+      !Number.isFinite(sourceTax)||!Number.isFinite(sourceTotal)||!Number.isFinite(sourcePaid)||
+      sourceSubtotal<0||sourceTax<0||sourcePaid<0||sourcePaid>sourceTotal||
+      Math.abs(sourceSubtotal+sourceTax-sourceTotal)>0.011)
+      throw new Error('إجمالي فاتورة المشتريات أو المبلغ المدفوع أو سعر الصرف غير متوازن.');
+    if(!parties.some(p=>p.id===invoiceData.supplierId&&
+      (p.type==='supplier'||p.type==='both')))
+      throw new Error('المورد غير موجود في السجل المعتمد.');
+    const baseTotalAmount=Number((sourceTotal*exchangeRate).toFixed(2));
+    const baseSubtotal=Number((sourceSubtotal*exchangeRate).toFixed(2));
+    const baseTaxAmount=Number((sourceTax*exchangeRate).toFixed(2));
+    const basePaidAmount=Number((sourcePaid*exchangeRate).toFixed(2));
+    const treasury=sourcePaid>0
+      ? treasuries.find(t=>t.accountCode===invoiceData.treasuryAccountCode||
+        (!invoiceData.treasuryAccountCode&&
+         t.accountCode===(invoiceData.paymentMethod==='cash'?'1101':'1102')))
+      : undefined;
+    if(sourcePaid>0&&(!treasury||treasury.status==='inactive'||
+      (invoiceData.paymentMethod==='cash'&&treasury.type!=='cash_box')||
+      (invoiceData.paymentMethod!=='cash'&&treasury.type==='cash_box')))
+      throw new Error('اختر صندوقًا نقديًا أو حسابًا بنكيًا صحيحًا لطريقة دفع المشتريات.');
 
     const newPur: PurchaseInvoice = {
       ...invoiceData,
@@ -9238,7 +9277,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       currency: invoiceData.currency || settings.baseCurrencyCode || 'ILS',
       currencySymbol: invoiceData.currencySymbol || settings.currency || '₪',
       exchangeRate,
-      baseTotalAmount
+      subtotal:sourceSubtotal,taxAmount:sourceTax,
+      totalAmount:sourceTotal,paidAmount:sourcePaid,
+      baseTotalAmount,basePaidAmount,
+      status:sourcePaid>=sourceTotal?'paid':sourcePaid>0?'partial':'unpaid'
     };
 
     setPurchases(prev => [newPur, ...prev]);
@@ -9251,11 +9293,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Increase inventory (convert unit price to base Shekel if foreign currency was used)
     const purMovementTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
     setInventory(prev => prev.map(it => {
-      const match = invoiceData.items.find(i => i.itemId === it.id);
+      const match=groupedItems.get(it.id);
       if (match) {
-        const unitCostInBase = Number((match.unitPrice * exchangeRate).toFixed(2));
-        const oldQty = it.stockQuantity;
-        const newQty = oldQty + match.quantity;
+        const unitCostInBase=Number((match.netCost*exchangeRate/match.quantity).toFixed(6));
+        const oldQty=Number(it.stockQuantity)||0;
+        const newQty=Number((oldQty+match.quantity).toFixed(6));
         addStockMovement({
           itemId: it.id,
           itemCode: it.code,
@@ -9268,7 +9310,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           balanceBefore: oldQty,
           balanceAfter: newQty,
           unitPrice: unitCostInBase,
-          totalValue: match.quantity * unitCostInBase,
+          totalValue: Number((match.netCost*exchangeRate).toFixed(2)),
           referenceType: 'purchase',
           referenceNumber: invoiceNumber,
           reason: `توريد مشتريات من المورد (${invoiceData.supplierName})`,
@@ -9287,8 +9329,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
 
     // Post to Journal in BASE CURRENCY (Palestinian Shekel ₪ / ILS)
-    const isPaid = invoiceData.paidAmount >= invoiceData.totalAmount;
-    const remainingToSupplier = invoiceData.totalAmount - invoiceData.paidAmount;
+    const remainingToSupplier=Number((sourceTotal-sourcePaid).toFixed(2));
     const baseRemainingToSupplier = Number((remainingToSupplier * exchangeRate).toFixed(2));
 
     const journalLines = [
@@ -9310,20 +9351,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     if (basePaidAmount > 0) {
       journalLines.push({
-        accountCode: invoiceData.paymentMethod === 'cash' ? '1101' : '1102',
-        accountName: invoiceData.paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)',
+        accountCode: treasury!.accountCode,
+        accountName: treasury!.name,
         debit: 0,
         credit: basePaidAmount,
         description: `سداد قيمة فاتورة مشتريات (بالشيكل)`
       });
 
-      const pTreasuryCode = invoiceData.paymentMethod === 'cash' ? '1101' : '1102';
+      const pTreasuryCode=treasury!.accountCode;
       adjustTreasuryBalance(
-        pTreasuryCode,
-        -basePaidAmount,
+        pTreasuryCode,-sourcePaid,
         `سداد فاتورة مشتريات رقم ${invoiceNumber} للمورد (${invoiceData.supplierName})`,
-        'manual',
-        id
+        'manual',id,
+        {currency:invoiceData.currency||settings.baseCurrencyCode||'ILS',
+         currencySymbol:invoiceData.currencySymbol||settings.currency||'₪',
+         exchangeRate,date:invoiceData.date,partyName:invoiceData.supplierName}
       );
 
       const payVoucherId = `vch-pur-${id}`;
@@ -9337,8 +9379,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         partyName: invoiceData.supplierName,
         amount: basePaidAmount,
         paymentMethod: invoiceData.paymentMethod === 'cash' ? 'cash' : 'bank_transfer',
-        accountCode: '2101',
-        description: `سند صرف وسداد لفاتورة مشتريات رقم ${invoiceNumber}`
+        accountCode:'2101',
+        treasuryAccountCode:pTreasuryCode,
+        currency:'ILS',currencySymbol:'₪',baseAmount:basePaidAmount,
+        relatedDocType:'purchase',relatedDocId:id,
+        description: `سند صرف وسداد لفاتورة مشتريات رقم ${invoiceNumber} من ${treasury!.name}`
       };
       setVouchers(prev => [newPayVoucher, ...prev]);
       setDoc(doc(db, 'vouchers', payVoucherId), cleanDocForFirestore(newPayVoucher)).catch(() => {});
