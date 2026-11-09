@@ -539,10 +539,22 @@ export class LocalSyncDb {
         a.id.localeCompare(b.id)
     );
 
+    // The shared PostgreSQL record is authoritative. A rejected/conflicting
+    // browser write stays in the auditable outbox, but must not replace the
+    // committed record shown on screen. The same applies to a pending write
+    // based on an older server version (e.g. INV-0071 on a second device).
+    const authoritativeVersions = new Map(records.map(r => [r.id, r.version]));
     for (const cmd of pending) {
+      if (cmd.status !== 'pending') continue;
       for (const c of cmd.changes) {
         if (c.entity !== entity) continue;
-
+        const serverVersion = authoritativeVersions.get(c.id);
+        if (serverVersion !== undefined && c.expectedVersion < serverVersion) {
+          continue;
+        }
+        if (serverVersion === undefined && c.expectedVersion !== 0) {
+          continue;
+        }
         result.set(c.id, {
           id: c.id,
           value: c.value,
