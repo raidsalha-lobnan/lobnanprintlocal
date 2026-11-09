@@ -1201,6 +1201,7 @@ export const PartiesView: React.FC = () => {
       <BalanceReconciliationModal
         isOpen={showReconciliationModal}
         onClose={() => setShowReconciliationModal(false)}
+        customerOnly
       />
     </div>
   );
