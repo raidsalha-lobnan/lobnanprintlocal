@@ -30,7 +30,7 @@ export const TelegramSettings: React.FC = () => {
             <span>إعدادات بوت تليجرام (Telegram Bot)</span>
           </h3>
           <p className="text-[10px] sm:text-xs text-slate-500 font-light mt-1 max-w-xl">
-            قم بربط البرنامج ببوت تليجرام خاص بك لتلقي إشعارات الحركات (فواتير، سندات، إلخ) مباشرة، وللتمكن من طلب كشوفات الحساب والتقارير في أي وقت بصيغة PDF.
+            البوت مفتوح لجميع من يبدأ المحادثة معه: يرسل إشعارات الإدخالات المعتمدة إلى كل المشتركين تلقائيًا، ويمكن لكل منهم طلب الكشوفات والتقارير بصيغة PDF.
           </p>
         </div>
         <button
@@ -68,7 +68,7 @@ export const TelegramSettings: React.FC = () => {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[11px] font-bold text-slate-700">معرف الدردشة (Chat ID) <span className="text-slate-400 font-light">(اختياري للإرسال الافتراضي)</span></label>
+          <label className="text-[11px] font-bold text-slate-700">معرف الدردشة (Chat ID) <span className="text-slate-400 font-light">(اختياري؛ مشترك سابق وليس المستلم الوحيد)</span></label>
           <input
             type="text"
             value={defaultChatId}
@@ -77,7 +77,7 @@ export const TelegramSettings: React.FC = () => {
             placeholder="مثال: 123456789"
             dir="ltr"
           />
-          <p className="text-[9px] text-slate-500 mt-1">اكتب "كشف حساب محمد" في تليجرام وسيتعرف البرنامج على المعرف تلقائياً ويرسله لك.</p>
+          <p className="text-[9px] text-slate-500 mt-1">كل من يرسل /start إلى البوت يشترك تلقائياً في الإشعارات. لإيقاف وصولها إلى محادثة معينة، يمكنه إرسال /stop. هذا الحقل ليس قيداً على بقية المشتركين.</p>
         </div>
       </div>
 
@@ -98,7 +98,7 @@ export const TelegramSettings: React.FC = () => {
         <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="text-[10px] sm:text-[11px] text-amber-900 leading-relaxed font-medium">
-            <strong>ملاحظة هامة:</strong> بما أن البرنامج يعمل من خلال المتصفح لضمان أقصى درجات الخصوصية والأمان والسرعة، فإن البوت سيكون نشطاً ويتلقى الأوامر ويرسل الكشوفات <strong className="underline text-amber-950">طالما أن صفحة البرنامج مفتوحة في جهازك (الكمبيوتر أو الجوال)</strong>. عند إغلاق البرنامج، سيتوقف البوت عن الرد حتى تفتح البرنامج مرة أخرى.
+            <strong>مهم بشأن الخصوصية:</strong> أي شخص يبدأ محادثة خاصة مع هذا البوت يستطيع استلام بيانات الإدخالات والكشوفات المالية، كما طلبت. اشترك من خلال <strong>/start</strong> وألغِ اشتراكك عبر <strong>/stop</strong>. تصل إشعارات الإدخالات من الخادم الرئيسي حتى عند إغلاق صفحة البرنامج ما دام الخادم يعمل، أما إعداد كشوفات PDF التفاعلية فيُنفّذ من واجهة البرنامج عند فتحها؛ وتُحفظ الطلبات الواردة لحين توفرها.
           </div>
         </div>
       )}
