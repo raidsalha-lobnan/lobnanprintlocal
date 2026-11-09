@@ -41,7 +41,7 @@ export const purchaseLineSummary=(rows:PurchaseLineDraft[],taxRate:number)=>{
   quantity:precision(rows.reduce((acc,row)=>acc+purchaseLineQuantity(row),0),3),
   valid:rows.length>0&&rows.every(r=>purchaseLineValid(r,taxRate))};
 };
-export function purchaseDraftForItem(item:InventoryItem,old?:PurchaseLineDraft):PurchaseLineDraft{
+export function purchaseDraftForItem(item:InventoryItem,old?:PurchaseLineDraft,invoiceExchangeRate=1):PurchaseLineDraft{
  const base=old||emptyPurchaseLine();
  const unit=String(item.unit||'قطعة');
  const calculationType=(item.unitCalculationType||
@@ -55,6 +55,6 @@ export function purchaseDraftForItem(item:InventoryItem,old?:PurchaseLineDraft):
   base.itemId?base.quantity:1;
  return {...base,itemId:item.id,itemName:item.name,itemCode:item.code,
   barcode:item.barcode||'',unit,unitCalculationType:calculationType,
-  hasDimensions,length,width,count,quantity,unitPrice:Number(item.purchasePrice)||0};
+  hasDimensions,length,width,count,quantity,unitPrice:precision((Number(item.purchasePrice)||0)/(invoiceExchangeRate>0?invoiceExchangeRate:1),4)};
 }
 
