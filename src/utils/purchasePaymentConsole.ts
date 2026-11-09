@@ -73,5 +73,5 @@ export function calculatePurchaseSettlement(
  return {baseTotal,cashBase,bankBase,paidBase,remainingBase,
   paidInvoice:Math.min(total,paidInvoice),
   remainingInvoice:purchaseMoney(remainingBase/invoiceRate),
-  status:remainingBase<0.005?'paid':paidBase>0?'partial':'unpaid'};
+  status:baseTotal>0&&remainingBase<0.005?'paid':paidBase>0?'partial':'unpaid'};
 }
