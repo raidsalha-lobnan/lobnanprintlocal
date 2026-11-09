@@ -69,6 +69,31 @@ export class SyncService {
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
         if(actual!==change.expectedVersion) throw new InputError('VERSION_CONFLICT',409,{entity:change.entity,id:change.id,expectedVersion:change.expectedVersion,actualVersion:actual});
         let val=change.value;
+        if (change.entity==='parties' && old?.value) {
+          const existingParty=old.value;
+          const cashId=['pt-cust-1','cust-0001','c-0001','1'].includes(String(change.id).toLowerCase());
+          const cashCode=String(existingParty.code||'').toUpperCase()==='CUST-0001';
+          if (cashId || cashCode)
+            throw new InputError('CASH_CUSTOMER_IMMUTABLE',403,{partyId:change.id});
+          if (val?._deleted===true) {
+            const linked=await client.query(
+              `SELECT entity,record_id FROM sync_records
+               WHERE workspace=$1 AND (
+                (entity='invoices' AND
+                 (value->>'customerId'=$2 OR value->>'subCustomerId'=$2 OR value->>'counterpartyId'=$2))
+                OR (entity='parties' AND value->>'parentPartyId'=$2)
+                OR (entity=ANY($3::text[]) AND
+                 (value->>'partyId'=$2 OR value->>'customerId'=$2 OR
+                  value->>'supplierId'=$2 OR value->>'counterpartyId'=$2))
+               ) LIMIT 1`,
+              [workspace,change.id,[
+                'vouchers','purchases','purchaseReturns','salesReturns',
+                'printOrders','debtClearings','treasuryTransactions'
+              ]]);
+            if (linked.rows.length) throw new InputError('PARTY_HAS_FINANCIAL_REFERENCES',409,{
+              partyId:change.id,entity:linked.rows[0].entity,recordId:linked.rows[0].record_id});
+          }
+        }
         if(change.entity==='inventory'&&singleWarehouseId){
           val=normalizeSingleWarehouseInventory({
             previous:old?.value,next:val,warehouseId:singleWarehouseId,
