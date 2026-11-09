@@ -47,6 +47,17 @@ export async function createUnifiedDataLayer(workspaceId:string){
     } else if(status==='existing-data' && !(await local.cursor())) {
       localStorage.setItem('lobnan_postgres_reconciliation_required','true');
       throw new Error('EXISTING_LOCAL_DATA_REQUIRES_RECONCILIATION');
+    } else {
+      // Previously initialized devices may retain old invoice amounts even
+      // with a seemingly current cursor. Refresh confirmed records directly
+      // from the single PostgreSQL source, preserving all offline outbox work.
+      // A temporary network outage must not make the offline app unusable.
+      try {
+        const snapshot=await remote.fetchAuthoritativeBootstrap();
+        await local.refreshAuthoritativeSnapshot(snapshot.records,snapshot.cursor);
+      } catch (error) {
+        console.warn('Authoritative startup refresh postponed; local offline work preserved',error);
+      }
     }
     await coordinator.start();
   }catch(error){
