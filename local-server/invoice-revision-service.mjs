@@ -230,6 +230,11 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     if(proven)plan.verifiedPartyBalances={[partyId]:proven};
    }
   }
+  const registeredWarehouses=(await client.query(
+   "SELECT record_id AS id,value FROM sync_records WHERE workspace=$1 AND entity='warehouses' FOR SHARE",
+   [workspace])).rows;
+  const registeredWarehouseCount=registeredWarehouses.length;
+  const singleWarehouseId=registeredWarehouseCount===1?registeredWarehouses[0].id:null;
   const inventoryById=new Map(inventoryRecords.map(row=>[row.id,row]));
   for(const item of proposed.items){
    if(isDelivery(item))continue;
@@ -263,6 +268,7 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     partyRecords:partyRecords.map(r=>({...r,version:Number(r.version)})),
     inventoryRecords:inventoryRecords.map(r=>({...r,version:Number(r.version)})),
     treasuryRecords:treasuryRecords.map(r=>({...r,version:Number(r.version)})),
+    registeredWarehouseCount,singleWarehouseId,
     commandId:request.commandId,now:new Date().toISOString()
    });
   }catch(error){throw new InputError('INVOICE_REVISION_UNVERIFIED_ACCOUNTING_STATE',409,{reason:String(error.message)})}
