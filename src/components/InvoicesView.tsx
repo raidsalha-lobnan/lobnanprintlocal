@@ -39,6 +39,25 @@ import {
 import { formatDateDisplay } from '../utils/dateUtils';
 import { formatInvoiceCustomerDisplay } from '../utils/partyUtils';
 
+type InvoiceDateFilterMode = 'all' | 'single' | 'range';
+
+// Filter by the invoice's currently approved document date, not creation,
+// import or audit timestamps. Historical DD/MM/YYYY invoices are supported.
+const toInvoiceDateKey = (raw: string | null | undefined): string => {
+  if (!raw) return '';
+  const datePart = String(raw).trim().split('T')[0].replace(/[.]/g, '/');
+  const iso = /^(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})$/.exec(datePart);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  const legacy = /^(\\d{1,2})[-/](\\d{1,2})[-/](\\d{4})$/.exec(datePart);
+  if (legacy) return `${legacy[3]}-${legacy[2].padStart(2, '0')}-${legacy[1].padStart(2, '0')}`;
+  return '';
+};
+
+const currentLocalDate = (): string => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
 export const InvoicesView: React.FC = () => {
   const {
     invoices,
@@ -56,6 +75,10 @@ export const InvoicesView: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
+  const [dateFilterMode, setDateFilterMode] = useState<InvoiceDateFilterMode>('all');
+  const [singleDate, setSingleDate] = useState<string>(currentLocalDate);
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
   const [selectedInvoiceForStatus, setSelectedInvoiceForStatus] = useState<Invoice | null>(null);
   const [isDraftQueueOpen, setIsDraftQueueOpen] = useState<boolean>(false);
   const [isDeletedInvoicesOpen, setIsDeletedInvoicesOpen] = useState<boolean>(false);
@@ -80,6 +103,12 @@ export const InvoicesView: React.FC = () => {
   const filteredInvoices = invoices
     .filter(inv => {
       const matchType = filterType === 'all' || inv.type === filterType;
+      const invoiceDate = toInvoiceDateKey(inv.date);
+      const matchDate = dateFilterMode === 'all' ||
+        (dateFilterMode === 'single' && invoiceDate === singleDate) ||
+        (dateFilterMode === 'range' && !!invoiceDate &&
+          (!dateFrom || invoiceDate >= dateFrom) &&
+          (!dateTo || invoiceDate <= dateTo));
       const q = searchQuery.trim().toLowerCase();
       const matchSearch =
         !q ||
@@ -87,7 +116,7 @@ export const InvoicesView: React.FC = () => {
         inv.customerName.toLowerCase().includes(q) ||
         (inv.subCustomerName && inv.subCustomerName.toLowerCase().includes(q)) ||
         formatInvoiceCustomerDisplay(inv, parties).toLowerCase().includes(q);
-      return matchType && matchSearch;
+      return matchType && matchSearch && matchDate;
     })
     .sort((a, b) => {
       // Sort strictly by invoice number descending: highest / latest number is at top of table
@@ -280,6 +309,80 @@ export const InvoicesView: React.FC = () => {
             <option value="print_order">فواتير أوامر الطباعة</option>
           </select>
         </div>
+
+        <div className="flex flex-wrap items-center gap-2" dir="rtl" aria-label="تصفية فواتير المبيعات حسب التاريخ">
+          <label htmlFor="sales-invoices-date-mode" className="text-xs font-bold text-slate-700 whitespace-nowrap">
+            <Calendar className="w-3.5 h-3.5 inline-block ml-1 text-indigo-600" />
+            تصفية حسب التاريخ
+          </label>
+          <select
+            id="sales-invoices-date-mode"
+            value={dateFilterMode}
+            onChange={e => setDateFilterMode(e.target.value as InvoiceDateFilterMode)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
+          >
+            <option value="all">كل الفواتير</option>
+            <option value="single">تاريخ محدد</option>
+            <option value="range">من تاريخ إلى تاريخ</option>
+          </select>
+
+          {dateFilterMode === 'single' && (
+            <label className="inline-flex items-center gap-2 text-xs text-slate-600">
+              <span>التاريخ</span>
+              <input
+                type="date"
+                aria-label="تاريخ الفواتير المطلوب"
+                value={singleDate}
+                onChange={e => setSingleDate(e.target.value)}
+                dir="ltr"
+                className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800"
+              />
+            </label>
+          )}
+
+          {dateFilterMode === 'range' && (
+            <>
+              <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                <span>من</span>
+                <input
+                  type="date"
+                  aria-label="من تاريخ"
+                  value={dateFrom}
+                  max={dateTo || undefined}
+                  onChange={e => setDateFrom(e.target.value)}
+                  dir="ltr"
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800"
+                />
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                <span>إلى</span>
+                <input
+                  type="date"
+                  aria-label="إلى تاريخ"
+                  value={dateTo}
+                  min={dateFrom || undefined}
+                  onChange={e => setDateTo(e.target.value)}
+                  dir="ltr"
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800"
+                />
+              </label>
+            </>
+          )}
+
+          {dateFilterMode !== 'all' && (
+            <button
+              type="button"
+              onClick={() => { setDateFilterMode('all'); setDateFrom(''); setDateTo(''); }}
+              className="text-xs text-indigo-700 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl"
+              title="إلغاء تصفية التاريخ وعرض جميع الفواتير"
+            >
+              عرض كل الفواتير
+            </button>
+          )}
+          <span className="text-[11px] text-slate-500" role="status">
+            المعروض: {filteredInvoices.length} من {invoices.length} فاتورة
+          </span>
+        </div>
       </div>
 
       {/* Invoices Table - Single line per invoice */}
@@ -302,6 +405,13 @@ export const InvoicesView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
+              {filteredInvoices.length === 0 && (
+                <tr>
+                  <td colSpan={11} className="py-10 px-4 text-center text-sm text-slate-500">
+                    لا توجد فواتير تطابق التاريخ أو خيارات البحث المحددة.
+                  </td>
+                </tr>
+              )}
               {filteredInvoices.map((inv, idx) => (
                 <tr key={`${inv.id || 'inv'}-${idx}`} className="hover:bg-slate-50/80 whitespace-nowrap transition-colors h-11">
                   <td className="py-2 px-3 whitespace-nowrap align-middle">
