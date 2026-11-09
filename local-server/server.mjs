@@ -7,6 +7,7 @@ import pg from 'pg';
 import {SyncService} from './sync-service.mjs';
 import {revisePostedInvoice} from './invoice-revision-service.mjs';
 import {TelegramDelivery} from './telegram-delivery.mjs';
+import {TelegramHub} from './telegram-hub.mjs';
 import {InputError} from './sync-domain.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
@@ -41,8 +42,15 @@ const schema=fs.readFileSync(path.join(dir,'schema.sql'),'utf8');
 await pool.query(schema);
 const service=new SyncService(pool);
 const telegramDelivery=new TelegramDelivery(pool,WORKSPACE);
+const telegramHub=new TelegramHub(pool,WORKSPACE);
 const telegramTimer=setInterval(()=>{void telegramDelivery.drainOnce().catch(e=>console.error('telegram worker',e.message));},10000);
 telegramTimer.unref?.();
+// The private PostgreSQL server is the sole Telegram update consumer;
+// the browser receives claimed commands, not a competing getUpdates stream.
+const telegramPollingTimer=setInterval(()=>{
+ void telegramHub.pollOnce().catch(e=>console.error('telegram hub',e.message));
+},3500);
+telegramPollingTimer.unref?.();
 const userAuth=new UserAuth(pool,WORKSPACE);
 function loginBlocked(key){
   const now=Date.now();
@@ -124,6 +132,17 @@ const srv=http.createServer(async(req,res)=>{
       await userAuth.logout(bearer);
       return json(res,200,{ok:true},cors);
     }
+    if(req.method==='POST' && url.pathname==='/api/v1/telegram/inbox/claim'){
+      if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);
+      return json(res,200,{item:await telegramHub.claimInbox()},cors);
+    }
+    if(req.method==='POST' && url.pathname==='/api/v1/telegram/inbox/ack'){
+      if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);
+      const payload=await parseBody(req,2048);
+      const ok=await telegramHub.ackInbox(payload?.updateId,payload?.leaseToken);
+      if(!ok)throw new InputError('TELEGRAM_INBOX_LEASE_EXPIRED',409);
+      return json(res,200,{ok:true},cors);
+    }
     if(req.method==='GET' && url.pathname==='/api/v1/head')
       return json(res,200,{sequence:await service.head(workspace)},cors);
     if(req.method==='GET' && url.pathname==='/api/v1/bootstrap'){
@@ -177,4 +196,4 @@ const BIND_HOST=process.env.SYNC_BIND_HOST||(STRICT_AUTH?'127.0.0.1':'0.0.0.0');
 if(STRICT_AUTH && BIND_HOST!=='127.0.0.1' && BIND_HOST!=='::1')
   throw new Error('Strict authentication API must bind to loopback; access it through zrok instead');
 srv.listen(PORT,BIND_HOST,()=>console.log(`Lobnan private sync API listening on ${BIND_HOST}:${PORT}`));
-process.on('SIGTERM',()=>{clearInterval(telegramTimer);srv.close();pool.end().finally(()=>process.exit(0));});
+process.on('SIGTERM',()=>{clearInterval(telegramTimer);clearInterval(telegramPollingTimer);srv.close();pool.end().finally(()=>process.exit(0));});
