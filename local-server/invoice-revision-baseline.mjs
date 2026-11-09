@@ -5,7 +5,9 @@ const value=row=>row.value||row;
 const sumAccount=(journals,account)=>[...accountMap(journals)].find(([a])=>a===account)?.[1]||0;
 const originalMovement=(movement,invoice)=>{
  const m=value(movement);
- return m.type==='out_sale'&&m.date===invoice.date&&
+ // The original movement keeps its historical posting date after an
+ // authorized invoice-date correction. Match by immutable invoice reference.
+ return m.type==='out_sale'&&
   [invoice.invoiceNumber,'TEMP-'+invoice.id,invoice.tempInvoiceNumber]
   .filter(Boolean).includes(m.referenceNumber);
 };
