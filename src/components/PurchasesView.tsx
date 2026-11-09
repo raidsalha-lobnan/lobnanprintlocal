@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { SupplierModal } from './purchases/SupplierModal';
 import { SuppliersCompactDirectory } from './SuppliersCompactDirectory';
+import {PurchaseInvoiceLinesTable,emptyPurchaseLine,purchaseDraftForItem,purchaseLineAmounts,purchaseLineSummary,type PurchaseLineDraft} from './purchases/PurchaseInvoiceLinesTable';
 import { PaymentVoucherModal } from './purchases/PaymentVoucherModal';
 import { AutocompleteCombobox } from './common/AutocompleteCombobox';
 
@@ -106,9 +107,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   const [paymentTreasuryCode, setPaymentTreasuryCode] = useState('1101');
   const [notes, setNotes] = useState('');
   const [taxRate, setTaxRate] = useState<number>(settings.vatRate || 0);
-  const [items, setItems] = useState<Array<{ itemId: string; itemName: string; quantity: number; unitPrice: number }>>([
-    { itemId: inventory[0]?.id || '', itemName: inventory[0]?.name || '', quantity: 10, unitPrice: inventory[0]?.purchasePrice || 10 }
-  ]);
+  const [items, setItems] = useState<PurchaseLineDraft[]>(()=>[emptyPurchaseLine()]);
 
   // New Purchase Return Modal State
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -154,48 +153,14 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     return `${yearPrefix}${String(Math.max(purchaseReturns.length + 1, maxSeq + 1)).padStart(4, '0')}`;
   }, [purchaseReturns]);
 
-  // --- Purchase Invoice Line Handlers ---
-  const handleAddItemLine = () => {
-    const defaultItem = inventory[0];
-    setItems([
-      ...items,
-      {
-        itemId: defaultItem?.id || '',
-        itemName: defaultItem?.name || '',
-        quantity: 1,
-        unitPrice: defaultItem?.purchasePrice || 10
-      }
-    ]);
-  };
-
-  const handleRemoveLine = (idx: number) => {
-    if (items.length > 1) {
-      setItems(items.filter((_, i) => i !== idx));
-    }
-  };
-
-  const handleItemSelect = (index: number, selectedItemId: string) => {
-    const found = inventory.find(i => i.id === selectedItemId);
-    if (!found) return;
-
-    setItems(prev => {
-      const updated = [...prev];
-      updated[index] = {
-        itemId: found.id,
-        itemName: found.name,
-        quantity: updated[index].quantity || 1,
-        unitPrice: found.purchasePrice
-      };
-      return updated;
+  const handleQuickAddPurchaseItem = async (name:string,index:number,price:number)=>{
+    const trimmed=name.trim();if(!trimmed)return;
+    const item=addInventoryItem({
+      name:trimmed,code:'',barcode:'',category:'خامات ومستلزمات عامة',
+      unit:'قطعة',purchasePrice:Math.max(0,Number(price)||0),
+      sellingPrice:0,stockQuantity:0,minAlertQuantity:5
     });
-  };
-
-  const handleLineChange = (index: number, field: 'quantity' | 'unitPrice', val: number) => {
-    setItems(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: val };
-      return updated;
-    });
+    setItems(prev=>prev.map((r,k)=>k===index?purchaseDraftForItem(item,r):r));
   };
 
   const handleCurrencyChange = (currCode: string) => {
@@ -209,9 +174,10 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   };
 
   // Calculations for Purchase Invoice
-  const subtotal = items.reduce((acc, line) => acc + (line.quantity * line.unitPrice), 0);
-  const taxAmount = Number(((subtotal * taxRate) / 100).toFixed(2));
-  const grandTotal = Number((subtotal + taxAmount).toFixed(2));
+  const purchaseTotals=purchaseLineSummary(items,taxRate);
+  const subtotal=purchaseTotals.subtotal;
+  const taxAmount=purchaseTotals.tax;
+  const grandTotal=purchaseTotals.total;
 
   const handleOpenNewPurchase = (preselectedSupplier?: Party) => {
     if (preselectedSupplier) {
@@ -225,48 +191,47 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     setInvoiceExchangeRate(1.0);
     setPaidAmount(0);
     setNotes('');
-    setPaymentMethod('bank_transfer');
-    if (inventory.length > 0) {
-      setItems([{ itemId: inventory[0].id, itemName: inventory[0].name, quantity: 10, unitPrice: inventory[0].purchasePrice || 10 }]);
-    }
+    setPaymentMethod('credit');
+    setItems([emptyPurchaseLine()]);
     setShowNewPurchaseModal(true);
   };
 
-  const handleSavePurchase = (e: React.FormEvent) => {
+  const handleSavePurchase=(e:React.FormEvent)=>{
     e.preventDefault();
-    if (!supplierId || items.length === 0) return;
-
-    const supp = suppliers.find(s => s.id === supplierId);
-    if (!supp) return;
-
-    createPurchaseInvoice({
-      date: purchaseDate,
-      supplierId: supp.id,
-      supplierName: supp.name,
-      supplierInvoiceNumber: supplierInvoiceNumber.trim() || undefined,
-      currency: invoiceCurrency,
-      currencySymbol: invoiceCurrency === 'USD' ? '$' : invoiceCurrency === 'JOD' ? 'JD' : settings.currency || '₪',
-      exchangeRate: Number(invoiceExchangeRate) || 1.0,
-      items: items.map(i => ({
-        itemId: i.itemId,
-        itemName: i.itemName,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-        total: Number((i.quantity * i.unitPrice).toFixed(2))
-      })),
-      subtotal,
-      taxRate,
-      taxAmount,
-      totalAmount: grandTotal,
-      paidAmount: Number(paidAmount) || 0,
-      paymentMethod,
-      treasuryAccountCode: paymentTreasuryCode,
-      notes
+    const supplier=suppliers.find(s=>s.id===supplierId);
+    if(!supplier){alert('يجب اختيار المورد الصحيح.');return;}
+    if(!purchaseDate){alert('يجب تحديد تاريخ الفاتورة.');return;}
+    if(!Number.isFinite(invoiceExchangeRate)||invoiceExchangeRate<=0){
+      alert('سعر صرف المشتريات يجب أن يكون أكبر من صفر.');return;
+    }
+    if(!purchaseTotals.valid){
+      alert('تحقق من الصنف والكمية والطول والعرض والعدد وسعر الشراء والخصم في كل سطر.');return;
+    }
+    const paid=paymentMethod==='credit'?0:Number(paidAmount);
+    if(!Number.isFinite(paid)||paid<0||paid>grandTotal){
+      alert('المبلغ المسدد لا يجوز أن يقل عن صفر أو يزيد عن إجمالي الفاتورة.');return;
+    }
+    const currencyInfo=currencies.find(curr=>curr.code===invoiceCurrency);
+    const purchaseItems=items.map(line=>{
+      const a=purchaseLineAmounts(line,taxRate);
+      return {itemId:line.itemId,itemName:line.itemName,itemCode:line.itemCode,
+        barcode:line.barcode,notes:line.notes,unit:line.unit,
+        unitCalculationType:line.unitCalculationType,hasDimensions:line.hasDimensions,
+        length:line.length,width:line.width,count:line.count,
+        quantity:a.quantity,unitPrice:line.unitPrice,discount:a.discount,
+        tax:a.tax,total:a.net,totalAfterTax:a.total};
     });
-
-    setShowNewPurchaseModal(false);
-    setNotes('');
-    setPaidAmount(0);
+    try{
+      createPurchaseInvoice({
+        date:purchaseDate,supplierId:supplier.id,supplierName:supplier.name,
+        supplierInvoiceNumber:supplierInvoiceNumber.trim()||undefined,
+        currency:invoiceCurrency,currencySymbol:currencyInfo?.symbol||settings.currency||'₪',
+        exchangeRate:invoiceExchangeRate,items:purchaseItems,
+        subtotal,taxRate,taxAmount,totalAmount:grandTotal,paidAmount:paid,
+        paymentMethod,treasuryAccountCode:paymentTreasuryCode,notes
+      });
+      setShowNewPurchaseModal(false);setNotes('');setPaidAmount(0);
+    }catch(error){alert('تعذر حفظ فاتورة الشراء: '+(error instanceof Error?error.message:String(error)));}
   };
 
   // --- Purchase Return Handlers ---
@@ -1257,112 +1222,9 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                 </div>
               </div>
 
-              {/* Items Table */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 text-xs">بنود الخامات والمستلزمات (تزيد المخزن تلقائياً):</span>
-                  <button
-                    type="button"
-                    onClick={handleAddItemLine}
-                    className="text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 cursor-pointer text-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>إضافة صنف</span>
-                  </button>
-                </div>
-
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                  {items.map((line, idx) => (
-                    <div key={idx} className="grid grid-cols-12 gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200 items-center">
-                      <div className="col-span-5">
-                        <AutocompleteCombobox
-                          items={inventory.map(it => ({
-                            id: it.id,
-                            name: it.name,
-                            code: it.code,
-                            subText: `الوحدة: ${it.unit} | رصيد المخزن: ${it.stockQuantity}`,
-                            badge: `${it.purchasePrice} ${settings.currency}`,
-                            extraSearchCorpus: `${it.barcode || ''} ${it.category || ''}`,
-                            raw: it
-                          }))}
-                          selectedId={line.itemId}
-                          entityType="item"
-                          placeholder="ابحث عن الصنف أو اكتب لإضافته..."
-                          onSelect={opt => {
-                            if (opt.id) {
-                              handleItemSelect(idx, opt.id);
-                            }
-                          }}
-                          onQuickAdd={async name => {
-                            const created = addInventoryItem({
-                              name,
-                              code: '',
-                              category: 'خامات ومستلزمات عامة',
-                              unit: 'قطعة',
-                              purchasePrice: line.unitPrice || 0,
-                              retailPrice: 0,
-                              wholesalePrice: 0,
-                              stockQuantity: 0,
-                              minStockLevel: 5
-                            });
-                            handleItemSelect(idx, created.id);
-                          }}
-                        />
-                      </div>
-
-                      <div className="col-span-3">
-                        <input
-                          type="number"
-                          min="1"
-                          placeholder="الكمية"
-                          value={line.quantity}
-                          onChange={e => handleLineChange(idx, 'quantity', Number(e.target.value))}
-                          className="w-full bg-white border border-slate-300 rounded p-1.5 text-center text-xs font-mono font-bold"
-                        />
-                      </div>
-
-                      <div className="col-span-3">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          placeholder="سعر الوحدة"
-                          value={line.unitPrice}
-                          onChange={e => handleLineChange(idx, 'unitPrice', Number(e.target.value))}
-                          className="w-full bg-white border border-slate-300 rounded p-1.5 font-mono text-left text-xs font-bold"
-                        />
-                      </div>
-
-                      <div className="col-span-1 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveLine(idx)}
-                          disabled={items.length <= 1}
-                          className="text-slate-400 hover:text-rose-500 disabled:opacity-30 cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 mx-auto" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Totals Summary */}
-              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1 text-xs">
-                <div className="flex justify-between text-slate-600">
-                  <span>المجموع الفرعي:</span>
-                  <span className="font-mono font-bold">{subtotal.toFixed(2)} {invoiceCurrency}</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>ضريبة القيمة المضافة ({taxRate}%):</span>
-                  <span className="font-mono font-bold text-blue-700">{taxAmount.toFixed(2)} {invoiceCurrency}</span>
-                </div>
-                <div className="flex justify-between font-black text-slate-900 pt-1.5 border-t border-slate-200 text-sm">
-                  <span>الإجمالي الكلي للفاتورة:</span>
-                  <span className="font-mono text-blue-800">{grandTotal.toFixed(2)} {invoiceCurrency}</span>
-                </div>
-              </div>
+              <PurchaseInvoiceLinesTable rows={items} setRows={setItems}
+                inventory={inventory} taxRate={taxRate} currency={invoiceCurrency}
+                onQuickAdd={handleQuickAddPurchaseItem}/>
 
               {/* Payment Terms & Treasury */}
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2.5">
