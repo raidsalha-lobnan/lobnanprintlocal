@@ -87,7 +87,7 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
   const currency=v=>(v==='₪'||!v)?'ILS':String(v);
   if(currency(invoice.currency)!==currency(proposed.currency))
    throw new InputError('INVOICE_REVISION_CURRENCY_DENOMINATION_WORKFLOW_REQUIRED',422);
-  if(typeof proposed.date!=='string'||!/^\\d{4}-\\d{2}-\\d{2}$/.test(proposed.date)||
+  if(typeof proposed.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(proposed.date)||
      !Number.isFinite(Date.parse(proposed.date+'T00:00:00Z')))
    throw new InputError('INVOICE_REVISION_DATE_INVALID',422);
   if(typeof proposed.warehouse!=='string'||!proposed.warehouse.trim())
