@@ -1,105 +1,93 @@
 import {validateJournal} from './sync-domain.mjs';
 import {planInvoiceRevision} from './invoice-revision-plan.mjs';
-const cents=x=>Math.round(Number(x)*100);
-const money=x=>Math.round(x*100)/100;
-const keyOf=row=>(row.value||row);
-const isPhysical=item=>item.category!=='services'&&item.category!=='copy_scan'&&
-  item.itemId!=='srv-delivery'&&item.itemId!=='srv-delivery-mobile';
-const netAccount=(j,account)=>{
- const lines=keyOf(j).lines||[];
- return cents(lines.reduce((s,l)=>s+(l.accountCode===account?Number(l.debit||0)-Number(l.credit||0):0),0));
+import {accountMap,financialDelta,isPhysical,minor} from './invoice-revision-ledger.mjs';
+const value=row=>row.value||row;
+const sumAccount=(journals,account)=>[...accountMap(journals)].find(([a])=>a===account)?.[1]||0;
+const originalMovement=(movement,invoice)=>{
+ const m=value(movement);
+ // The original movement keeps its historical posting date after an
+ // authorized invoice-date correction. Match by immutable invoice reference.
+ return m.type==='out_sale'&&
+  [invoice.invoiceNumber,'TEMP-'+invoice.id,invoice.tempInvoiceNumber]
+  .filter(Boolean).includes(m.referenceNumber);
 };
-const getOriginalMove=(movement,invoice)=>{
- const m=keyOf(movement);
- return m.date===invoice.date &&
-   [invoice.invoiceNumber,'TEMP-'+invoice.id,invoice.tempInvoiceNumber]
-   .filter(Boolean).includes(m.referenceNumber);
-};
-const itemQuantities=items=>{
- const map=new Map();
- for(const i of items||[]){
-  if(!isPhysical(i))continue;
-  map.set(i.itemId,Math.round(((map.get(i.itemId)||0)+Number(i.quantity||0))*1e6)/1e6);
+const quantities=items=>{
+ const result=new Map();
+ for(const item of items||[]){
+  if(!isPhysical(item))continue;
+  if(!item.itemId||!Number.isFinite(Number(item.quantity))||Number(item.quantity)<=0)
+   throw new Error('REVISION_INVALID_ITEM_QUANTITY');
+  result.set(item.itemId,(result.get(item.itemId)||0)+Number(item.quantity));
  }
- return map;
+ return result;
 };
 /**
- * Derive posted sales, COGS and stock from the immutable original accounting
- * documents PLUS previously approved correction entries. This supports a
- * second/third edit without double posting the original invoice again.
- *
- * Only one original revenue journal and one original COGS journal are allowed.
- * All other linked journals must be server-approved corrections, never
- * unreviewed historical duplicates. Legacy failures need separate recovery.
+ * Prove the exact posted monetary, stock and COGS state first. Corrected
+ * entries remain immutable; only their net debit/credit effects are summed.
+ * Legacy duplicates are not assumed to be safe to reverse automatically.
  */
 export function verifyInvoiceRevisionBaseline({invoice,journals,movements,proposed}){
  const plan=planInvoiceRevision(invoice,proposed);
- const linked=journals.filter(j=>keyOf(j).referenceId===invoice.id);
- const originalSales=linked.filter(j=>keyOf(j).referenceType==='pos_invoice');
- const originalCost=linked.filter(j=>keyOf(j).referenceType==='cogs');
- const corrections=linked.filter(j=>keyOf(j).referenceType==='invoice_correction');
- if(originalSales.length!==1||originalCost.length!==1||
-   linked.length!==2+corrections.length)
+ const linked=journals.filter(j=>value(j).referenceId===invoice.id);
+ const sales=linked.filter(j=>value(j).referenceType==='pos_invoice');
+ const cogs=linked.filter(j=>value(j).referenceType==='cogs');
+ const corrections=linked.filter(j=>value(j).referenceType==='invoice_correction');
+ if(sales.length!==1||cogs.length>1||linked.length!==sales.length+cogs.length+corrections.length)
   throw new Error('REVISION_REQUIRES_RECONCILED_JOURNAL_HISTORY');
- for(const j of linked)validateJournal(keyOf(j));
+ for(const j of linked)validateJournal(value(j));
  for(const j of corrections){
-  const v=keyOf(j);
-  if(v.approvedRevision!==true||v.internalCorrection!==true||
-     !v.correctionGroupId||!['revenue','cogs'].includes(v.correctionKind))
+  const v=value(j);
+  if(v.approvedRevision!==true||v.internalCorrection!==true||!v.correctionGroupId||
+     !['revenue','financial','cogs'].includes(v.correctionKind))
    throw new Error('REVISION_UNVERIFIED_CORRECTION_JOURNAL');
  }
- const salesMinor=linked.reduce((s,j)=>s+netAccount(j,'1201'),0);
- const expectedSales=cents(invoice.baseTotalAmount??invoice.totalAmount);
- if(salesMinor!==expectedSales)
-  throw new Error('REVISION_REVENUE_BASELINE_MISMATCH');
- const cogsMinor=linked.reduce((s,j)=>s+netAccount(j,'5101'),0);
- if(!Number.isSafeInteger(cogsMinor)||cogsMinor<0)
-  throw new Error('REVISION_COST_BASELINE_MISMATCH');
- const originalMovements=movements.filter(m=>keyOf(m).type==='out_sale'&&getOriginalMove(m,invoice));
- const correctionsMovement=movements.filter(m=>{
-  const v=keyOf(m);
-  return v.sourceInvoiceId===invoice.id &&
-    v.referenceType==='invoice_correction';
- });
- for(const m of correctionsMovement){
-  const v=keyOf(m);
+ const financialJournals=[...sales,...corrections.filter(j=>value(j).correctionKind!=='cogs')];
+ const finance=financialDelta(invoice,proposed,accountMap(financialJournals));
+ const cogsJournals=[...cogs,...corrections.filter(j=>value(j).correctionKind==='cogs')];
+ const cogsMinor=sumAccount(cogsJournals,'5101');
+ if(cogsMinor<0||!Number.isSafeInteger(cogsMinor))
+  throw new Error('REVISION_INVALID_POSTED_COST');
+ const originalMovements=movements.filter(m=>originalMovement(m,invoice));
+ const correctedMovements=movements.filter(m=>value(m).referenceType==='invoice_correction'&&
+    value(m).sourceInvoiceId===invoice.id);
+ for(const m of correctedMovements){
+  const v=value(m);
   if(v.approvedRevision!==true||v.internalCorrection!==true||!v.correctionGroupId||
-     !['in_adjustment','out_adjustment'].includes(v.type))
+     !['out_adjustment','in_adjustment'].includes(v.type))
    throw new Error('REVISION_UNVERIFIED_STOCK_CORRECTION');
  }
  const observed=new Map(),costs=new Map();
- let historicCostMinor=0;
- for(const m of originalMovements){
-  const v=keyOf(m),q=Number(v.quantity),unitPrice=Number(v.unitPrice);
-  if(!v.itemId||!Number.isFinite(q)||q<0||!Number.isFinite(unitPrice)||unitPrice<0)
+ let historicalCost=0;
+ for(const row of [...originalMovements,...correctedMovements]){
+  const v=value(row),q=Number(v.quantity),price=Number(v.unitPrice);
+  if(!v.itemId||!Number.isFinite(q)||q<0||!Number.isFinite(price)||price<0||
+     minor(v.totalValue||0)!==minor(q*price))
    throw new Error('REVISION_INVALID_STOCK_HISTORY');
-  observed.set(v.itemId,(observed.get(v.itemId)||0)+q);
   const prior=costs.get(v.itemId);
-  if(prior!==undefined&&Math.abs(prior-unitPrice)>0.000001)
-   throw new Error('REVISION_INCONSISTENT_STOCK_COST');
-  costs.set(v.itemId,unitPrice);
-  historicCostMinor+=cents(v.totalValue||0);
+  if(prior!==undefined&&Math.abs(prior-price)>0.000001)
+   throw new Error('REVISION_STOCK_COST_CHANGED_WITHOUT_REVALUATION');
+  costs.set(v.itemId,price);
+  const direction=v.type==='in_adjustment'?-1:1;
+  observed.set(v.itemId,(observed.get(v.itemId)||0)+direction*q);
+  historicalCost+=direction*minor(v.totalValue||0);
  }
- for(const m of correctionsMovement){
-  const v=keyOf(m),q=Number(v.quantity),unitPrice=Number(v.unitPrice);
-  if(!v.itemId||!Number.isFinite(q)||q<0||!Number.isFinite(unitPrice)||
-     (costs.has(v.itemId)&&Math.abs(unitPrice-costs.get(v.itemId))>0.000001))
-   throw new Error('REVISION_INVALID_STOCK_CORRECTION');
-  observed.set(v.itemId,(observed.get(v.itemId)||0)+(v.type==='in_adjustment'?-q:q));
-  historicCostMinor+=cents(v.totalValue||0)*(v.type==='in_adjustment'?-1:1);
- }
- const expected=itemQuantities(invoice.items);
- if(observed.size!==expected.size||[...expected].some(([id,qty])=>
-   Math.abs((observed.get(id)||0)-qty)>0.000001))
-  throw new Error('REVISION_STOCK_BASELINE_MISMATCH');
- if(cogsMinor!==historicCostMinor)
+ const expected=quantities(invoice.items);
+ for(const [id,qty] of expected)
+  if(Math.abs((observed.get(id)||0)-qty)>0.000001)
+   throw new Error('REVISION_STOCK_BASELINE_MISMATCH:'+id);
+ for(const [id,qty] of observed)
+  if(!expected.has(id)&&Math.abs(qty)>0.000001)
+   throw new Error('REVISION_EXTRA_STOCK_MOVEMENT:'+id);
+ if(cogsMinor!==historicalCost)
   throw new Error('REVISION_COST_BASELINE_MISMATCH');
- for(const it of proposed.items||[])
-  if(isPhysical(it)&&!costs.has(it.itemId))
-   throw new Error('REVISION_NEW_ITEM_COST_NOT_VERIFIED');
- return {...plan,currentCOGSMinor:cogsMinor,
-  expectedNextCOGSMinor:cents((proposed.items||[]).filter(isPhysical)
-   .reduce((s,it)=>s+Number(it.quantity||0)*costs.get(it.itemId),0)),
-  costByItem:Object.fromEntries(costs),
-  verifiedMovementIds:[...originalMovements,...correctionsMovement].map(row=>keyOf(row).id)};
+ const unpricedPhysicalIds=[...quantities(proposed.items).keys()].filter(id=>!costs.has(id));
+ const calculateNextCost=()=>{
+  if(unpricedPhysicalIds.length)return null;
+  return (proposed.items||[]).filter(isPhysical).reduce(
+   (s,it)=>s+minor(Number(it.quantity)*costs.get(it.itemId)),0);
+ };
+ return {...plan,...finance,currentCOGSMinor:cogsMinor,
+  expectedNextCOGSMinor:calculateNextCost(),costByItem:Object.fromEntries(costs),
+  unpricedPhysicalIds,
+  verifiedMovementIds:[...originalMovements,...correctedMovements].map(r=>value(r).id)};
 }

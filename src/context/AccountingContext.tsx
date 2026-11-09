@@ -7524,70 +7524,67 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     notes?: string,
     extraOptions?: Parameters<typeof createPosSale>[5]
   ): Invoice => {
-    let subtotal = 0;
-    const invItems = (items || []).map((l, idx) => {
-      const uPrice = l.unitPrice !== undefined ? l.unitPrice : (l.item?.sellingPrice || 0);
-      const qty = Number(l.quantity) || 1;
-      const lineTot = uPrice * qty;
-      subtotal += lineTot;
-      return {
-        id: `line-${Date.now()}-${idx}`,
-        itemId: l.item?.id || `itm-${idx}`,
-        itemName: l.itemName || l.item?.name || 'صنف',
-        quantity: qty,
-        unitPrice: uPrice,
-        total: lineTot,
-        discount: l.discount || 0,
-        tax: l.tax || 0,
-        notes: l.notes || l.description,
-        description: l.description || l.notes,
-        unit: l.unit || l.item?.unit || 'قطعة',
-        length: l.length,
-        width: l.width,
-        count: l.count,
-        hasDimensions: l.hasDimensions,
-        barcode: l.item?.barcode,
-        itemCode: l.item?.code
-      };
+    const round=(n:number)=>Number(n.toFixed(2));
+    let gross=0,lineDiscounts=0,lineTaxes=0;
+    const taxRate=Number(extraOptions?.taxRate??settings.vatRate??0);
+    const invItems=(items||[]).map((line,idx)=>{
+      const quantity=Number(line.quantity),unitPrice=Number(line.unitPrice??line.item?.sellingPrice??0);
+      const discount=Number(line.discount||0),lineTaxRate=Number(line.taxRate??taxRate);
+      const before=round(quantity*unitPrice),tax=round(Math.max(0,before-discount)*lineTaxRate/100);
+      gross+=before;lineDiscounts+=discount;lineTaxes+=tax;
+      return {id:`line-${idx}`,itemId:line.item?.id||`itm-${idx}`,
+        itemCode:line.item?.code||'',itemName:line.itemName||line.item?.name||'صنف',
+        category:line.item?.category,quantity,unitPrice,discount,tax,taxRate:lineTaxRate,
+        total:round(before-discount+tax),notes:line.notes||'',
+        description:line.description||'',unit:line.unit||line.item?.unit||'قطعة',
+        length:line.length,width:line.width,count:line.count,
+        hasDimensions:line.hasDimensions,barcode:line.item?.barcode,
+        attachments:line.attachments||[],imageThumbnail:line.imageThumbnail||''};
     });
-
-    const overallDiscount = extraOptions?.overallDiscount || 0;
-    const taxRate = extraOptions?.taxRate !== undefined ? extraOptions.taxRate : (settings.vatRate || 0);
-    const taxableAmount = Math.max(0, subtotal - overallDiscount);
-    const taxAmount = (taxableAmount * taxRate) / 100;
-    const totalAmount = taxableAmount + taxAmount + (extraOptions?.additionalCharges || 0);
-    const paidAmount = extraOptions?.paidAmount !== undefined ? extraOptions.paidAmount : (paymentMethod === 'credit' ? 0 : totalAmount);
-    const remainingAmount = Math.max(0, totalAmount - paidAmount);
-
+    const subtotal=round(gross);
+    const discountTotal=round(Number(extraOptions?.overallDiscount??lineDiscounts));
+    const taxAmount=taxRate>0?round(Math.max(0,subtotal-discountTotal)*taxRate/100):round(lineTaxes);
+    const additionalCharges=round(Number(extraOptions?.additionalCharges||0));
+    const totalAmount=round(subtotal-discountTotal+taxAmount+additionalCharges);
+    const exchangeRate=Number(extraOptions?.exchangeRate||1);
+    const paidAmount=round(Number(extraOptions?.paidAmount??(paymentMethod==='credit'?0:totalAmount)));
+    const cashPaidAmount=Number(extraOptions?.cashPaidAmount||0);
+    const bankPaidAmount=Number(extraOptions?.bankPaidAmount||0);
+    const remainingAmount=round(totalAmount-paidAmount);
+    const cashBaseAmount=round(cashPaidAmount*Number(extraOptions?.cashExchangeRate||1));
+    const bankBaseAmount=round(bankPaidAmount*Number(extraOptions?.bankExchangeRate||1));
     return {
-      id: extraOptions?.editingInvoiceId || `inv-pos-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      invoiceNumber: extraOptions?.editingInvoiceId
-        ? (invoices.find(inv => inv.id === extraOptions.editingInvoiceId)?.invoiceNumber || '')
-        : (extraOptions?.invoiceNumber || ''),
-      date: extraOptions?.date || new Date().toISOString().split('T')[0],
-      type: 'pos',
-      customerId,
-      counterpartyType: extraOptions?.counterpartyType || 'customer',
-      counterpartyId: extraOptions?.counterpartyId || customerId,
-      employeeId: extraOptions?.counterpartyType === 'employee' ? customerId : undefined,
-      customerName: customerName || 'عميل كاشير نقدي',
-      items: invItems as any,
-      subtotal,
-      discountTotal: overallDiscount,
-      taxRate,
-      taxAmount,
-      totalAmount,
-      paidAmount,
-      remainingAmount,
-      paymentMethod,
-      status: remainingAmount <= 0.05 ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid'),
-      notes: notes || extraOptions?.paymentNotes,
-      currency: extraOptions?.currency || settings.currency || '₪',
-      currencySymbol: extraOptions?.currencySymbol || settings.currency || '₪',
-      exchangeRate: extraOptions?.exchangeRate || 1.0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+      id:extraOptions?.editingInvoiceId||`inv-pos-${Date.now()}`,
+      invoiceNumber:extraOptions?.invoiceNumber||'',
+      date:extraOptions?.date||new Date().toISOString().slice(0,10),
+      type:'pos',customerId,
+      counterpartyType:extraOptions?.counterpartyType||'customer',
+      counterpartyId:extraOptions?.counterpartyId||customerId,
+      employeeId:extraOptions?.counterpartyType==='employee'?customerId:undefined,
+      customerName:customerName||'عميل كاشير نقدي',
+      items:invItems as any,subtotal,discountTotal,taxRate,taxAmount,totalAmount,
+      paidAmount,remainingAmount,paymentMethod,
+      status:remainingAmount<=0.005?'paid':paidAmount>0?'partial':'unpaid',
+      notes:notes||'',additionalCharges,
+      representative:extraOptions?.representative,branch:extraOptions?.branch,
+      branchId:extraOptions?.branchId,warehouse:extraOptions?.warehouse,
+      subCustomerId:extraOptions?.subCustomerId,
+      subCustomerName:extraOptions?.subCustomerName,
+      subCustomerPhone:extraOptions?.subCustomerPhone,
+      customCustomerText:extraOptions?.customCustomerText,
+      paymentNotes:extraOptions?.paymentNotes,
+      currency:extraOptions?.currency||'ILS',
+      currencySymbol:extraOptions?.currencySymbol||'₪',exchangeRate,
+      baseTotalAmount:round(totalAmount*exchangeRate),
+      basePaidAmount:cashBaseAmount+bankBaseAmount>0
+        ?round(cashBaseAmount+bankBaseAmount):round(paidAmount*exchangeRate),
+      cashPaidAmount,bankPaidAmount,cashBaseAmount,bankBaseAmount,
+      cashTreasuryCode:extraOptions?.cashTreasuryCode,
+      bankTreasuryCode:extraOptions?.bankTreasuryCode,
+      treasuryAccountCode:extraOptions?.treasuryAccountCode,
+      workflowStatus:extraOptions?.workflowStatus||'new',
+      createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()
+    } as Invoice;
   };
 
   const postPosSaleOnline = async (
@@ -7614,6 +7611,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const draft=preparePosInvoiceDraft(items,customerName,paymentMethod,
           customerId,notes,extraOptions);
         const currencyRate=Number(extraOptions.exchangeRate||1);
+        const previousRate=Number(original.exchangeRate||1);
+        const historicalBasePaid=Number(original.basePaidAmount??(
+          Number(original.paidAmount||0)*previousRate));
+        const formCashBase=Number((draft as any).cashBaseAmount||0);
+        const formBankBase=Number((draft as any).bankBaseAmount||0);
+        const oldCash=original.cashPaidAmount,oldBank=original.bankPaidAmount;
+        // Changing the invoice exchange rate does not retrospectively
+        // create, destroy or revalue cash that a teller actually collected.
+        const sameReceipt=original.paymentMethod===draft.paymentMethod&&
+          (oldCash!==undefined||oldBank!==undefined
+            ?Math.abs(Number(oldCash||0)-Number(draft.cashPaidAmount||0))<0.000001&&
+             Math.abs(Number(oldBank||0)-Number(draft.bankPaidAmount||0))<0.000001
+            :Math.abs((formCashBase+formBankBase)-historicalBasePaid)<0.011||
+             (original.paymentMethod==='cash'&&
+              Math.abs(Number(draft.cashPaidAmount||0)-Number(original.paidAmount||0))<0.000001&&
+              Number(draft.bankPaidAmount||0)===0)||
+             (['card','bank_transfer'].includes(original.paymentMethod)&&
+              Math.abs(Number(draft.bankPaidAmount||0)-Number(original.paidAmount||0))<0.000001&&
+              Number(draft.cashPaidAmount||0)===0));
+        const rateOnlyPayment=previousRate!==currencyRate&&sameReceipt;
         const proposed:Invoice={
           ...original,
           ...draft,
@@ -7622,14 +7639,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           date:extraOptions.date||original.date,
           notes,
           items:draft.items.map((it,index)=>({
-            ...original.items[index],
+            ...(original.items[index]?.itemId===it.itemId?original.items[index]:{}),
             ...it,
-            id:(original.items[index] as any)?.id||`line-${original.id}-${index}`,
+            id:(original.items[index]?.itemId===it.itemId?(original.items[index] as any)?.id:undefined)||`line-${original.id}-${index}`,
             category:items[index]?.item?.category||original.items[index]?.category,
             itemId:items[index]?.item?.id||it.itemId
           })),
           baseTotalAmount:Number((draft.totalAmount*currencyRate).toFixed(2)),
-          basePaidAmount:Number((draft.paidAmount*currencyRate).toFixed(2)),
+          basePaidAmount:rateOnlyPayment?historicalBasePaid:draft.basePaidAmount,
+          ...(rateOnlyPayment?{
+            paidAmount:original.paidAmount,
+            remainingAmount:Number((draft.totalAmount-Number(original.paidAmount||0)).toFixed(2)),
+            cashBaseAmount:(original as any).cashBaseAmount,
+            bankBaseAmount:(original as any).bankBaseAmount
+          }:{}),
           isAccountingPosted:true,
           statusHistory:original.statusHistory,
           postedAt:original.postedAt,

@@ -40,7 +40,16 @@ export class LocalHttpSyncTransport implements SyncTransport {
         throw new Error('SESSION_LOGIN_REQUIRED');
       }
       if(response.status===403||response.status===422||response.status===409){
-        throw new PermanentSyncError(`${data.code || 'REJECTED'}: ${response.status}`);
+        const reviewDetail=data.detail?.manualReviewRequired
+          ?'مراجعة مطلوبة للفاتورة '+String(data.detail?.invoiceNumber||'')+
+           ' — القيود: '+(data.detail?.linkedJournalIds||[]).slice(0,12).join(', ')+
+           ' — حركات المخزون: '+(data.detail?.linkedStockMovementIds||[]).slice(0,12).join(', ')
+          :'';
+        const detail=[reviewDetail,data.detail?.reason,data.detail?.legacyReason,
+          data.detail?.field,data.detail?.itemId,data.detail?.id]
+          .filter((value):value is string=>typeof value==='string'&&value.length>0)
+          .slice(0,3).map(value=>value.slice(0,180)).join(' | ');
+        throw new PermanentSyncError(`${data.code || 'REJECTED'}: ${response.status}${detail?' — '+detail:''}`);
       }
       throw new Error(`LOCAL_SYNC_HTTP_${response.status}`);
     }

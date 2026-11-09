@@ -1715,8 +1715,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
   ]);
 
   // Financial Calculations
+  // Subtotal is the gross amount before line and invoice-level discounts.
+  // line.total is already net and must never be used as gross a second time.
   const calculatedSubtotal = useMemo(() => {
-    return tableLines.reduce((sum, line) => sum + line.total, 0);
+    return Number(tableLines.reduce((sum, line) =>
+      sum + (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0), 0).toFixed(2));
   }, [tableLines]);
 
   const activeTableLines = useMemo(() => {
@@ -1730,11 +1733,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
   }, [activeTableLines]);
 
   const calculatedDiscountTotal = useMemo(() => {
-    if (discountType === 'percent') {
-      return (calculatedSubtotal * overallDiscount) / 100;
-    }
-    return overallDiscount;
-  }, [calculatedSubtotal, overallDiscount, discountType]);
+    const lineDiscount = tableLines.reduce((sum, line) => sum + (Number(line.discount) || 0), 0);
+    const invoiceDiscount = discountType === 'percent'
+      ? (calculatedSubtotal * overallDiscount) / 100 : overallDiscount;
+    return Number((lineDiscount + invoiceDiscount).toFixed(2));
+  }, [calculatedSubtotal, overallDiscount, discountType, tableLines]);
 
   const effectiveTaxRate = taxEnabled ? taxRate : 0;
   const netBeforeTax = Math.max(0, calculatedSubtotal - calculatedDiscountTotal);
@@ -3061,6 +3064,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setSubCustomerPhone(inv.subCustomerPhone || '');
     setInvoiceNotes(inv.notes || '');
     setPaymentNotes(inv.paymentNotes || '');
+    setRepresentative(inv.representative || '');
     if (inv.workflowStatus) setInvoiceWorkflowStatus(inv.workflowStatus);
 
     try {
@@ -3070,7 +3074,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setInvoiceSeqNumber((inv.invoiceNumber || '').replace(/\D/g, '') || '1');
     if (inv.date) setInvoiceDate(inv.date);
     setAdditionalCharges(Number(inv.additionalCharges) || 0);
-    setOverallDiscount(Number(inv.discountTotal) || 0);
+    // Stored discountTotal includes per-line discounts. Restore only the
+    // invoice-level remainder or re-opening would silently double-discount.
+    const appliedLineDiscounts=(inv.items||[]).reduce((sum,it)=>sum+Number(it.discount||0),0);
+    setDiscountType('amount');
+    setOverallDiscount(Math.max(0,Number((Number(inv.discountTotal||0)-appliedLineDiscounts).toFixed(2))));
     if (inv.paymentMethod) setPaymentMethod(inv.paymentMethod);
 
     if (inv.cashTreasuryCode) {
