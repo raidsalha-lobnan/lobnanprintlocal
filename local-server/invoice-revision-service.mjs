@@ -103,7 +103,7 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
   // holding account and FX variance account. Never invent a new receivable or
   // revalue an already-collected amount without these documents.
   if(Math.abs(Number(invoice.exchangeRate||1)-rate)>0.0000001&&
-    Number(invoice.basePaidAmount??invoice.paidAmount||0)>0)
+    Number(invoice.basePaidAmount??invoice.paidAmount??0)>0)
    throw new InputError('INVOICE_REVISION_PAID_FX_SETTLEMENT_NEEDS_REVIEW',409,{
     invoiceNumber:invoice.invoiceNumber,oldRate:invoice.exchangeRate||1,
     proposedRate:rate,manualReviewRequired:true,
