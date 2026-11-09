@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { Party } from '../types';
+import {isCashCustomerParty} from '../utils/partyUtils';
 import {
   getPartyBalanceReconciliation,
   PartyReconciliationResult
@@ -111,6 +112,10 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
 
   // Single Party Fix
   const handleFixSingleParty = (res: PartyReconciliationResult) => {
+    if (isCashCustomerParty(parties.find(p=>p.id===res.partyId))) {
+      setToastMessage('الزبون النقدي CUST-0001 ثابت، ولا يجوز تعديل رصيده يدويًا.');
+      return;
+    }
     updateParty(res.partyId, { balance: res.calculatedBalance });
     setToastMessage(`تم تصحيح ومطابقة رصيد ${res.partyName} بنجاح إلى (${res.calculatedBalance.toLocaleString('ar-SA')} ${settings.currency})`);
     setTimeout(() => setToastMessage(null), 4000);
@@ -391,7 +396,7 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
                               <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
                                 isCustomer ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
                               }`}>
-                                {isCustomer && !isSupplier ? 'عميل' : isSupplier && !isCustomer ? 'مورد' : 'كلاهما'}
+                                {customerOnly ? 'عميل' : isCustomer && !isSupplier ? 'عميل' : isSupplier && !isCustomer ? 'مورد' : 'كلاهما'}
                               </span>
                             </div>
                           </td>
@@ -412,7 +417,7 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
                             {isCustomer && (
                               <div>فواتير: <span className="font-bold">{res.breakdown.invoicesDebit.toLocaleString('ar-SA')}</span></div>
                             )}
-                            {isSupplier && (
+                            {isSupplier && !customerOnly && (
                               <div>مشتريات: <span className="font-bold">{res.breakdown.purchasesCredit.toLocaleString('ar-SA')}</span></div>
                             )}
                           </td>
@@ -483,7 +488,7 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
                                 <span>التفاصيل</span>
                               </button>
 
-                              {res.hasMismatch && (
+                              {res.hasMismatch && !isCashCustomerParty(parties.find(p=>p.id===res.partyId)) && (
                                 <button
                                   onClick={() => handleFixSingleParty(res)}
                                   className="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded text-[10px] font-bold cursor-pointer"
