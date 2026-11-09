@@ -47,6 +47,10 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     purchases,
     purchaseReturns,
     vouchers,
+    invoices,
+    salesReturns,
+    printOrders,
+    debtClearings,
     parties,
     addParty,
     inventory,
@@ -388,14 +392,18 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     const hasPurchases = purchases.some(p => p.supplierId === supplier.id);
     const hasReturns = purchaseReturns.some(r => r.supplierId === supplier.id);
     const hasVouchers = vouchers.some(v => v.partyId === supplier.id);
-
-    if (hasPurchases || hasReturns || hasVouchers) {
-      alert(`لا يمكن حذف المورد (${supplier.name}) نظراً لوجود فواتير مشتريات أو سندات صرف مرتبطة به في النظام.`);
+    const hasSales = invoices.some(inv => inv.customerId === supplier.id ||
+      inv.counterpartyId === supplier.id);
+    const hasOtherReferences = salesReturns.some(r => r.customerId === supplier.id) ||
+      printOrders.some(p => p.customerId === supplier.id) ||
+      debtClearings.some(r => r.supplierId === supplier.id || r.customerId === supplier.id);
+    if (hasPurchases || hasReturns || hasVouchers || hasSales || hasOtherReferences) {
+      alert(`لا يمكن حذف المورد (${supplier.name}) لوجود عمليات مالية مرتبطة بمعرّفه؛ يمكن تعديل بياناته.`);
       return;
     }
-
     if (window.confirm(`هل أنت متأكد من حذف المورد (${supplier.name}) ذو الكود (${supplier.code})؟`)) {
-      deleteParty(supplier.id);
+      const result = deleteParty(supplier.id);
+      if (!result.success) alert(result.message || 'تعذر حذف المورد لوجود مراجع محاسبية.');
     }
   };
 
@@ -465,7 +473,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   return (
     <div className={activeTab === 'suppliers'
       ? 'flex h-full min-h-0 flex-1 flex-col overflow-hidden font-sans text-right'
-      : 'space-y-3 font-sans text-right'}>
+      : 'h-full overflow-y-auto space-y-3 font-sans text-right'}>
       {activeTab !== 'suppliers' && (<>
       {/* Top Header & Fast Actions */}
       <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
