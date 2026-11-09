@@ -9,15 +9,16 @@ export interface DetailedSalesReportOptions {
   customerName: (invoice: Invoice) => string;
 }
 
+const htmlEntities: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+};
 const escapeHtml = (value: unknown): string => String(value ?? '').replace(
   /[&<>"']/g,
-  character => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[character] || character)
+  character => htmlEntities[character] || character
 );
 
 const safeNumber = (value: unknown): number => {
