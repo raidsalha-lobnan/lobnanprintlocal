@@ -9241,6 +9241,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     if(!groupedItems.size)throw new Error('يجب إدخال صنف واحد على الأقل في فاتورة الشراء.');
 
+    const lineNetTotal=Number(Array.from(groupedItems.values()).reduce((s,r)=>s+r.netCost,0).toFixed(2));
     const sourceSubtotal=invoiceData.subtotal!==undefined?
       Number(invoiceData.subtotal):
       Number(Array.from(groupedItems.values()).reduce((s,r)=>s+r.netCost,0).toFixed(2));
@@ -9251,15 +9252,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if(!Number.isFinite(exchangeRate)||exchangeRate<=0||!Number.isFinite(sourceSubtotal)||
       !Number.isFinite(sourceTax)||!Number.isFinite(sourceTotal)||!Number.isFinite(sourcePaid)||
       sourceSubtotal<0||sourceTax<0||sourcePaid<0||sourcePaid>sourceTotal||
-      Math.abs(sourceSubtotal+sourceTax-sourceTotal)>0.011)
+      Math.abs(sourceSubtotal+sourceTax-sourceTotal)>0.011||
+      Math.abs(lineNetTotal-sourceSubtotal)>0.011||
+      (sourcePaid>0&&invoiceData.paymentMethod==='credit'))
       throw new Error('إجمالي فاتورة المشتريات أو المبلغ المدفوع أو سعر الصرف غير متوازن.');
     if(!parties.some(p=>p.id===invoiceData.supplierId&&
       (p.type==='supplier'||p.type==='both')))
       throw new Error('المورد غير موجود في السجل المعتمد.');
     const baseTotalAmount=Number((sourceTotal*exchangeRate).toFixed(2));
     const baseSubtotal=Number((sourceSubtotal*exchangeRate).toFixed(2));
-    const baseTaxAmount=Number((sourceTax*exchangeRate).toFixed(2));
+    // Convert the document total once, then split rounded base amounts.
+    // This prevents a 0.01 imbalance between purchases, VAT and payments.
+    const baseTaxAmount=Number((baseTotalAmount-baseSubtotal).toFixed(2));
     const basePaidAmount=Number((sourcePaid*exchangeRate).toFixed(2));
+    const stockValuesBase=new Map<string,number>();
+    const groupedEntries=Array.from(groupedItems.entries());
+    let allocatedBase=0;
+    groupedEntries.forEach(([itemId,amount],index)=>{
+      const baseValue=index===groupedEntries.length-1
+        ?Number((baseSubtotal-allocatedBase).toFixed(2))
+        :Number((amount.netCost*exchangeRate).toFixed(2));
+      stockValuesBase.set(itemId,baseValue);
+      allocatedBase=Number((allocatedBase+baseValue).toFixed(2));
+    });
     const treasury=sourcePaid>0
       ? treasuries.find(t=>t.accountCode===invoiceData.treasuryAccountCode||
         (!invoiceData.treasuryAccountCode&&
@@ -9277,7 +9292,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       currency: invoiceData.currency || settings.baseCurrencyCode || 'ILS',
       currencySymbol: invoiceData.currencySymbol || settings.currency || '₪',
       exchangeRate,
-      subtotal:sourceSubtotal,taxAmount:sourceTax,
+      subtotal:sourceSubtotal,taxRate:Number(invoiceData.taxRate||0),taxAmount:sourceTax,
       totalAmount:sourceTotal,paidAmount:sourcePaid,
       baseTotalAmount,basePaidAmount,
       status:sourcePaid>=sourceTotal?'paid':sourcePaid>0?'partial':'unpaid'
@@ -9295,7 +9310,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setInventory(prev => prev.map(it => {
       const match=groupedItems.get(it.id);
       if (match) {
-        const unitCostInBase=Number((match.netCost*exchangeRate/match.quantity).toFixed(6));
+        const effectiveNetValue=stockValuesBase.get(it.id)||0;
+        const unitCostInBase=Number((effectiveNetValue/match.quantity).toFixed(6));
         const oldQty=Number(it.stockQuantity)||0;
         const newQty=Number((oldQty+match.quantity).toFixed(6));
         addStockMovement({
@@ -9310,7 +9326,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           balanceBefore: oldQty,
           balanceAfter: newQty,
           unitPrice: unitCostInBase,
-          totalValue: Number((match.netCost*exchangeRate).toFixed(2)),
+          totalValue: effectiveNetValue,
           referenceType: 'purchase',
           referenceNumber: invoiceNumber,
           reason: `توريد مشتريات من المورد (${invoiceData.supplierName})`,
@@ -9330,7 +9346,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     // Post to Journal in BASE CURRENCY (Palestinian Shekel ₪ / ILS)
     const remainingToSupplier=Number((sourceTotal-sourcePaid).toFixed(2));
-    const baseRemainingToSupplier = Number((remainingToSupplier * exchangeRate).toFixed(2));
+    const baseRemainingToSupplier=Number((baseTotalAmount-basePaidAmount).toFixed(2));
 
     const journalLines = [
       {
