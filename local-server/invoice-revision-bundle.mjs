@@ -229,9 +229,30 @@ export function buildVerifiedInvoiceRevisionBundle({
   if(!party||!Number.isSafeInteger(party.version)||party.version<1||
     !Number.isFinite(balance(party)))
    throw new Error('REVISION_PARTY_AUTHORITATIVE_BALANCE_REQUIRED:'+row.partyId);
-  const current=minor(balance(party)),next=current+row.amountMinor;
+  const recorded=minor(balance(party));
+  const proven=plan.verifiedPartyBalances?.[row.partyId];
+  const starting=proven?.balanceMinor??recorded;
+  if(!Number.isSafeInteger(starting))throw new Error('REVISION_UNVERIFIED_CUSTOMER_BALANCE:'+row.partyId);
+  const next=starting+row.amountMinor;
   changes.push({entity:'parties',id:row.partyId,expectedVersion:party.version,
-   value:{...party.value,balance:money(next)}});
+   value:{
+    ...party.value,balance:money(next),
+    ...(proven&&starting!==recorded?{
+     partyBalanceReconciliations:[
+      ...(party.value.partyBalanceReconciliations||[]),
+      {
+       id:'party-balance-'+commandId+'-'+row.partyId,
+       date:now,invoiceId:invoice.id,
+       priorCachedBalance:money(recorded),
+       provenInvoiceOnlyBalanceBefore:money(starting),
+       verifiedInvoiceCount:proven.sourceInvoiceCount,
+       invoiceAmendmentDelta:money(row.amountMinor),
+       correctedCachedBalance:money(next),
+       reason:'Prior cached balance omitted verified unpaid invoices; all linked account-1201 postings reconciled'
+      }
+     ]
+    }: {})
+   }});
  }
  if(changes.length>80)throw new Error('REVISION_BUNDLE_TOO_LARGE');
  const keys=new Set();
