@@ -207,6 +207,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     const limit=purchaseMoney(grandTotal*invoiceExchangeRate);
     const otherBase=purchaseMoney(other.amount*other.rate);
     const remainBase=Math.max(0,purchaseMoney(limit-otherBase));
+    if(!Number.isFinite(target.rate)||target.rate<=0)return;
     const amount=Math.max(0,Math.floor(remainBase/target.rate*100+1e-7)/100);
     const eligible=method==='cash'?cashPurchaseAccounts:bankPurchaseAccounts;
     const setter=method==='cash'?setCashPurchasePayment:setBankPurchasePayment;
@@ -270,7 +271,8 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
         subtotal,taxRate,taxAmount,totalAmount:grandTotal,
         paidAmount:purchaseSettlement.paidInvoice,
         paymentMethod,
-        treasuryAccountCode:paymentMethod==='cash'?cashPurchasePayment.treasuryCode:
+        treasuryAccountCode:paymentMethod==='credit'?undefined:
+          paymentMethod==='cash'?cashPurchasePayment.treasuryCode:
           bankPurchasePayment.treasuryCode,
         notes,overallDiscountPercent:overallPurchaseDiscount,
         overallDiscountAmount:purchaseBreakdown.overallDiscount,
