@@ -199,11 +199,14 @@ export function printDetailedSalesInvoiceRegister(
         ' | حالة السداد: ' + escapeHtml(statusLabel(invoice)) +
         (invoice.warehouse ? ' | المخزن: ' + escapeHtml(invoice.warehouse) : '') +
         '</div>',
-      '<div class="payment-review"><strong>تفاصيل الدفع والصندوق / البنك:</strong> ' +
-        payment.map(detail => '<span>' + escapeHtml(detail) + '</span>').join('') + '</div>',
       invoiceNote ? '<div class="invoice-note"><strong>ملاحظات الفاتورة:</strong> ' +
         escapeHtml(invoiceNote) + '</div>' : '',
-      '<table class="lines"><thead><tr><th>#</th><th>كود الصنف</th><th>الصنف / ملاحظات الصنف</th>' +
+      '<table class="lines"><colgroup>' +
+        '<col style="width:3%"><col style="width:6%"><col style="width:36%">' +
+        '<col style="width:5%"><col style="width:5%"><col style="width:5%">' +
+        '<col style="width:6%"><col style="width:9%"><col style="width:8%">' +
+        '<col style="width:7%"><col style="width:10%">' +
+        '</colgroup><thead><tr><th>#</th><th>كود الصنف</th><th>الصنف / ملاحظات الصنف</th>' +
         '<th>الطول</th><th>العرض</th><th>العدد</th><th>الكمية</th>' +
         '<th>سعر الوحدة</th><th>الخصم</th><th>الضريبة</th><th>الإجمالي</th></tr></thead>',
       '<tbody>', rows, '</tbody></table>',
@@ -219,6 +222,8 @@ export function printDetailedSalesInvoiceRegister(
       '<span>المتبقي: <b>' + formatAmount(invoice.remainingAmount ?? (safeNumber(invoice.totalAmount) - safeNumber(invoice.paidAmount))) +
         ' ' + escapeHtml(symbol) + '</b></span>',
       '</div>',
+      '<div class="payment-review"><strong>تفاصيل الدفع والصندوق / البنك:</strong> ' +
+        payment.map(detail => '<span>' + escapeHtml(detail) + '</span>').join('') + '</div>',
       '</section>'
     ].join('');
   }).join('');
@@ -229,39 +234,43 @@ export function printDetailedSalesInvoiceRegister(
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<title>كشف تفصيلي لفواتير المبيعات</title>',
     '<style>',
-    '@page { size: A4 landscape; margin: 10mm; }',
+    '@page { size: A4 landscape; margin: 8mm; }',
     '* { box-sizing: border-box; }',
-    'body { margin: 0; padding: 15px; color: #15263b; font-family: Tahoma, Arial, sans-serif; font-size: 11px; }',
+    'body { margin: 0 auto; padding: 8px 0; width: 100%; max-width: 281mm; color: #15263b; font-family: Tahoma, Arial, sans-serif; font-size: 12px; line-height: 1.5; }',
     'h1 { font-size: 20px; margin: 5px 0; } h2 { font-size: 13px; margin: 14px 0 6px; }',
     '.company { color: #526579; font-size: 12px; font-weight: bold; }',
     '.header { border-bottom: 2px solid #193c5c; padding-bottom: 11px; margin-bottom: 14px; }',
     '.criteria { display: flex; flex-wrap: wrap; gap: 7px 20px; margin: 9px 0; color: #344b63; }',
     '.summary, .lines { width: 100%; border-collapse: collapse; direction: rtl; }',
+    '.lines { table-layout: fixed; }',
     'th { background: #e9eff5; color: #182f47; font-weight: bold; }',
-    'th, td { border: 1px solid #c4ced8; padding: 5px 6px; text-align: right; vertical-align: top; }',
+    'th, td { border: 1px solid #c4ced8; padding: 5px 5px; text-align: right; vertical-align: top; }',
     '.summary th, .summary td { white-space: nowrap; }',
     '.invoice { margin: 12px 0 17px; break-inside: auto; page-break-inside: auto; }',
     '.invoice-heading { background: #edf3fa; padding: 8px; display: flex; flex-wrap: wrap; gap: 8px 22px; border: 1px solid #c4ced8; }',
     '.invoice-heading strong { font-size: 12px; } .meta { padding: 6px 4px; color: #465a6e; }',
-    '.lines th:nth-child(3) { min-width: 185px; }',
-    '.lines td:nth-child(3) { white-space: pre-wrap; overflow-wrap: anywhere; }',
-    '.lines th, .lines td { padding: 4px 5px; font-size: 9px; }',
+    '.lines th:nth-child(3) { text-align: right; }',
+    '.lines td:nth-child(3) { white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }',
+    '.lines th:nth-child(2), .lines td:nth-child(2) { direction: ltr; text-align: center; font-size: 10px; overflow-wrap: anywhere; }',
+    '.lines th:nth-child(1), .lines td:nth-child(1), .lines th:nth-child(n+4):nth-child(-n+7), .lines td:nth-child(n+4):nth-child(-n+7) { text-align: center; }',
+    '.lines th, .lines td { padding: 5px 3px; font-size: 10.5px; line-height: 1.45; overflow-wrap: anywhere; }',
+    '.lines th { font-size: 10.5px; white-space: normal; vertical-align: middle; }',
     '.invoice-heading { break-after: avoid; page-break-after: avoid; }',
-    '.item-name { font-weight: 700; }',
-    '.payment-review { border: 1px solid #cbd5e1; border-top: 0; background: #f7fafc; padding: 7px 9px; }',
+    '.item-name { font-weight: 700; font-size: 11.5px; }',
+    '.payment-review { border: 1px solid #cbd5e1; background: #f7fafc; padding: 7px 9px; margin-top: 8px; font-size: 11.5px; break-inside: avoid; }',
     '.payment-review strong { display: block; margin-bottom: 4px; }',
-    '.payment-review span { display: inline-block; margin: 2px 13px 2px 0; padding: 3px 5px; border: 1px solid #dde5ee; background: white; }',
+    '.payment-review span { display: inline-block; margin: 3px 9px 3px 0; padding: 3px 6px; border: 1px solid #dde5ee; background: white; }',
     '.invoice-note { background: #fff9e9; border: 1px solid #edd9a5; padding: 7px 9px; white-space: pre-wrap; overflow-wrap: anywhere; }',
-    '.num { white-space: nowrap; direction: ltr; text-align: right; font-variant-numeric: tabular-nums; }',
+    '.num { white-space: normal; direction: ltr; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }',
     '.strong { font-weight: bold; } .center { text-align: center; color: #62758a; }',
-    '.item-note { font-size: 9px; color: #455d76; padding-top: 3px; white-space: pre-wrap; }',
+    '.item-note { font-size: 10.5px; color: #455d76; padding-top: 3px; white-space: pre-wrap; }',
     '.item-note.muted { color: #8a98a9; font-weight: normal; }',
-    '.invoice-totals { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 15px; margin-top: 6px; }',
+    '.invoice-totals { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 5px 12px; margin-top: 7px; font-size: 11.5px; }',
     '.invoice-totals span { white-space: nowrap; }',
     '.foot { margin: 17px 0 0; padding-top: 8px; border-top: 1px solid #c4ced8; font-size: 9px; color: #64748b; }',
     '.print-controls { display: flex; gap: 8px; justify-content: flex-start; margin: 0 0 12px; }',
     '.print-controls button { border: 0; border-radius: 6px; padding: 8px 16px; color: white; background: #1c4f79; cursor: pointer; }',
-    '@media print { body { padding: 0; } .print-controls { display: none; } ',
+    '@media print { html, body { width: 100%; max-width: 100%; padding: 0; } .print-controls { display: none; } ',
     'thead { display: table-header-group; } tr { break-inside: avoid; } }',
     '</style></head><body>',
     '<div class="print-controls"><button type="button" onclick="window.print()">طباعة الكشف / حفظ PDF</button></div>',
