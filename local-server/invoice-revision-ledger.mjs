@@ -34,8 +34,8 @@ export const invoiceAmounts=invoice=>{
  for(const item of invoice.items||[]){
   if(!isDelivery(item))continue;
   if(Number(item.tax||0)!==0)throw new Error('REVISION_DELIVERY_MUST_NOT_BE_TAXED');
-  delivery+=minor((Number(item.quantity)*Number(item.unitPrice))-
-   Number(item.discount||0))*rate;
+  delivery+=minor(((Number(item.quantity)*Number(item.unitPrice))-
+   Number(item.discount||0))*rate);
  }
  delivery=Math.round(delivery);
  if(total<0||paid<0||paid>total||tax<0||delivery<0||
