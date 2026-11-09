@@ -42,11 +42,16 @@ export function validateProposedInvoice(invoice,{original=null}={}){
    // An unchanged historical receipt remains fixed in the base currency.
    const oldRate=Number(original?.exchangeRate||1);
    const rateChanged=!!original&&Math.abs(oldRate-rate)>0.0000001;
+   const hasOriginalSplit=original.cashPaidAmount!==undefined||
+    original.bankPaidAmount!==undefined;
+   const splitMatches=hasOriginalSplit
+    ?minor(original.cashPaidAmount||0)===minor(invoice.cashPaidAmount||0)&&
+     minor(original.bankPaidAmount||0)===minor(invoice.bankPaidAmount||0)
+    :minor(invoice.cashBaseAmount||0)+minor(invoice.bankBaseAmount||0)===base;
    const unchangedReceipt=rateChanged&&
     minor(original.basePaidAmount??Number(original.paidAmount||0)*oldRate)===base&&
     minor(original.paidAmount||0)===minor(invoice.paidAmount||0)&&
-    minor(original.cashPaidAmount||0)===minor(invoice.cashPaidAmount||0)&&
-    minor(original.bankPaidAmount||0)===minor(invoice.bankPaidAmount||0)&&
+    splitMatches&&
     (original.cashTreasuryCode||'')===(invoice.cashTreasuryCode||'')&&
     (original.bankTreasuryCode||'')===(invoice.bankTreasuryCode||'');
    if(!unchangedReceipt)throw new Error('REVISION_BASE_PAYMENT_MISMATCH');
