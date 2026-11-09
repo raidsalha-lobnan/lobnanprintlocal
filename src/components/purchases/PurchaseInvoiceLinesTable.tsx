@@ -92,7 +92,7 @@ export const PurchaseInvoiceLinesTable:React.FC<Props>=({
  const header=['م','رقم الصنف','الصنف','صورة','البيان / ملاحظات الصنف','الطول','العرض',
   'العدد','الكمية','الوحدة','سعر الشراء','الخصم','الضريبة','الإجمالي','حذف'];
  const summary=purchaseLineSummary(rows,taxRate);
- return <section className="min-w-0 space-y-2" dir="rtl">
+ return <section className="flex h-full min-h-0 min-w-0 flex-col gap-1" dir="rtl">
   <div className="flex flex-wrap items-center justify-between gap-2">
    <span className="text-[12px] font-black text-slate-800">بنود فاتورة الشراء وتوريد الأصناف</span>
    <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold">
@@ -104,10 +104,10 @@ export const PurchaseInvoiceLinesTable:React.FC<Props>=({
     </button>
    </div>
   </div>
-  <div className="min-h-[180px] w-full overflow-auto rounded-md border border-slate-300 bg-white">
-   <table className="w-full min-w-[1530px] table-fixed border-collapse text-right">
+  <div className="min-h-0 w-full flex-1 overflow-auto rounded-md border border-slate-300 bg-white">
+   <table className="w-full min-w-[1190px] table-fixed border-collapse text-right">
     <colgroup>
-     {[36,103,260,49,180,66,66,66,82,77,95,78,78,100,45].map((width,i)=>
+     {[31,80,204,38,152,54,54,52,68,58,78,66,62,93,38].map((width,i)=>
       <col key={i} style={{width}}/>)}
     </colgroup>
     <thead className="sticky top-0 z-10 bg-[#b3cbe3] text-slate-900">
@@ -197,15 +197,8 @@ export const PurchaseInvoiceLinesTable:React.FC<Props>=({
     </tbody>
    </table>
   </div>
-  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-blue-100 bg-blue-50/80 px-3 py-2 text-[11px] font-bold">
-   <span>قبل الخصم: {summary.gross.toFixed(2)} {currency}</span>
-   <span className="text-rose-700">الخصم: {summary.discount.toFixed(2)} {currency}</span>
-   <span>بعد الخصم: {summary.subtotal.toFixed(2)} {currency}</span>
-   <span className="text-blue-700">ضريبة المدخلات: {summary.tax.toFixed(2)} {currency}</span>
-   <span className="ms-auto text-[13px] font-black text-blue-900">الإجمالي: {summary.total.toFixed(2)} {currency}</span>
-  </div>
-  {!summary.valid&&<p className="text-[11px] font-bold text-amber-700">
-   <ScanBarcode className="inline h-3.5 w-3.5"/> اختر صنفًا صالحًا لكل سطر وتأكد من الكميات والسعر والخصم قبل الحفظ.
-  </p>}
+  {!summary.valid&&<span className="shrink-0 text-[10px] font-bold text-amber-700">
+   <ScanBarcode className="inline h-3 w-3"/> اختر الصنف والكمية والسعر والخصم لكل بند للحفظ.
+  </span>}
  </section>;
 };
