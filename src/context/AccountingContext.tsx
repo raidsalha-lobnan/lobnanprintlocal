@@ -9242,48 +9242,100 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if(!groupedItems.size)throw new Error('يجب إدخال صنف واحد على الأقل في فاتورة الشراء.');
 
     const lineNetTotal=Number(Array.from(groupedItems.values()).reduce((s,r)=>s+r.netCost,0).toFixed(2));
+    const landedCharges=Number(invoiceData.additionalCharges||0);
+    if(!Number.isFinite(landedCharges)||landedCharges<0)
+      throw new Error('مصاريف التوريد الإضافية يجب أن تكون مبلغًا صحيحًا غير سالب.');
     const sourceSubtotal=invoiceData.subtotal!==undefined?
       Number(invoiceData.subtotal):
       Number(Array.from(groupedItems.values()).reduce((s,r)=>s+r.netCost,0).toFixed(2));
     const sourceTax=Number(invoiceData.taxAmount||0);
     const sourceTotal=Number(invoiceData.totalAmount);
-    const sourcePaid=Number(invoiceData.paidAmount||0);
     const exchangeRate=Number(invoiceData.exchangeRate||1);
+    const isSplitPurchase=invoiceData.cashPaidAmount!==undefined||
+      invoiceData.bankPaidAmount!==undefined;
+    const cashAmount=Number(invoiceData.cashPaidAmount||0);
+    const bankAmount=Number(invoiceData.bankPaidAmount||0);
+    const cashRate=Number(invoiceData.cashPaymentExchangeRate||1);
+    const bankRate=Number(invoiceData.bankPaymentExchangeRate||1);
+    if(![cashAmount,bankAmount,cashRate,bankRate].every(Number.isFinite)||
+      cashAmount<0||bankAmount<0||cashRate<=0||bankRate<=0)
+      throw new Error('المبلغ أو سعر الصرف في الدفع النقدي/البنكي غير صحيح.');
+    const cashBase=isSplitPurchase?Number((cashAmount*cashRate).toFixed(2)):0;
+    const bankBase=isSplitPurchase?Number((bankAmount*bankRate).toFixed(2)):0;
+    const baseTotalAmount=Number((sourceTotal*exchangeRate).toFixed(2));
+    const basePaidAmount=isSplitPurchase?Number((cashBase+bankBase).toFixed(2)):
+      Number((Number(invoiceData.paidAmount||0)*exchangeRate).toFixed(2));
+    const unpaidBase=Number((baseTotalAmount-basePaidAmount).toFixed(2));
+    const sourcePaid=isSplitPurchase
+      ?(Math.abs(unpaidBase)<0.005?sourceTotal:
+        Number((basePaidAmount/exchangeRate).toFixed(2)))
+      :Number(invoiceData.paidAmount||0);
     if(!Number.isFinite(exchangeRate)||exchangeRate<=0||!Number.isFinite(sourceSubtotal)||
       !Number.isFinite(sourceTax)||!Number.isFinite(sourceTotal)||!Number.isFinite(sourcePaid)||
-      sourceSubtotal<0||sourceTax<0||sourcePaid<0||sourcePaid>sourceTotal||
+      sourceSubtotal<0||sourceTax<0||sourcePaid<0||basePaidAmount<0||
+      basePaidAmount>baseTotalAmount+0.005||
       Math.abs(sourceSubtotal+sourceTax-sourceTotal)>0.011||
-      Math.abs(lineNetTotal-sourceSubtotal)>0.011||
-      (sourcePaid>0&&invoiceData.paymentMethod==='credit'))
+      Math.abs(lineNetTotal+landedCharges-sourceSubtotal)>0.011||
+      (basePaidAmount>0&&invoiceData.paymentMethod==='credit'))
       throw new Error('إجمالي فاتورة المشتريات أو المبلغ المدفوع أو سعر الصرف غير متوازن.');
     if(!parties.some(p=>p.id===invoiceData.supplierId&&
       (p.type==='supplier'||p.type==='both')))
       throw new Error('المورد غير موجود في السجل المعتمد.');
-    const baseTotalAmount=Number((sourceTotal*exchangeRate).toFixed(2));
     const baseSubtotal=Number((sourceSubtotal*exchangeRate).toFixed(2));
     // Convert the document total once, then split rounded base amounts.
     // This prevents a 0.01 imbalance between purchases, VAT and payments.
     const baseTaxAmount=Number((baseTotalAmount-baseSubtotal).toFixed(2));
-    const basePaidAmount=Number((sourcePaid*exchangeRate).toFixed(2));
+    // Payment bases use each actual payment currency and its own approved
+    // rate; the invoice exchange rate is only for valuation of the purchase.
     const stockValuesBase=new Map<string,number>();
     const groupedEntries=Array.from(groupedItems.entries());
     let allocatedBase=0;
     groupedEntries.forEach(([itemId,amount],index)=>{
+      const landedShare=lineNetTotal>0
+        ?landedCharges*amount.netCost/lineNetTotal
+        :landedCharges*amount.quantity/
+         groupedEntries.reduce((sum,[,line])=>sum+line.quantity,0);
       const baseValue=index===groupedEntries.length-1
         ?Number((baseSubtotal-allocatedBase).toFixed(2))
-        :Number((amount.netCost*exchangeRate).toFixed(2));
+        :Number(((amount.netCost+landedShare)*exchangeRate).toFixed(2));
       stockValuesBase.set(itemId,baseValue);
       allocatedBase=Number((allocatedBase+baseValue).toFixed(2));
     });
-    const treasury=sourcePaid>0
-      ? treasuries.find(t=>t.accountCode===invoiceData.treasuryAccountCode||
-        (!invoiceData.treasuryAccountCode&&
-         t.accountCode===(invoiceData.paymentMethod==='cash'?'1101':'1102')))
-      : undefined;
-    if(sourcePaid>0&&(!treasury||treasury.status==='inactive'||
-      (invoiceData.paymentMethod==='cash'&&treasury.type!=='cash_box')||
-      (invoiceData.paymentMethod!=='cash'&&treasury.type==='cash_box')))
-      throw new Error('اختر صندوقًا نقديًا أو حسابًا بنكيًا صحيحًا لطريقة دفع المشتريات.');
+    // An invoice can be paid in cash, bank, both, or entirely on account.
+    // Explicit treasury references are mandatory for both real payment legs.
+    const paymentLegs:(Array<{
+      kind:'cash'|'bank';amount:number;rate:number;
+      currency:string;treasuryCode:string;base:number;
+    }>)=[];
+    if(isSplitPurchase){
+      if(cashBase>0)paymentLegs.push({
+        kind:'cash',amount:cashAmount,rate:cashRate,
+        currency:invoiceData.cashPaymentCurrency||'ILS',
+        treasuryCode:invoiceData.cashTreasuryAccountCode||'',base:cashBase
+      });
+      if(bankBase>0)paymentLegs.push({
+        kind:'bank',amount:bankAmount,rate:bankRate,
+        currency:invoiceData.bankPaymentCurrency||'ILS',
+        treasuryCode:invoiceData.bankTreasuryAccountCode||'',base:bankBase
+      });
+    }else if(basePaidAmount>0){
+      paymentLegs.push({
+        kind:invoiceData.paymentMethod==='cash'?'cash':'bank',
+        amount:sourcePaid,rate:exchangeRate,
+        currency:invoiceData.currency||'ILS',
+        treasuryCode:invoiceData.treasuryAccountCode||
+          (invoiceData.paymentMethod==='cash'?'1101':'1102'),
+        base:basePaidAmount
+      });
+    }
+    const verifiedPayments=paymentLegs.map(leg=>{
+      const treasury=treasuries.find(t=>t.accountCode===leg.treasuryCode);
+      if(!treasury||treasury.status==='inactive'||
+        (leg.kind==='cash'&&treasury.type!=='cash_box')||
+        (leg.kind==='bank'&&treasury.type==='cash_box'))
+        throw new Error('الدفع النقدي والبنكي يجب أن يرتبط كل منهما بالصندوق أو الحساب الصحيح.');
+      return {...leg,treasury};
+    });
 
     const newPur: PurchaseInvoice = {
       ...invoiceData,
@@ -9295,7 +9347,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       subtotal:sourceSubtotal,taxRate:Number(invoiceData.taxRate||0),taxAmount:sourceTax,
       totalAmount:sourceTotal,paidAmount:sourcePaid,
       baseTotalAmount,basePaidAmount,
-      status:sourcePaid>=sourceTotal?'paid':sourcePaid>0?'partial':'unpaid'
+      status:unpaidBase<0.005?'paid':basePaidAmount>0?'partial':'unpaid'
     };
 
     setPurchases(prev => [newPur, ...prev]);
@@ -9346,7 +9398,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     // Post to Journal in BASE CURRENCY (Palestinian Shekel ₪ / ILS)
     const remainingToSupplier=Number((sourceTotal-sourcePaid).toFixed(2));
-    const baseRemainingToSupplier=Number((baseTotalAmount-basePaidAmount).toFixed(2));
+    const baseRemainingToSupplier=unpaidBase;
 
     const journalLines = [
       {
@@ -9365,44 +9417,42 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     ];
 
-    if (basePaidAmount > 0) {
+    for(const leg of verifiedPayments){
       journalLines.push({
-        accountCode: treasury!.accountCode,
-        accountName: treasury!.name,
-        debit: 0,
-        credit: basePaidAmount,
-        description: `سداد قيمة فاتورة مشتريات (بالشيكل)`
+        accountCode:leg.treasury.accountCode,
+        accountName:leg.treasury.name,
+        debit:0,credit:leg.base,
+        description:`سداد فاتورة مشتريات ${invoiceNumber} ${leg.kind==='cash'?'نقدًا':'بنكيًا'} ${leg.amount} ${leg.currency}`
       });
 
-      const pTreasuryCode=treasury!.accountCode;
       adjustTreasuryBalance(
-        pTreasuryCode,-sourcePaid,
-        `سداد فاتورة مشتريات رقم ${invoiceNumber} للمورد (${invoiceData.supplierName})`,
-        'manual',id,
-        {currency:invoiceData.currency||settings.baseCurrencyCode||'ILS',
-         currencySymbol:invoiceData.currencySymbol||settings.currency||'₪',
-         exchangeRate,date:invoiceData.date,partyName:invoiceData.supplierName}
+        leg.treasuryCode,-leg.amount,
+        `سداد مشتريات ${invoiceNumber} من ${leg.treasury.name}`+
+          (invoiceData.paymentReceiptNote?` — ${invoiceData.paymentReceiptNote}`:''),
+        'purchase',id,{
+          currency:leg.currency,currencySymbol:currencies.find(c=>c.code===leg.currency)?.symbol||leg.currency,
+          exchangeRate:leg.rate,date:invoiceData.date,
+          partyName:invoiceData.supplierName
+        }
       );
 
-      const payVoucherId = `vch-pur-${id}`;
-      const payVoucherNumber = `PAY-PUR-${invoiceNumber.replace('PUR-', '')}`;
-      const newPayVoucher: PaymentVoucher = {
-        id: payVoucherId,
-        voucherNumber: payVoucherNumber,
-        type: 'payment',
-        date: invoiceData.date,
-        partyId: invoiceData.supplierId,
-        partyName: invoiceData.supplierName,
-        amount: basePaidAmount,
-        paymentMethod: invoiceData.paymentMethod === 'cash' ? 'cash' : 'bank_transfer',
-        accountCode:'2101',
-        treasuryAccountCode:pTreasuryCode,
-        currency:'ILS',currencySymbol:'₪',baseAmount:basePaidAmount,
+      // A single payment voucher is created for each actually paid leg,
+      // preserving the supplier statement and its cash/bank audit trail.
+      const voucherId=`vch-pur-${id}-${leg.kind}`;
+      const voucherNumber=`PAY-PUR-${invoiceNumber.replace('PUR-','')}-${leg.kind==='cash'?'C':'B'}`;
+      const voucher:PaymentVoucher={
+        id:voucherId,voucherNumber,type:'payment',
+        date:invoiceData.date,partyId:invoiceData.supplierId,
+        partyName:invoiceData.supplierName,amount:leg.base,
+        paymentMethod:leg.kind==='cash'?'cash':'bank_transfer',
+        accountCode:'2101',treasuryAccountCode:leg.treasuryCode,
+        currency:'ILS',currencySymbol:'₪',baseAmount:leg.base,
         relatedDocType:'purchase',relatedDocId:id,
-        description: `سند صرف وسداد لفاتورة مشتريات رقم ${invoiceNumber} من ${treasury!.name}`
+        description:`سداد فاتورة ${invoiceNumber} — ${leg.amount} ${leg.currency} من ${leg.treasury.name}`+
+          (invoiceData.paymentReceiptNote?` — ${invoiceData.paymentReceiptNote}`:'')
       };
-      setVouchers(prev => [newPayVoucher, ...prev]);
-      setDoc(doc(db, 'vouchers', payVoucherId), cleanDocForFirestore(newPayVoucher)).catch(() => {});
+      setVouchers(prev=>[voucher,...prev]);
+      setDoc(doc(db,'vouchers',voucherId),cleanDocForFirestore(voucher)).catch(()=>{});
     }
 
     if (baseRemainingToSupplier > 0) {
