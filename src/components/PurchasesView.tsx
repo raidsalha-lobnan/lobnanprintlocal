@@ -34,6 +34,7 @@ import {
   Building
 } from 'lucide-react';
 import { SupplierModal } from './purchases/SupplierModal';
+import { SuppliersCompactDirectory } from './SuppliersCompactDirectory';
 import { PaymentVoucherModal } from './purchases/PaymentVoucherModal';
 import { AutocompleteCombobox } from './common/AutocompleteCombobox';
 
@@ -66,15 +67,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   } = useAccounting();
 
   // Top Active Tab: Suppliers vs Invoices vs Returns vs Payment Vouchers
-  const [activeTab, setActiveTabState] = useState<'suppliers' | 'invoices' | 'returns' | 'vouchers'>(() => {
-    try {
-      const saved = localStorage.getItem('purchases_subtab');
-      if (saved && ['suppliers', 'invoices', 'returns', 'vouchers'].includes(saved)) {
-        return saved as any;
-      }
-    } catch {}
-    return initialTab;
-  });
+  const [activeTab, setActiveTabState] = useState<'suppliers' | 'invoices' | 'returns' | 'vouchers'>(initialTab);
 
   const setActiveTab = React.useCallback((tab: 'suppliers' | 'invoices' | 'returns' | 'vouchers') => {
     setActiveTabState(tab);
@@ -83,11 +76,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     } catch {}
   }, []);
 
-  React.useEffect(() => {
-    if (initialTab && !localStorage.getItem('purchases_subtab')) {
-      setActiveTab(initialTab);
-    }
-  }, [initialTab, setActiveTab]);
+  React.useEffect(() => { setActiveTabState(initialTab); }, [initialTab]);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Suppliers Management State
@@ -474,7 +463,10 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   const totalCreditorSuppliersDebt = suppliers.reduce((sum, s) => s.balance < 0 ? sum + Math.abs(s.balance) : sum, 0);
 
   return (
-    <div className="space-y-3 font-sans text-right">
+    <div className={activeTab === 'suppliers'
+      ? 'flex h-full min-h-0 flex-1 flex-col overflow-hidden font-sans text-right'
+      : 'space-y-3 font-sans text-right'}>
+      {activeTab !== 'suppliers' && (<>
       {/* Top Header & Fast Actions */}
       <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
         <div className="flex items-center gap-2.5">
@@ -689,185 +681,17 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
         </div>
       </div>
 
-      {/* ========================================================= */}
-      {/* --- TAB 1: SUPPLIERS LIST & DETAILED STATEMENTS --- */}
-      {/* ========================================================= */}
+      </>)}
       {activeTab === 'suppliers' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 text-[11px]">
-                <tr>
-                  <th className="p-3">رقم المورد التسلسلي</th>
-                  <th className="p-3">اسم المورد / الشركة</th>
-                  <th className="p-3">جهة الاتصال والهاتف</th>
-                  <th className="p-3">المدينة والعنوان</th>
-                  <th className="p-3">الرقم الضريبي</th>
-                  <th className="p-3 font-mono">الرصيد المالي الحالي</th>
-                  <th className="p-3">حالة الحساب</th>
-                  <th className="p-3 text-center">الإجراءات والعمليات المالية</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {filteredSuppliers.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-400">
-                      لا يوجد موردين مطابقين لمعايير البحث
-                    </td>
-                  </tr>
-                ) : (
-                  filteredSuppliers.map(supplier => {
-                    const isCreditor = supplier.balance < -0.01; // We owe money
-                    const isDebtor = supplier.balance > 0.01; // They owe us
-                    const isBalanced = Math.abs(supplier.balance) <= 0.01;
-
-                    return (
-                      <tr key={supplier.id} className="hover:bg-slate-50/80 transition-colors">
-                        {/* Unique Sequential Supplier Code */}
-                        <td className="p-3">
-                          <span className="font-mono font-black text-xs px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            {supplier.code || 'SUPP-0000'}
-                          </span>
-                        </td>
-
-                        {/* Supplier Name */}
-                        <td className="p-3 font-bold text-slate-900">
-                          <div className="flex items-center gap-2">
-                            <span>{supplier.name}</span>
-                            {supplier.commercialRegister && (
-                              <span className="text-[10px] text-slate-400 font-normal font-mono">
-                                (س.ت: {supplier.commercialRegister})
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Contact & Phone */}
-                        <td className="p-3">
-                          <div className="text-[11px] space-y-0.5">
-                            {supplier.contactPerson && (
-                              <div className="font-medium text-slate-800 flex items-center gap-1">
-                                <User className="w-3 h-3 text-slate-400" />
-                                <span>{supplier.contactPerson}</span>
-                              </div>
-                            )}
-                            {supplier.phone ? (
-                              <div className="font-mono text-slate-600 flex items-center gap-1">
-                                <Phone className="w-3 h-3 text-slate-400" />
-                                <span dir="ltr">{supplier.phone}</span>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">-</span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* City & Address */}
-                        <td className="p-3 text-[11px] text-slate-600">
-                          {supplier.city ? (
-                            <span>{supplier.city} {supplier.address ? ` - ${supplier.address}` : ''}</span>
-                          ) : (
-                            <span>{supplier.address || '-'}</span>
-                          )}
-                        </td>
-
-                        {/* Tax Number */}
-                        <td className="p-3 font-mono text-[11px] text-slate-600">
-                          {supplier.taxNumber || '-'}
-                        </td>
-
-                        {/* Financial Balance */}
-                        <td className="p-3 font-mono font-black text-xs">
-                          {isCreditor ? (
-                            <span className="text-rose-700">
-                              {Math.abs(supplier.balance).toLocaleString('ar-SA', { minimumFractionDigits: 2 })} {settings.currency}
-                            </span>
-                          ) : isDebtor ? (
-                            <span className="text-blue-700">
-                              {supplier.balance.toLocaleString('ar-SA', { minimumFractionDigits: 2 })} {settings.currency}
-                            </span>
-                          ) : (
-                            <span className="text-emerald-700">0.00 {settings.currency}</span>
-                          )}
-                        </td>
-
-                        {/* Balance Status Badge */}
-                        <td className="p-3">
-                          {isCreditor ? (
-                            <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800">
-                              دائن (مستحق له سداد)
-                            </span>
-                          ) : isDebtor ? (
-                            <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                              مدين (رصيد لصالحنا)
-                            </span>
-                          ) : (
-                            <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                              الحساب خالص متسوي
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Actions */}
-                        <td className="p-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                            {/* Detailed Financial Account Statement */}
-                            <button
-                              onClick={() => setSelectedPartyForStatement(supplier)}
-                              className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-md text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                              title="عمل كشف حساب مالي تفصيلي للمورد"
-                            >
-                              <FileText className="w-3.5 h-3.5" />
-                              <span>كشف حساب مالي</span>
-                            </button>
-
-                            {/* Create Payment Voucher */}
-                            <button
-                              onClick={() => handleOpenVoucherModal(supplier)}
-                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-md text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                              title="تحرير سند صرف للمورد"
-                            >
-                              <Receipt className="w-3.5 h-3.5" />
-                              <span>سند صرف</span>
-                            </button>
-
-                            {/* Create Purchase Invoice */}
-                            <button
-                              onClick={() => handleOpenNewPurchase(supplier)}
-                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-md text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                              title="فاتورة توريد وشراء جديدة"
-                            >
-                              <Truck className="w-3.5 h-3.5" />
-                              <span>شراء</span>
-                            </button>
-
-                            {/* Edit Supplier */}
-                            <button
-                              onClick={() => handleEditSupplier(supplier)}
-                              className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded cursor-pointer transition-colors"
-                              title="تعديل بيانات المورد"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Delete Supplier */}
-                            <button
-                              onClick={() => handleDeleteSupplier(supplier)}
-                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors"
-                              title="حذف المورد"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <SuppliersCompactDirectory
+          onAdd={handleOpenAddSupplier}
+          onEdit={handleEditSupplier}
+          onDelete={handleDeleteSupplier}
+          onPurchase={handleOpenNewPurchase}
+          onReturn={handleOpenNewReturn}
+          onPay={supplier => handleOpenVoucherModal(supplier)}
+          onTab={setActiveTab}
+        />
       )}
 
       {/* ========================================================= */}
