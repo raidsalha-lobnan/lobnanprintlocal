@@ -1087,9 +1087,9 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
       {/* --- MODAL: NEW PURCHASE INVOICE (فاتورة مشتريات) --- */}
       {/* ========================================================= */}
       {showNewPurchaseModal && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
-          <div className="bg-white rounded-xl max-w-3xl w-full p-5 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto my-auto text-right font-sans">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/65 p-1.5 backdrop-blur-xs sm:p-3">
+          <div className="flex w-full max-w-[min(1640px,98vw)] max-h-[96vh] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-right font-sans shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
                   <Truck className="w-4 h-4" />
@@ -1115,7 +1115,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
               </button>
             </div>
 
-            <form onSubmit={handleSavePurchase} className="space-y-4 text-xs">
+            <form onSubmit={handleSavePurchase} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {/* Supplier selection */}
                 <div>
@@ -1234,7 +1234,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                     <label className="block text-slate-600 font-semibold mb-1 text-[11px]">نوع الدفع:</label>
                     <select
                       value={paymentMethod}
-                      onChange={e => setPaymentMethod(e.target.value as PaymentMethod)}
+                      onChange={e => {const method=e.target.value as PaymentMethod;setPaymentMethod(method);if(method==='credit')setPaidAmount(0);}}
                       className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-semibold focus:ring-1 focus:ring-blue-500"
                     >
                       <option value="bank_transfer">تحويل بنكي / شيك</option>
@@ -1250,6 +1250,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                       step="0.01"
                       min="0"
                       max={grandTotal}
+                      disabled={paymentMethod==='credit'}
                       value={paidAmount}
                       onChange={e => setPaidAmount(Number(e.target.value))}
                       placeholder="0.00"
@@ -1287,7 +1288,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+              <div className="sticky bottom-0 z-20 flex items-center justify-between gap-2 border-t border-slate-200 bg-white/95 px-2 py-2 shadow-sm">
                 <button
                   type="button"
                   onClick={() => setShowNewPurchaseModal(false)}
@@ -1296,11 +1297,11 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                   إلغاء
                 </button>
                 <button
-                  type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  type="submit" disabled={!purchaseTotals.valid}
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
-                  <span>اعتماد فاتورة المشتريات وتحديث المخزون</span>
+                  <span>اعتماد المشتريات • {grandTotal.toFixed(2)} {invoiceCurrency}</span>
                 </button>
               </div>
             </form>
