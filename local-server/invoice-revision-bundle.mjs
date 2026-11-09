@@ -51,6 +51,11 @@ export function buildVerifiedInvoiceRevisionBundle({
   treasuryByCode.set(code,row);
  }
  const changes=[];
+ const changedDimensions={};
+ for(const field of ['date','warehouse','exchangeRate','currency']){
+  if(JSON.stringify(invoice[field]??null)!==JSON.stringify(proposed[field]??null))
+   changedDimensions[field]={previous:invoice[field]??null,current:proposed[field]??null};
+ }
  const amended={...invoice,...proposed,id:invoice.id,invoiceNumber:invoice.invoiceNumber,
   isOfficial:true,isAccountingPosted:true,postedAt:invoice.postedAt,
   updatedAt:now,
@@ -59,8 +64,15 @@ export function buildVerifiedInvoiceRevisionBundle({
    date:String(now).slice(0,10),createdAt:now,
    previousStatus:invoice.workflowStatus||'new',
    newStatus:proposed.workflowStatus||invoice.workflowStatus||'new',
-   notes:'اعتماد تعديل الفاتورة محاسبيًا - '+group
-  }]};
+   notes:'اعتماد تعديل الفاتورة محاسبيًا - '+group,
+   // Visible only in the invoice audit trail, not as a separate sale
+   // or a second invoice on operational reports.
+   revisionChanges:changedDimensions
+  }],
+  baseRemainingAmount:money(
+   minor(proposed.baseTotalAmount??proposed.totalAmount*Number(proposed.exchangeRate||1))-
+   minor(proposed.basePaidAmount??proposed.paidAmount*Number(proposed.exchangeRate||1))
+  )};
  changes.push({entity:'invoices',id:invoice.id,expectedVersion:invoiceVersion,value:amended});
  const accountDeltas=plan.accountDeltas||{
   '1201':plan.totalDeltaMinor,'4101':-plan.totalDeltaMinor
