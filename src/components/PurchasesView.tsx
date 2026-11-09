@@ -104,7 +104,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   const [invoiceExchangeRate, setInvoiceExchangeRate] = useState<number>(1.0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bank_transfer');
   const [paidAmount, setPaidAmount] = useState<number>(0);
-  const [paymentTreasuryCode, setPaymentTreasuryCode] = useState('1101');
+  const [paymentTreasuryCode, setPaymentTreasuryCode] = useState('');
   const [notes, setNotes] = useState('');
   const [taxRate, setTaxRate] = useState<number>(settings.vatRate || 0);
   const [items, setItems] = useState<PurchaseLineDraft[]>(()=>[emptyPurchaseLine()]);
@@ -174,6 +174,8 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   };
 
   // Calculations for Purchase Invoice
+  const eligiblePurchaseTreasuries=treasuries.filter(t=>t.status==='active'&&
+    (paymentMethod==='cash'?t.type==='cash_box':t.type!=='cash_box'));
   const purchaseTotals=purchaseLineSummary(items,taxRate);
   const subtotal=purchaseTotals.subtotal;
   const taxAmount=purchaseTotals.tax;
@@ -192,6 +194,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     setPaidAmount(0);
     setNotes('');
     setPaymentMethod('credit');
+    setPaymentTreasuryCode('');
     setItems([emptyPurchaseLine()]);
     setShowNewPurchaseModal(true);
   };
@@ -208,6 +211,9 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
       alert('تحقق من الصنف والكمية والطول والعرض والعدد وسعر الشراء والخصم في كل سطر.');return;
     }
     const paid=paymentMethod==='credit'?0:Number(paidAmount);
+    if(paid>0&&!eligiblePurchaseTreasuries.some(t=>t.accountCode===paymentTreasuryCode)){
+      alert('حدد الصندوق النقدي أو الحساب البنكي الفعلي الذي خرجت منه الدفعة.');return;
+    }
     if(!Number.isFinite(paid)||paid<0||paid>grandTotal){
       alert('المبلغ المسدد لا يجوز أن يقل عن صفر أو يزيد عن إجمالي الفاتورة.');return;
     }
@@ -1234,7 +1240,16 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                     <label className="block text-slate-600 font-semibold mb-1 text-[11px]">نوع الدفع:</label>
                     <select
                       value={paymentMethod}
-                      onChange={e => {const method=e.target.value as PaymentMethod;setPaymentMethod(method);if(method==='credit')setPaidAmount(0);}}
+                      onChange={e => {
+                        const method=e.target.value as PaymentMethod;
+                        setPaymentMethod(method);
+                        if(method==='credit'){setPaidAmount(0);setPaymentTreasuryCode('');}
+                        else {
+                          const eligible=treasuries.filter(t=>t.status==='active'&&
+                            (method==='cash'?t.type==='cash_box':t.type!=='cash_box'));
+                          setPaymentTreasuryCode(eligible[0]?.accountCode||'');
+                        }
+                      }}
                       className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-semibold focus:ring-1 focus:ring-blue-500"
                     >
                       <option value="bank_transfer">تحويل بنكي / شيك</option>
@@ -1263,12 +1278,12 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                     <select
                       value={paymentTreasuryCode}
                       onChange={e => setPaymentTreasuryCode(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-semibold focus:ring-1 focus:ring-blue-500"
+                      disabled={paymentMethod==='credit'}
+                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-semibold focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
                     >
-                      {treasuries.map(t => (
-                        <option key={t.id} value={t.accountCode}>
-                          {t.name}
-                        </option>
+                      <option value="">اختر الصندوق أو الحساب</option>
+                      {eligiblePurchaseTreasuries.map(t => (
+                        <option key={t.id} value={t.accountCode}>{t.name}</option>
                       ))}
                     </select>
                   </div>
