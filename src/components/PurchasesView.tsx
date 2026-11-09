@@ -492,8 +492,8 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   }, [supplierVouchers, searchQuery]);
 
   // KPI Calculations
-  const totalPurchasesAmount = purchases.reduce((sum, p) => sum + (p.totalAmount * (p.exchangeRate || 1)), 0);
-  const totalPaidAmount = purchases.reduce((sum, p) => sum + (p.paidAmount * (p.exchangeRate || 1)), 0);
+  const totalPurchasesAmount = purchases.reduce((sum, p) => sum + (p.baseTotalAmount ?? p.totalAmount * (p.exchangeRate || 1)), 0);
+  const totalPaidAmount = purchases.reduce((sum, p) => sum + (p.basePaidAmount ?? p.paidAmount * (p.exchangeRate || 1)), 0);
   const totalRemainingDebt = totalPurchasesAmount - totalPaidAmount;
   const totalReturnsAmount = purchaseReturns.reduce((sum, r) => sum + (r.totalAmount * (r.exchangeRate || 1)), 0);
   const totalCreditorSuppliersDebt = suppliers.reduce((sum, s) => s.balance < 0 ? sum + Math.abs(s.balance) : sum, 0);
@@ -761,8 +761,8 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                 ) : (
                   filteredPurchases.map(p => {
                     const supp = parties.find(pt => pt.id === p.supplierId);
-                    const baseTotal = p.totalAmount * (p.exchangeRate || 1);
-                    const basePaid = p.paidAmount * (p.exchangeRate || 1);
+                    const baseTotal = p.baseTotalAmount ?? p.totalAmount * (p.exchangeRate || 1);
+                    const basePaid = p.basePaidAmount ?? p.paidAmount * (p.exchangeRate || 1);
                     const remaining = Math.max(0, baseTotal - basePaid);
                     const isFullyPaid = remaining <= 0.01;
                     const isPartiallyPaid = basePaid > 0 && remaining > 0.01;
@@ -821,7 +821,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                         {/* Payment Method */}
                         <td className="p-3 text-[11px]">
                           <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
-                            {p.paymentMethod === 'cash' ? 'نقداً (صندوق)' : p.paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : 'آجل على الحساب'}
+                            {(p.cashBasePaidAmount||0)>0&&(p.bankBasePaidAmount||0)>0?'نقداً + بنكي':p.paymentMethod === 'cash' ? 'نقداً (صندوق)' : p.paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : 'آجل على الحساب'}
                           </span>
                         </td>
 
