@@ -7,6 +7,7 @@ import { secureLoginEnabled } from '../services/secureAuth';
 import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
 import { LocalHttpSyncTransport, getLocalSyncConfig } from '../sync-next/httpTransport';
+import {invoiceEditSignature} from '../utils/invoiceEditSignature';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
 import { ProposedChange, EntityName, JsonObject } from '../sync-next/types';
 import {
@@ -402,6 +403,7 @@ interface AccountingContextType {
       userId?: string;
       userName?: string;
       editingInvoiceId?: string;
+      editingInvoiceSnapshot?: string;
       counterpartyType?: 'customer' | 'supplier' | 'employee';
       counterpartyId?: string;
       paymentNotes?: string;
@@ -6887,6 +6889,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       userId?: string;
       userName?: string;
       editingInvoiceId?: string;
+      editingInvoiceSnapshot?: string;
       counterpartyType?: 'customer' | 'supplier' | 'employee';
       counterpartyId?: string;
       paymentNotes?: string;
@@ -7608,6 +7611,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if(visible.pending)
           throw new Error('INVOICE_HAS_PENDING_LOCAL_CHANGES_REVIEW_FIRST');
         const original=visible.value as unknown as Invoice;
+        // The record may have refreshed from PostgreSQL since this invoice was
+        // opened in another tab or device. The editor must not overwrite those
+        // newer business values with a stale on-screen form.
+        if(extraOptions.editingInvoiceSnapshot &&
+           invoiceEditSignature(original)!==extraOptions.editingInvoiceSnapshot)
+          throw new Error('INVOICE_CONCURRENT_MODIFICATION_REOPEN');
         const draft=preparePosInvoiceDraft(items,customerName,paymentMethod,
           customerId,notes,extraOptions);
         const currencyRate=Number(extraOptions.exchangeRate||1);
@@ -7681,7 +7690,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setInvoices(prev=>prev.map(inv=>inv.id===original.id?authoritative:inv));
         return {success:true,invoice:authoritative};
       }catch(error){
-        return {success:false,error:String(error),
+        const raw=String(error);
+        const conflict=/INVOICE_CONCURRENT_MODIFICATION_REOPEN|VERSION_CONFLICT/.test(raw);
+        return {success:false,
+          error:conflict
+            ?'تغيرت الفاتورة المعتمدة في PostgreSQL بعد فتحها على هذا الجهاز. منعنا الكتابة فوق تعديل الجهاز الآخر. مدخلاتك الحالية لم تُحذف؛ أعد فتح أحدث نسخة من الفاتورة ثم طبّق تعديلاتك عليها.'
+            :raw,
           isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
       }
     }
