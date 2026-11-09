@@ -483,7 +483,7 @@ const MainLayout: React.FC = () => {
       </div>
 
       {/* Main Content Area - Only this container scrolls internally when content is long */}
-      <main className={`flex-1 min-h-0 w-full flex flex-col ${(activeTab === 'pos' || activeTab === 'new_print_order' || activeTab === 'manual_invoices' || activeTab === 'special_invoice' || activeTab === 'daily_entry' || activeTab === 'parties') ? "p-1 sm:p-2 overflow-hidden" : "p-2.5 sm:p-3.5 overflow-y-auto"} ${isPrintModalActive ? "print:hidden" : "print:p-0 print:m-0 print:overflow-visible print:h-auto print:max-h-none"}`}>
+      <main className={`flex-1 min-h-0 w-full flex flex-col ${(activeTab === 'pos' || activeTab === 'new_print_order' || activeTab === 'manual_invoices' || activeTab === 'special_invoice' || activeTab === 'daily_entry' || activeTab === 'parties' || activeTab === 'purchases_suppliers' || activeTab === 'employees') ? "p-1 sm:p-2 overflow-hidden" : "p-2.5 sm:p-3.5 overflow-y-auto"} ${isPrintModalActive ? "print:hidden" : "print:p-0 print:m-0 print:overflow-visible print:h-auto print:max-h-none"}`}>
         <ErrorBoundary fallbackTitle="حدث تنبيه في عرض هذه الشاشة">
           {renderContent()}
         </ErrorBoundary>
