@@ -6,6 +6,7 @@ import {planFailedInvoiceEditRecovery} from './invoice-legacy-recovery.mjs';
 import {isUnchangedPosInvoice,descriptionOnlyInvoiceAmendment} from './invoice-revision-noop.mjs';
 import {isPhysical,isDelivery,minor,invoiceAmounts} from './invoice-revision-ledger.mjs';
 import {validateProposedInvoice} from './invoice-revision-arithmetic.mjs';
+import {proveInvoiceOnlyPartyBalance} from './invoice-party-balance.mjs';
 
 /**
  * Authenticated server-side invoice correction. There are no client-provided
@@ -195,6 +196,40 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
   const inventoryRecords=itemIds.length?(await client.query(
    "SELECT record_id AS id,version,value FROM sync_records WHERE workspace=$1 AND entity='inventory' AND record_id=ANY($2::text[])",
    [workspace,itemIds])).rows:[];
+  // Many imported parties had a zero cached balance while their verified
+  // unpaid invoices already represented the real receivable in the statement.
+  // Normalize only when there are NO other document types and every source
+  // invoice matches a posted account-1201 journal, avoiding double posting.
+  if(originalType==='customer'&&nextType==='customer'&&
+     !invoice.subCustomerId&&!proposed.subCustomerId&&
+     invoice.customerId===proposed.customerId&&
+     plan.customerBalanceChanges.length===1&&partyRecords.length===1){
+   const partyId=invoice.customerId;
+   const party=partyRecords[0]?.value;
+   if(partyRecords[0]?.id===partyId&&party?.type==='customer'){
+    const invoicesForParty=(await client.query(
+     "SELECT value FROM sync_records WHERE workspace=$1 AND entity='invoices' AND value->>'customerId'=$2",
+     [workspace,partyId])).rows.map(row=>row.value);
+    const sourceIds=invoicesForParty.map(v=>v.id).filter(Boolean);
+    const journalsForParty=sourceIds.length?(await client.query(
+     "SELECT value FROM sync_records WHERE workspace=$1 AND entity='journalEntries' AND value->>'referenceId'=ANY($2::text[])",
+     [workspace,sourceIds])).rows.map(row=>row.value):[];
+    const others=(await client.query(
+     `SELECT count(*)::integer AS count FROM sync_records
+      WHERE workspace=$1 AND entity=ANY($3::text[]) AND (
+       value->>'partyId'=$2 OR value->>'customerId'=$2 OR
+       value->>'supplierId'=$2 OR value->>'counterpartyId'=$2)`,
+     [workspace,partyId,[
+      'vouchers','purchases','purchaseReturns','salesReturns','printOrders',
+      'debtClearings','treasuryTransactions'
+     ]])).rows[0]?.count||0;
+    const proven=proveInvoiceOnlyPartyBalance({
+     partyId,party,invoices:invoicesForParty,journals:journalsForParty,
+     hasOtherPartyDocuments:Number(others)>0
+    });
+    if(proven)plan.verifiedPartyBalances={[partyId]:proven};
+   }
+  }
   const inventoryById=new Map(inventoryRecords.map(row=>[row.id,row]));
   for(const item of proposed.items){
    if(isDelivery(item))continue;
