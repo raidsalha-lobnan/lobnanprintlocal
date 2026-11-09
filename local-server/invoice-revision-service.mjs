@@ -99,6 +99,16 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
   // The ILS base currency is always valued at 1 ILS per ILS.
   if(currency(proposed.currency)==='ILS'&&Math.abs(rate-1)>0.000001)
    throw new InputError('INVOICE_REVISION_BASE_CURRENCY_RATE_MUST_BE_ONE',422);
+  // A settled foreign-currency payment needs its actual settlement currency,
+  // holding account and FX variance account. Never invent a new receivable or
+  // revalue an already-collected amount without these documents.
+  if(Math.abs(Number(invoice.exchangeRate||1)-rate)>0.0000001&&
+    Number(invoice.basePaidAmount??invoice.paidAmount||0)>0)
+   throw new InputError('INVOICE_REVISION_PAID_FX_SETTLEMENT_NEEDS_REVIEW',409,{
+    invoiceNumber:invoice.invoiceNumber,oldRate:invoice.exchangeRate||1,
+    proposedRate:rate,manualReviewRequired:true,
+    reason:'Foreign currency rate change for a settled payment requires verified FX settlement and gain/loss accounting'
+   });
   try{validateProposedInvoice(proposed,{original:invoice});}
   catch(error){throw new InputError('INVOICE_REVISION_INVALID_ARITHMETIC',422,
    {reason:String(error.message)});}
