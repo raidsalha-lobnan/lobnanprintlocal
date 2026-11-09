@@ -5,14 +5,16 @@
    IBM Plex Sans Arabic is the fallback on devices without Helvetica. */
 @font-face {
   font-family: 'Helvetica Neue LT Arabic App';
-  src: local('HelveticaNeueLTArabic-Roman'), local('Helvetica Neue LT Arabic 55 Roman');
+  src: local('HelveticaNeueLTArabic-Roman'), local('Helvetica Neue LT Arabic 55 Roman'),
+       local('HelveticaNeueLT Arabic 55 Roman');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: 'Helvetica Neue LT Arabic App';
-  src: local('HelveticaNeueLTArabic-Bold'), local('Helvetica Neue LT Arabic 75 Bold');
+  src: local('HelveticaNeueLTArabic-Bold'), local('Helvetica Neue LT Arabic 75 Bold'),
+       local('IBMPlexSansArabic-Bold'), local('IBM Plex Sans Arabic Bold');
   font-weight: 700;
   font-style: normal;
   font-display: swap;

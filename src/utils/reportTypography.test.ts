@@ -6,6 +6,8 @@ import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 test('report print windows use Helvetica Roman and Bold with a safe fallback', () => {
   assert.match(REPORT_TYPOGRAPHY_CSS, /HelveticaNeueLTArabic-Roman/);
   assert.match(REPORT_TYPOGRAPHY_CSS, /HelveticaNeueLTArabic-Bold/);
+  assert.match(REPORT_TYPOGRAPHY_CSS, /HelveticaNeueLT Arabic 55 Roman/);
+  assert.match(REPORT_TYPOGRAPHY_CSS, /IBMPlexSansArabic-Bold/);
   assert.match(REPORT_TYPOGRAPHY_CSS, /IBM Plex Sans Arabic/);
   assert.match(REPORT_TYPOGRAPHY_CSS, /th,button,b,strong\{font-weight:700/);
   assert.doesNotMatch(REPORT_TYPOGRAPHY_CSS, /url\(/);
