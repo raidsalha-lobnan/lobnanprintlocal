@@ -27,7 +27,8 @@ const journal=(id,invoice,group,kind,from,to,amountMinor,description,now)=>{
  */
 export function buildVerifiedInvoiceRevisionBundle({
  invoice,proposed,invoiceVersion,plan,
- partyRecords,inventoryRecords,treasuryRecords=[],commandId,now
+ partyRecords,inventoryRecords,treasuryRecords=[],registeredWarehouseCount=0,
+ singleWarehouseId=null,commandId,now
 }){
  if(!commandId||!now||!invoice?.id||!Number.isSafeInteger(invoiceVersion)||invoiceVersion<1)
   throw new Error('REVISION_MISSING_IDENTIFIERS_OR_VERSION');
@@ -116,7 +117,8 @@ export function buildVerifiedInvoiceRevisionBundle({
   const stock=computeInvoiceStockRevision({
    itemId,inventoryValue:item.value,
    invoiceWarehouse:invoice.warehouse,nextWarehouse:proposed.warehouse,
-   originalQuantity:oldQty,newQuantity:newQty
+   originalQuantity:oldQty,newQuantity:newQty,
+   registeredWarehouseCount
   });
   const current=stock.previousTotal,next=stock.nextTotal;
   const globalDelta=stock.aggregateDelta;
@@ -154,16 +156,22 @@ export function buildVerifiedInvoiceRevisionBundle({
   changes.push({entity:'inventory',id:itemId,expectedVersion:item.version,
    value:{
     ...item.value,stockQuantity:next,...(stocks?{warehouseStocks:stocks}:{}),
+    ...(registeredWarehouseCount===1&&singleWarehouseId?
+     {warehouseStock:{[singleWarehouseId]:next}}:{}),
     ...(stock.normalized?{inventoryBalanceReconciliations:[
      ...(item.value.inventoryBalanceReconciliations||[]),
      {
       id:'stock-balance-'+commandId+'-'+itemId,
       date:now,invoiceId:invoice.id,invoiceNumber:invoice.invoiceNumber,
-      reason:'Legacy aggregate quantity disagreed with existing warehouse balances',
+      reason:registeredWarehouseCount===1
+       ?'Single registered warehouse: legacy warehouse cache disagreed with stockQuantity'
+       :'Legacy aggregate quantity disagreed with the separate warehouse balances',
       priorAggregate:stock.originalAggregate,
-      provenWarehouseAggregateBefore:stock.previousTotal,
-      provenWarehouseAggregateAfter:stock.nextTotal,
+      priorWarehouseCache:stock.previousWarehouseCache,
+      authoritativeQuantityBefore:stock.previousTotal,
+      authoritativeQuantityAfter:stock.nextTotal,
       stockMovementDelta:globalDelta,
+      singleRegisteredWarehouse:registeredWarehouseCount===1,
       requiresStockValuationReview:true
      }
     ]}:{})
