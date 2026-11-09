@@ -6077,6 +6077,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const updateParty = (id: string, updated: Partial<Party>) => {
+    if (isCashCustomerParty(parties.find(p => p.id === id) || parties.find(p => p.code === id))) {
+      throw new Error('العميل النقدي CUST-0001 ثابت ولا يمكن تعديل بياناته.');
+    }
     let finalMergedParty: Party | null = null;
     let targetId = id;
 
@@ -6200,16 +6203,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const deleteParty = (id: string): { success: boolean; message?: string } => {
-    const hasInvoices = invoices.some(i => i.customerId === id);
+    const target = parties.find(p => p.id === id);
+    if (!target) return {success:false,message:'العميل غير موجود في القائمة المعتمدة.'};
+    if (isCashCustomerParty(target))
+      return {success:false,message:'الزبون النقدي CUST-0001 ثابت ولا يمكن حذفه.'};
+    const hasInvoices = invoices.some(i =>
+      i.customerId === id || i.subCustomerId === id ||
+      ((i as Invoice & { counterpartyId?: string }).counterpartyId === id));
     const hasPurchases = purchases.some(p => p.supplierId === id);
-    const hasReturns = purchaseReturns.some(r => r.supplierId === id);
+    const hasReturns = purchaseReturns.some(r => r.supplierId === id) ||
+      salesReturns.some(r => r.customerId === id);
     const hasVouchers = vouchers.some(v => v.partyId === id);
     const hasPrintOrders = printOrders.some(po => po.customerId === id);
-
-    if (hasInvoices || hasPurchases || hasReturns || hasVouchers || hasPrintOrders) {
+    const hasChildren = parties.some(p => p.parentPartyId === id);
+    const hasClearing = debtClearings.some(c => c.customerId === id || c.supplierId === id);
+    if (hasInvoices || hasPurchases || hasReturns || hasVouchers ||
+        hasPrintOrders || hasChildren || hasClearing) {
       return {
         success: false,
-        message: 'لا يمكن حذف هذا العميل/المورد لوجود حركات مالية وفواتير مسجلة باسمه. يمكنك تعديل بياناته أو تصفير رصيده.'
+        message: 'لا يمكن حذف العميل لارتباطه بفواتير أو حركات أو عملاء فرعيين. يمكن تعديل بياناته دون المساس بمراجعه المحاسبية.'
       };
     }
 
