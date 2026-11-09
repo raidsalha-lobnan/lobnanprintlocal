@@ -43,8 +43,14 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
  const sales=linked.filter(j=>value(j).referenceType==='pos_invoice');
  const cogs=linked.filter(j=>value(j).referenceType==='cogs');
  const corrections=linked.filter(j=>value(j).referenceType==='invoice_correction');
- if(sales.length!==1||cogs.length>1||linked.length!==sales.length+cogs.length+corrections.length)
+ // Imported invoices may have more than one historic posting. Do not
+ // accept the duplicates until signed correction journals reconcile their
+ // combined NET posting to the latest authoritative invoice. The account
+ // reconciliation and stock/COGS checks below are mandatory.
+ if(!sales.length||linked.length!==sales.length+cogs.length+corrections.length)
   throw new Error('REVISION_REQUIRES_RECONCILED_JOURNAL_HISTORY');
+ if((sales.length>1||cogs.length>1)&&corrections.length===0)
+  throw new Error('REVISION_DUPLICATE_HISTORY_NEEDS_APPROVED_CORRECTION');
  for(const j of linked)validateJournal(value(j));
  for(const j of corrections){
   const v=value(j);
