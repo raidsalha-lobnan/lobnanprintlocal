@@ -1,6 +1,7 @@
 import { BusinessSettings } from '../types';
+import {getLocalSyncConfig} from '../sync-next/httpTransport';
+import {authHeaders,getCurrentSessionToken,secureLoginEnabled} from './secureAuth';
 
-let lastUpdateId = 0;
 let pollingTimeout: any = null;
 let isPollingActive = false;
 
@@ -123,156 +124,99 @@ export const TelegramService = {
 
   startPolling: (
     settings: BusinessSettings,
-    onAction: (action: TelegramIncomingAction) => void
+    onAction: (action: TelegramIncomingAction) => void | Promise<void>
   ) => {
-    if (!settings.telegramConfig?.enabled || !settings.telegramConfig?.botToken) {
+    if (!settings.telegramConfig?.enabled || !settings.telegramConfig.botToken) {
       TelegramService.stopPolling();
       return;
     }
-
     TelegramService.stopPolling();
     isPollingActive = true;
-    const token = settings.telegramConfig.botToken;
 
     const scheduleNext = (delayMs: number) => {
       if (!isPollingActive) return;
       pollingTimeout = setTimeout(poll, delayMs);
     };
-
     const isTabLeader = (): boolean => {
       try {
         const raw = localStorage.getItem('telegram_polling_leader');
         if (!raw) return true;
         const parsed = JSON.parse(raw);
-        if (!parsed || !parsed.tabId || Date.now() - parsed.time > 15000) return true;
-        return parsed.tabId === currentTabId;
+        return !parsed?.tabId || Date.now() - parsed.time > 15000 ||
+          parsed.tabId === currentTabId;
       } catch {
         return true;
       }
     };
-
     const claimLeadership = () => {
       try {
-        localStorage.setItem(
-          'telegram_polling_leader',
-          JSON.stringify({ tabId: currentTabId, time: Date.now() })
-        );
+        localStorage.setItem('telegram_polling_leader', JSON.stringify({
+          tabId: currentTabId, time: Date.now()
+        }));
       } catch {}
     };
-
-    let isFetchInFlight = false;
-    let consecutiveConflicts = 0;
-
+    let inFlight = false;
     const poll = async () => {
-      if (!isPollingActive || isFetchInFlight) return;
-      if (!settings.telegramConfig?.enabled || !settings.telegramConfig?.botToken) {
-        TelegramService.stopPolling();
-        return;
-      }
-      if (!navigator.onLine) {
-        scheduleNext(15000);
-        return;
-      }
-
-      // Multi-tab coordination: only the leader tab polls Telegram getUpdates
-      if (!isTabLeader()) {
+      if (!isPollingActive || inFlight) return;
+      if (!navigator.onLine || !isTabLeader()) {
         scheduleNext(10000);
         return;
       }
+      inFlight = true;
       claimLeadership();
-
-      isFetchInFlight = true;
       try {
-        const response = await fetch(
-          `https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=0`
-        ).catch(() => null);
-
-        if (!response) {
+        const config = getLocalSyncConfig();
+        const headers = {
+          ...authHeaders(config.url, secureLoginEnabled() ? getCurrentSessionToken() : config.token),
+          'Content-Type': 'application/json'
+        };
+        const claim = await fetch(
+          config.url + '/api/v1/telegram/inbox/claim?workspace=' +
+            encodeURIComponent(config.workspace),
+          { method: 'POST', headers, body: '{}', cache: 'no-store' }
+        );
+        if (!claim.ok) {
+          scheduleNext(claim.status === 401 ? 20000 : 10000);
+          return;
+        }
+        const response = await claim.json() as {
+          item?: {
+            updateId: number;
+            leaseToken: string;
+            action: Omit<TelegramIncomingAction, 'token'>;
+          } | null;
+        };
+        if (!response.item) {
+          scheduleNext(3500);
+          return;
+        }
+        const {updateId, leaseToken, action} = response.item;
+        const token = settings.telegramConfig?.botToken || '';
+        if (!token) {
           scheduleNext(15000);
           return;
         }
-
-        if (response.status === 409) {
-          // Conflict: external webhook or another bot instance
-          consecutiveConflicts++;
-          if (consecutiveConflicts >= 4) {
-            console.warn(
-              'Notice: Telegram getUpdates polling paused due to external webhook/bot conflict (HTTP 409). Outgoing Telegram notifications remain active.'
-            );
-            TelegramService.stopPolling();
-            return;
-          }
-          scheduleNext(60000);
-          return;
+        if (action.type === 'callback' && action.callbackQueryId) {
+          await TelegramService.answerCallbackQuery(action.callbackQueryId, token);
         }
-        consecutiveConflicts = 0;
-
-        if (!response.ok) {
-          scheduleNext(20000);
-          return;
+        await onAction({...action, token});
+        const ack = await fetch(
+          config.url + '/api/v1/telegram/inbox/ack?workspace=' +
+            encodeURIComponent(config.workspace),
+          {method: 'POST', headers, body: JSON.stringify({updateId, leaseToken}), cache: 'no-store'}
+        );
+        if (!ack.ok) {
+          console.warn('Telegram report completed but server acknowledgement needs retry');
         }
-
-        const data = await response.json().catch(() => null);
-
-        if (data && data.ok && Array.isArray(data.result) && data.result.length > 0) {
-          for (const update of data.result) {
-            lastUpdateId = update.update_id;
-
-            // 1. Text message
-            if (update.message && update.message.text) {
-              const text = update.message.text;
-              const chatId = update.message.chat.id.toString();
-              const fromName = [
-                update.message.from?.first_name,
-                update.message.from?.last_name,
-              ]
-                .filter(Boolean)
-                .join(' ');
-
-              onAction({
-                type: 'message',
-                text,
-                chatId,
-                messageId: update.message.message_id,
-                fromName,
-                token,
-              });
-            }
-
-            // 2. Callback query (inline keyboard button click)
-            if (update.callback_query) {
-              const cb = update.callback_query;
-              const chatId = cb.message?.chat?.id?.toString() || cb.from?.id?.toString() || '';
-              const data = cb.data || '';
-              const fromName = [cb.from?.first_name, cb.from?.last_name]
-                .filter(Boolean)
-                .join(' ');
-
-              // Acknowledge the callback immediately so telegram client removes loading icon
-              TelegramService.answerCallbackQuery(cb.id, token);
-
-              onAction({
-                type: 'callback',
-                text: data,
-                data,
-                chatId,
-                callbackQueryId: cb.id,
-                messageId: cb.message?.message_id,
-                fromName,
-                token,
-              });
-            }
-          }
-        }
-        scheduleNext(3500);
-      } catch {
-        scheduleNext(20000);
+        scheduleNext(400);
+      } catch (error) {
+        console.warn('Telegram report queue temporarily unavailable', error);
+        scheduleNext(15000);
       } finally {
-        isFetchInFlight = false;
+        inFlight = false;
       }
     };
-
-    scheduleNext(1500);
+    scheduleNext(1200);
   },
 
   stopPolling: () => {
