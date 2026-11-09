@@ -26,6 +26,8 @@ jobs:
         run: npm run verify:clean
       - name: Verify saved users login regression cases
         run: node --experimental-strip-types --test tests/saved-users-login.test.mjs tests/postgres-only-entrypoints.test.mjs
+      - name: Check TypeScript and accounting regression tests
+        run: npm run lint && npm test
       - name: Build application
         run: npm run build
         env:
