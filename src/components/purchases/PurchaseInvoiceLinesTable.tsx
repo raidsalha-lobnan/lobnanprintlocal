@@ -19,13 +19,14 @@ interface Props{
  inventory:InventoryItem[];
  taxRate:number;
  currency:string;
+ exchangeRate:number;
  onQuickAdd:(name:string,rowIndex:number,currentPrice:number)=>Promise<void>;
 }
 const numberCss='w-full min-w-0 rounded border border-slate-300 bg-white px-1 py-1 text-center text-[11px] font-semibold tabular-nums focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-200';
 const thCss='border-l border-b border-slate-400 px-1 py-1.5 text-center text-[11px] font-bold whitespace-nowrap';
 const tdCss='border-l border-slate-200 px-1 py-1.5 align-middle';
 export const PurchaseInvoiceLinesTable:React.FC<Props>=({
- rows,setRows,inventory,taxRate,currency,onQuickAdd
+ rows,setRows,inventory,taxRate,currency,exchangeRate,onQuickAdd
 })=>{
  const inventoryOptions=useMemo(()=>inventory.map(item=>({
   id:item.id,name:item.name,code:item.code,
@@ -82,7 +83,7 @@ export const PurchaseInvoiceLinesTable:React.FC<Props>=({
          onSelect={option=>{
           if(!option.id)return;
           const found=inventory.find(it=>it.id===option.id);
-          if(found)set(index,purchaseDraftForItem(found,row));
+          if(found)set(index,purchaseDraftForItem(found,row,exchangeRate));
          }}
          onQuickAdd={async name=>onQuickAdd(name,index,row.unitPrice)}
         />
