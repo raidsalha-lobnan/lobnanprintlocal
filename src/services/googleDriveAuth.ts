@@ -1,6 +1,6 @@
 /**
  * Optional Google Drive OAuth via Google Identity Services.
- * No Firebase SDK, Firebase project, or Firestore credentials are used.
+ * Uses the standard Google Identity Services token flow.
  * Requires a Web OAuth client ID configured by the deployment administrator.
  */
 type GoogleTokenResponse = {
