@@ -1,5 +1,5 @@
 // Google Drive Database Sync Engine for Lobnan Press Accounting App
-// Exclusively syncs the database with the user's Google Drive (Firebase completely disconnected).
+// Exclusively syncs the database with the user's Google Drive (the PostgreSQL sync engine kept separate).
 
 export const DATABASE_DRIVE_FOLDER = 'Lobnan_Accounting_Cloud_Database';
 export const MASTER_DATABASE_FILENAME = 'The Start Data';
