@@ -4,7 +4,8 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
-import {createReadStream} from 'node:fs';
+import {createReadStream,createWriteStream} from 'node:fs';
+import {pipeline} from 'node:stream/promises';
 
 const DRIVE_API='https://www.googleapis.com/drive/v3/files';
 const DRIVE_UPLOAD='https://www.googleapis.com/upload/drive/v3/files';
@@ -24,6 +25,40 @@ export async function readAttachmentBody(req,maxBytes=MAX_ATTACHMENT_BYTES){
   }
   if(!bytes)throw withError('ATTACHMENT_EMPTY',400);
   return Buffer.concat(chunks);
+}
+
+/**
+ * Encrypted PostgreSQL backup format:
+ * magic LBK1 (4 bytes) + random IV (12) + ciphertext + AES-GCM tag (16).
+ * The 32-byte encryption key must be backed up OUTSIDE Google Drive.
+ */
+export async function encryptBackupArchive(file,secret){
+  const key=Buffer.from(String(secret||''),'base64');
+  if(key.length!==32)throw withError('BACKUP_ENCRYPTION_KEY_REQUIRED',503);
+  const iv=crypto.randomBytes(12);
+  const cipher=crypto.createCipheriv('aes-256-gcm',key,iv);
+  const target=file+'.enc';
+  try{
+    await fsp.writeFile(target,Buffer.concat([Buffer.from('LBK1'),iv]),{
+      mode:0o600,flag:'wx'
+    });
+    await pipeline(createReadStream(file),cipher,createWriteStream(target,{flags:'a'}));
+    await fsp.appendFile(target,cipher.getAuthTag());
+    return target;
+  }catch(error){
+    await fsp.rm(target,{force:true}).catch(()=>{});
+    throw error;
+  }
+}
+export async function decryptBackupArchive(file,secret){
+  const key=Buffer.from(String(secret||''),'base64');
+  if(key.length!==32)throw withError('BACKUP_ENCRYPTION_KEY_REQUIRED',503);
+  const bytes=await fsp.readFile(file);
+  if(bytes.length<33||bytes.subarray(0,4).toString()!=='LBK1')
+    throw withError('BACKUP_ARCHIVE_INVALID');
+  const decipher=crypto.createDecipheriv('aes-256-gcm',key,bytes.subarray(4,16));
+  decipher.setAuthTag(bytes.subarray(-16));
+  return Buffer.concat([decipher.update(bytes.subarray(16,-16)),decipher.final()]);
 }
 
 export class DriveStorage {
@@ -113,22 +148,27 @@ export class DriveStorage {
     return uploaded;
   }
   async uploadBackup(file,name){
-    const stat=await fsp.stat(file);
-    const folderId=await this.folder('backups');
-    const uri=await this.initiateUpload(name,'application/octet-stream',stat.size,folderId);
-    const res=await this.fetcher(uri,{
-      method:'PUT',headers:{'Content-Type':'application/octet-stream','Content-Length':String(stat.size)},
-      body:createReadStream(file),duplex:'half'
-    });
-    if(!res.ok)throw withError('BACKUP_DRIVE_UPLOAD_FAILED_'+res.status);
-    const uploaded=await res.json();
-    if(!uploaded.id||Number(uploaded.size)!==stat.size)throw withError('BACKUP_DRIVE_SIZE_MISMATCH');
-    // Verify server-side checksum before reporting a successful remote backup.
-    const md5=await fileHash(file,'md5');
-    const verified=await this.driveJson(DRIVE_API+'/'+encodeURIComponent(uploaded.id)+'?fields=id,size,md5Checksum');
-    if(Number(verified.size)!==stat.size||!verified.md5Checksum||verified.md5Checksum.toLowerCase()!==md5)
-      throw withError('BACKUP_DRIVE_CHECKSUM_MISMATCH');
-    return {id:uploaded.id,size:stat.size,md5};
+    // Fail closed: never upload a plaintext accounting database dump to Drive.
+    const encrypted=await encryptBackupArchive(file,this.env.GOOGLE_BACKUP_ENCRYPTION_KEY);
+    try{
+      const stat=await fsp.stat(encrypted);
+      const folderId=await this.folder('backups');
+      const uri=await this.initiateUpload(name+'.enc','application/octet-stream',stat.size,folderId);
+      const res=await this.fetcher(uri,{
+        method:'PUT',headers:{'Content-Type':'application/octet-stream','Content-Length':String(stat.size)},
+        body:createReadStream(encrypted),duplex:'half'
+      });
+      if(!res.ok)throw withError('BACKUP_DRIVE_UPLOAD_FAILED_'+res.status);
+      const uploaded=await res.json();
+      if(!uploaded.id||Number(uploaded.size)!==stat.size)throw withError('BACKUP_DRIVE_SIZE_MISMATCH');
+      const md5=await fileHash(encrypted,'md5');
+      const verified=await this.driveJson(DRIVE_API+'/'+encodeURIComponent(uploaded.id)+'?fields=id,size,md5Checksum');
+      if(Number(verified.size)!==stat.size||!verified.md5Checksum||verified.md5Checksum.toLowerCase()!==md5)
+        throw withError('BACKUP_DRIVE_CHECKSUM_MISMATCH');
+      return {id:uploaded.id,size:stat.size,md5,encrypted:true};
+    }finally{
+      await fsp.rm(encrypted,{force:true}).catch(()=>{});
+    }
   }
   async download(fileId,maxBytes=MAX_ATTACHMENT_BYTES){
     const token=await this.tokenForDrive();
