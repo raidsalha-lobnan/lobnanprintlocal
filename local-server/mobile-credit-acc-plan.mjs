@@ -2,7 +2,7 @@
  * Relabel SKU/group by permanent ID without touching values, prices, quantities,
  * balances, tax, ledger, invoice numbers, or financial reference identities.
  */
-import {financiallyComparable,relabelItemReferences} from './catalog-approved-2026-11-10.mjs';
+
 
 export const ONE_ITEM_RECLASSIFY = Object.freeze({
   id: 'inv-1794294589279-upscd',
@@ -15,6 +15,67 @@ export const ONE_ITEM_RECLASSIFY = Object.freeze({
 });
 
 const normalize = v => String(v ?? '').trim().toLowerCase();
+const linkedSkuFields=new Set([
+  'code','itemCode','sku','itemSku','productCode','inventoryCode','barcode','category',
+]);
+/* This is stricter than the general migration relabeler: it changes only an
+   OLD SKU/category value on a node linked to this exact permanent item ID.
+   An unrelated document code or category must never be overwritten. */
+export function relabelMobileCreditReferences(value){
+  let changed=false;
+  const walk=node=>{
+    if(Array.isArray(node))return node.map(walk);
+    if(!node||typeof node!=='object')return node;
+    let out=node;
+    const linked=(node.itemId===ONE_ITEM_RECLASSIFY.id ||
+                  node.inventoryItemId===ONE_ITEM_RECLASSIFY.id);
+    if(linked){
+      for(const key of linkedSkuFields){
+        if(!Object.hasOwn(node,key))continue;
+        const old=node[key];
+        const wanted=key==='category'
+          ? ONE_ITEM_RECLASSIFY.toCategory:ONE_ITEM_RECLASSIFY.toCode;
+        const expected=key==='category'
+          ? ONE_ITEM_RECLASSIFY.fromCategory:ONE_ITEM_RECLASSIFY.fromCode;
+        if(typeof old==='string' && normalize(old)===normalize(expected)
+          && old!==wanted){
+          if(out===node)out={...node};
+          out[key]=wanted;
+          changed=true;
+        }
+      }
+    }
+    for(const [key,v] of Object.entries(node)){
+      if(v && typeof v==='object'){
+        const next=walk(v);
+        if(next!==v){
+          if(out===node)out={...node};
+          out[key]=next;
+        }
+      }
+    }
+    return out;
+  };
+  return {value:walk(value),changed};
+}
+/* Compare every field except explicitly permitted SKU / category metadata of
+   this particular item. Stock quantities, financial figures and document IDs
+   are compared verbatim (including amounts stored as strings). */
+export function mobileCreditComparable(value){
+  const walk=node=>{
+    if(Array.isArray(node))return node.map(walk);
+    if(!node||typeof node!=='object')return node;
+    const linked=(node.itemId===ONE_ITEM_RECLASSIFY.id ||
+                  node.inventoryItemId===ONE_ITEM_RECLASSIFY.id);
+    const copy={};
+    for(const [k,v] of Object.entries(node)){
+      if(linked && linkedSkuFields.has(k))continue;
+      copy[k]=walk(v);
+    }
+    return copy;
+  };
+  return walk(value);
+}
 
 export function planMobileCreditReclassification(records){
   if(!Array.isArray(records)) throw Error('INVALID_RECORDS_INPUT');
@@ -73,18 +134,14 @@ export function planMobileCreditReclassification(records){
   if(Array.isArray(item.value.barcodeEntries))
     updatedItem.barcodeEntries=item.value.barcodeEntries.filter(
       entry=>normalize(entry?.barcode)!==normalize(ONE_ITEM_RECLASSIFY.fromCode));
-  const targetMap = new Map([[item.record_id,{
-    newCode:ONE_ITEM_RECLASSIFY.toCode,
-    newCategory:ONE_ITEM_RECLASSIFY.toCategory,
-  }]]);
   const modifications = [{entity:'inventory',record_id:item.record_id,oldValue:item.value,newValue:updatedItem,version:item.version}];
   let refs=0;
   const referencedEntities={};
   for(const record of records){
     if(record.value===null || record.entity==='inventory')continue;
-    const {value:newValue,changed}=relabelItemReferences(record.value,targetMap);
+    const {value:newValue,changed}=relabelMobileCreditReferences(record.value);
     if(!changed)continue;
-    if(JSON.stringify(financiallyComparable(record.value))!==JSON.stringify(financiallyComparable(newValue)))
+    if(JSON.stringify(mobileCreditComparable(record.value))!==JSON.stringify(mobileCreditComparable(newValue)))
       throw Error('NON_CATALOG_FIELDS_WOULD_CHANGE_'+record.entity+'_'+record.record_id);
     modifications.push({
       entity:record.entity,record_id:record.record_id,

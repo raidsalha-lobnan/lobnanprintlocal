@@ -5,9 +5,9 @@
 import pg from 'pg';
 import {createHash} from 'node:crypto';
 import {existsSync, statSync} from 'node:fs';
-import {planMobileCreditReclassification,ONE_ITEM_RECLASSIFY as TARGET}
+import {planMobileCreditReclassification,mobileCreditComparable,ONE_ITEM_RECLASSIFY as TARGET}
   from './mobile-credit-acc-plan.mjs';
-import {financiallyComparable} from './catalog-approved-2026-11-10.mjs';
+
 
 const workspace='lobnan_main';
 const apply=process.argv.includes('--apply');
@@ -26,6 +26,7 @@ function stillHasReleasedCode(value){
     if(!node||typeof node!=='object')return false;
     if(Array.isArray(node))return node.some(walk);
     for(const [key,v] of Object.entries(node)){
+      if(norm(key)===norm(TARGET.fromCode))return true;
       if(typeof v==='string' && codeFields.has(key) && norm(v)===norm(TARGET.fromCode))
         return true;
       if(v && typeof v==='object' && walk(v))return true;
@@ -55,8 +56,8 @@ async function run(){
   if(liveInvoices.length<105)throw Error('INVOICE_COUNT_BELOW_LAST_APPROVED_BASELINE');
   if(!records.some(r=>r.entity==='inventory'&&r.record_id===plan.id&&r.value))
     throw Error('TARGET_CATALOG_RECORD_NOT_ACTIVE');
-  const invoiceFingerprint=new Map(liveInvoices.map(r=>[r.record_id,hash(financiallyComparable(r.value))]));
-  const stockFingerprint=new Map(originalMoves.map(r=>[r.record_id,hash(financiallyComparable(r.value))]));
+  const invoiceFingerprint=new Map(liveInvoices.map(r=>[r.record_id,hash(mobileCreditComparable(r.value))]));
+  const stockFingerprint=new Map(originalMoves.map(r=>[r.record_id,hash(mobileCreditComparable(r.value))]));
   const baseVersions=new Map(records.map(r=>[r.entity+'::'+r.record_id,r.version]));
   const changed=new Map(plan.modifications.map(r=>[r.entity+'::'+r.record_id,r]));
   // The former SKU must not remain active anywhere as a SKU or barcode.
@@ -175,7 +176,7 @@ CREATE TABLE IF NOT EXISTS sync_catalog_serial_release_audit (
     throw Error('FINANCIAL_OR_WAREHOUSE_DOCUMENT_COUNT_CHANGED');
   for(const row of [...liveAfterInvoices,...liveAfterMoves]){
     const old=(row.entity==='invoices'?invoiceFingerprint:stockFingerprint).get(row.record_id);
-    if(!old || old!==hash(financiallyComparable(row.value)))
+    if(!old || old!==hash(mobileCreditComparable(row.value)))
       throw Error('INVOICE_OR_STOCK_FINANCIAL_FINGERPRINT_CHANGED_'+row.entity+'_'+row.record_id);
   }
   const target=afterInventory.find(r=>r.record_id===TARGET.id);

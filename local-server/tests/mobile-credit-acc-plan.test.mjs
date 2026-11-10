@@ -31,7 +31,7 @@ const getRecords=()=>{
        ],
     }},
     {entity:'stockMovements',record_id:'move-1',version:2,value:{
-      id:'move-1',itemId:ONE_ITEM_RECLASSIFY.id,itemCode:'PRI-00025',category:'print_raw',
+      id:'move-1',code:'MOVE-001',itemId:ONE_ITEM_RECLASSIFY.id,itemCode:'PRI-00025',category:'print_raw',
       quantity:5,cost:11,
     }},
     {entity:'journalEntries',record_id:'journal-1',version:4,value:{
@@ -56,6 +56,7 @@ test('reclassifies only رصيد جوال from PRI-00025 to ACC-00002',()=>{
  assert.equal(planned.modifications.find(m=>m.entity==='invoices').newValue.total,60);
  assert.equal(planned.modifications.find(m=>m.entity==='invoices').newValue.items[0].quantity,3);
  assert.equal(planned.modifications.find(m=>m.entity==='stockMovements').newValue.quantity,5);
+ assert.equal(planned.modifications.find(m=>m.entity==='stockMovements').newValue.code,'MOVE-001');
  assert.deepEqual(planned.modifications[0].newValue.warehouseBalances,{main:8,secondary:3});
  assert.equal(planned.modifications[0].newValue.reorderLevel,4);
  assert.deepEqual(records,source);
