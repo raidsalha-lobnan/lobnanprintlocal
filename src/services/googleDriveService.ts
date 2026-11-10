@@ -1,5 +1,5 @@
 // Google Drive Integration Service for 100% Original Quality Attachments
-// Exclusively standalone Google Drive sync without Firebase dependency.
+// Exclusively standalone Google Drive sync without secondary cloud authentication.
 
 const DRIVE_FOLDER_NAME = 'Lobnan_Print_Attachments';
 const STORAGE_KEY_TOKEN = 'lobnan_drive_access_token';
