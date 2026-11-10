@@ -413,7 +413,7 @@ export const DatabaseZeroingSettings: React.FC = () => {
     try {
       const res = performDatabaseZeroing(options);
       await new Promise(resolve => setTimeout(resolve, 800)); // wait for react state to settle
-      await forceSyncNow(); // ensure the deletions are committed to firebase before showing success
+      await forceSyncNow(); // verify acknowledgement from the canonical PostgreSQL sync service
       setExecutionResult(res);
       setShowResultModal(true);
       setConfirmInput('');
