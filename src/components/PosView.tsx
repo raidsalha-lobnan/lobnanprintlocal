@@ -396,7 +396,6 @@ export const PosView: React.FC = () => {
   } = useAccounting();
 
   // Single-Entry automation notification state
-  const [lastSavedInvoiceNotice, setLastSavedInvoiceNotice] = useState<Invoice | null>(null);
 
   // Multi-Currency State (العملة الأساسية: الشيكل الفلسطيني ₪)
   const [selectedCurrencyCode, setSelectedCurrencyCode] = useState<string>(settings.baseCurrencyCode || 'ILS');
@@ -3792,54 +3791,6 @@ const getInitialPosDraft = (): PosFullDraftData => {
           </div>
         )}
       </div>
-
-      {/* Single-Entry Automated Lifecycle Notification Bar */}
-      {lastSavedInvoiceNotice && (
-        <div className="mx-2 my-1 bg-slate-900 text-white p-3 px-4 rounded-xl shadow-md border border-slate-700 flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-200">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold shrink-0">
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-bold">تم تسجيل وترحيل الفاتورة بنجاح: #{lastSavedInvoiceNotice.invoiceNumber}</span>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono font-bold">
-                  {lastSavedInvoiceNotice.totalAmount.toLocaleString('ar-SA')} {settings.currency}
-                </span>
-                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded">
-                  العميل: {lastSavedInvoiceNotice.customerName}
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                اكتملت دورة الإدخال الواحد: الفاتورة ← المخزون ← العميل ← الخزينة ← تكلفة المبيعات ← الحسابات ← التقارير
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setSelectedInvoiceForLifecycle(lastSavedInvoiceNotice)}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-            >
-              <GitBranch className="w-3.5 h-3.5" />
-              <span>معاينة مسار الحركة الآلية (7 مراحل)</span>
-            </button>
-            <button
-              onClick={() => setSelectedInvoiceForPrint(lastSavedInvoiceNotice)}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>طباعة الفاتورة</span>
-            </button>
-            <button
-              onClick={() => setLastSavedInvoiceNotice(null)}
-              className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-colors cursor-pointer"
-              title="إغلاق التنبيه"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* ========================================================= */}
       {/* 2. MAIN POS WORKSPACE: FAVORITES SIDEBAR (RIGHT) & INVOICE WORKSPACE (LEFT) */}
