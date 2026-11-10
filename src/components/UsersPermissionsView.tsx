@@ -210,7 +210,7 @@ export const UsersPermissionsView: React.FC = () => {
 
     if (secureLoginEnabled()) {
       // Authoritative PostgreSQL user changes are committed by the server.
-      // Do not fall back to localStorage/Firebase or pretend a pending change succeeded.
+      // Do not fall back to localStorage/legacy authentication or pretend a pending change succeeded.
       const allowed = userForm.allBranchesAllowed ? ['*'] : userForm.allowedBranchIds;
       const nextPassword = String((userForm as any).password || '').trim();
       if (!editingUser && !nextPassword) {
