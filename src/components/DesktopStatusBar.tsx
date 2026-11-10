@@ -27,7 +27,7 @@ export const DesktopStatusBar: React.FC = () => {
     isOnline,
     isLocalOnlyMode,
     lastSyncTime,
-    isFirebaseSyncing,
+    isServerSyncing,
     pendingSyncCount,
     setActiveTab
   } = useAccounting();
