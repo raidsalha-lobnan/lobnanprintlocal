@@ -1510,8 +1510,8 @@ export const InventoryView: React.FC = () => {
                         required={Boolean(editingItem)}
                         value={formCode}
                         disabled={Boolean(editingItem)}
-                        title={editingItem ? 'كود الصنف ثابت ولا يُعدّل إلا ضمن ترحيل إداري معتمد' : 'كود الصنف الجديد'}
-                        onChange={e => setFormCode(e.target.value)}
+                        readOnly
+                        title="كود الصنف يصدر تلقائيًا حسب المجموعة، ويبقى ثابتًا بعد الحفظ"
                         placeholder="تلقائي بعد الحفظ..."
                         className={`w-full border rounded-md p-1.5 pr-2.5 pl-8 font-mono text-xs font-bold text-center outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
                           !skuValidation.isUnique ? 'bg-rose-50 border-rose-400 text-rose-800' : 'bg-white border-slate-300 text-blue-700'

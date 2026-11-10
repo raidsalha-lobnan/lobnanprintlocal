@@ -150,11 +150,9 @@ export const CustomerSpecialPricesModal: React.FC<CustomerSpecialPricesModalProp
               className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
             >
               <option value="all">كل الأقسام</option>
-              <option value="stationery">أدوات ومستلزمات مكتبية</option>
-              <option value="books">كتب ومراجع</option>
-              <option value="shields_gifts">دروع وهدايا تذكارية</option>
-              <option value="print_raw">خامات وأوراق طباعة</option>
-              <option value="copy_scan">خدمات وتصوير</option>
+              {(settings.categories || []).map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
             </select>
           </div>
 
