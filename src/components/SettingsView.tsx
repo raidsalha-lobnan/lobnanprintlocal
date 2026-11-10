@@ -7,7 +7,6 @@ import { UnitsOfMeasureSettings } from './settings/UnitsOfMeasureSettings';
 import { DatabaseZeroingSettings } from './settings/DatabaseZeroingSettings';
 import { TelegramSettings } from './settings/TelegramSettings';
 import { GoogleDriveBackupSettings } from './settings/GoogleDriveBackupSettings';
-import { FirebaseQuotaModal } from './FirebaseQuotaModal';
 import { PrintHeader, ThermalReceiptHeader } from './common/PrintHeader';
 import { OfficialStamp } from './common/OfficialStamp';
 import {
@@ -152,7 +151,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
   const [invoiceFooter, setInvoiceFooter] = useState(settings.invoiceFooter || settings.invoiceFooterNote || '');
   const [isSaved, setIsSaved] = useState(false);
   const [showLivePreview, setShowLivePreview] = useState(false);
-  const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false);
 
   // Logo file upload handler
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -409,15 +407,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
       )}
       {/* Navigation Sub-tabs */}
       <div className="flex items-center gap-1.5 border-b border-slate-200 pb-1 overflow-x-auto no-scrollbar">
-        <button
-          type="button"
-          onClick={() => setIsQuotaModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-black bg-amber-500 hover:bg-amber-600 text-slate-950 transition-all cursor-pointer shadow-xs shrink-0"
-          title="متابعة استهلاك العمليات في سحابة فايربيس والعداد التنازلي لموعد التجديد 12:00 ظهراً"
-        >
-          <Database className="w-3.5 h-3.5 text-slate-900" />
-          <span>مؤشر حصة فايربيس</span>
-        </button>
         <button
           type="button"
           onClick={() => setActiveTab('general')}
@@ -1429,12 +1418,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
 
       {/* Tab 5: Database Zeroing for Go-Live */}
       {activeTab === 'reset_db' && <DatabaseZeroingSettings />}
-
-      {/* Firebase Quota & Operations Monitor Modal */}
-      <FirebaseQuotaModal
-        isOpen={isQuotaModalOpen}
-        onClose={() => setIsQuotaModalOpen(false)}
-      />
     </div>
   );
 };
