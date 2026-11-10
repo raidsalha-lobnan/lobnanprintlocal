@@ -459,12 +459,12 @@ interface AccountingContextType {
   exportLocalDatabaseJSON: () => Promise<{ success: boolean; filename: string; totalRecords: number; message: string }>;
   importLocalDatabaseJSON: (jsonData: any) => Promise<{ success: boolean; message: string }>;
   lastSyncTime: string | null;
-  isFirebaseSyncing: boolean;
-  lastFirebaseSyncTime: string | null;
+  isServerSyncing: boolean;
+  lastServerSyncTime: string | null;
   hasUnsyncedChanges: boolean;
   pendingSyncCount: number;
   lastLocalSaveTime: string;
-  syncToFirebase: (force?: boolean) => Promise<boolean>;
+  syncToServer: (force?: boolean) => Promise<boolean>;
   forceSyncNow: () => Promise<{ success: boolean; message: string }>;
   forcePushAndPullSync: () => Promise<{ success: boolean; message: string; invoicesCount: number }>;
   importMasterDatabaseSnapshot: () => Promise<{ success: boolean; message: string }>;
@@ -1177,10 +1177,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => {
     return localStorage.getItem(`${STORAGE_KEY}_last_sync`) || null;
   });
-  const [lastFirebaseSyncTime, setLastFirebaseSyncTime] = useState<string | null>(() => {
+  const [lastServerSyncTime, setLastServerSyncTime] = useState<string | null>(() => {
     return localStorage.getItem(`${STORAGE_KEY}_last_sync`) || null;
   });
-  const [isFirebaseSyncing, setIsFirebaseSyncing] = useState<boolean>(false);
+  const [isServerSyncing, setIsServerSyncing] = useState<boolean>(false);
   const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState<boolean>(() => {
     return localStorage.getItem(`${STORAGE_KEY}_has_unsynced`) === 'true';
   });
@@ -1204,8 +1204,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } catch {}
       if (!next && navigator.onLine) {
         setTimeout(() => {
-          if (fetchFromFirebaseRef.current) fetchFromFirebaseRef.current();
-          if (syncToFirebaseRef.current) syncToFirebaseRef.current(true);
+          if (fetchFromServerRef.current) fetchFromServerRef.current();
+          if (syncToServerRef.current) syncToServerRef.current(true);
         }, 100);
       }
       return next;
@@ -1525,10 +1525,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const isCloudHydratedRef = React.useRef<boolean>(false);
   const isRemoteSyncRef = React.useRef<boolean>(false);
   const debouncedSyncRef = React.useRef<any>(null);
-  const syncToFirebaseRef = React.useRef<any>(null);
-  const fetchFromFirebaseRef = React.useRef<any>(null);
+  const syncToServerRef = React.useRef<any>(null);
+  const fetchFromServerRef = React.useRef<any>(null);
   const lastSyncErrorRef = React.useRef<string | null>(null);
-  const firebaseQuotaExceededRef = React.useRef<boolean>(false);
+  const serverQuotaExceededRef = React.useRef<boolean>(false);
 
   // BroadcastChannel for instant real-time synchronization across all tabs and open windows on the same machine
   const syncChannelRef = React.useRef<BroadcastChannel | null>(null);
@@ -1856,11 +1856,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         localStorage.setItem('accounting_is_local_only_mode', 'false');
       } catch {}
       console.log('Online event: internet connection restored 🟢 - Re-enabling Cloud Sync');
-      if (fetchFromFirebaseRef.current) {
-        await fetchFromFirebaseRef.current();
+      if (fetchFromServerRef.current) {
+        await fetchFromServerRef.current();
       }
-      if (syncToFirebaseRef.current) {
-        await syncToFirebaseRef.current(true);
+      if (syncToServerRef.current) {
+        await syncToServerRef.current(true);
       }
     };
     const handleOffline = () => {
@@ -2887,7 +2887,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!token) return false;
 
     try {
-      setIsFirebaseSyncing(true);
+      setIsServerSyncing(true);
 
       const localPayload = {
         timestamp: new Date().toISOString(),
@@ -2938,7 +2938,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       if (saveRes.success) {
         const nowStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        setLastFirebaseSyncTime(nowStr);
+        setLastServerSyncTime(nowStr);
         setLastSyncTime(nowStr);
         setHasUnsyncedChanges(false);
         setPendingSyncCount(0);
@@ -2946,29 +2946,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'false');
         localStorage.setItem(`${STORAGE_KEY}_pending_sync_count`, '0');
         lastSyncErrorRef.current = null;
-        setIsFirebaseSyncing(false);
+        setIsServerSyncing(false);
         return true;
       }
-      setIsFirebaseSyncing(false);
+      setIsServerSyncing(false);
       return false;
     } catch (e: any) {
       console.warn('Google Drive sync notice:', e);
-      setIsFirebaseSyncing(false);
+      setIsServerSyncing(false);
       return false;
     }
   };
 
-  const syncToFirebase = async (_force = false): Promise<boolean> => {
+  const syncToServer = async (_force = false): Promise<boolean> => {
     const coordinator = unifiedRepoRef.current?.getCoordinator();
     if (!coordinator || !navigator.onLine || isLocalOnlyMode) return false;
     const status = await coordinator.syncNow(30000);
     const success = status.pending === 0 && status.conflict === 0 && !status.lastError && !!status.lastSuccessAt;
     setPendingSyncCount(status.pending);
     setHasUnsyncedChanges(!success);
-    if (success) setLastFirebaseSyncTime(new Date(status.lastSuccessAt!).toLocaleTimeString('ar-EG'));
+    if (success) setLastServerSyncTime(new Date(status.lastSuccessAt!).toLocaleTimeString('ar-EG'));
     return success;
   };
-  syncToFirebaseRef.current = syncToFirebase;
+  syncToServerRef.current = syncToServer;
 
   const executeServerFullSync = async () => ({
     success: false, deltaMode: true,
@@ -2976,7 +2976,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   const forceSyncNow = async (): Promise<{ success: boolean; message: string }> => {
-    setIsFirebaseSyncing(true);
+    setIsServerSyncing(true);
     try {
       if (!navigator.onLine || isLocalOnlyMode) {
         return { success: false, message: 'لا يوجد اتصال؛ الإدخالات المحلية تنتظر المزامنة.' };
@@ -2995,12 +2995,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       const time = new Date(status.lastSuccessAt).toLocaleTimeString('ar-EG');
       setLastSyncTime(time);
-      setLastFirebaseSyncTime(time);
+      setLastServerSyncTime(time);
       return { success: true, message: `اكتملت المزامنة المؤكدة مع خادم قاعدة البيانات الحالية عند ${time}.` };
     } catch (error) {
       return { success: false, message: `فشلت المزامنة: ${String(error)}` };
     } finally {
-      setIsFirebaseSyncing(false);
+      setIsServerSyncing(false);
     }
   };
 
@@ -3009,7 +3009,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     isCloudHydratedRef.current = true;
     isInitialMount.current = false;
   };
-  fetchFromFirebaseRef.current = fetchCloudData;
+  fetchFromServerRef.current = fetchCloudData;
 
   // No additional Firebase settings listener or full legacy fetch at startup.
   // Settings are read from the canonical repository like other entities.
@@ -3062,8 +3062,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           clearTimeout(debouncedSyncRef.current);
         }
         debouncedSyncRef.current = setTimeout(() => {
-          if (navigator.onLine && syncToFirebaseRef.current) {
-            syncToFirebaseRef.current();
+          if (navigator.onLine && syncToServerRef.current) {
+            syncToServerRef.current();
           }
         }, 2500);
       }
@@ -4298,7 +4298,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       const nowStr = new Date().toLocaleTimeString('ar-EG');
       setLastSyncTime(nowStr);
-      setLastFirebaseSyncTime(nowStr);
+      setLastServerSyncTime(nowStr);
       localStorage.setItem(`${STORAGE_KEY}_last_sync`, nowStr);
       updateSqlServerConfig({ ...sqlServerConfig, lastSyncTime: nowStr });
       const invCount = (fullRes as any)?.counts?.invoices ?? invoices.length;
@@ -6236,8 +6236,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       clearTimeout(debouncedSyncRef.current);
     }
     debouncedSyncRef.current = setTimeout(() => {
-      if (navigator.onLine && syncToFirebaseRef.current) {
-        syncToFirebaseRef.current(true);
+      if (navigator.onLine && syncToServerRef.current) {
+        syncToServerRef.current(true);
       }
     }, 1500);
 
@@ -10140,7 +10140,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       systemName: 'برنامج الأيهم المحاسبي لإدارة المطابع والمكتبات ونقاط البيع',
       version: '2.5.0',
       backupSource: 'لقطة تصدير محلية؛ يلزم مطابقة بيانات السحابة قبل اعتمادها',
-      is100PercentLiveFirebase: false,
+      isPostgresServerConfirmed: false,
       exportedAt: new Date().toISOString(),
       exportedBy: currentUser?.fullName || currentUser?.username || 'مدير النظام',
       statsSummary: {
@@ -10808,8 +10808,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     // Trigger immediate cloud synchronization to Firestore
     setTimeout(() => {
-      if (syncToFirebaseRef.current) {
-        syncToFirebaseRef.current(true).catch(err => {
+      if (syncToServerRef.current) {
+        syncToServerRef.current(true).catch(err => {
           console.error('Firebase sync after zeroing failed:', err);
         });
       }
@@ -11080,7 +11080,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           safeSetSyncedHashes(newHashes);
           localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'false');
           const timeStr = new Date().toLocaleTimeString('en-US');
-          setLastFirebaseSyncTime(timeStr);
+          setLastServerSyncTime(timeStr);
           setLastSyncTime(timeStr);
           setHasUnsyncedChanges(false);
           setPendingSyncCount(0);
@@ -11411,12 +11411,12 @@ return (
         syncToServer,
         isOnline,
         lastSyncTime,
-        isFirebaseSyncing,
-        lastFirebaseSyncTime,
+        isServerSyncing,
+        lastServerSyncTime,
         hasUnsyncedChanges,
         pendingSyncCount,
         lastLocalSaveTime,
-        syncToFirebase,
+        syncToServer,
         forceSyncNow,
         forcePushAndPullSync,
         importMasterDatabaseSnapshot,
