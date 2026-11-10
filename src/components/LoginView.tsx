@@ -12,7 +12,7 @@ import {
 
 type Props = { onLocalLogin?: (id: string) => void };
 
-// PostgreSQL-only entry point. This module must never import or call Firebase.
+// PostgreSQL-only login entry point; no secondary cloud authentication.
 export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -161,7 +161,7 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
           </button>
         </form>
         <div className="mt-5 flex items-center justify-center gap-2 text-xs text-slate-500">
-          <WifiOff className="w-4 h-4" /><span>{secureLoginEnabled() ? 'دخول PostgreSQL آمن — يدعم فتح الحساب دون اتصال بعد التفعيل الأول' : 'لا يوجد تسجيل دخول عبر Firebase أو Google في هذه النسخة'}</span>
+          <WifiOff className="w-4 h-4" /><span>{secureLoginEnabled() ? 'دخول PostgreSQL آمن — يدعم فتح الحساب دون اتصال بعد التفعيل الأول' : 'يتم تسجيل الدخول من خلال نظام المستخدمين الخاص بالبرنامج'}</span>
         </div>
         {!secureLoginEnabled() && <button type="button" className="mt-4 w-full text-center text-sm text-blue-700 underline"
           onClick={() => {
