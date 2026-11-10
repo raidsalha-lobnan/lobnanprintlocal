@@ -6,6 +6,7 @@ import {assertStableEntitySerial} from './entity-identity.mjs';
 import {validateInvoiceCounterparty} from './invoice-counterparty.mjs';
 import {normalizeSingleWarehouseInventory} from './single-warehouse-inventory.mjs';
 import {preserveWorkspaceSettingsCredentials} from './workspace-settings-public.mjs';
+import {APPROVED_CATALOG_MIGRATION_ID,preserveApprovedCatalogSettings} from './approved-settings-guard.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -76,6 +77,23 @@ export class SyncService {
           // Do not erase private server-side Telegram credentials when the
           // authenticated client's sanitized bootstrap omits them.
           val=preserveWorkspaceSettingsCredentials(old?.value,val);
+          // A previously approved catalog migration locks category identities.
+          // Old browser settings snapshots still contain retired categories;
+          // retain the SQL-authoritative three definitions while accepting
+          // independent settings edits. Never change the SQL catalog guard.
+          const approval=await client.query(
+            'SELECT EXISTS(SELECT 1 FROM sync_catalog_admin_migrations WHERE workspace=$1 AND migration_id=$2) AS approved',
+            [workspace,APPROVED_CATALOG_MIGRATION_ID]
+          );
+          const protectedSettings=preserveApprovedCatalogSettings(
+            old?.value,val,approval.rows[0]?.approved===true
+          );
+          if(protectedSettings.guarded) {
+            console.warn('PROTECTED_APPROVED_SETTINGS_CATEGORIES_RETAINED', {
+              commandId:command.id,settingsRecordId:change.id
+            });
+          }
+          val=protectedSettings.value;
         }
         if (change.entity==='parties' && old?.value) {
           const existingParty=old.value;
