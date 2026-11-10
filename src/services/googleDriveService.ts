@@ -96,70 +96,51 @@ export async function getOrCreateDriveFolder(accessToken: string): Promise<strin
   }
 }
 
-export async function uploadFileToGoogleDrive(
-  file: File,
-  customName?: string,
-  onProgress?: (percent: number) => void
-): Promise<DriveUploadResult> {
-  onProgress?.(10);
-  const token = await requestDriveAccessToken();
-  onProgress?.(25);
-  const folderId = await getOrCreateDriveFolder(token);
-  if (!folderId) throw new Error('فشل الوصول إلى مجلد قوقل درايف');
+import {authHeaders,publicSyncApiUrl,secureLoginEnabled} from './secureAuth';
 
-  const fileNameToUse = customName?.trim() || `${Date.now()}_${file.name}`;
-  const metadata = {
-    name: fileNameToUse,
-    parents: [folderId]
-  };
+/** Application users access private Drive files through the authenticated
+ * PostgreSQL server. No Google OAuth token is ever given to a browser. */
+export async function getProgramDriveStatus():Promise<{configured:boolean;backup?:{ok:boolean;remoteVerified:boolean;lastCompletedAt:number;error?:string|null}}> {
+  if(!secureLoginEnabled())return {configured:false};
+  const base=publicSyncApiUrl();
+  const response=await fetch(base+'/api/v1/drive/status',{headers:authHeaders(base),cache:'no-store'});
+  if(!response.ok)return {configured:false};
+  return response.json();
+}
 
-  const boundary = '-------LobnanAttachBoundary' + Date.now();
-  const delimiter = `\r\n--${boundary}\r\n`;
-  const closeDelimiter = `\r\n--${boundary}--`;
-
-  const metadataPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`;
-  const mediaHeaderPart = `${delimiter}Content-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`;
-
-  onProgress?.(40);
-  const fileBuffer = await file.arrayBuffer();
-  onProgress?.(60);
-  const metaEncoder = new TextEncoder();
-  const metaBytes = metaEncoder.encode(metadataPart);
-  const mediaHeaderBytes = metaEncoder.encode(mediaHeaderPart);
-  const closeBytes = metaEncoder.encode(closeDelimiter);
-
-  const fullBody = new Uint8Array(metaBytes.length + mediaHeaderBytes.length + fileBuffer.byteLength + closeBytes.length);
-  fullBody.set(metaBytes, 0);
-  fullBody.set(mediaHeaderBytes, metaBytes.length);
-  fullBody.set(new Uint8Array(fileBuffer), metaBytes.length + mediaHeaderBytes.length);
-  fullBody.set(closeBytes, metaBytes.length + mediaHeaderBytes.length + fileBuffer.byteLength);
-
-  onProgress?.(80);
-  const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,mimeType,webViewLink,webContentLink,thumbnailLink';
-  const uploadRes = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': `multipart/related; boundary=${boundary}`
-    },
-    body: fullBody
+export async function downloadProgramDriveAttachment(fileId:string):Promise<Blob>{
+  if(!secureLoginEnabled())throw new Error('SESSION_LOGIN_REQUIRED');
+  const base=publicSyncApiUrl();
+  const response=await fetch(base+'/api/v1/attachments/content/'+encodeURIComponent(fileId),{
+    headers:authHeaders(base),cache:'no-store'
   });
+  if(!response.ok)throw new Error('ATTACHMENT_DOWNLOAD_FAILED_'+response.status);
+  return response.blob();
+}
 
-  if (!uploadRes.ok) {
-    throw new Error(`فشل رفع الملف إلى قوقل درايف (${uploadRes.status})`);
+export async function uploadFileToGoogleDrive(
+  file:File,customName?:string,onProgress?:(percent:number)=>void
+):Promise<DriveUploadResult>{
+  if(!secureLoginEnabled())throw new Error('SERVER_AUTH_REQUIRED_FOR_PRIVATE_DRIVE');
+  const base=publicSyncApiUrl();
+  const name=customName?.trim()||file.name;
+  if(file.size>50*1024*1024)throw new Error('ATTACHMENT_MAX_50_MB');
+  onProgress?.(10);
+  const params=new URLSearchParams({name,mime:file.type||'application/octet-stream'});
+  const response=await fetch(base+'/api/v1/attachments/upload?'+params,{
+    method:'POST',
+    headers:{...authHeaders(base),'Content-Type':'application/octet-stream'},
+    body:file
+  });
+  if(!response.ok){
+    const body=await response.json().catch(()=>({}));
+    throw new Error(body.code||'ATTACHMENT_UPLOAD_FAILED_'+response.status);
   }
-
-  const data = await uploadRes.json();
+  const uploaded=await response.json();
+  if(!uploaded.fileId)throw new Error('ATTACHMENT_RECEIPT_MISSING');
   onProgress?.(100);
-  return {
-    fileId: data.id,
-    name: data.name,
-    size: parseInt(data.size || '0', 10),
-    mimeType: data.mimeType,
-    webViewLink: data.webViewLink,
-    webContentLink: data.webContentLink,
-    thumbnailLink: data.thumbnailLink
-  };
+  return {fileId:uploaded.fileId,name:uploaded.name,size:uploaded.size,
+    mimeType:uploaded.mimeType};
 }
 
 export async function deleteFileFromGoogleDrive(fileId: string): Promise<boolean> {
