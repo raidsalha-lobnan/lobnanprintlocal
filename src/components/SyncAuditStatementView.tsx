@@ -154,7 +154,7 @@ export const SyncAuditStatementView: React.FC = () => {
     lastSyncTime,
     pendingSyncCount,
     forceSyncNow,
-    isالخادم الرئيسيSyncing,
+    isFirebaseSyncing,
     setActiveTab,
     invoices,
     parties,
@@ -508,12 +508,12 @@ export const SyncAuditStatementView: React.FC = () => {
             <button
               type="button"
               onClick={handleTriggerFullSync}
-              disabled={isالخادم الرئيسيSyncing}
+              disabled={isFirebaseSyncing}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition active:translate-y-px cursor-pointer disabled:opacity-75"
               title="طلب مزامنة العمليات المعلقة والتحقق من تأكيدها من الخادم"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isالخادم الرئيسيSyncing ? 'animate-spin' : ''}`} />
-              <span>{isالخادم الرئيسيSyncing ? 'جارِ المزامنة...' : 'مزامنة شاملة الآن'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isFirebaseSyncing ? 'animate-spin' : ''}`} />
+              <span>{isFirebaseSyncing ? 'جارِ المزامنة...' : 'مزامنة شاملة الآن'}</span>
             </button>
 
             <button
