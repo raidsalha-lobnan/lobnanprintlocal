@@ -68,7 +68,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
     expenses,
     journalEntries,
     currentUser,
-    roles
+    roles,
+    syncCoordinatorState,
   } = useAccounting();
   const [isSyncingToCloud, setIsSyncingToCloud] = useState(false);
 
@@ -214,13 +215,76 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
     setPhones(phones.filter((_, i) => i !== index));
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsSaveError, setSettingsSaveError] = useState('');
+  const [generalDirty, setGeneralDirty] = useState(false);
+  const [legacyImageBackup, setLegacyImageBackup] = useState<Record<string, string> | null>(() => {
+    try {
+      const raw = localStorage.getItem('alnoor_press_accounting_v1_settings_legacy_device_backup');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem('alnoor_press_accounting_v1_settings_legacy_device_backup');
+      const backup: Record<string, string> | null = raw ? JSON.parse(raw) : null;
+      const keys = ['headerImageUrl', 'logoUrl', 'stampUrl', 'signatureUrl'] as const;
+      if (backup && keys.some(key => backup[key] && backup[key] !== (settings[key] || ''))) {
+        setLegacyImageBackup(backup);
+      } else {
+        setLegacyImageBackup(null);
+      }
+    } catch { setLegacyImageBackup(null); }
+  }, [settings]);
+  const recoverDeviceImages = async () => {
+    if (!legacyImageBackup || !isSystemAdmin) return;
+    const keys = ['headerImageUrl', 'logoUrl', 'stampUrl', 'signatureUrl'] as const;
+    const restored = Object.fromEntries(
+      keys.filter(key => legacyImageBackup[key] && legacyImageBackup[key] !== settings[key])
+        .map(key => [key, legacyImageBackup[key]])
+    ) as Partial<typeof settings>;
+    if (!Object.keys(restored).length) return;
+    if (!window.confirm('سيتم اعتماد الصور والترويسة المحفوظة سابقًا على هذا الجهاز لكل أجهزة المنشأة. هل أنت متأكد من أنها الأحدث؟')) return;
+    setIsSavingSettings(true);
+    setSettingsSaveError('');
+    const accepted = await updateSettings(restored);
+    setIsSavingSettings(false);
+    if (accepted) {
+      try { localStorage.removeItem('alnoor_press_accounting_v1_settings_legacy_device_backup'); } catch {}
+      setLegacyImageBackup(null);
+      setGeneralDirty(false);
+      setIsSaved(true);
+    } else {
+      setSettingsSaveError('تعذّر حفظ صور المنشأة في طابور المزامنة. النسخة المحلية الاحتياطية ما زالت محفوظة.');
+    }
+  };
+  React.useEffect(() => {
+    if (generalDirty) return;
+    setAppTitle(settings.appTitle || '');
+    setBusinessName(settings.businessName || '');
+    setBusinessNameEn(settings.businessNameEn || '');
+    setActivityType(settings.activityType || '');
+    setTaxNumber(settings.taxNumber || '');
+    setCrNumber(settings.crNumber || '');
+    setShowTaxNumberInPrints(settings.showTaxNumberInPrints !== false);
+    setShowCrNumberInPrints(settings.showCrNumberInPrints !== false);
+    setLogoUrl(settings.logoUrl || '');
+    setHeaderImageUrl(settings.headerImageUrl || '');
+    setStampUrl(settings.stampUrl || '');
+    setSignatureUrl(settings.signatureUrl || '');
+    setAddresses(settings.addresses?.length ? settings.addresses : settings.address ? [settings.address] : []);
+    setPhones(settings.phones?.length ? settings.phones : settings.phone ? [settings.phone] : []);
+    setCurrency(settings.currency || '');
+    setVatRate(settings.vatRate || 0);
+    setInvoiceFooter(settings.invoiceFooter || settings.invoiceFooterNote || '');
+  }, [settings, generalDirty]);
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const primaryAddress = addresses.length > 0 ? addresses.join(' / ') : '';
     const primaryPhone = phones.length > 0 ? phones.join(' / ') : '';
-
-    updateSettings({
-      ...settings,
+    setSettingsSaveError('');
+    setIsSavingSettings(true);
+    const accepted = await updateSettings({
       appTitle: appTitle.trim(),
       businessName,
       businessNameEn,
@@ -242,8 +306,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
       invoiceFooter,
       invoiceFooterNote: invoiceFooter
     });
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
+    setIsSavingSettings(false);
+    if (accepted) {
+      setGeneralDirty(false);
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 3500);
+    } else {
+      setSettingsSaveError('تعذّر حفظ إعدادات المنشأة في طابور المزامنة. لم يتم اعتماد التغييرات؛ راجع الاتصال والصلاحيات وحالة المزامنة.');
+    }
   };
 
   const [isImporting, setIsImporting] = useState(false);
@@ -309,11 +379,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
         {isSaved && (
           <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
             <CheckCircle className="w-3.5 h-3.5" />
-            <span>تم حفظ التغييرات بنجاح</span>
+            <span>تم حفظ الإعدادات محليًا، وتنتظر تأكيد المزامنة مع الخادم</span>
           </span>
         )}
       </div>
 
+      {settingsSaveError && (
+        <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">
+          {settingsSaveError}
+        </div>
+      )}
+      <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+        إعدادات المنشأة والوحدات والعملات والتصنيفات مشتركة بين الأجهزة من قاعدة البيانات الموحدة.
+        {syncCoordinatorState.conflict > 0
+          ? ' توجد تعارضات مزامنة تحتاج مراجعة قبل اعتبار الإعدادات معتمدة.'
+          : syncCoordinatorState.pending > 0
+            ? ' توجد تغييرات محلية بانتظار تأكيد الخادم.'
+            : ' لا توجد تغييرات معلقة مسجلة حاليًا.'}
+        <span className="block mt-0.5 text-[10px]">إعداد اتصال الجهاز وقائمة التبويب المفتوح يبقيان محليين؛ ولا تُنقل جلسات الدخول أو المفاتيح الخاصة.</span>
+      </div>
+      {legacyImageBackup && isSystemAdmin && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          <span>توجد صورة ترويسة أو شعار أقدم محفوظ على هذا الجهاز تختلف عن الإعدادات المعتمدة. لن تُنشر تلقائيًا حتى لا تحل نسخة قديمة محل الأحدث.</span>
+          <button type="button" onClick={() => { void recoverDeviceImages(); }} disabled={isSavingSettings}
+            className="shrink-0 rounded-md bg-amber-800 px-3 py-1.5 font-bold text-white disabled:opacity-50">
+            اعتماد صور هذا الجهاز على جميع الأجهزة
+          </button>
+        </div>
+      )}
       {/* Navigation Sub-tabs */}
       <div className="flex items-center gap-1.5 border-b border-slate-200 pb-1 overflow-x-auto no-scrollbar">
         <button
@@ -432,7 +525,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
 
       {/* Tab 1: General Business Info */}
       {activeTab === 'general' && (
-        <form onSubmit={handleSave} className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-5 space-y-5 text-xs">
+        <form onSubmit={handleSave} onChangeCapture={() => setGeneralDirty(true)} className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-5 space-y-5 text-xs">
           
           {/* Section 1: Business Identity & Official Data */}
           <div>
@@ -1122,7 +1215,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                     'treasury_transfer', 'inventory', 'dashboard_info', 'accounting',
                     'employees', 'reports'
                   ];
-                  updateSettings({ ...settings, homeShortcuts: all });
+                  updateSettings({
+        homeShortcuts: all });
                 }}
                 className="px-2.5 py-1 text-blue-600 hover:bg-blue-50 rounded-md font-bold transition"
               >
@@ -1133,8 +1227,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                 type="button"
                 onClick={() => {
                   updateSettings({
-                    ...settings,
-                    homeShortcuts: [
+        homeShortcuts: [
                       'pos', 'customer_statement', 'supplier_statement', 'new_invoice',
                       'new_print_order', 'payment_voucher', 'receipt_voucher', 'purchases',
                       'inventory', 'treasury_transfer', 'dashboard_info', 'reports'
@@ -1192,7 +1285,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                       } else {
                         updated = [...currentShortcuts, item.id];
                       }
-                      updateSettings({ ...settings, homeShortcuts: updated });
+                      updateSettings({
+        homeShortcuts: updated });
                     }}
                     className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 mt-0.5 cursor-pointer"
                   />

@@ -5,6 +5,7 @@ import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
 import {assertStableEntitySerial} from './entity-identity.mjs';
 import {validateInvoiceCounterparty} from './invoice-counterparty.mjs';
 import {normalizeSingleWarehouseInventory} from './single-warehouse-inventory.mjs';
+import {preserveWorkspaceSettingsCredentials} from './workspace-settings-public.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -69,6 +70,13 @@ export class SyncService {
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
         if(actual!==change.expectedVersion) throw new InputError('VERSION_CONFLICT',409,{entity:change.entity,id:change.id,expectedVersion:change.expectedVersion,actualVersion:actual});
         let val=change.value;
+        if(change.entity==='settings' && val){
+          if(!['global','workspace-settings'].includes(change.id))
+            throw new InputError('INVALID_WORKSPACE_SETTINGS_ID',422);
+          // Do not erase private server-side Telegram credentials when the
+          // authenticated client's sanitized bootstrap omits them.
+          val=preserveWorkspaceSettingsCredentials(old?.value,val);
+        }
         if (change.entity==='parties' && old?.value) {
           const existingParty=old.value;
           const cashId=['pt-cust-1','cust-0001','c-0001','1'].includes(String(change.id).toLowerCase());

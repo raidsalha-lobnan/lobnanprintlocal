@@ -84,7 +84,12 @@ export async function resolveAccess(pool,workspace,profile,initialAdminId=''){
     if(!Object.prototype.hasOwnProperty.call(PERMISSIONS,entity))return false;
     if(entity==='users' && id===profile.id)return true;
     if(entity==='roles' && id===profile.roleId)return true;
-    if(entity==='users'||entity==='roles'||entity==='settings'){
+    if(entity==='settings'){
+      // Every authenticated active user needs the public, sanitized workspace
+      // identity and print assets. Server response filtering hides admin secrets.
+      return branchScope(value,entity);
+    }
+    if(entity==='users'||entity==='roles'){
       return can('view_settings')&&branchScope(value,entity);
     }
     if(!can('view'))return false;
