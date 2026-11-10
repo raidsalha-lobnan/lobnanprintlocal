@@ -34,7 +34,7 @@ import {
   collection,
   getDocs,
   onSnapshot
-} from '../firebase';
+} from '../services/durableLegacyBridge';
 import {
   Account,
   InventoryItem,
