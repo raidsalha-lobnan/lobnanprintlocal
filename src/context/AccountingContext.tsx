@@ -7,6 +7,7 @@ import { secureLoginEnabled } from '../services/secureAuth';
 import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
 import {selectWorkspaceSettings,applyWorkspaceSettings,mergeWorkspaceSettingsDraft} from '../utils/workspaceSettingsSync';
+import {createWorkspaceSettingsPatch} from '../sync-next/settingsPatch';
 import { LocalHttpSyncTransport, getLocalSyncConfig } from '../sync-next/httpTransport';
 import {invoiceEditSignature} from '../utils/invoiceEditSignature';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
@@ -4203,11 +4204,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
         const current = selectWorkspaceSettings(await repo.all('settings'));
         const recordId = current?.id || 'global';
-        const next = mergeWorkspaceSettingsDraft(current?.value || settings, newSettings, recordId);
-        // Exactly one stable settings record; local IndexedDB outbox is durable.
-        // Do not send a second, conflicting write to the legacy cloud adapter.
-        await repo.commit([{ entity: 'settings', id: recordId, value: next as JsonObject }]);
-        setSettings(prev => applyWorkspaceSettings(prev, next));
+        const base=current?.value || {id:recordId};
+        const fieldPatch=await createWorkspaceSettingsPatch(base,newSettings,recordId);
+        if (!fieldPatch) return true;
+        const next=mergeWorkspaceSettingsDraft(base,newSettings,recordId);
+        // Send only changed fields and their expected hashes. PostgreSQL
+        // validates same-field concurrency and merges unrelated device edits.
+        await repo.commit([{entity:'settings',id:recordId,value:fieldPatch as unknown as JsonObject}]);
+        setSettings(prev => applyWorkspaceSettings(prev,next));
         return true;
       } catch (error) {
         console.error('SETTINGS_DURABLE_SAVE_FAILED:', error);

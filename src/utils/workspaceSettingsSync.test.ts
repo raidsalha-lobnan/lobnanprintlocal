@@ -67,8 +67,8 @@ test('device-only SQL connection is excluded from every shared settings update',
 test('same-device backing localStorage is never silently uploaded during hydration',()=>{
   const source=readFileSync(new URL('../context/AccountingContext.tsx',import.meta.url),'utf8');
   assert.match(source,/selectWorkspaceSettings\(await repo\.all\('settings'\)\)/);
-  assert.match(source,/mergeWorkspaceSettingsDraft\(current\?\.value \|\| settings, newSettings, recordId\)/);
-  assert.match(source,/await repo\.commit\(\[\{ entity: 'settings'/);
+  assert.match(source,/createWorkspaceSettingsPatch\(base,newSettings,recordId\)/);
+  assert.match(source,/await repo\.commit\(\[\{entity:'settings'/);
   assert.doesNotMatch(source,/setDoc\(doc\(db, 'settings', 'global'\), cleanDocForFirestore\(merged\)/);
   assert.doesNotMatch(source,/pushDeltaToServer\('settings', 'upsert', merged\)/);
   assert.match(source,/settings_legacy_device_backup/);

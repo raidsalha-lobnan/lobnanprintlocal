@@ -2,6 +2,7 @@ import { LocalSyncDb } from './localDb';
 import {planConflictResolution,planAtomicCommandAlreadyConfirmed} from './conflictResolution';
 import {recordKey,type StoredRecord} from './types';
 import {getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
+import {fingerprintSyncCommand,type SettingsReceiptProof,type VerifiedSettingsReceipt} from './settingsPatch';
 
 import {
   sleep, PermanentSyncError,
@@ -25,6 +26,7 @@ export interface SyncTransport {
   }>>;
 
   fetchAuthoritativeBootstrap?():Promise<{records:StoredRecord[];cursor:ServerCursor}>;
+  checkSettingsReceipts?(proofs:SettingsReceiptProof[]):Promise<VerifiedSettingsReceipt[]>;
 
   watchLatest(
     onChanged: () => void,
@@ -274,6 +276,7 @@ export class SyncCoordinator {
         // First receive other devices' committed changes. Otherwise every
         // ordinary offline edit tries to write against an obsolete version.
         if(this.remote.fetchAuthoritativeBootstrap) await this.pullAllPages();
+        await this.confirmCommittedSettingsReceipts();
         await this.reconcileConflicts();
         await this.pushPending();
         await this.pullAllPages();
@@ -310,6 +313,38 @@ export class SyncCoordinator {
         c => c.status !== 'pending'
       ).length
     });
+  }
+
+  private async confirmCommittedSettingsReceipts():Promise<void> {
+    if(!this.remote.checkSettingsReceipts)return;
+    const outstanding=(await this.local.pending()).filter(cmd=>
+      cmd.changes.length===1 && cmd.changes[0].entity==='settings' &&
+      ['global','workspace-settings'].includes(cmd.changes[0].id)
+    );
+    if(!outstanding.length)return;
+    try {
+      for(let i=0;i<outstanding.length;i+=24){
+        const group=outstanding.slice(i,i+24);
+        const proofs=await Promise.all(group.map(async cmd=>({
+          id:cmd.id,fingerprint:await fingerprintSyncCommand(cmd),
+        })));
+        // Authentication + exact command fingerprint + owner + committed receipt
+        // are verified on PostgreSQL BEFORE the browser removes anything.
+        const verified=await this.remote.checkSettingsReceipts(proofs);
+        if(verified.length && this.remote.fetchAuthoritativeBootstrap){
+          const authoritative=await this.remote.fetchAuthoritativeBootstrap();
+          // The local event cursor may be ahead of a missed ACK. Apply only
+          // the authenticated, higher-version settings record before clearing
+          // its matching, server-committed command receipt.
+          await this.local.installAuthoritativeSettingsRows(authoritative.records);
+        }
+        await this.local.acknowledgeVerifiedSettingsReceipts(verified);
+      }
+    }catch(error){
+      // A receipt-check outage must never discard the queue or prevent sync of
+      // unrelated financial records.
+      this.report({lastError:'SETTINGS_RECEIPT_CHECK_FAILED: '+String(error)});
+    }
   }
 
   /** Evidence-based recovery across ALL entities, not a one-off invoice patch.

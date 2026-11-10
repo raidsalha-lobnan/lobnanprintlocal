@@ -1,5 +1,6 @@
 import {VersionConflict, PermanentSyncError, type ServerCursor, type ServerEvent, type SyncCommand, type CommitReceipt, type StoredRecord} from './types';
 import type {SyncTransport} from './coordinator';
+import type {SettingsReceiptProof,VerifiedSettingsReceipt} from './settingsPatch';
 import {secureLoginEnabled,publicSyncApiUrl,getCurrentSessionToken,authHeaders} from '../services/secureAuth';
 
 export const URL_KEY='lobnan_local_sync_server_url';
@@ -54,6 +55,14 @@ export class LocalHttpSyncTransport implements SyncTransport {
       throw new Error(`LOCAL_SYNC_HTTP_${response.status}`);
     }
     return data as T;
+  }
+  async checkSettingsReceipts(proofs:SettingsReceiptProof[]):Promise<VerifiedSettingsReceipt[]> {
+    if(!proofs.length)return [];
+    const result=await this.request<{receipts:VerifiedSettingsReceipt[]}>(
+      'receipts/check?workspace='+encodeURIComponent(this.workspaceId),
+      {method:'POST',body:JSON.stringify({proofs})}
+    );
+    return Array.isArray(result.receipts)?result.receipts:[];
   }
   async push(cmd:SyncCommand):Promise<CommitReceipt> {
     return this.request('push?workspace='+encodeURIComponent(this.workspaceId),{method:'POST',body:JSON.stringify(cmd)});

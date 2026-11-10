@@ -7,6 +7,7 @@ import {validateInvoiceCounterparty} from './invoice-counterparty.mjs';
 import {normalizeSingleWarehouseInventory} from './single-warehouse-inventory.mjs';
 import {preserveWorkspaceSettingsCredentials} from './workspace-settings-public.mjs';
 import {APPROVED_CATALOG_MIGRATION_ID,preserveApprovedCatalogSettings} from './approved-settings-guard.mjs';
+import {applySettingsFieldPatch,isSettingsFieldPatch} from './settings-field-patch.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -69,8 +70,12 @@ export class SyncService {
       for(const change of command.changes) {
         const previous=await client.query('SELECT version,value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',[workspace,change.entity,change.id]);
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
-        if(actual!==change.expectedVersion) throw new InputError('VERSION_CONFLICT',409,{entity:change.entity,id:change.id,expectedVersion:change.expectedVersion,actualVersion:actual});
-        let val=change.value;
+        const isFieldPatch=change.entity==='settings'&&isSettingsFieldPatch(change.value);
+        if(actual!==change.expectedVersion && !isFieldPatch)
+          throw new InputError('VERSION_CONFLICT',409,{entity:change.entity,id:change.id,expectedVersion:change.expectedVersion,actualVersion:actual});
+        let val=isFieldPatch
+          ? applySettingsFieldPatch(old?.value,change.value,actual,change.expectedVersion)
+          : change.value;
         if(change.entity==='settings' && val){
           if(!['global','workspace-settings'].includes(change.id))
             throw new InputError('INVALID_WORKSPACE_SETTINGS_ID',422);
