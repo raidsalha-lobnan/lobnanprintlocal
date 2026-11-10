@@ -107,7 +107,7 @@ async function downloadMultiSourceDiagnostic(repository: any) {
   }
   return report;
 }
-import { getCachedSyncToken, requestGoogleDriveToken } from '../services/googleDriveDatabaseSyncService';
+import { getProgramDriveStatus } from '../services/googleDriveService';
 import { SyncConflictModal } from './SyncConflictModal';
 import {
   RefreshCw,
@@ -242,26 +242,23 @@ export const SyncAuditStatementView: React.FC = () => {
 
   // Check Drive token status
   useEffect(() => {
-    setHasDriveToken(!!getCachedSyncToken());
+    void getProgramDriveStatus().then(status=>setHasDriveToken(status.configured)).catch(()=>setHasDriveToken(false));
   }, []);
 
-  // Connect Google Drive
-  const handleConnectDrive = async () => {
+  // Private Drive integration is owned by the main PostgreSQL server.
+  const handleConnectDrive=async()=>{
     setIsConnectingDrive(true);
-    try {
-      const token = await requestGoogleDriveToken(true);
-      if (token) {
-        setHasDriveToken(true);
-        setActionFeedback({ success: true, message: 'تم ربط وتسجيل الدخول لحساب قوقل درايف بنجاح! يتم رفع وتحديث قاعدة البيانات السحابية الآن ✅' });
-        await forceSyncNow();
-      } else {
-        setActionFeedback({ success: false, message: 'تعذر الحصول على توكن الوصول لحساب قوقل درايف. يرجى إعطاء الصلاحية في النافذة المنبثقة.' });
-      }
-    } catch (err: any) {
-      setActionFeedback({ success: false, message: `خطأ في ربط قوقل درايف: ${err?.message || err}` });
-    } finally {
+    try{
+      const state=await getProgramDriveStatus();
+      setHasDriveToken(state.configured);
+      setActionFeedback(state.configured
+        ? {success:true,message:'Drive الخاص بالبرنامج متصل بالخادم، وجميع الملفات تتطلب جلسة مستخدم مصرح له.'}
+        : {success:false,message:'خدمة Drive لم تحصل بعد على صلاحية Google بالخادم. النسخ المحلية مستمرة.'});
+    }catch(error){
+      setActionFeedback({success:false,message:'تعذر فحص اتصال Drive الخاص بالخادم.'});
+    }finally{
       setIsConnectingDrive(false);
-      setTimeout(() => setActionFeedback(null), 6000);
+      setTimeout(()=>setActionFeedback(null),6000);
     }
   };
 
