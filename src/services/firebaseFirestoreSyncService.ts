@@ -1,4 +1,4 @@
-import { db, doc, setDoc, getDoc, deleteDoc, onSnapshot, collection, getDocs, query, where, orderBy, limit } from '../firebase';
+import { db, doc, setDoc, getDoc, deleteDoc, onSnapshot, collection, getDocs, query, where, orderBy, limit } from './durableLegacyBridge';
 import { syncAuditService, SyncAuditItem, SyncConnectionIssue } from './syncAuditService';
 
 const DB_COLLECTION = 'lobnan_accounting_db_v4';
