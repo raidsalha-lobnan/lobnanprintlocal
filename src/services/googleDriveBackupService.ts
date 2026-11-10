@@ -59,7 +59,7 @@ export function initDriveAuthListener(
   return () => {};
 }
 
-import { authenticateWithGoogleDrive } from './firebaseDriveAuth';
+import { authenticateWithGoogleDrive } from './googleDriveAuth';
 
 export async function connectGoogleDrive(): Promise<{ user: { email: string; displayName: string }; accessToken: string }> {
   try {
