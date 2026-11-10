@@ -1216,7 +1216,6 @@ export const Navbar: React.FC = () => {
         onOpenLocalDatabase={() => setIsLocalDbModalOpen(true)}
         onImportMasterSnapshot={() => { void handleImportMasterSnapshot(); }}
         onOpenAbout={() => setIsAboutOpen(true)}
-        onOpenLegacyDiagnostic={() => setIsLocalDbModalOpen(true)}
       />
     </header>
   );
