@@ -781,10 +781,6 @@ export const InventoryView: React.FC = () => {
               className={'inline-flex h-9 w-9 items-center justify-center rounded-lg border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ' + (showBarcodeScanner ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-blue-700 hover:bg-blue-50')}>
               <Camera className="h-4 w-4" />
             </button>
-            <div className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-semibold text-emerald-800">
-              <Zap className="h-3.5 w-3.5 text-emerald-600" /> الماسح متصل
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            </div>
           </div>
         </div>
 

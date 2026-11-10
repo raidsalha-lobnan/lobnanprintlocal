@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../context/AccountingContext';
+import {authHeaders,clearSession,getCurrentSessionToken,publicSyncApiUrl,secureLoginEnabled} from '../services/secureAuth';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -65,11 +66,19 @@ interface MainMenuSection {
 interface MobileNavigationModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenLocalDatabase?: () => void;
+  onImportMasterSnapshot?: () => void;
+  onOpenAbout?: () => void;
+  onOpenLegacyDiagnostic?: () => void;
 }
 
 export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
   isOpen,
-  onClose
+  onClose,
+  onOpenLocalDatabase,
+  onImportMasterSnapshot,
+  onOpenAbout,
+  onOpenLegacyDiagnostic,
 }) => {
   const {
     activeTab,
@@ -95,7 +104,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
   const mainSections: MainMenuSection[] = useMemo(() => [
     {
       id: 'control_panel_menu',
-      title: 'لوحة التحكم والمؤشرات',
+      title: 'الرئيسية',
       subtitle: 'الشاشة الرئيسية والمؤشرات الحية والتحليلات العامة',
       icon: LayoutDashboard,
       colorClass: 'text-blue-500',
@@ -121,7 +130,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
     },
     {
       id: 'sales_menu',
-      title: 'المبيعات ونقاط البيع والعملاء',
+      title: 'المبيعات',
       subtitle: 'الكاشير السريع، أوامر الورشة، فواتير المبيعات، والذمم',
       icon: ShoppingCart,
       colorClass: 'text-emerald-500',
@@ -175,7 +184,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
     },
     {
       id: 'purchases_expenses_menu',
-      title: 'المشتريات والمصروفات والموردين',
+      title: 'المشتريات',
       subtitle: 'فواتير المشتريات، الموردين، المصاريف التشغيلية، ومردودات المشتريات',
       icon: Truck,
       colorClass: 'text-amber-500',
@@ -220,7 +229,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
     },
     {
       id: 'items_menu',
-      title: 'الأصناف والمستودعات والمخازن',
+      title: 'الأصناف والمخازن',
       subtitle: 'دليل الأصناف، الأسعار، الجرد، والتحويل بين الفروع والمستودعات',
       icon: Boxes,
       colorClass: 'text-indigo-500',
@@ -244,7 +253,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
     },
     {
       id: 'hr_menu',
-      title: 'الموارد البشرية وشؤون الموظفين',
+      title: 'الموظفون',
       subtitle: 'سجل الموظفين، السلف والاستقطاعات، ومسيرات الرواتب الشهرية',
       icon: UserCheck,
       colorClass: 'text-purple-500',
@@ -282,7 +291,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
     },
     {
       id: 'finance_accounting_menu',
-      title: 'المالية والحسابات والصناديق والبنوك',
+      title: 'المالية والمحاسبة',
       subtitle: 'حركة الصناديق، الحسابات البنكية، مقاصات الديون، وشجرة الحسابات',
       icon: Wallet,
       colorClass: 'text-teal-500',
@@ -309,6 +318,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
           icon: Store,
           perm: 'view_settings'
         },
+        { id: 'sync_statement', label: 'تفاصيل وتدقيق المزامنة', icon: History, perm: 'view_accounting' },
         {
           id: 'accounting',
           label: '4. القيود المحاسبية ودليل الحسابات',
@@ -320,7 +330,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
     },
     {
       id: 'reports_menu',
-      title: 'التقارير المركزية وكشوف الحسابات',
+      title: 'التقارير',
       subtitle: 'كشوف حسابات العملاء والموردين، حركة الصناديق، والأرباح والضرائب',
       icon: BarChart3,
       colorClass: 'text-sky-500',
@@ -386,7 +396,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
     },
     {
       id: 'settings_menu',
-      title: 'إعدادات المنشأة والنظام والمستخدمين',
+      title: 'الإعدادات والإدارة',
       subtitle: 'البيانات الرسمية، المستخدمين والصلاحيات، ونسخ وتصفير البيانات',
       icon: Settings,
       colorClass: 'text-rose-500',
@@ -415,6 +425,11 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
           icon: Layers,
           perm: 'view_settings'
         },
+        { id: 'action_local_database', label: 'القاعدة المحلية والاتصال', icon: Layers, perm: 'view_settings' },
+        { id: 'action_import_master_snapshot', label: 'استيعاب النسخة الرئيسية (إجراء إداري)', icon: Download, perm: 'view_settings' },
+        { id: 'audit_log', label: 'سجل العمليات والتدقيق', icon: History, perm: 'view_settings' },
+        { id: 'action_firebase_quota', label: 'تشخيص خدمة Firebase القديمة', icon: Coins, perm: 'view_settings' },
+        { id: 'action_about', label: 'حول البرنامج', icon: Compass },
         {
           id: 'settings_backup',
           label: '4. النسخ الاحتياطي وتصفير البيانات',
@@ -425,6 +440,21 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
       ]
     }
   ], [users.length]);
+  // Same eight sections and order on desktop and mobile, with permission-aware links.
+  const displaySections = useMemo(() => {
+    const order = ['control_panel_menu', 'sales_menu', 'purchases_expenses_menu', 'items_menu', 'finance_accounting_menu', 'hr_menu', 'reports_menu', 'settings_menu'];
+    const staffReport = mainSections.find(s => s.id === 'hr_menu')?.items.find(item => item.id === 'report_employee_statement');
+    return mainSections.map(section => ({
+      ...section,
+      items: (section.id === 'hr_menu'
+        ? section.items.filter(item => item.id !== 'report_employee_statement')
+        : section.id === 'reports_menu' && staffReport ? [...section.items, staffReport] : section.items)
+        .filter(item => !item.perm || hasPermission(item.perm as any)),
+    }))
+    .filter(section => section.items.length > 0)
+    .sort((a,b) => order.indexOf(a.id)-order.indexOf(b.id));
+  }, [mainSections,hasPermission]);
+
 
   // Quick Shortcuts for top requested features ("اختصارات سريعة للأكثر طلباً")
   const quickShortcuts = useMemo(() => [
@@ -441,13 +471,13 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
   // Filter all items when user searches
   const allSubItems = useMemo(() => {
     const list: (SubMenuItem & { sectionTitle: string })[] = [];
-    mainSections.forEach(section => {
+    displaySections.forEach(section => {
       section.items.forEach(item => {
         list.push({ ...item, sectionTitle: section.title });
       });
     });
     return list;
-  }, [mainSections]);
+  }, [displaySections]);
 
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -460,21 +490,43 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
   }, [allSubItems, searchQuery]);
 
   const activeSection = useMemo(() => {
-    return mainSections.find(s => s.id === selectedSectionId) || null;
-  }, [mainSections, selectedSectionId]);
+    return displaySections.find(s => s.id === selectedSectionId) || null;
+  }, [displaySections, selectedSectionId]);
 
   const handleSelectItem = (tabId: string) => {
+    const adminActions: Record<string, (() => void) | undefined> = {
+      action_local_database: onOpenLocalDatabase,
+      action_import_master_snapshot: onImportMasterSnapshot,
+      action_about: onOpenAbout,
+      action_firebase_quota: onOpenLegacyDiagnostic,
+    };
+    if (Object.prototype.hasOwnProperty.call(adminActions, tabId)) {
+      onClose();
+      adminActions[tabId]?.();
+      return;
+    }
     setActiveTab(tabId);
     onClose();
   };
 
   const handleSignOut = () => {
-    if (window.confirm('هل تريد تسجيل الخروج من النظام؟')) {
-      import('../firebase').then(({ auth }) => auth.signOut());
-      localStorage.removeItem('alnoor_press_accounting_v1_current_user_id');
-      localStorage.removeItem('active_session_id');
-      window.location.reload();
+    if (!window.confirm('هل تريد تسجيل الخروج من البرنامج؟')) return;
+    if (secureLoginEnabled()) {
+      const token = getCurrentSessionToken();
+      const base = publicSyncApiUrl();
+      clearSession();
+      if (token) void fetch(base+'/api/v1/auth/logout', {
+        method: 'POST', headers: authHeaders(base,token), cache: 'no-store',
+      }).catch(() => { /* Local logout also works without a network. */ });
     }
+    for (const key of [
+      'alnoor_press_accounting_v1_current_user_id',
+      'alnoor_press_accounting_v1_logged_in_user_id',
+      'alnoor_press_accounting_v1_current_user',
+      'alnoor_press_accounting_v1_session_admin',
+      'active_session_id',
+    ]) localStorage.removeItem(key);
+    window.location.reload();
   };
 
   if (!isOpen) return null;
@@ -571,7 +623,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
                 </span>
               </div>
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                {quickShortcuts.map((qs) => {
+                {quickShortcuts.filter(qs => ['pos', 'invoices', 'receipt_vouchers', 'inventory'].includes(qs.id) && displaySections.some(s => s.items.some(i => i.id === qs.id))).map((qs) => {
                   const Icon = qs.icon;
                   return (
                     <button
@@ -620,14 +672,9 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between">
-                          <span className="font-bold text-xs">{item.label}</span>
+                          <span className="font-bold text-xs">{item.label.replace(/^\d+\.\s*/, '')}</span>
                           <span className="text-[9px] text-slate-400 font-normal">{item.sectionTitle}</span>
                         </div>
-                        {item.sublabel && (
-                          <p className={`text-[10px] mt-0.5 line-clamp-1 ${isCurActive ? 'text-blue-100' : 'text-slate-400'}`}>
-                            {item.sublabel}
-                          </p>
-                        )}
                       </div>
                     </button>
                   );
@@ -678,8 +725,8 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between">
-                          <span className="font-bold text-xs">{subItem.label}</span>
-                          {subItem.badge && (
+                          <span className="font-bold text-xs">{subItem.label.replace(/^\d+\.\s*/, '')}</span>
+                          {subItem.badge && /\d/.test(subItem.badge) && (
                             <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold font-mono ${
                               isSubActive ? 'bg-white/20 text-white' : subItem.badgeColor || 'bg-slate-700 text-slate-300'
                             }`}>
@@ -687,13 +734,6 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
                             </span>
                           )}
                         </div>
-                        {subItem.sublabel && (
-                          <p className={`text-[10px] mt-0.5 leading-snug line-clamp-2 ${
-                            isSubActive ? 'text-blue-100' : 'text-slate-400'
-                          }`}>
-                            {subItem.sublabel}
-                          </p>
-                        )}
                       </div>
                     </button>
                   );
@@ -703,7 +743,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
           ) : (
             /* 3. Main 8 Category Buttons Grid/List */
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {mainSections.map((section) => {
+              {displaySections.map((section) => {
                 const SecIcon = section.icon;
                 const hasActiveTab = section.items.some(it => it.id === activeTab);
                 return (
@@ -724,9 +764,6 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
                         <h4 className="font-bold text-xs text-white truncate">
                           {section.title}
                         </h4>
-                        <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
-                          {section.subtitle}
-                        </p>
                       </div>
                     </div>
                     <ChevronLeft className="w-4 h-4 text-slate-400 shrink-0" />
@@ -737,11 +774,6 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
           )}
         </div>
 
-        {/* Footer info strip */}
-        <div className="p-2.5 bg-slate-900 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 shrink-0">
-          <span>نظام المحاسبة الشامل v2.4</span>
-          <span>اضغط على أي قسم لعرض عملياته</span>
-        </div>
       </div>
     </div>
   );
