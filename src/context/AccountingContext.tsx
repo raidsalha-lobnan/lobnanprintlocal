@@ -6,6 +6,7 @@ import { createUnifiedDataLayer } from '../sync-next/boot';
 import { secureLoginEnabled } from '../services/secureAuth';
 import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
+import {selectWorkspaceSettings,applyWorkspaceSettings,mergeWorkspaceSettingsDraft} from '../utils/workspaceSettingsSync';
 import { LocalHttpSyncTransport, getLocalSyncConfig } from '../sync-next/httpTransport';
 import {invoiceEditSignature} from '../utils/invoiceEditSignature';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
@@ -138,7 +139,7 @@ import { resolveInvoiceConflicts, mergeInvoicesWithUpsertAndConflictResolution }
 
 interface AccountingContextType {
   settings: BusinessSettings;
-  updateSettings: (newSettings: Partial<BusinessSettings> | BusinessSettings) => void;
+  updateSettings: (newSettings: Partial<BusinessSettings> | BusinessSettings) => Promise<boolean>;
   
   accounts: Account[];
   addAccount: (account: Omit<Account, 'balance'> & { initialBalance?: number }) => void;
@@ -1254,6 +1255,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const openConflictModal = () => setIsConflictModalOpen(true);
   const closeConflictModal = () => setIsConflictModalOpen(false);
   const unifiedRepoRef = React.useRef<UnifiedRepository | null>(null);
+  const settingsWriteChainRef = React.useRef<Promise<unknown>>(Promise.resolve());
 
   // Initialize unified offline-first data layer (LocalSyncDb + FirestoreSyncTransport + SyncCoordinator)
   useEffect(() => {
@@ -1295,6 +1297,34 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(grouped.employees) && (canonical || grouped.employees.length > 0)) setEmployees(grouped.employees);
             if (Array.isArray(grouped.roles) && (canonical || grouped.roles.length > 0)) setRoles(grouped.roles);
             if (Array.isArray(grouped.users) && (canonical || grouped.users.length > 0)) setUsers(grouped.users);
+            if (Array.isArray(grouped.companies) && (canonical || grouped.companies.length > 0)) setCompanies(grouped.companies);
+            if (Array.isArray(grouped.branches) && (canonical || grouped.branches.length > 0)) setBranches(grouped.branches);
+            if (Array.isArray(grouped.warehouses) && (canonical || grouped.warehouses.length > 0)) setWarehouses(grouped.warehouses);
+            const savedSettings = selectWorkspaceSettings(await repo.all('settings'));
+            if (savedSettings?.value && !unmounted) {
+              // The PostgreSQL record is authoritative across every device.
+              // Retain one recoverable device-only copy of any older letterhead,
+              // but never auto-upload obsolete localStorage values.
+              setSettings(prev => {
+                const next = applyWorkspaceSettings(prev, savedSettings.value);
+                if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+                const imageKeys = ['headerImageUrl', 'logoUrl', 'stampUrl', 'signatureUrl'] as const;
+                if (imageKeys.some(key => prev[key] && prev[key] !== next[key])) {
+                  const backupKey = `${STORAGE_KEY}_settings_legacy_device_backup`;
+                  try {
+                    if (!localStorage.getItem(backupKey)) {
+                      localStorage.setItem(backupKey, JSON.stringify({
+                        headerImageUrl: prev.headerImageUrl || '',
+                        logoUrl: prev.logoUrl || '',
+                        stampUrl: prev.stampUrl || '',
+                        signatureUrl: prev.signatureUrl || '',
+                      }));
+                    }
+                  } catch {}
+                }
+                return next;
+              });
+            }
           } catch (e) {
             console.warn('Repository sync to React state notice:', e);
           }
@@ -4155,21 +4185,45 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { success: true };
   };
 
-  const updateSettings = (newSettings: Partial<BusinessSettings> | BusinessSettings) => {
-    setSettings(prev => {
-      const merged = { ...prev, ...newSettings };
+  const updateSettings = (newSettings: Partial<BusinessSettings> | BusinessSettings): Promise<boolean> => {
+    // Serialize settings commits on this device. Independent rapid edits must
+    // not publish competing full snapshots of the same workspace record.
+    const task = async (): Promise<boolean> => {
       try {
-        localStorage.setItem(`${STORAGE_KEY}_settings`, JSON.stringify(merged));
-        setDoc(doc(db, 'settings', 'global'), cleanDocForFirestore(merged)).catch(err => {
-          console.warn('Failed direct settings save to cloud:', err);
-        });
-      } catch (e) {
-        console.warn('Settings persistence error:', e);
+        const repo = unifiedRepoRef.current;
+        if (!repo) throw new Error('SETTINGS_REPOSITORY_NOT_READY');
+        if (secureLoginEnabled()) {
+          const role = roles.find(r => r.id === currentUser.roleId);
+          const admin = ['SYS_ADMIN', 'GEN_MGR'].includes(role?.code || '');
+          const allowed = (key: 'edit' | 'view_settings') =>
+            currentUser.customPermissions?.[key] ?? role?.permissions?.[key] ?? false;
+          if (!admin && !(allowed('edit') && allowed('view_settings'))) {
+            throw new Error('WORKSPACE_SETTINGS_EDIT_PERMISSION_REQUIRED');
+          }
+        }
+        const current = selectWorkspaceSettings(await repo.all('settings'));
+        const recordId = current?.id || 'global';
+        const next = mergeWorkspaceSettingsDraft(current?.value || settings, newSettings, recordId);
+        // Exactly one stable settings record; local IndexedDB outbox is durable.
+        // Do not send a second, conflicting write to the legacy cloud adapter.
+        await repo.commit([{ entity: 'settings', id: recordId, value: next as JsonObject }]);
+        setSettings(prev => applyWorkspaceSettings(prev, next));
+        return true;
+      } catch (error) {
+        console.error('SETTINGS_DURABLE_SAVE_FAILED:', error);
+        setHasUnsyncedChanges(true);
+        lastSyncErrorRef.current = String(error);
+        try {
+          window.dispatchEvent(new CustomEvent('accounting_save_error', {
+            detail: { entity: 'settings', error: String(error) }
+          }));
+        } catch {}
+        return false;
       }
-      pushDeltaToServer('settings', 'upsert', merged);
-      broadcastEntityChange('settings', merged);
-      return merged;
-    });
+    };
+    const queued = settingsWriteChainRef.current.then(task, task);
+    settingsWriteChainRef.current = queued.then(() => undefined, () => undefined);
+    return queued;
   };
 
   // Multi-Currency handlers (العملة الأساسية: الشيكل الفلسطيني ₪)

@@ -12,6 +12,7 @@ import {InputError} from './sync-domain.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
 import {stripPrivateFields} from './legacy-snapshot.mjs';
+import {settingsVisibleToUser} from './workspace-settings-public.mjs';
 import {createAccessVerifier} from './access-verifier.mjs';
 import {adminDirectoryCommand} from './admin-directory.mjs';
 const dir=path.dirname(fileURLToPath(import.meta.url));
@@ -75,16 +76,18 @@ async function parseBody(req,maxBytes){
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
   catch{throw new InputError('INVALID_JSON',400);}
 }
-function safeSnapshot(snapshot){
+function safeSnapshot(snapshot,access){
   return {...snapshot,records:snapshot.records.map(row=>({
-    ...row,value:stripPrivateFields(
-      row.entity==='users'?stripUserSecrets(row.value):row.value)
+    ...row,value:row.entity==='settings'
+      ? settingsVisibleToUser(row.value,access)
+      : stripPrivateFields(row.entity==='users'?stripUserSecrets(row.value):row.value)
   }))};
 }
-function safeEvent(event){
+function safeEvent(event,access){
   return {...event,changes:event.changes.map(change=>({
-    ...change,value:stripPrivateFields(
-      change.entity==='users'?stripUserSecrets(change.value):change.value)
+    ...change,value:change.entity==='settings'
+      ? settingsVisibleToUser(change.value,access)
+      : stripPrivateFields(change.entity==='users'?stripUserSecrets(change.value):change.value)
   }))};
 }
 
@@ -147,12 +150,12 @@ const srv=http.createServer(async(req,res)=>{
       return json(res,200,{sequence:await service.head(workspace)},cors);
     if(req.method==='GET' && url.pathname==='/api/v1/bootstrap'){
       const snapshot=await service.bootstrap(workspace);
-      return json(res,200,STRICT_AUTH?safeSnapshot(filterSnapshot(snapshot,access)):snapshot,cors);
+      return json(res,200,STRICT_AUTH?safeSnapshot(filterSnapshot(snapshot,access),access):snapshot,cors);
     }
     if(req.method==='GET' && url.pathname==='/api/v1/events'){
       const pulled=await service.pull(workspace,Number(url.searchParams.get('after')||0),
         Math.min(500,Number(url.searchParams.get('limit')||100)));
-      return json(res,200,{events:STRICT_AUTH?filterEvents(pulled,access).map(safeEvent):pulled},cors);
+      return json(res,200,{events:STRICT_AUTH?filterEvents(pulled,access).map(event=>safeEvent(event,access)):pulled},cors);
     }
     if(req.method==='POST' && url.pathname==='/api/v1/invoices/revise'){
       // Financial amendments are routed through the authenticated, auditable

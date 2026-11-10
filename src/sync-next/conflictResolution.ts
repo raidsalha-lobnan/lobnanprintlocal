@@ -2,7 +2,16 @@ import type {JsonObject,StoredRecord,SyncCommand,VersionedChange} from './types'
 import {isRedundantRejectedInvoiceResubmit} from './invoiceEdits';
 const editableNonfinancialFields:Record<string,Set<string>>={
  parties:new Set(['name','phone','mobile','email','address','notes','website','contactPerson','contactName']),
- inventory:new Set(['name','itemName','description','notes','imageThumbnail'])
+ inventory:new Set(['name','itemName','description','notes','imageThumbnail']),
+ // Safe three-way merge for disjoint nonfinancial facility branding only.
+ // Concurrent currency, VAT, unit, category and access changes remain manual.
+ settings:new Set([
+   'appTitle','businessName','businessNameEn','activityType',
+   'taxNumber','crNumber','showTaxNumberInPrints','showCrNumberInPrints',
+   'phone','phones','email','address','addresses','description',
+   'logoUrl','headerImageUrl','stampUrl','signatureUrl','logoText',
+   'invoiceFooter','invoiceFooterNote'
+ ])
 };
 function equal(a:unknown,b:unknown):boolean{
  if(a===b)return true;

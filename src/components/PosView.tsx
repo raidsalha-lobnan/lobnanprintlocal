@@ -1195,7 +1195,6 @@ const getInitialPosDraft = (): PosFullDraftData => {
     // If current user is system administrator, update system default baseline
     if (isCurrentUserAdmin) {
       updateSettings({
-        ...settings,
         defaultPosLayout: safeConfig,
         userScreenConfigs: {
           ...(settings.userScreenConfigs || {}),
@@ -1207,7 +1206,6 @@ const getInitialPosDraft = (): PosFullDraftData => {
       });
     } else if (currentUser?.id) {
       updateSettings({
-        ...settings,
         userScreenConfigs: {
           ...(settings.userScreenConfigs || {}),
           [currentUser.id]: {
@@ -1225,8 +1223,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     savePosLayoutConfig(safeConfig, currentUser?.id);
     
     updateSettings({
-      ...settings,
-      defaultPosLayout: safeConfig,
+        defaultPosLayout: safeConfig,
       defaultPosButtons: posButtons,
       defaultPosColumnWidths: columnWidths,
       userScreenConfigs: {
@@ -1256,7 +1253,6 @@ const getInitialPosDraft = (): PosFullDraftData => {
 
     if (currentUser?.id) {
       updateSettings({
-        ...settings,
         userScreenConfigs: {
           ...(settings.userScreenConfigs || {}),
           [currentUser.id]: {
@@ -1287,7 +1283,6 @@ const getInitialPosDraft = (): PosFullDraftData => {
     savePosCustomButtons(newButtons, currentUser?.id);
     if (isCurrentUserAdmin) {
       updateSettings({
-        ...settings,
         defaultPosButtons: newButtons,
         userScreenConfigs: {
           ...(settings.userScreenConfigs || {}),
@@ -1299,7 +1294,6 @@ const getInitialPosDraft = (): PosFullDraftData => {
       });
     } else if (currentUser?.id) {
       updateSettings({
-        ...settings,
         userScreenConfigs: {
           ...(settings.userScreenConfigs || {}),
           [currentUser.id]: {
