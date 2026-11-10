@@ -13,7 +13,8 @@ export class RcloneDriveStorage {
     this.spawnProcess=spawnProcess;
     this.executable=env.LOBNAN_RCLONE_PATH||
       (process.platform==='win32'?'D:\\LobnanData\\tools\\rclone\\rclone.exe':'rclone');
-    this.remote=(env.LOBNAN_RCLONE_REMOTE||'lobnan-encrypted:').replace(/\/+$/,'');
+    const root=env.LOBNAN_RCLONE_REMOTE||'lobnan-encrypted:';
+    this.remote=/[:/]$/.test(root)?root:root+'/';
   }
   configured(){
     return this.executable==='rclone' || fs.existsSync(this.executable);
