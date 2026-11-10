@@ -1,5 +1,4 @@
 import { TelegramService } from '../services/TelegramService';
-import firebaseConfig from '../../firebase-applet-config.example.json';
 import { onlineInvoicePostingService } from '../services/onlineInvoicePostingService';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createUnifiedDataLayer } from '../sync-next/boot';
@@ -12,17 +11,6 @@ import { LocalHttpSyncTransport, getLocalSyncConfig } from '../sync-next/httpTra
 import {invoiceEditSignature} from '../utils/invoiceEditSignature';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
 import { ProposedChange, EntityName, JsonObject } from '../sync-next/types';
-import {
-  pushFullDatabaseToFirestore,
-  purgeObsoleteFirestoreCollections,
-  subscribeToFirestoreLiveSync,
-  fetchFullDatabaseFromFirestore,
-  isFirestoreQuotaExceeded,
-  markQuotaExceeded,
-  resetQuotaExceeded,
-  saveDeltaToFirestore,
-  subscribeToFirestoreLiveDeltas
-} from '../services/firebaseFirestoreSyncService';
 import {
   auth,
   db,
@@ -1216,7 +1204,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         localStorage.setItem('accounting_is_local_only_mode', String(next));
       } catch {}
       if (!next && navigator.onLine) {
-        resetQuotaExceeded();
         setTimeout(() => {
           if (fetchFromFirebaseRef.current) fetchFromFirebaseRef.current();
           if (syncToFirebaseRef.current) syncToFirebaseRef.current(true);
@@ -1865,7 +1852,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     const handleOnline = async () => {
       setIsOnline(true);
-      resetQuotaExceeded();
       setIsLocalOnlyMode(false);
       try {
         localStorage.setItem('accounting_is_local_only_mode', 'false');
@@ -2839,7 +2825,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     try {
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        const fsData = await fetchFullDatabaseFromFirestore();
+        const fsData = await unifiedRepoRef.current?.getCloudSnapshot();
         if (fsData && Array.isArray(fsData.invoices)) {
           combined = mergeInvoicesWithUpsertAndConflictResolution(combined, fsData.invoices);
         }
@@ -8141,10 +8127,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     setTimeout(() => {
       const target = invoices.find(inv => inv.id === id);
-      if (target && !isFirestoreQuotaExceeded() && !isLocalOnlyMode) {
+      if (target && !isLocalOnlyMode) {
         setDoc(doc(db, 'invoices', id), cleanDocForFirestore({ ...target, ...updates })).catch(err => {
           if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
-            markQuotaExceeded();
+            console.warn('Legacy cloud quota notice; canonical queue retains pending data');
           } else {
             console.warn('Direct cloud update invoice notice:', err);
           }
@@ -8189,10 +8175,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     // 1. حفظ في سلة المحذوفات في Firestore
-    if (!isFirestoreQuotaExceeded() && !isLocalOnlyMode) {
+    if (!isLocalOnlyMode) {
       setDoc(doc(db, 'deletedInvoices', id), cleanDocForFirestore(deletedSnapshot)).catch(err => {
         if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
-          markQuotaExceeded();
+          console.warn('Legacy cloud quota notice; canonical queue retains pending data');
         } else {
           console.warn('Notice saving to deletedInvoices collection:', err);
         }
@@ -8208,10 +8194,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
     registerDeletedDoc('invoices', id);
-    if (!isFirestoreQuotaExceeded() && !isLocalOnlyMode) {
+    if (!isLocalOnlyMode) {
       deleteDoc(doc(db, 'invoices', id)).catch(err => {
         if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
-          markQuotaExceeded();
+          console.warn('Legacy cloud quota notice; canonical queue retains pending data');
         }
       });
     }
@@ -8236,10 +8222,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         } : undefined,
         createdAt: now.toISOString()
       };
-      if (!isFirestoreQuotaExceeded() && !isLocalOnlyMode) {
+      if (!isLocalOnlyMode) {
         setDoc(doc(db, 'auditLog', auditEntry.id), cleanDocForFirestore(auditEntry)).catch(e => {
           if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota limit exceeded')) {
-            markQuotaExceeded();
+            console.warn('Legacy cloud quota notice; canonical queue retains pending data');
           }
         });
       }
@@ -10152,21 +10138,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         } catch {}
       }
 
-      // 6. Trigger obsolete collection purging in non-blocking background
-      let purgedCount = 0;
-      purgeObsoleteFirestoreCollections(fullSnapshot)
-        .then(count => { purgedCount = count; })
-        .catch(err => console.warn('Background purge notice:', err));
+      // No remote collection purge; authoritative records and pending writes are preserved.
+      const purgedCount = 0;
 
       return {
         success: true,
-        message: `تم تحديث وتطهير سحابة Firebase والسيرفر ومزامنة كافة الشاشات بنجاح! أصبحت قاعدة البيانات مطابقة تماماً لما يُعرض على الشاشة 100%.`,
+        message: `تم تحديث البيانات المحلية. لا تُعتمد مطابقة الأجهزة إلا بعد تأكيد خادم PostgreSQL والطابور`,
         purgedCount
       };
     } catch (e: any) {
       return {
         success: false,
-        message: 'حدث خطأ أثناء تطهير فيربيس: ' + (e?.message || 'غير معروف'),
+        message: 'حدث خطأ أثناء مراجعة قاعدة البيانات: ' + (e?.message || 'غير معروف'),
         purgedCount: 0
       };
     }
@@ -10266,7 +10249,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       version: '2.5.0',
       backupSource: 'لقطة تصدير محلية؛ يلزم مطابقة بيانات السحابة قبل اعتمادها',
       is100PercentLiveFirebase: false,
-      firebaseDatabaseId: firebaseConfig.firestoreDatabaseId || '(default)',
       exportedAt: new Date().toISOString(),
       exportedBy: currentUser?.fullName || currentUser?.username || 'مدير النظام',
       statsSummary: {
