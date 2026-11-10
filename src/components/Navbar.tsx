@@ -102,8 +102,8 @@ export const Navbar: React.FC = () => {
     isOnline,
     isLocalOnlyMode,
     lastSyncTime,
-    isFirebaseSyncing,
-    lastFirebaseSyncTime,
+    isServerSyncing,
+    lastServerSyncTime,
     hasUnsyncedChanges,
     pendingSyncCount,
     lastLocalSaveTime,
@@ -1020,12 +1020,12 @@ export const Navbar: React.FC = () => {
           <button
             type="button"
             onClick={handleManualSync}
-            disabled={isFirebaseSyncing}
+            disabled={isServerSyncing}
             className="px-2 py-0.5 flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-xs shadow-xs active:translate-y-px transition cursor-pointer border border-emerald-800 disabled:opacity-75"
             title="مزامنة العمليات المعلقة وقراءة التغييرات من الخادم"
           >
-            <RefreshCw className={`w-3 h-3 text-white ${isFirebaseSyncing ? 'animate-spin' : ''}`} />
-            <span>{isFirebaseSyncing ? 'جاري المزامنة...' : 'مزامنة الآن'}</span>
+            <RefreshCw className={`w-3 h-3 text-white ${isServerSyncing ? 'animate-spin' : ''}`} />
+            <span>{isServerSyncing ? 'جاري المزامنة...' : 'مزامنة الآن'}</span>
           </button>
 
           {/* Mobile Menu Icon for Small Screens */}
