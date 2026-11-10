@@ -33,6 +33,8 @@ import {
   Check
 } from 'lucide-react';
 import { posSound } from '../../utils/audio';
+import { getProgramDriveStatus } from '../../services/googleDriveService';
+import {authHeaders,publicSyncApiUrl,secureLoginEnabled} from '../../services/secureAuth';
 
 const STORAGE_KEY_AUTO_BACKUP = 'lobnan_drive_auto_backup_enabled';
 const STORAGE_KEY_RETENTION = 'lobnan_drive_retention_confirmed';
@@ -44,8 +46,9 @@ export const GoogleDriveBackupSettings: React.FC = () => {
   const { exportDataJSON, currentUser, settings } = accounting;
 
   // Connection & Auth state
-  const [isConnected, setIsConnected] = useState<boolean>(true); // ENFORCED FOR admin@example.invalid
-  const [userEmail, setUserEmail] = useState<string>('admin@example.invalid');
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [userEmail, setUserEmail] = useState<string>('');
+  const [serverBackup, setServerBackup] = useState<{ok:boolean;remoteVerified:boolean;lastCompletedAt:number;error?:string|null}|null>(null);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
 
   // Settings state
@@ -150,13 +153,24 @@ export const GoogleDriveBackupSettings: React.FC = () => {
     };
   };
 
-  // Check connection status
+  // Report only the server's verified Drive connection: a cached browser
+  // access token is not evidence of continuous backup coverage.
   useEffect(() => {
-    const token = getCachedDriveToken();
-    setIsConnected(!!token);
-    if (token) {
-      loadDriveFiles(token);
-    }
+    let cancelled=false;
+    const check=async()=>{
+      try{
+        const status=await getProgramDriveStatus();
+        if(!cancelled){
+          setIsConnected(status.configured);
+          setServerBackup(status.backup||null);
+        }
+      }catch{
+        if(!cancelled){setIsConnected(false);setServerBackup(null);}
+      }
+    };
+    void check();
+    const timer=setInterval(()=>{void check();},60000);
+    return()=>{cancelled=true;clearInterval(timer);};
   }, []);
 
   // Update countdown timer
@@ -198,33 +212,26 @@ export const GoogleDriveBackupSettings: React.FC = () => {
     }
   };
 
-  // Connect Google Drive
-  const handleConnect = async () => {
-    try {
-      setIsConnecting(true);
-      setStatusMessage(null);
-      const { user, accessToken } = await connectGoogleDrive();
-      setIsConnected(true);
-      setUserEmail(user.email || '');
-      setStatusMessage({ text: 'تم ربط حساب Google Drive بنجاح!', type: 'success' });
-      posSound.playSuccessBeep();
-      await loadDriveFiles(accessToken);
-    } catch (err: any) {
-      setStatusMessage({ text: err.message || 'فشل الاتصال بـ Google Drive', type: 'error' });
-    } finally {
-      setIsConnecting(false);
-    }
+  // The server owns Google credentials; users never grant a Google token
+  // to their browser or share the Drive folder with every employee.
+  const handleConnect=async()=>{
+    setIsConnecting(true);
+    try{
+      const status=await getProgramDriveStatus();
+      setIsConnected(status.configured);
+      setServerBackup(status.backup||null);
+      setStatusMessage({
+        text:status.configured
+          ? 'خدمة Drive الخاصة بالخادم متصلة. الملفات متاحة لمستخدمي البرنامج المصرح لهم.'
+          : 'التفويض السحابي للخادم غير مكتمل. النسخ المحلية مستمرة، لكن رفعها إلى Drive غير مؤكد.',
+        type:status.configured?'success':'error'
+      });
+    }catch{
+      setStatusMessage({text:'تعذر الوصول إلى خدمة التخزين الخاصة بالخادم.',type:'error'});
+    }finally{setIsConnecting(false);}
   };
-
-  // Disconnect Google Drive
-  const handleDisconnect = async () => {
-    if (confirm('هل أنت متأكد من إلغاء ربط Google Drive؟ ستتوقف النسخ الاحتياطية التلقائية حتى إعادة الربط.')) {
-      await disconnectGoogleDrive();
-      setIsConnected(false);
-      setUserEmail('');
-      setDriveFiles([]);
-      setStatusMessage({ text: 'تم إلغاء ربط Google Drive بنجاح.', type: 'info' });
-    }
+  const handleDisconnect=async()=>{
+    setStatusMessage({text:'الربط مُدار بأمان من الكمبيوتر الرئيسي؛ لا يتم إلغاؤه من المتصفح.',type:'info'});
   };
 
   // Toggle Auto Backup
@@ -232,7 +239,7 @@ export const GoogleDriveBackupSettings: React.FC = () => {
     setAutoBackupEnabled(enabled);
     localStorage.setItem(STORAGE_KEY_AUTO_BACKUP, enabled ? 'true' : 'false');
     setStatusMessage({
-      text: enabled ? 'تم تفعيل النسخ الاحتياطي التلقائي كل ساعة.' : 'تم إيقاف النسخ الاحتياطي التلقائي.',
+      text: 'هذه خانة عرض قديمة. جدولة النسخ الاحتياطي الفعلي تُدار على الخادم ولا تتوقف بإغلاق المتصفح.',
       type: 'info'
     });
   };
@@ -249,43 +256,23 @@ export const GoogleDriveBackupSettings: React.FC = () => {
     posSound.playSuccessBeep();
   };
 
-  // Trigger Manual Backup Now
-  const handleTriggerBackupNow = async () => {
-    const token = getCachedDriveToken();
-    if (!token) {
-      setStatusMessage({ text: 'الرجاء ربط Google Drive أولاً للمتابعة.', type: 'error' });
+  // Start a server-side PostgreSQL dump; never send screen state as a backup.
+  const handleTriggerBackupNow=async()=>{
+    if(!secureLoginEnabled()){
+      setStatusMessage({text:'يلزم تسجيل دخول مستخدم معتمد لتشغيل النسخ الاحتياطي.',type:'error'});
       return;
     }
-
-    try {
-      setIsBackingUp(true);
-      setStatusMessage({ text: 'جاري أخذ نسخة احتياطية ورفعها إلى Google Drive...', type: 'info' });
-
-      const payload = getFullBackupSnapshot();
-      const result = await executeHourlyDriveBackupFlow(token, payload, {
-        retentionDays: 7,
-        autoCleanOld: retentionConfirmed
+    setIsBackingUp(true);
+    try{
+      const base=publicSyncApiUrl();
+      const response=await fetch(base+'/api/v1/backups/run',{
+        method:'POST',headers:authHeaders(base),cache:'no-store'
       });
-
-      if (result.success) {
-        setLastBackupResult(result);
-        localStorage.setItem(STORAGE_KEY_LAST_TIME, Date.now().toString());
-        localStorage.setItem(STORAGE_KEY_LAST_INFO, JSON.stringify(result));
-        setMinutesUntilNext(60);
-        setStatusMessage({
-          text: `تم أخذ النسخة الاحتياطية بنجاح وحفظها في Google Drive! ${result.deletedOldBackupsCount > 0 ? `(تم تدوير وحذف ${result.deletedOldBackupsCount} نسخة قديمة +7 أيام)` : ''}`,
-          type: 'success'
-        });
-        posSound.playSuccessBeep();
-        await loadDriveFiles(token);
-      } else {
-        setStatusMessage({ text: result.error || 'فشل إجراء النسخة الاحتياطية', type: 'error' });
-      }
-    } catch (err: any) {
-      setStatusMessage({ text: err.message || 'حدث خطأ أثناء إجراء النسخ الاحتياطي', type: 'error' });
-    } finally {
-      setIsBackingUp(false);
-    }
+      if(!response.ok)throw new Error('HTTP_'+response.status);
+      setStatusMessage({text:'تم قبول طلب النسخ على الخادم؛ لا يُعتبر الرفع إلى Drive ناجحًا إلا بعد التحقق من النتيجة.',type:'info'});
+    }catch(error){
+      setStatusMessage({text:'تعذر تشغيل النسخ من الخادم: '+String(error),type:'error'});
+    }finally{setIsBackingUp(false);}
   };
 
   // Execute Manual Cleanup of Old Backups (+7 days)
@@ -330,6 +317,10 @@ export const GoogleDriveBackupSettings: React.FC = () => {
 
   return (
     <div className="space-y-4 text-xs select-text">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">
+        حالة النسخة السحابية: {serverBackup?.remoteVerified?'تم التحقق من رفع آخر نسخة':'لا توجد شهادة رفع سحابي ناجح حتى الآن'}.
+        يتم أخذ نسخ قاعدة البيانات من PostgreSQL على الخادم، وليس من بيانات الشاشة.
+      </div>
       {/* 1. Header & Status Banner */}
       <div className="bg-gradient-to-l from-blue-900 via-blue-800 to-indigo-900 text-white p-5 rounded-2xl shadow-sm border border-blue-700/50">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -343,7 +334,7 @@ export const GoogleDriveBackupSettings: React.FC = () => {
                 {isConnected ? (
                   <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" />
-                    متصل ونشط
+                    Drive متصل بالخادم
                   </span>
                 ) : (
                   <span className="bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
@@ -353,7 +344,7 @@ export const GoogleDriveBackupSettings: React.FC = () => {
                 )}
               </div>
               <p className="text-[11px] text-blue-200 mt-0.5 leading-relaxed">
-                أخذ نسخة احتياطية شاملة كل ساعة وتخزينها بأمان في Google Drive مع تدوير النسخ وحفظ آخر 7 أيام تلقائياً.
+                نسخ PostgreSQL المحلية تتم على الكمبيوتر الرئيسي كل ساعة. يُعرض اتصال Drive والتحقق من الرفع بشكل مستقل.
               </p>
             </div>
           </div>
@@ -365,7 +356,7 @@ export const GoogleDriveBackupSettings: React.FC = () => {
                 onClick={handleDisconnect}
                 className="bg-white/10 hover:bg-rose-600/80 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-white/20"
               >
-                إلغاء الربط
+                إدارة الربط على الخادم
               </button>
             ) : (
               <button
@@ -379,7 +370,7 @@ export const GoogleDriveBackupSettings: React.FC = () => {
                 ) : (
                   <Cloud className="w-4 h-4" />
                 )}
-                <span>ربط حساب Google Drive</span>
+                <span>فحص اتصال Drive بالخادم</span>
               </button>
             )}
           </div>
@@ -399,7 +390,7 @@ export const GoogleDriveBackupSettings: React.FC = () => {
             <span className="text-[10px] text-blue-200 block">سياسة الحفظ المعتمدة:</span>
             <span className="font-bold text-xs flex items-center gap-1 mt-0.5">
               <Calendar className="w-3.5 h-3.5 text-emerald-300" />
-              حفظ آخر 7 أيام (حذف اليوم الثامن فما قبله)
+              الاحتفاظ بالخادم، مع حماية آخر النسخ وعدم الحذف دون تحقق
             </span>
           </div>
 
@@ -407,11 +398,7 @@ export const GoogleDriveBackupSettings: React.FC = () => {
             <span className="text-[10px] text-blue-200 block">موعد النسخة القادمة:</span>
             <span className="font-bold text-xs flex items-center gap-1 mt-0.5 font-mono">
               <RefreshCw className="w-3.5 h-3.5 text-cyan-300" />
-              {autoBackupEnabled && isConnected
-                ? minutesUntilNext === 0
-                  ? 'مستحقة الآن'
-                  : `خلال ${minutesUntilNext} دقيقة`
-                : 'متوقف مؤقتاً'}
+              {serverBackup?.lastCompletedAt ? new Date(serverBackup.lastCompletedAt).toLocaleString('ar-EG') : 'لم يؤكد الخادم نسخة بعد'}
             </span>
           </div>
         </div>
