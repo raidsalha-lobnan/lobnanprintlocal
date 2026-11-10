@@ -249,88 +249,14 @@ function syncHubPlugin() {
           }
         }
 
+        // Retired: full database replacement can overwrite confirmed invoices
+        // and bypass the PostgreSQL command ledger.
         if (pathname === '/api/sync/replace-database' && req.method === 'POST') {
-          let body = '';
-          req.on('data', (chunk: any) => { body += chunk; });
-          req.on('end', async () => {
-            try {
-              const parsed = JSON.parse(body || '{}');
-              const rawData = parsed?.data || parsed;
-              if (!rawData || typeof rawData !== 'object') {
-                res.statusCode = 400;
-                res.setHeader('Content-Type', 'application/json');
-                return res.end(JSON.stringify({ error: 'Invalid database snapshot' }));
-              }
-
-              for (const ent of ALL_SYNC_ENTITIES) {
-                const items = Array.isArray(rawData[ent]) ? rawData[ent] : [];
-                putEntityData(ent, items);
-              }
-
-              if (rawData.dailyEntrySheets && typeof rawData.dailyEntrySheets === 'object') {
-                const dailyPath = path.join(SYNC_DATA_DIR, 'dailyEntrySheets.json');
-                try { fs.writeFileSync(dailyPath, JSON.stringify(rawData.dailyEntrySheets, null, 2), 'utf8'); } catch {}
-              }
-
-              // Direct server-side write to Firestore for guaranteed cloud persistence
-              try {
-                const configPath = path.resolve(__dirname, 'firebase-applet-config.json');
-                if (fs.existsSync(configPath)) {
-                  const { initializeApp, getApps } = await import('firebase/app');
-                  const { getFirestore, writeBatch, doc, setDoc } = await import('firebase/firestore');
-                  const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                  const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
-                  const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-
-                  for (const col of ALL_SYNC_ENTITIES) {
-                    const items = Array.isArray(rawData[col]) ? rawData[col] : [];
-                    if (items.length === 0) continue;
-                    let batch = writeBatch(db);
-                    let opCount = 0;
-                    for (let idx = 0; idx < items.length; idx++) {
-                      const item = items[idx];
-                      if (!item) continue;
-                      const docId = String(item.id || `${col}_${idx}`).replace(/\//g, '_');
-                      const cleanItem = JSON.parse(JSON.stringify(item, (_, v) => (typeof v === 'undefined' ? null : v)));
-                      batch.set(doc(db, col, docId), cleanItem, { merge: true });
-                      opCount++;
-                      if (opCount % 250 === 0) {
-                        await batch.commit();
-                        batch = writeBatch(db);
-                      }
-                    }
-                    if (opCount % 250 !== 0 && opCount > 0) {
-                      await batch.commit();
-                    }
-                  }
-
-                  if (rawData.settings && typeof rawData.settings === 'object') {
-                    const cleanSettings = JSON.parse(JSON.stringify(rawData.settings, (_, v) => (typeof v === 'undefined' ? null : v)));
-                    await setDoc(doc(db, 'settings', 'global'), cleanSettings, { merge: true });
-                  }
-
-                  if (rawData.dailyEntrySheets && typeof rawData.dailyEntrySheets === 'object') {
-                    for (const [dateKey, sheetData] of Object.entries(rawData.dailyEntrySheets)) {
-                      if (!sheetData) continue;
-                      const cleanSheet = JSON.parse(JSON.stringify(sheetData, (_, v) => (typeof v === 'undefined' ? null : v)));
-                      await setDoc(doc(db, 'dailyEntrySheets', String(dateKey).replace(/\//g, '_')), { date: dateKey, ...(cleanSheet as any) }, { merge: true });
-                    }
-                  }
-                }
-              } catch (fsErr) {
-                console.warn('Server Firestore push warning:', fsErr);
-              }
-
-              res.setHeader('Content-Type', 'application/json');
-              res.statusCode = 200;
-              return res.end(JSON.stringify({ success: true, message: 'Database replaced and synced to Firestore' }));
-            } catch (err: any) {
-              res.statusCode = 500;
-              res.setHeader('Content-Type', 'application/json');
-              return res.end(JSON.stringify({ error: err?.message || 'Server error' }));
-            }
-          });
-          return;
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 410;
+          return res.end(JSON.stringify({
+            error: 'Legacy database overwrite disabled; use reviewed PostgreSQL migration.'
+          }));
         }
 
         if (pathname === '/api/sync/state') {
@@ -642,7 +568,7 @@ import {defineConfig} from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
-  // Force all new builds to use the local PostgreSQL transport; no Firebase fallback.
+  // All production builds use the canonical local PostgreSQL synchronization transport.
   const localMode = true;
   return {
     define: {
