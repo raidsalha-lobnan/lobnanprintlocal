@@ -24,8 +24,8 @@ import { saveBinaryAttachment, getBinaryAttachment, downloadBlobFile } from '../
 import { resizeAndCompressImage } from '../../utils/imageCompress';
 import {
   uploadFileToGoogleDrive,
-  getSavedDriveToken,
-  requestDriveAccessToken,
+  getProgramDriveStatus,
+  downloadProgramDriveAttachment,
   deleteFileFromGoogleDrive,
   updateDriveFileName,
   getSavedSharedDriveEmails,
@@ -57,7 +57,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   const [linkNameInput, setLinkNameInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<Record<string, { name: string; progress: number }>>({});
-  const [isDriveConnected, setIsDriveConnected] = useState<boolean>(Boolean(getSavedDriveToken()));
+  const [isDriveConnected, setIsDriveConnected] = useState<boolean>(false);
   const [isConnectingDrive, setIsConnectingDrive] = useState(false);
   
   // File edit state
@@ -79,9 +79,9 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   useEffect(() => {
     const initialList = attachments || [];
     setItems(initialList);
-    setIsDriveConnected(Boolean(getSavedDriveToken()));
+    void getProgramDriveStatus().then(state => setIsDriveConnected(state.configured)).catch(() => setIsDriveConnected(false));
     setSharedEmails(getSavedSharedDriveEmails());
-    getDriveFolderUrl().then(url => setDriveFolderUrl(url));
+    // Private Drive folders are accessed only through the authenticated program.
 
     // Restore any image data from IndexedDB if not in memory
     initialList.forEach(async (att) => {
@@ -106,12 +106,12 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   const handleConnectDrive = async () => {
     setIsConnectingDrive(true);
     try {
-      await requestDriveAccessToken();
-      setIsDriveConnected(true);
-      const url = await getDriveFolderUrl();
-      setDriveFolderUrl(url);
+      const state = await getProgramDriveStatus();
+      setIsDriveConnected(state.configured);
+      if(!state.configured)throw new Error('خدمة Google Drive لم تُربط بعد بصلاحية الخادم');
     } catch (err) {
-      console.warn('Google Drive token request deferred:', err);
+      console.warn('Private Drive service not configured:', err);
+      setShareFeedback('تعذر الاتصال بمخزن المرفقات؛ سيبقى الملف محفوظًا على هذا الجهاز فقط حتى نجاح رفعه.');
     } finally {
       setIsConnectingDrive(false);
     }
@@ -160,7 +160,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
       setItems(prev => [...prev, newAttachment]);
 
       // 3. Background upload to Google Drive if connected or requested
-      if (isDriveConnected || getSavedDriveToken()) {
+      if (navigator.onLine) {
         setUploadingFiles(prev => ({ ...prev, [attId]: { name: file.name, progress: 10 } }));
         try {
           const driveRes = await uploadFileToGoogleDrive(file, file.name, (prog) => {
@@ -172,15 +172,17 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
               return {
                 ...item,
                 driveFileId: driveRes.fileId,
-                driveWebViewLink: driveRes.webViewLink,
-                driveDownloadLink: driveRes.webContentLink,
+                driveWebViewLink: undefined,
+                driveDownloadLink: undefined,
+                data: undefined,
                 storageType: 'drive'
               };
             }
             return item;
           }));
         } catch (err) {
-          console.warn('Drive upload background fallback to local binary storage:', err);
+          console.warn('Drive upload failed; original retained locally for recovery:', err);
+          setShareFeedback('تعذر رفع '+file.name+' إلى Drive. الملف محفوظ مؤقتًا على هذا الجهاز ولا يظهر للأجهزة الأخرى حتى نجاح الرفع.');
         } finally {
           setUploadingFiles(prev => {
             const next = { ...prev };
@@ -201,8 +203,19 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
       }
     }
 
+    if (att.driveFileId) {
+      try {
+        const blob=await downloadProgramDriveAttachment(att.driveFileId);
+        downloadBlobFile(blob,att.name);
+      } catch(error) {
+        console.warn('Private Drive attachment download failed:',error);
+        setShareFeedback('تعذر تنزيل الملف من الخادم. تحقق من الاتصال وصلاحيات حسابك.');
+      }
+      return;
+    }
     if (att.driveWebViewLink || att.driveDownloadLink) {
-      window.open(att.driveDownloadLink || att.driveWebViewLink, '_blank');
+      // Legacy externally supplied links are not private server-managed files.
+      window.open(att.driveDownloadLink || att.driveWebViewLink, '_blank','noopener,noreferrer');
       return;
     }
 
@@ -313,6 +326,10 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   };
 
   const handleSaveAndClose = () => {
+    if(Object.keys(uploadingFiles).length>0){
+      setShareFeedback('يرجى إكمال رفع الملفات قبل الحفظ حتى لا تضيع مراجع المرفقات.');
+      return;
+    }
     onSaveAttachments(items);
     onClose();
   };
@@ -400,20 +417,11 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
               title="إدارة صلاحيات مشاركة مجلد الدرايف مع مستخدمي النظام"
             >
               <Users className="w-3.5 h-3.5" />
-              <span>مشاركة الصلاحيات ({sharedEmails.length})</span>
+              <span>صلاحيات مستخدمي البرنامج</span>
             </button>
 
             {isDriveConnected ? (
-              <a
-                href={driveFolderUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition"
-                title="فتح المجلد في Google Drive"
-              >
-                <FolderOpen className="w-3.5 h-3.5" />
-                <span>Google Drive</span>
-              </a>
+              <span className="text-xs bg-emerald-700 text-white px-2 py-1 rounded">Drive خاص ومتصل</span>
             ) : (
               <button
                 type="button"
@@ -427,100 +435,10 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
           </div>
         </div>
 
-        {/* Team Sharing & Access Management Accordion */}
         {showSharePanel && (
-          <div className="bg-amber-50/70 border-b border-amber-200 p-4 animate-in slide-in-from-top-2 duration-200">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Share2 className="w-4 h-4 text-amber-700" />
-                <h3 className="text-xs font-bold text-amber-950">
-                  إدارة مشاركة مجلد الدرايف (صلاحية كاملة: وصول، تعديل، وحذف لكافة المستخدمين المفعّلين)
-                </h3>
-              </div>
-              <span className="text-[10px] text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded-full font-bold">
-                Writer Role (محرر ومشارك)
-              </span>
-            </div>
-            
-            <p className="text-[11px] text-amber-900 mb-3 leading-relaxed">
-              كل مستخدم يتم تفعيله هنا يمتلك صلاحية كاملة على Google Drive لمعاينة وتعديل وتنزيل وحذف المرفقات والتصاميم الخاصة بأوامر الطباعة.
-            </p>
-
-            {/* Input to add email */}
-            <div className="flex flex-col sm:flex-row gap-2 mb-3">
-              <input
-                type="email"
-                value={newShareEmail}
-                onChange={e => setNewShareEmail(e.target.value)}
-                placeholder="أدخل البريد الإلكتروني لموظف أو مصمم أو فني (Gmail)..."
-                className="text-xs border border-amber-300 rounded-lg px-3 py-1.5 flex-1 bg-white focus:outline-hidden focus:ring-1 focus:ring-amber-500"
-              />
-              <button
-                type="button"
-                onClick={() => handleShareWithEmail(newShareEmail)}
-                disabled={isSharingEmail || !newShareEmail.trim()}
-                className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs px-4 py-1.5 rounded-lg flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
-              >
-                {isSharingEmail ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                <span>تفعيل صلاحية الوصول والتعديل والحذف</span>
-              </button>
-            </div>
-
-            {/* Quick add from system users */}
-            {users && users.length > 0 && (
-              <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-amber-900 mb-3">
-                <span className="font-bold">إضافة سريعة من مستخدمي النظام:</span>
-                {users
-                  .filter(u => u.email && !sharedEmails.includes(u.email.toLowerCase()))
-                  .slice(0, 5)
-                  .map(u => (
-                    <button
-                      key={u.id}
-                      type="button"
-                      onClick={() => handleShareWithEmail(u.email || '')}
-                      className="bg-white hover:bg-amber-100 border border-amber-300 text-amber-950 font-bold px-2 py-0.5 rounded text-[10px] cursor-pointer flex items-center gap-1 transition"
-                    >
-                      <Plus className="w-2.5 h-2.5 text-amber-600" />
-                      <span>{u.fullName || u.username} ({u.email})</span>
-                    </button>
-                  ))}
-              </div>
-            )}
-
-            {/* Feedback message */}
-            {shareFeedback && (
-              <div className="mb-2 text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 p-2 rounded-lg flex items-center justify-between">
-                <span>{shareFeedback}</span>
-                <button type="button" onClick={() => setShareFeedback(null)} className="text-emerald-700 hover:text-emerald-950">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-
-            {/* Current Shared List */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-bold text-amber-950">المستخدمون المصرح لهم حالياً:</span>
-              {sharedEmails.length === 0 ? (
-                <span className="text-[11px] text-amber-700 italic">لم تتم إضافة إيميلات مخصصة بعد (المجلد متاح لمالك الحساب وجميع الروابط المباشرة).</span>
-              ) : (
-                sharedEmails.map(email => (
-                  <span
-                    key={email}
-                    className="inline-flex items-center gap-1.5 bg-white border border-amber-300 text-amber-950 px-2 py-0.5 rounded-lg text-[11px] font-mono shadow-2xs"
-                  >
-                    <span>{email}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSharedEmail(email)}
-                      className="text-red-500 hover:text-red-700 cursor-pointer p-0.5"
-                      title="إلغاء التفعيل"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))
-              )}
-            </div>
+          <div className="bg-blue-50 border-b border-blue-200 p-3 text-xs text-blue-950">
+            المرفقات خاصة بالبرنامج. كل مستخدم يملك جلسة دخول صالحة يمكنه فتحها من داخل البرنامج؛
+            لا حاجة لمشاركة حسابات Google أو منح روابط عامة للملفات.
           </div>
         )}
 
