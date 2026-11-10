@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { syncAuditService, SyncAuditItem, SyncConnectionIssue, ENTITY_ARABIC_NAMES } from '../services/syncAuditService';
-import firebaseConfig from '../../firebase-applet-config.example.json';
 
 // Inlined self-contained reconciliation helpers to eliminate external module resolution issues in remote CI/CD builds
 export type ComparisonStatus = 'NOT_CHECKED' | 'MATCH' | 'DIFFERENT';
@@ -89,8 +88,6 @@ async function downloadMultiSourceDiagnostic(repository: any) {
     format: 'lobnan-reconciliation-export-v1',
     generatedAt: new Date().toISOString(),
     workspaceId: 'lobnan_main',
-    projectId: (firebaseConfig as any).projectId,
-    firestoreDatabaseId: (firebaseConfig as any).firestoreDatabaseId,
     deviceId: localStorage.getItem('lobnan_device_id') || 'not-assigned',
     local, cloud, legacy, outbox, comparisons,
     invoiceRows
@@ -111,12 +108,6 @@ async function downloadMultiSourceDiagnostic(repository: any) {
   return report;
 }
 import { getCachedSyncToken, requestGoogleDriveToken } from '../services/googleDriveDatabaseSyncService';
-import {
-  runLiveFirestorePingTest,
-  subscribeToSyncAuditLogsFromFirestore,
-  subscribeToConnectionIssuesFromFirestore,
-  fetchFullDatabaseFromFirestore
-} from '../services/firebaseFirestoreSyncService';
 import { SyncConflictModal } from './SyncConflictModal';
 import {
   RefreshCw,
@@ -163,7 +154,7 @@ export const SyncAuditStatementView: React.FC = () => {
     lastSyncTime,
     pendingSyncCount,
     forceSyncNow,
-    isFirebaseSyncing,
+    isالخادم الرئيسيSyncing,
     setActiveTab,
     invoices,
     parties,
@@ -208,7 +199,7 @@ export const SyncAuditStatementView: React.FC = () => {
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [previewActiveEntity, setPreviewActiveEntity] = useState<string>('invoices');
 
-  // Load authoritative cloud counts directly from Firestore workspace records
+  // Load authoritative cloud counts directly from PostgreSQL workspace records
   const loadCloudCounts = useCallback(async () => {
     setIsLoadingCloudCounts(true);
     try {
@@ -274,32 +265,18 @@ export const SyncAuditStatementView: React.FC = () => {
     }
   };
 
-  // Load audit logs and errors from local and Firebase
+  // Load audit logs and errors from local and الخادم الرئيسي
   const loadLocalLogs = useCallback(() => {
     setAuditLogs(syncAuditService.getAuditLogs());
     setConnectionIssues(syncAuditService.getConnectionIssues());
   }, []);
 
-  // Subscribe to Live Firebase Firestore Sync Logs & Errors
+  // The canonical PostgreSQL coordinator records acknowledgements locally.
+  // Refresh the audit view without opening a second cloud subscription.
   useEffect(() => {
     loadLocalLogs();
-
-    const unsubLogs = subscribeToSyncAuditLogsFromFirestore((fsLogs) => {
-      if (fsLogs && fsLogs.length > 0) {
-        setAuditLogs(fsLogs);
-      }
-    });
-
-    const unsubIssues = subscribeToConnectionIssuesFromFirestore((fsIssues) => {
-      if (fsIssues && fsIssues.length >= 0) {
-        setConnectionIssues(fsIssues);
-      }
-    });
-
-    return () => {
-      unsubLogs();
-      unsubIssues();
-    };
+    const refresh = setInterval(loadLocalLogs, 5000);
+    return () => clearInterval(refresh);
   }, [loadLocalLogs]);
 
   // Fetch live server status and latency
@@ -311,7 +288,7 @@ export const SyncAuditStatementView: React.FC = () => {
     if (isVercel) {
       setServerPingMs(25);
       setConnectionState('checking');
-      setServerStatus(null); // Vercel hostname is NOT proof of a healthy Firestore connection.
+      setServerStatus(null); // Vercel hostname is NOT proof of a healthy PostgreSQL connection.
       setIsLoadingServerStatus(false);
       loadLocalLogs();
       return;
@@ -390,7 +367,7 @@ export const SyncAuditStatementView: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Firebase_Firestore_Master_DB_Snapshot_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `Postgres_Master_DB_Snapshot_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -531,12 +508,12 @@ export const SyncAuditStatementView: React.FC = () => {
             <button
               type="button"
               onClick={handleTriggerFullSync}
-              disabled={isFirebaseSyncing}
+              disabled={isالخادم الرئيسيSyncing}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition active:translate-y-px cursor-pointer disabled:opacity-75"
               title="طلب مزامنة العمليات المعلقة والتحقق من تأكيدها من الخادم"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isFirebaseSyncing ? 'animate-spin' : ''}`} />
-              <span>{isFirebaseSyncing ? 'جارِ المزامنة...' : 'مزامنة شاملة الآن'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isالخادم الرئيسيSyncing ? 'animate-spin' : ''}`} />
+              <span>{isالخادم الرئيسيSyncing ? 'جارِ المزامنة...' : 'مزامنة شاملة الآن'}</span>
             </button>
 
             <button
@@ -640,7 +617,7 @@ export const SyncAuditStatementView: React.FC = () => {
                 </h3>
               </div>
               <p className="text-xs text-slate-300 mt-1">
-                اضغط الزر لإرسال قيد واختبار استجابته وقراءته المباشرة من سحابة Firebase Firestore فوراً دون أي وسطاء:
+                اضغط الزر لإرسال قيد واختبار استجابته وقراءته المباشرة من سحابة خادم PostgreSQL فوراً دون أي وسطاء:
               </p>
             </div>
 
@@ -707,7 +684,7 @@ export const SyncAuditStatementView: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
         <div className="bg-white p-3 rounded-xl border border-emerald-200 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-[11px] font-bold text-slate-500 block">ما تم نقله وإرساله لسحابة Firebase:</span>
+            <span className="text-[11px] font-bold text-slate-500 block">ما تم نقله وإرساله لسحابة الخادم الرئيسي:</span>
             <span className="text-xl font-black text-emerald-700 block mt-0.5">
               {auditLogs.filter(l => l.direction === 'push' && l.status === 'success').length}
             </span>
@@ -767,14 +744,14 @@ export const SyncAuditStatementView: React.FC = () => {
           connectionIssues.length > 0 ? 'bg-rose-50 border-rose-300' : 'bg-white border-slate-200'
         }`}>
           <div>
-            <span className="text-[11px] font-bold text-slate-500 block">سجل أخطاء الاتصال بالـ Firebase:</span>
+            <span className="text-[11px] font-bold text-slate-500 block">سجل أخطاء الاتصال بالـ الخادم الرئيسي:</span>
             <span className={`text-xl font-black block mt-0.5 ${
               connectionIssues.length > 0 ? 'text-rose-700' : 'text-slate-800'
             }`}>
               {connectionIssues.length}
             </span>
             <span className="text-[10px] text-slate-500 block mt-0.5">
-              {connectionIssues.length > 0 ? 'سجل محمي في Firebase Firestore' : 'لا توجد أخطاء اتصال 🟢'}
+              {connectionIssues.length > 0 ? 'سجل محمي في خادم PostgreSQL' : 'لا توجد أخطاء اتصال 🟢'}
             </span>
           </div>
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${
@@ -791,7 +768,7 @@ export const SyncAuditStatementView: React.FC = () => {
           <div className="flex items-center gap-2">
             <Database className="w-4 h-4 text-indigo-600" />
             <h2 className="text-xs sm:text-sm font-bold text-slate-900">
-              جدول مطابقة الكيانات مع قاعدة بيانات Firebase Firestore المباشرة
+              جدول مطابقة الكيانات مع قاعدة بيانات خادم PostgreSQL المباشرة
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -903,7 +880,7 @@ export const SyncAuditStatementView: React.FC = () => {
                   : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
               }`}
             >
-              كافة الحركات المسجلة في Firebase ({auditLogs.length})
+              كافة الحركات المسجلة في الخادم الرئيسي ({auditLogs.length})
             </button>
 
             <button
@@ -970,7 +947,7 @@ export const SyncAuditStatementView: React.FC = () => {
                   syncAuditService.clearConnectionIssues();
                   setConnectionIssues([]);
                   loadLocalLogs();
-                  setActionFeedback({ success: true, message: 'تم مسح وتفريغ سجل الأخطاء من Firebase بنجاح ✅' });
+                  setActionFeedback({ success: true, message: 'تم مسح وتفريغ سجل الأخطاء من الخادم الرئيسي بنجاح ✅' });
                   setTimeout(() => setActionFeedback(null), 3000);
                 }}
                 className="px-2.5 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg flex items-center gap-1 shrink-0 cursor-pointer"
@@ -1008,7 +985,7 @@ export const SyncAuditStatementView: React.FC = () => {
                 <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
                 <h3 className="text-sm font-bold text-slate-800">لا توجد أي أخطاء أو مشاكل اتصال مسجلة</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  كافة عمليات الإرسال والاستقبال مع سحابة Firebase Firestore تعمل بكفاءة واستقرار تام.
+                  كافة عمليات الإرسال والاستقبال مع سحابة خادم PostgreSQL تُراجع وفق تأكيدات الخادم وحالة الطابور.
                 </p>
               </div>
             ) : (
@@ -1017,9 +994,9 @@ export const SyncAuditStatementView: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                     <div>
-                      <strong className="block text-emerald-800 font-bold">الاتصال بسحابة Firebase Firestore مستقر 100%</strong>
+                      <strong className="block text-emerald-800 font-bold">الاتصال بسحابة خادم PostgreSQL تُعرض حالته بعد الفحص</strong>
                       <span className="text-[11px] text-emerald-700">
-                        سجل الأخطاء أدناه محفوظ في سحابة Firebase Firestore للتتبع والتدقيق الفني.
+                        سجل الأخطاء أدناه محفوظ في سحابة خادم PostgreSQL للتتبع والتدقيق الفني.
                       </span>
                     </div>
                   </div>
@@ -1070,7 +1047,7 @@ export const SyncAuditStatementView: React.FC = () => {
                 <Activity className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                 <h3 className="text-sm font-bold text-slate-700">لا توجد حركات مسجلة تطابق التصفية</h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  تتم إضافة الحركات تلقائياً فور تسجيل الفواتير والسندات في قاعدة بيانات Firebase Firestore.
+                  تتم إضافة الحركات تلقائياً فور تسجيل الفواتير والسندات في قاعدة بيانات خادم PostgreSQL.
                 </p>
               </div>
             ) : (
@@ -1096,7 +1073,7 @@ export const SyncAuditStatementView: React.FC = () => {
                         {item.direction === 'push' ? (
                           <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[10px]">
                             <ArrowUpRight className="w-3 h-3" />
-                            <span>نقل للـ Firebase</span>
+                            <span>نقل للـ الخادم الرئيسي</span>
                           </span>
                         ) : item.direction === 'pull' ? (
                           <span className="inline-flex items-center gap-1 text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-[10px]">
@@ -1147,7 +1124,7 @@ export const SyncAuditStatementView: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Database className="w-5 h-5 text-emerald-400" />
                 <h3 className="text-base font-black">
-                  معاينة قاعدة بيانات Firebase Firestore السحابية الحية
+                  معاينة قاعدة بيانات خادم PostgreSQL السحابية الحية
                 </h3>
               </div>
               <div className="flex items-center gap-2">
@@ -1173,13 +1150,13 @@ export const SyncAuditStatementView: React.FC = () => {
               {isLoadingPreview ? (
                 <div className="text-center py-16 space-y-3">
                   <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto" />
-                  <p className="text-sm font-bold text-slate-700">جارِ جلب ومعاينة قاعدة البيانات من سحابة Firebase Firestore...</p>
+                  <p className="text-sm font-bold text-slate-700">جارِ جلب ومعاينة قاعدة البيانات من سحابة خادم PostgreSQL...</p>
                 </div>
               ) : (
                 <>
                   <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-900 flex items-center justify-between">
                     <span className="font-bold">
-                      🔥 حالة البيانات: محفوظة ومزامنة في سحابة Firebase Firestore بنجاح
+                      حالة البيانات: تأكد من سجلات الخادم قبل اعتماد المطابقة
                     </span>
                     <span className="font-mono text-[11px] text-emerald-800">
                       إجمالي الكيانات: {Object.keys(previewData || {}).length} كيان
