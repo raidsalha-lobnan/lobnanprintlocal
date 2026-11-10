@@ -17,7 +17,7 @@ import {
 import { posSound } from '../../utils/audio';
 import { getBinaryAttachment, downloadBlobFile, saveBinaryAttachment } from '../../utils/fileStorage';
 import { resizeAndCompressImage } from '../../utils/imageCompress';
-import { uploadFileToGoogleDrive, getSavedDriveToken } from '../../services/googleDriveService';
+import { uploadFileToGoogleDrive, downloadProgramDriveAttachment } from '../../services/googleDriveService';
 
 interface WorkshopAttachmentModalProps {
   isOpen: boolean;
@@ -63,9 +63,18 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
       }
     }
 
-    // 2. Check Google Drive link
-    if (att.driveDownloadLink || att.driveWebViewLink) {
-      window.open(att.driveDownloadLink || att.driveWebViewLink, '_blank');
+    // Drive files are never public; fetch through the program's authenticated API.
+    if(att.driveFileId) {
+      try {
+        const blob=await downloadProgramDriveAttachment(att.driveFileId);
+        downloadBlobFile(blob,att.name);
+      }catch(error){
+        setFeedbackMsg({type:'error',text:'تعذر تنزيل المرفق من مخزن Drive الخاص بالبرنامج.'});
+      }
+      return;
+    }
+    if(att.driveDownloadLink || att.driveWebViewLink) {
+      window.open(att.driveDownloadLink || att.driveWebViewLink,'_blank','noopener,noreferrer');
       return;
     }
 
@@ -124,22 +133,26 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
       uploadedBy: currentUserName || 'فني الورشة'
     };
 
-    // If Google Drive token exists, upload in background
-    if (getSavedDriveToken()) {
-      uploadFileToGoogleDrive(file, file.name)
-        .then((res) => {
-          newAtt.driveFileId = res.fileId;
-          newAtt.driveWebViewLink = res.webViewLink;
-          newAtt.driveDownloadLink = res.webContentLink;
-          newAtt.storageType = 'drive';
-        })
-        .catch((err) => console.warn('Drive upload error:', err));
+    // Await the Drive receipt BEFORE persisting metadata for this invoice.
+    // On failure retain the original local Blob and show an explicit warning.
+    if(navigator.onLine){
+      try{
+        const receipt=await uploadFileToGoogleDrive(file,file.name);
+        newAtt.driveFileId=receipt.fileId;
+        newAtt.driveWebViewLink=undefined;
+        newAtt.driveDownloadLink=undefined;
+        newAtt.data=undefined;
+        newAtt.storageType='drive';
+      }catch(error){
+        console.warn('Workshop Drive upload pending on this device:',error);
+        setFeedbackMsg({type:'error',text:'تعذر رفع المرفق إلى Drive؛ حفظ محليًا على هذا الجهاز فقط. يلزم إعادة المحاولة قبل إتاحته لباقي الأجهزة.'});
+      }
     }
 
     onAddAttachment(itemIndex, newAtt);
     setSelectedPreview(newAtt);
     posSound.beep();
-    setFeedbackMsg({
+    if(newAtt.storageType==='drive')setFeedbackMsg({
       type: 'success',
       text: `تم إرفاق النسخة المعدلة "${file.name}" بجودة أصلية 100% بنجاح`
     });
