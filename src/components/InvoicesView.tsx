@@ -32,6 +32,9 @@ import {
 import { formatDateDisplay } from '../utils/dateUtils';
 import { formatInvoiceCustomerDisplay } from '../utils/partyUtils';
 import { printDetailedSalesInvoiceRegister } from '../utils/printDetailedSalesInvoiceRegister';
+import { approvedCatalogCategories } from '../utils/approvedCatalogOptions';
+import { salesReportPeriod } from '../utils/salesReportPeriod';
+import { salesReportCustomerName } from '../utils/salesReportCustomer';
 
 type InvoiceDateFilterMode = 'all' | 'single' | 'range';
 
@@ -57,6 +60,7 @@ export const InvoicesView: React.FC = () => {
     invoices,
     deletedInvoices,
     treasuries,
+    inventory,
     parties,
     setSelectedInvoiceForPrint,
     setSelectedInvoiceForLifecycle,
@@ -110,29 +114,29 @@ export const InvoicesView: React.FC = () => {
   const totalInvoiced = filteredInvoices.reduce((acc, inv) => acc + inv.totalAmount, 0);
 
   const handlePrintDetailedInvoices = () => {
-    const periodLabel = dateFilterMode === 'all'
-      ? 'جميع التواريخ'
-      : dateFilterMode === 'single'
-        ? 'يوم ' + formatDateDisplay(singleDate)
-        : dateFrom && dateTo
-          ? 'من ' + formatDateDisplay(dateFrom) + ' إلى ' + formatDateDisplay(dateTo)
-          : dateFrom
-            ? 'من ' + formatDateDisplay(dateFrom) + ' فصاعدًا'
-            : dateTo
-              ? 'حتى ' + formatDateDisplay(dateTo)
-              : 'جميع التواريخ';
-    const invoiceTypeLabel = filterType === 'pos'
-      ? 'فواتير نقطة البيع'
-      : filterType === 'print_order'
-        ? 'فواتير أوامر الطباعة'
-        : 'كافة أنواع الفواتير';
+    const periodLabel = salesReportPeriod(filteredInvoices, {
+      mode: dateFilterMode, singleDate, dateFrom, dateTo,
+    });
+    const invoiceTypeLabel = filterType === 'pos' ? 'فواتير نقاط البيع' :
+      filterType === 'print_order' ? 'فواتير أوامر الطباعة' : 'كافة أنواع الفواتير';
+    const categoryNames = new Map(
+      approvedCatalogCategories(settings.categories || []).map(category => [category.id, category.name])
+    );
+    const categoryByItem = new Map(inventory.map(item => [item.id, item.category]));
     printDetailedSalesInvoiceRegister(filteredInvoices, {
-      companyName: settings.companyName || 'مطبعة ومكتبة لبنان',
+      companyName: settings.businessName || settings.name || 'المنشأة',
+      settings,
       periodLabel,
       invoiceTypeLabel,
       searchLabel: searchQuery.trim(),
-      customerName: invoice => formatInvoiceCustomerDisplay(invoice, parties),
-      treasuries
+      customerName: invoice => salesReportCustomerName(invoice, parties),
+      categoryName: invoice => {
+        const ids = [...new Set((invoice.items || []).map(item =>
+          categoryByItem.get(item.itemId) || item.category
+        ).filter((value): value is string => Boolean(value)))];
+        return ids.map(id => categoryNames.get(id) || id).join('، ');
+      },
+      treasuries,
     });
   };
 
