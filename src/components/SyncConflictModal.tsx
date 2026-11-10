@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { SyncCommand } from '../sync-next/types';
 import type {QueueComparison} from '../sync-next/queueDiagnostics';
+import {classifyQueueSafety} from '../sync-next/queueSafety';
 import { assessLocalStorageHealth } from '../sync-next/storageHealth';
 import { useAccounting } from '../context/AccountingContext';
 import firebaseConfig from '../../firebase-applet-config.example.json';
@@ -379,15 +380,21 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                             </div>
                             <div className="text-xs font-bold text-white mt-1">
                               الكيانات المتأثرة:{' '}
-                              {cmd.changes.map(c => getEntityLabel(c.entity)).join('، ')}
+                              {cmd.changes.slice(0, 3).map(c => getEntityLabel(c.entity)).join('، ')}
+                              {cmd.changes.length > 3 ? ` (+${cmd.changes.length - 3} سجلات)` : ''}
                             </div>
                             <div className="text-[11px] text-rose-300 mt-1 font-mono">
                               الخطأ: {cmd.error || 'تم اكتشاف تعديل مسبق للنسخة على جهاز آخر'}
                             </div>
+                            {classifyQueueSafety(cmd).advice && (
+                              <div role="alert" className="mt-2 max-w-3xl text-[11px] leading-relaxed text-amber-200">
+                                {classifyQueueSafety(cmd).advice}
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2 ml-auto">
-                            {cmd.changes.some(c => c.entity === 'invoices') && (
+                            {classifyQueueSafety(cmd).allowRenumber && (
                               <button
                                 onClick={() => handleAutoRenumberInvoice(cmd.id)}
                                 disabled={isLoading}
@@ -407,23 +414,26 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                               <span>معاينة</span>
                             </button>
 
-                            <button
-                              onClick={() => handleRetry(cmd.id)}
-                              disabled={isLoading}
-                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold transition flex items-center gap-1.5 disabled:opacity-50"
-                            >
-                              <RefreshCw className="w-3.5 h-3.5" />
-                              <span>إعادة محاولة دون تجاوز التعارض</span>
-                            </button>
-
-                            <button
-                              onClick={() => handleDiscard(cmd.id)}
-                              disabled={isLoading}
-                              className="px-2.5 py-1.5 rounded-lg bg-rose-900/60 hover:bg-rose-800 text-xs text-rose-200 font-medium transition flex items-center gap-1.5 disabled:opacity-50"
-                              title="استبعاد الحركة"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {classifyQueueSafety(cmd).allowRetry && (
+                              <button
+                                onClick={() => handleRetry(cmd.id)}
+                                disabled={isLoading}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold transition flex items-center gap-1.5 disabled:opacity-50"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                <span>إعادة محاولة دون تجاوز التعارض</span>
+                              </button>
+                            )}
+                            {classifyQueueSafety(cmd).allowDiscard && (
+                              <button
+                                onClick={() => handleDiscard(cmd.id)}
+                                disabled={isLoading}
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-900/60 hover:bg-rose-800 text-xs text-rose-200 font-medium transition flex items-center gap-1.5 disabled:opacity-50"
+                                title="استبعاد حركة غير مالية"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -461,9 +471,11 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                 {pendingCommands.filter(c => c.status === 'pending').length === 0 ? (
                   <div className="p-6 text-center rounded-xl bg-slate-950/40 border border-slate-800/80">
                     <CheckCircle2 className="w-8 h-8 text-blue-400 mx-auto mb-2 opacity-80" />
-                    <h4 className="text-xs font-bold text-slate-200">طابور الانتظار فارغ تماماً</h4>
+                    <h4 className="text-xs font-bold text-slate-200">لا توجد عمليات جاهزة للإرسال</h4>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      لا توجد أي حركات معلقة بانتظار الإرسال؛ جميع البيانات منسقة ومزامنة بنجاح.
+                      {conflicts.length > 0
+                        ? `يوجد ${conflicts.length} عملية مرفوضة أو متعارضة لم تُحل بعد. فراغ طابور الإرسال لا يعني اكتمال المزامنة.`
+                        : 'لا توجد عمليات معلقة أو مرفوضة على هذا الجهاز حاليًا. تحقق أيضًا من الأجهزة الأخرى.'}
                     </p>
                   </div>
                 ) : (
@@ -499,15 +511,9 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                               <span>معاينة</span>
                             </button>
 
-                            <button
-                              onClick={() => handleDiscard(cmd.id)}
-                              disabled={isLoading}
-                              className="px-2.5 py-1.5 rounded-lg bg-rose-900/60 hover:bg-rose-800 text-xs text-rose-200 font-medium transition flex items-center gap-1.5 disabled:opacity-50"
-                              title="حذف أو استبعاد الحركة المعلقة"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>استبعاد</span>
-                            </button>
+                            <span className="text-[10px] text-amber-200">
+                              الحركات غير المرسلة محفوظة محليًا؛ لا تستبعدها قبل المطابقة مع الخادم.
+                            </span>
                           </div>
                         </div>
 
