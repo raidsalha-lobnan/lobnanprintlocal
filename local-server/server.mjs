@@ -17,6 +17,7 @@ import {settingsVisibleToUser} from './workspace-settings-public.mjs';
 import {findVerifiedSettingsReceipts} from './settings-field-patch.mjs';
 import {createAccessVerifier} from './access-verifier.mjs';
 import {adminDirectoryCommand} from './admin-directory.mjs';
+import {DriveStorage,readAttachmentBody,prepareAttachmentTable,recordUploadedAttachment,findUploadedAttachment,startBackupScheduler,safeName,safeMime} from './drive-storage.mjs';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 const PORT=Number(process.env.SYNC_PORT||4577);
 const TOKEN=process.env.SYNC_DEVICE_TOKEN||'';
@@ -44,6 +45,10 @@ const pool=new pg.Pool({connectionString:DATABASE_URL,max:12});
 const schema=fs.readFileSync(path.join(dir,'schema.sql'),'utf8');
 await pool.query(schema);
 const service=new SyncService(pool);
+await prepareAttachmentTable(pool);
+const driveStorage=new DriveStorage();
+let lastBackupResult={ok:false,remoteVerified:false,error:'NOT_YET_RUN'};
+const backupScheduler=startBackupScheduler({drive:driveStorage,onResult:result=>{lastBackupResult=result;}});
 const telegramDelivery=new TelegramDelivery(pool,WORKSPACE);
 const telegramHub=new TelegramHub(pool,WORKSPACE);
 const telegramTimer=setInterval(()=>{void telegramDelivery.drainOnce().catch(e=>console.error('telegram worker',e.message));},10000);
@@ -126,6 +131,48 @@ const srv=http.createServer(async(req,res)=>{
     if(STRICT_AUTH&&!user)return json(res,401,{code:'LOGIN_REQUIRED'},cors);
     const access=STRICT_AUTH?await resolveAccess(pool,workspace,user,ADMIN_USER_ID):null;
     if(!STRICT_AUTH&&!safeEq(bearer,TOKEN))return json(res,401,{code:'UNAUTHORIZED'},cors);
+    // Drive is never public. Every file request is authenticated as a program user;
+    // no OAuth token, shareable public link or actual file bytes enter PostgreSQL.
+    if(url.pathname==='/api/v1/drive/status' && req.method==='GET'){
+      if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
+      return json(res,200,{
+        configured:driveStorage.configured(),
+        backup:{ok:lastBackupResult.ok,remoteVerified:lastBackupResult.remoteVerified,
+          lastCompletedAt:backupScheduler.getStatus().lastCompletedAt,
+          error:lastBackupResult.error||null}
+      },cors);
+    }
+    if(url.pathname==='/api/v1/attachments/upload' && req.method==='POST'){
+      if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
+      if(!driveStorage.configured())throw new InputError('DRIVE_OAUTH_NOT_CONFIGURED',503);
+      const filename=safeName(url.searchParams.get('name'));
+      const mime=safeMime(url.searchParams.get('mime'));
+      const content=await readAttachmentBody(req);
+      const receipt=await driveStorage.uploadBuffer(content,filename,mime,'attachments');
+      await recordUploadedAttachment(pool,workspace,{
+        id:receipt.id,name:filename,mime,size:content.length
+      },user.id);
+      return json(res,201,{fileId:receipt.id,name:filename,size:content.length,
+        mimeType:mime,storageType:'drive'},cors);
+    }
+    if(req.method==='GET'&&url.pathname.startsWith('/api/v1/attachments/content/')){
+      if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
+      const id=decodeURIComponent(url.pathname.slice('/api/v1/attachments/content/'.length));
+      if(!/^[a-zA-Z0-9_-]{8,200}$/.test(id))throw new InputError('INVALID_ATTACHMENT_ID',400);
+      const row=await findUploadedAttachment(pool,workspace,id);
+      if(!row)throw new InputError('ATTACHMENT_NOT_FOUND',404);
+      const bytes=await driveStorage.download(id);
+      res.writeHead(200,{
+        'content-type':safeMime(row.mime_type),
+        'content-length':bytes.length,
+        'cache-control':'no-store',
+        'content-disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(safeName(row.original_name)),
+        'x-content-type-options':'nosniff',
+        'access-control-allow-origin':cors||'',
+        'vary':'Origin'
+      });
+      return res.end(bytes);
+    }
     if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/admin/directory'){
       const command=await parseBody(req,32768);
       const receipt=await adminDirectoryCommand(pool,workspace,access,command);
@@ -208,4 +255,4 @@ const BIND_HOST=process.env.SYNC_BIND_HOST||(STRICT_AUTH?'127.0.0.1':'0.0.0.0');
 if(STRICT_AUTH && BIND_HOST!=='127.0.0.1' && BIND_HOST!=='::1')
   throw new Error('Strict authentication API must bind to loopback; access it through zrok instead');
 srv.listen(PORT,BIND_HOST,()=>console.log(`Lobnan private sync API listening on ${BIND_HOST}:${PORT}`));
-process.on('SIGTERM',()=>{clearInterval(telegramTimer);clearInterval(telegramPollingTimer);srv.close();pool.end().finally(()=>process.exit(0));});
+process.on('SIGTERM',()=>{backupScheduler.stop();clearInterval(telegramTimer);clearInterval(telegramPollingTimer);srv.close();pool.end().finally(()=>process.exit(0));});
