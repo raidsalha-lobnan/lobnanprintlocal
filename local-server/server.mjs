@@ -12,6 +12,7 @@ import {InputError} from './sync-domain.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
 import {stripPrivateFields} from './legacy-snapshot.mjs';
+import {classifyApprovedCatalogError} from './approved-settings-guard.mjs';
 import {settingsVisibleToUser} from './workspace-settings-public.mjs';
 import {createAccessVerifier} from './access-verifier.mjs';
 import {adminDirectoryCommand} from './admin-directory.mjs';
@@ -187,7 +188,7 @@ const srv=http.createServer(async(req,res)=>{
     }
     json(res,404,{code:'NOT_FOUND'},cors);
   }catch(e){
-    const err=e;
+    const err=classifyApprovedCatalogError(e);
     console.error('sync request',err?.message);
     const safeStatus=err instanceof InputError?err.status:err?.status===403?403:500;
     json(res,safeStatus,
