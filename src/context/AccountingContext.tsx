@@ -576,7 +576,6 @@ interface AccountingContextType {
   lastBackupInfo: { timestamp: string; filename: string; totalRecords?: number } | null;
   exportDataJSON: () => Promise<{ success: boolean; filename: string; totalRecords: number; message: string }>;
   importDataJSON: (jsonString: string, includeSettings?: boolean, keepTelegramSettings?: boolean, keepFacilitySettings?: boolean) => Promise<boolean>;
-  syncCurrentDataToFirestore: () => Promise<{ success: boolean; message: string; count: number; breakdown?: string }>;
   resetAllData: () => void;
   performDatabaseZeroing: (options: DatabaseZeroingOptions) => ZeroingExecutionResult;
   
@@ -3012,7 +3011,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const time = new Date(status.lastSuccessAt).toLocaleTimeString('ar-EG');
       setLastSyncTime(time);
       setLastFirebaseSyncTime(time);
-      return { success: true, message: `اكتملت المزامنة المؤكدة مع Firebase عند ${time}.` };
+      return { success: true, message: `اكتملت المزامنة المؤكدة مع خادم قاعدة البيانات الحالية عند ${time}.` };
     } catch (error) {
       return { success: false, message: `فشلت المزامنة: ${String(error)}` };
     } finally {
@@ -11225,159 +11224,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const syncCurrentDataToFirestore = async (): Promise<{ success: boolean; message: string; count: number; breakdown?: string }> => {
-    try {
-      if (isLocalOnlyMode) {
-        return { success: false, message: 'التطبيق في وضع العمل المحلي فقط', count: 0 };
-      }
-
-      const allEntitiesToSync: Record<string, { label: string; items: any[] }> = {
-        invoices: { label: 'فواتير المبيعات', items: Array.isArray(invoices) ? invoices : [] },
-        parties: { label: 'العملاء والموردين', items: Array.isArray(parties) ? parties : [] },
-        inventory: { label: 'الأصناف والمخزون', items: Array.isArray(inventory) ? inventory : [] },
-        vouchers: { label: 'سندات القبض والصرف', items: Array.isArray(vouchers) ? vouchers : [] },
-        purchases: { label: 'فواتير المشتريات', items: Array.isArray(purchases) ? purchases : [] },
-        purchaseReturns: { label: 'مردودات المشتريات', items: Array.isArray(purchaseReturns) ? purchaseReturns : [] },
-        salesReturns: { label: 'مردودات المبيعات', items: Array.isArray(salesReturns) ? salesReturns : [] },
-        accounts: { label: 'دليل الحسابات', items: Array.isArray(accounts) ? accounts : [] },
-        treasuries: { label: 'الخزن والبنوك', items: Array.isArray(treasuries) ? treasuries : [] },
-        journalEntries: { label: 'القيود اليومية', items: Array.isArray(journalEntries) ? journalEntries : [] },
-        stockMovements: { label: 'حركات المخزون', items: Array.isArray(stockMovements) ? stockMovements : [] },
-        expenses: { label: 'المصروفات', items: Array.isArray(expenses) ? expenses : [] },
-        employees: { label: 'الموظفين', items: Array.isArray(employees) ? employees : [] },
-        employeeAdvances: { label: 'سلف الموظفين', items: Array.isArray(employeeAdvances) ? employeeAdvances : [] },
-        employeeDeductions: { label: 'خصومات الموظفين', items: Array.isArray(employeeDeductions) ? employeeDeductions : [] },
-        employeeIncentives: { label: 'حوافز ومكافآت الموظفين', items: Array.isArray(employeeIncentives) ? employeeIncentives : [] },
-        payrollSheets: { label: 'مسيرات الرواتب', items: Array.isArray(payrollSheets) ? payrollSheets : [] },
-        printOrders: { label: 'طلبات وأوامر الطباعة', items: Array.isArray(printOrders) ? printOrders : [] },
-        debtClearings: { label: 'تسويات ومقاصات الديون', items: Array.isArray(debtClearings) ? debtClearings : [] },
-        companies: { label: 'الشركات', items: Array.isArray(companies) ? companies : [] },
-        branches: { label: 'الفروع', items: Array.isArray(branches) ? branches : [] },
-        warehouses: { label: 'المستودعات', items: Array.isArray(warehouses) ? warehouses : [] },
-        warehouseOperations: { label: 'عمليات وتحويلات المستودعات', items: Array.isArray(warehouseOperations) ? warehouseOperations : [] },
-        roles: { label: 'الأدوار والصلاحيات', items: Array.isArray(roles) ? roles : [] },
-        users: { label: 'المستخدمين', items: Array.isArray(users) ? users : [] },
-      };
-
-      let totalSyncedCount = 0;
-      const breakdownSummary: string[] = [];
-
-      for (const [colName, colData] of Object.entries(allEntitiesToSync)) {
-        const items = colData.items;
-        if (!items || items.length === 0) continue;
-
-        let batch = writeBatch(db);
-        let batchOpCount = 0;
-        let colPushed = 0;
-
-        for (let idx = 0; idx < items.length; idx++) {
-          const item = items[idx];
-          if (!item) continue;
-          const rawId = item.id ? String(item.id) : `${colName}_${idx}`;
-          const docId = rawId.replace(/\//g, '_');
-          const cleanItem = cleanDocForFirestore(item);
-          if (cleanItem) {
-            batch.set(doc(db, colName, docId), cleanItem, { merge: true });
-            colPushed++;
-            totalSyncedCount++;
-            batchOpCount++;
-
-            if (batchOpCount % 250 === 0) {
-              await batch.commit();
-              batch = writeBatch(db);
-            }
-          }
-        }
-
-        if (batchOpCount % 250 !== 0 && batchOpCount > 0) {
-          await batch.commit();
-        }
-
-        if (colPushed > 0) {
-          breakdownSummary.push(`${colData.label}: ${colPushed}`);
-        }
-      }
-
-      // Sync dailyEntrySheets
-      if (dailyEntrySheets && typeof dailyEntrySheets === 'object') {
-        let sheetsCount = 0;
-        for (const [dateKey, sheetData] of Object.entries(dailyEntrySheets)) {
-          if (!sheetData) continue;
-          try {
-            const docId = String(dateKey).replace(/\//g, '_');
-            const cleanSheet = cleanDocForFirestore({ date: dateKey, ...(sheetData as any) });
-            await setDoc(doc(db, 'dailyEntrySheets', docId), cleanSheet, { merge: true });
-            sheetsCount++;
-            totalSyncedCount++;
-          } catch {}
-        }
-        if (sheetsCount > 0) {
-          breakdownSummary.push(`شيت القيود السريعة: ${sheetsCount}`);
-        }
-      }
-
-      // Sync settings
-      if (settings) {
-        try {
-          const cleanSettings = cleanDocForFirestore(settings);
-          await setDoc(doc(db, 'settings', 'global'), cleanSettings, { merge: true });
-          totalSyncedCount++;
-          breakdownSummary.push('إعدادات النظام العامة');
-        } catch {}
-      }
-
-      // Overwrite backend server state with complete dataset
-      const serverPayload: Record<string, any> = {};
-      for (const [colName, colData] of Object.entries(allEntitiesToSync)) {
-        serverPayload[colName] = colData.items;
-      }
-      serverPayload.dailyEntrySheets = dailyEntrySheets;
-      serverPayload.settings = settings;
-
-      await fetch('/api/sync/replace-database', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: serverPayload })
-      }).catch(() => {});
-
-      const timeStr = new Date().toLocaleTimeString('ar-EG');
-      setLastFirebaseSyncTime(timeStr);
-      setLastSyncTime(timeStr);
-      setHasUnsyncedChanges(false);
-      setPendingSyncCount(0);
-      safeSetSyncedHashes({});
-      localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'false');
-      localStorage.setItem(`${STORAGE_KEY}_pending_sync_count`, '0');
-      localStorage.setItem(`${STORAGE_KEY}_last_sync`, timeStr);
-
-      if (syncChannelRef.current) {
-        try {
-          syncChannelRef.current.postMessage({
-            type: 'DATABASE_IMPORTED',
-            payload: { timestamp: Date.now() }
-          });
-        } catch {}
-      }
-      window.dispatchEvent(new CustomEvent('accounting_database_updated'));
-
-      const breakdownText = breakdownSummary.join(' • ');
-
-      return {
-        success: true,
-        message: `تم بنجاح نقل ومزامنة قاعدة البيانات بالكامل (${totalSyncedCount} سجل عبر كافة الشاشات والعمليات) إلى سحابة Firestore!\n\nتفاصيل السجلات المتزامنة:\n${breakdownText}`,
-        count: totalSyncedCount,
-        breakdown: breakdownText
-      };
-    } catch (err: any) {
-      console.error('Error during syncCurrentDataToFirestore:', err);
-      return {
-        success: false,
-        message: 'فشلت المزامنة السحابية الشاملة: ' + (err?.message || 'خطأ غير معروف'),
-        count: 0
-      };
-    }
-  };
-
   const resetAllData = async () => {
     if (window.confirm('هذا سيقوم بتصفير شامل لقاعدة البيانات على السيرفر والسحابة وعلى كافة الأجهزة. هل أنت متأكد؟')) {
       // 1. Wipe Cloud Firestore transactional collections
@@ -11723,7 +11569,6 @@ return (
         lastBackupInfo,
         exportDataJSON,
         importDataJSON,
-        syncCurrentDataToFirestore,
         resetAllData,
         performDatabaseZeroing,
         companies,
