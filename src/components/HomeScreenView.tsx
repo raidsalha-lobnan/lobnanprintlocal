@@ -326,7 +326,7 @@ export const HomeScreenView: React.FC = () => {
           <div className="flex items-center gap-2 min-w-0">
             <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
             <span className="text-xs sm:text-sm font-bold text-slate-100 truncate">
-              مركز الانطلاق السريع لتشغيل مهامك اليومية بكفاءة عالية
+              العمليات اليومية
             </span>
           </div>
 
@@ -446,17 +446,6 @@ export const HomeScreenView: React.FC = () => {
                   </span>
                 </div>
 
-                {/* Left: Code / Shortcut Tag */}
-                <div className="flex items-center gap-1 shrink-0">
-                  {shortcut.badge && (
-                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
-                      {shortcut.badge}
-                    </span>
-                  )}
-                  <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 group-hover:bg-blue-50 group-hover:text-blue-700 border border-slate-200 group-hover:border-blue-200 transition-colors">
-                    {shortcut.code}
-                  </span>
-                </div>
               </button>
             );
           })}

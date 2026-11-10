@@ -232,7 +232,7 @@ export const Navbar: React.FC = () => {
   const menuSections: TopMenuSection[] = [
     {
       id: 'control_panel_menu',
-      title: 'لوحة التحكم',
+      title: 'الرئيسية',
       icon: LayoutDashboard,
       items: [
         {
@@ -328,7 +328,7 @@ export const Navbar: React.FC = () => {
     // 2. المشتريات والمصروفات : قائمة منسدلة
     {
       id: 'purchases_expenses_menu',
-      title: 'المشتريات والمصروفات',
+      title: 'المشتريات',
       icon: Truck,
       items: [
         {
@@ -366,7 +366,7 @@ export const Navbar: React.FC = () => {
     // 3. الأصناف : قائمة منسدلة
     {
       id: 'items_menu',
-      title: 'الأصناف',
+      title: 'الأصناف والمخازن',
       icon: Boxes,
       items: [
         {
@@ -385,40 +385,6 @@ export const Navbar: React.FC = () => {
         }
       ]
     },
-    // 4. الموظفون والموارد البشرية : قائمة منسدلة
-    {
-      id: 'hr_menu',
-      title: 'الموظفون والموارد البشرية',
-      icon: UserCheck,
-      items: [
-        {
-          id: 'employees',
-          label: '1. سجل الموظفين وبيانات العمل',
-          sublabel: 'سجلات العاملين والأقسام والرواتب والبيانات الشخصية',
-          icon: Users,
-          badge: stats.totalEmployeesCount > 0 ? `${stats.totalEmployeesCount}` : null,
-          badgeColor: 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-        },
-        {
-          id: 'employees_adjustments',
-          label: '2. السلف والاستقطاعات والمكافآت',
-          sublabel: 'تسجيل سلف الموظفين والخصومات الشهرية والحوافز المالية',
-          icon: Wallet
-        },
-        {
-          id: 'employees_payroll',
-          label: '3. مسيرات الرواتب وصرف المستحقات',
-          sublabel: 'إعداد واعتماد مسير الرواتب الشهري والصرف النقدي والبنكي',
-          icon: FileText
-        },
-        {
-          id: 'report_employee_statement',
-          label: '4. كشف حساب تفصيلي موظف',
-          sublabel: 'تقرير شامل لاستحقاقات وسلف وخصومات الموظف وصافي المستحق',
-          icon: UserCheck
-        }
-      ]
-    },
     // 5. المالية والمحاسبة : قائمة منسدلة
     {
       id: 'finance_accounting_menu',
@@ -431,14 +397,6 @@ export const Navbar: React.FC = () => {
           sublabel: 'إدارة الفروع والمراكز المتعددة والربط المالي والصلاحيات',
           icon: Building2,
           badge: branches.length > 0 ? `${branches.length}` : null,
-          badgeColor: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-        },
-        {
-          id: 'warehouses',
-          label: '2. المخازن والمستودعات',
-          sublabel: 'المستودعات المتعددة والتحويلات وأذون الصرف والتوريد',
-          icon: PackageCheck,
-          badge: warehouseOperations.length > 0 ? `${warehouseOperations.length}` : null,
           badgeColor: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
         },
         {
@@ -470,14 +428,34 @@ export const Navbar: React.FC = () => {
           icon: Activity,
           badge: pendingSyncCount > 0 ? `${pendingSyncCount} معلق` : null,
           badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+        }
+      ]
+    },
+    // 4. الموظفون والموارد البشرية : قائمة منسدلة
+    {
+      id: 'hr_menu',
+      title: 'الموظفون',
+      icon: UserCheck,
+      items: [
+        {
+          id: 'employees',
+          label: '1. سجل الموظفين وبيانات العمل',
+          sublabel: 'سجلات العاملين والأقسام والرواتب والبيانات الشخصية',
+          icon: Users,
+          badge: stats.totalEmployeesCount > 0 ? `${stats.totalEmployeesCount}` : null,
+          badgeColor: 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
         },
         {
-          id: 'action_firebase_quota',
-          label: '7. مؤشر وحاسبة استهلاك حصة فايربيس السحابية',
-          sublabel: 'متابعة استهلاك العمليات اليومية (50k/20k) وميعاد التجديد 12:00 ظهراً',
-          icon: Database,
-          badge: 'مباشر',
-          badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+          id: 'employees_adjustments',
+          label: '2. السلف والاستقطاعات والمكافآت',
+          sublabel: 'تسجيل سلف الموظفين والخصومات الشهرية والحوافز المالية',
+          icon: Wallet
+        },
+        {
+          id: 'employees_payroll',
+          label: '3. مسيرات الرواتب وصرف المستحقات',
+          sublabel: 'إعداد واعتماد مسير الرواتب الشهري والصرف النقدي والبنكي',
+          icon: FileText
         }
       ]
     },
@@ -552,7 +530,7 @@ export const Navbar: React.FC = () => {
     // 7. إعدادات النظام والمنشأة : قائمة منسدلة
     {
       id: 'settings_menu',
-      title: 'إعدادات النظام والمنشأة',
+      title: 'الإعدادات والإدارة',
       icon: Settings,
       items: [
         {
@@ -575,6 +553,11 @@ export const Navbar: React.FC = () => {
           sublabel: 'إعدادات الاتصال المباشر بقاعدة بيانات SQL المحلية',
           icon: Layers
         },
+        { id: 'action_local_database', label: 'القاعدة المحلية والاتصال', icon: HardDrive },
+        { id: 'action_import_master_snapshot', label: 'استيعاب النسخة الرئيسية (إجراء إداري)', icon: Database },
+        { id: 'audit_log', label: 'سجل العمليات والتدقيق', icon: History },
+        { id: 'action_firebase_quota', label: 'تشخيص خدمة Firebase القديمة', icon: Database },
+        { id: 'action_about', label: 'حول البرنامج', icon: Info },
         {
           id: 'settings_backup',
           label: '4. النسخ الاحتياطي والصيانة',
@@ -583,32 +566,7 @@ export const Navbar: React.FC = () => {
         }
       ]
     },
-    // 8. المساعدة والدعم : قائمة منسدلة كلاسيكية
-    {
-      id: 'help_menu',
-      title: 'مساعدة (H)',
-      icon: HelpCircle,
-      items: [
-        {
-          id: 'action_about',
-          label: '1. حول البرنامج والترخيص',
-          sublabel: 'معلومات إصدار سطح المكتب v2.5 ومواصفات النظام وقاعدة البيانات',
-          icon: Info
-        },
-        {
-          id: 'action_calculator',
-          label: '2. الآلة الحاسبة القياسية',
-          sublabel: 'فتح الآلة الحاسبة المدمجة لإجراء العمليات الحسابية السريعة',
-          icon: Calculator
-        },
-        {
-          id: 'settings_backup',
-          label: '3. النسخ الاحتياطي للنظام',
-          sublabel: 'تصدير نسخة احتياطية آمنة من كافة البيانات والفواتير',
-          icon: Download
-        }
-      ]
-    }
+
   ];
 
   const handleSelectSubItem = (itemId: string) => {
@@ -628,6 +586,16 @@ export const Navbar: React.FC = () => {
     }
     if (itemId === 'action_firebase_quota') {
       setIsQuotaModalOpen(true);
+      setOpenDropdownId(null);
+      return;
+    }
+    if (itemId === 'action_local_database') {
+      setIsLocalDbModalOpen(true);
+      setOpenDropdownId(null);
+      return;
+    }
+    if (itemId === 'action_import_master_snapshot') {
+      void handleImportMasterSnapshot();
       setOpenDropdownId(null);
       return;
     }
@@ -702,6 +670,10 @@ export const Navbar: React.FC = () => {
           case 'settings_general':
           case 'settings_sql':
           case 'settings_backup':
+          case 'action_local_database':
+          case 'action_import_master_snapshot':
+          case 'action_firebase_quota':
+          case 'audit_log':
           case 'users_permissions':
           case 'branches':
           case 'parties':
@@ -728,10 +700,10 @@ export const Navbar: React.FC = () => {
     if (section.id === 'sales_menu' && ['pos', 'print_orders', 'parties', 'invoices', 'sales_returns', 'receipt_vouchers'].includes(activeTab)) return true;
     if (section.id === 'purchases_expenses_menu' && ['purchases', 'purchases_suppliers', 'purchases_invoices', 'purchases_returns', 'payment_vouchers', 'expenses'].includes(activeTab)) return true;
     if (section.id === 'items_menu' && ['inventory', 'warehouses'].includes(activeTab)) return true;
-    if (section.id === 'hr_menu' && ['employees', 'employees_adjustments', 'employees_payroll', 'report_employee_statement'].includes(activeTab)) return true;
+    if (section.id === 'hr_menu' && ['employees', 'employees_adjustments', 'employees_payroll'].includes(activeTab)) return true;
     if (section.id === 'finance_accounting_menu' && ['branches', 'warehouses', 'treasuries', 'debt_clearing', 'accounting'].includes(activeTab)) return true;
     if (section.id === 'reports_menu' && (activeTab === 'reports' || activeTab.startsWith('report_'))) return true;
-    if (section.id === 'settings_menu' && (activeTab === 'settings' || activeTab.startsWith('settings_') || activeTab === 'users_permissions')) return true;
+    if (section.id === 'settings_menu' && (activeTab === 'settings' || activeTab.startsWith('settings_') || activeTab === 'users_permissions' || activeTab === 'audit_log')) return true;
     return section.items.some(item => item.id === activeTab);
   };
 
@@ -763,17 +735,16 @@ export const Navbar: React.FC = () => {
           </div>
         </div>
 
-        {/* Center: Real-time Cloud System Indicator */}
-        <div 
-          onClick={() => setIsQuotaModalOpen(true)}
-          className="hidden lg:flex items-center gap-2 text-[10.5px] text-blue-100 bg-black/20 hover:bg-black/40 cursor-pointer px-2 py-0.5 rounded-xs border border-white/15 transition"
-          title="مؤشر استهلاك حصة فايربيس السحابية وميعاد التجديد 12:00 ظهراً"
+        {/* A truthful network indicator; not a guarantee the database is synchronized. */}
+        <div
+          className="hidden lg:flex items-center gap-1.5 rounded-md border border-white/20 bg-black/20 px-2 py-0.5 text-[10.5px]"
+          title={isOnline ? 'الشبكة متاحة، ويمكن فحص حالة المزامنة من أدوات البرنامج' : 'الاتصال بالشبكة غير متاح'}
         >
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>خادم سحابي نشط</span>
-          <span className="text-amber-300 font-mono font-bold bg-black/30 px-1 rounded-xs border border-amber-400/30">حصة فايربيس</span>
+          {isOnline ? <Wifi className="h-3.5 w-3.5 text-emerald-300" /> : <WifiOff className="h-3.5 w-3.5 text-amber-300" />}
+          <span>{!isOnline ? 'دون اتصال' : pendingSyncCount > 0 ? 'عمليات معلقة' : 'الشبكة متاحة'}</span>
+          {pendingSyncCount > 0 && <span className="rounded bg-amber-500 px-1 text-white">{pendingSyncCount}</span>}
+          {(syncCoordinatorState?.conflict ?? 0) > 0 && <span className="rounded bg-rose-600 px-1 text-white">تعارض</span>}
         </div>
-
         {/* Left (in RTL): Classic Windows Window Controls (─, ▢, ✕) */}
         <div className="flex items-center gap-0.5 shrink-0">
           {/* Back Button */}
@@ -797,9 +768,9 @@ export const Navbar: React.FC = () => {
             type="button"
             onClick={() => setActiveTab('home')}
             className="w-6 h-5 bg-white/10 hover:bg-white/25 active:bg-blue-900 text-white rounded-xs flex items-center justify-center transition cursor-pointer"
-            title="الشاشة الرئيسية للبرنامج"
+            title="الانتقال إلى الرئيسية"
           >
-            <Minus className="w-3.5 h-3.5" />
+            <LayoutDashboard className="w-3.5 h-3.5" />
           </button>
 
           {/* Maximize / Restore Button */}
@@ -875,7 +846,6 @@ export const Navbar: React.FC = () => {
                   >
                     <div className="px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-600 flex items-center justify-between border-b border-slate-200">
                       <span>{section.title}</span>
-                      <span className="text-blue-700 font-mono">Visual Basic Menu</span>
                     </div>
 
                     <div className="p-0.5 space-y-0.5">
@@ -904,9 +874,9 @@ export const Navbar: React.FC = () => {
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-1">
                                 <span className="font-bold whitespace-nowrap">
-                                  {subItem.label}
+                                  {subItem.label.replace(/^\d+\.\s*/, '')}
                                 </span>
-                                {subItem.badge && (
+                                {subItem.badge && /\d/.test(subItem.badge) && (
                                   <span className={`text-[9px] px-1 py-0.2 rounded-xs font-mono font-bold shrink-0 ${
                                     isSubActive ? 'bg-white/25 text-white' : subItem.badgeColor || 'bg-slate-200 text-slate-700 border border-slate-300'
                                   }`}>
@@ -917,13 +887,6 @@ export const Navbar: React.FC = () => {
                                   <Check className="w-3 h-3 text-white shrink-0 mr-1" />
                                 )}
                               </div>
-                              {subItem.sublabel && (
-                                <p className={`text-[9.5px] leading-tight truncate ${
-                                  isSubActive ? 'text-blue-100' : 'text-slate-500 group-hover:text-blue-100'
-                                }`}>
-                                  {subItem.sublabel}
-                                </p>
-                              )}
                             </div>
                           </button>
                         );
@@ -935,44 +898,6 @@ export const Navbar: React.FC = () => {
             );
           })}
 
-          {/* Audit Log Menu Action */}
-          <button
-            onClick={() => {
-              setActiveTab('audit_log');
-              setOpenDropdownId(null);
-            }}
-            className={`flex items-center gap-1 px-2 py-1 rounded-xs text-[11.5px] font-bold transition select-none cursor-pointer border ${
-              activeTab === 'audit_log'
-                ? 'bg-blue-600 text-white border-blue-700 shadow-2xs'
-                : 'border-transparent text-slate-800 hover:bg-slate-200 hover:border-slate-300'
-            }`}
-            title="سجل العمليات والأحداث الشامل"
-          >
-            <History className={`w-3 h-3 ${activeTab === 'audit_log' ? 'text-white' : 'text-slate-600'}`} />
-            <span>سجل العمليات</span>
-          </button>
-
-          {/* Sync Statement Action */}
-          <button
-            onClick={() => {
-              setActiveTab('sync_statement');
-              setOpenDropdownId(null);
-            }}
-            className={`flex items-center gap-1 px-2 py-1 rounded-xs text-[11.5px] font-bold transition select-none cursor-pointer border ${
-              activeTab === 'sync_statement'
-                ? 'bg-indigo-600 text-white border-indigo-700 shadow-2xs'
-                : 'border-transparent text-slate-800 hover:bg-slate-200 hover:border-slate-300'
-            }`}
-            title="سند مطابقة وتدقيق المزامنة ونقل البيانات للسيرفر الرئيسي"
-          >
-            <Activity className={`w-3 h-3 ${activeTab === 'sync_statement' ? 'text-white' : 'text-indigo-600'}`} />
-            <span>سند تفاصيل المزامنة</span>
-            {pendingSyncCount > 0 && (
-              <span className="bg-amber-500 text-white text-[9px] px-1 rounded-full font-mono">
-                {pendingSyncCount}
-              </span>
-            )}
-          </button>
         </div>
       </nav>
 
@@ -1088,21 +1013,6 @@ export const Navbar: React.FC = () => {
             <span>حاسبة</span>
           </button>
 
-          {/* STANDALONE LOCAL DATABASE BUTTON */}
-          <button
-            type="button"
-            onClick={() => setIsLocalDbModalOpen(true)}
-            className={`px-2 py-0.5 flex items-center gap-1 font-bold text-[11px] rounded-xs shadow-xs active:translate-y-px transition cursor-pointer border ${
-              isLocalOnlyMode 
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-800 animate-pulse' 
-                : 'bg-slate-700 hover:bg-slate-800 text-white border-slate-900'
-            }`}
-            title="إدارة وتفعيل وضع التشغيل المحلي الخالص (100% Offline Local Mode)"
-          >
-            <HardDrive className="w-3.5 h-3.5 text-white" />
-            <span>{isLocalOnlyMode ? '🟢 قاعدة بيانات محلية (100%)' : 'قاعدة البيانات المحلية'}</span>
-          </button>
-
           {/* PROMINENT FORCED REAL-TIME RELOAD BUTTON */}
           {syncCoordinatorState?.conflict > 0 && (
             <button
@@ -1121,34 +1031,11 @@ export const Navbar: React.FC = () => {
             onClick={handleManualSync}
             disabled={isFirebaseSyncing}
             className="px-2 py-0.5 flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-xs shadow-xs active:translate-y-px transition cursor-pointer border border-emerald-800 disabled:opacity-75"
-            title="إجبار المزامنة وتحديث الشاشة فوراً بأحدث الفواتير والبيانات"
+            title="مزامنة العمليات المعلقة وقراءة التغييرات من الخادم"
           >
             <RefreshCw className={`w-3 h-3 text-white ${isFirebaseSyncing ? 'animate-spin' : ''}`} />
-            <span>{isFirebaseSyncing ? 'جاري المزامنة...' : 'تحديث حركي فورى'}</span>
+            <span>{isFirebaseSyncing ? 'جاري المزامنة...' : 'مزامنة الآن'}</span>
           </button>
-
-          <button
-            type="button"
-            onClick={handleImportMasterSnapshot}
-            className="px-2 py-0.5 flex items-center gap-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-xs shadow-xs active:translate-y-px transition cursor-pointer border border-amber-800"
-            title="استيعاب واعتماد أحدث نسخة رئيسية لقاعدة البيانات (تحميل الفواتير الأخيرة فوراً)"
-          >
-            <Database className="w-3 h-3 text-white" />
-            <span>استيعاب قاعدة البيانات</span>
-          </button>
-
-          {/* Cloud Sync Tool */}
-          {(isAdmin || hasPermission('view_settings')) && (
-            <button
-              onClick={handleManualSync}
-              disabled={isFirebaseSyncing}
-              className="px-2 py-0.5 flex items-center gap-1 bg-gradient-to-b from-white to-slate-100 hover:from-emerald-50 hover:to-emerald-100 text-slate-800 border border-slate-400 hover:border-emerald-600 font-bold text-[11px] rounded-xs shadow-2xs active:translate-y-px transition cursor-pointer disabled:opacity-75"
-              title="إجراء مزامنة فورية مع قاعدة البيانات السحابية"
-            >
-              <RefreshCw className={`w-3 h-3 text-emerald-600 ${isFirebaseSyncing ? 'animate-spin' : ''}`} />
-              <span>{isFirebaseSyncing ? 'جاري المزامنة...' : 'مزامنة'}</span>
-            </button>
-          )}
 
           {/* Mobile Menu Icon for Small Screens */}
           <button
@@ -1278,7 +1165,7 @@ export const Navbar: React.FC = () => {
           <div className="flex items-center gap-1.5">
             <WifiOff className="w-3.5 h-3.5 text-amber-700 animate-pulse shrink-0" />
             <span className="leading-tight text-[11px]">
-              <strong>وضع عدم الاتصال بالإنترنت (Offline):</strong> النظام يعمل بكامل طاقته ومميزاته بلا توقف! تُحفظ كافة الفواتير والعمليات فورياً في الذاكرة المحلية.
+              <strong>وضع عدم الاتصال بالإنترنت (Offline):</strong> قد تبقى عمليات محلية بانتظار المزامنة. راجع الحالة قبل العمل من جهاز آخر.
             </span>
           </div>
           {pendingSyncCount > 0 && (
@@ -1341,6 +1228,10 @@ export const Navbar: React.FC = () => {
       <MobileNavigationModal
         isOpen={isMobileNavOpen}
         onClose={() => setIsMobileNavOpen(false)}
+        onOpenLocalDatabase={() => setIsLocalDbModalOpen(true)}
+        onImportMasterSnapshot={() => { void handleImportMasterSnapshot(); }}
+        onOpenAbout={() => setIsAboutOpen(true)}
+        onOpenLegacyDiagnostic={() => setIsQuotaModalOpen(true)}
       />
     </header>
   );
