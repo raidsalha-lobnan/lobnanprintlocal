@@ -441,7 +441,7 @@ export class SyncCoordinator {
 
         if (
           error instanceof PermanentSyncError ||
-          isPermanentFirebaseError(error)
+          isPermanentBackendError(error)
         ) {
           await this.local.markError(
             cmd.id,
@@ -549,7 +549,7 @@ export class SyncCoordinator {
   }
 }
 
-function isPermanentFirebaseError(
+function isPermanentBackendError(
   error: unknown
 ): boolean {
   const code = String(
