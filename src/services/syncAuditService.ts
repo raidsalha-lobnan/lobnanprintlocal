@@ -1,5 +1,5 @@
 // Sync Audit and Transfer Tracking Service
-// سجل وتدقيق تفاصيل المزامنة والربط مع السيرفر الرئيسي وقاعدة بيانات Firebase Firestore
+// سجل وتدقيق تفاصيل المزامنة والربط مع خادم المزامنة الرئيسي
 
 export interface SyncAuditItem {
   id: string;
@@ -145,7 +145,7 @@ export const syncAuditService = {
       const updated = [newEntry, ...existing].slice(0, MAX_LOG_COUNT);
       localStorage.setItem(STORAGE_KEY_AUDIT, JSON.stringify(updated));
 
-      // Logs are preserved in localStorage to save cloud quota
+      // Local audit history; server acknowledgements are authoritative.
     } catch {}
   },
 
@@ -207,7 +207,7 @@ export const syncAuditService = {
       const updated = [newIssue, ...existing].slice(0, MAX_LOG_COUNT);
       localStorage.setItem(STORAGE_KEY_ISSUES, JSON.stringify(updated));
 
-      // Issues are stored locally in localStorage to avoid consuming Firestore write quotas
+      // Connection issues are stored locally until confirmed by the server.
     } catch {}
   },
 
@@ -234,9 +234,6 @@ export const syncAuditService = {
   clearAuditLogs: () => {
     try {
       localStorage.removeItem(STORAGE_KEY_AUDIT);
-      import('./firebaseFirestoreSyncService').then(({ clearAuditLogsFromFirestore }) => {
-        clearAuditLogsFromFirestore().catch(() => {});
-      }).catch(() => {});
     } catch {}
   },
 
@@ -244,9 +241,6 @@ export const syncAuditService = {
   clearConnectionIssues: () => {
     try {
       localStorage.removeItem(STORAGE_KEY_ISSUES);
-      import('./firebaseFirestoreSyncService').then(({ clearConnectionIssuesFromFirestore }) => {
-        clearConnectionIssuesFromFirestore().catch(() => {});
-      }).catch(() => {});
     } catch {}
   },
 
