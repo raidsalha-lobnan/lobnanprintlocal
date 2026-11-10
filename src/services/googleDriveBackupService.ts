@@ -1,5 +1,5 @@
 // Google Drive Automated Backup Service for Lobnan Press & Library
-// Exclusively standalone Google Drive sync without Firebase dependency.
+// Exclusively standalone Google Drive sync without secondary cloud authentication.
 
 export const BACKUP_DRIVE_FOLDER_NAME = 'Lobnan_Accounting_Hourly_Backups';
 export const BACKUP_DRIVE_FOLDER_DESC = 'مجلد النسخ الاحتياطية التلقائية كل ساعة - برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان';
