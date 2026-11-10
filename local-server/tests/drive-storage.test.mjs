@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {Readable} from 'node:stream';
 import {
-  DriveStorage,readAttachmentBody,runPgDump,recordUploadedAttachment,findUploadedAttachment
+  DriveStorage,readAttachmentBody,runPgDump,recordUploadedAttachment,findUploadedAttachment,
+  encryptBackupArchive,decryptBackupArchive
 } from '../drive-storage.mjs';
 
 const env={
@@ -81,5 +83,22 @@ test('pg_dump never puts database password in process arguments and produces a p
     assert.doesNotMatch(commandArgs.join(' '),/p%40ssword|p@ssword/);
     assert.equal(result.bytes,256);
     assert.match(result.sha256,/^[0-9a-f]{64}$/);
+  }finally{await fsp.rm(dir,{recursive:true,force:true});}
+});
+
+test('Google backup is encrypted before upload and decrypts only with the owner key',async()=>{
+  const dir=await fsp.mkdtemp(path.join(os.tmpdir(),'lobnan-encrypted-backup-test-'));
+  const key=crypto.randomBytes(32).toString('base64');
+  try{
+    const file=path.join(dir,'ledger.dump');
+    const plaintext=Buffer.from('confidential financial entries 123');
+    await fsp.writeFile(file,plaintext);
+    const encrypted=await encryptBackupArchive(file,key);
+    const raw=await fsp.readFile(encrypted);
+    assert.equal(raw.subarray(0,4).toString('ascii'),'LBK1');
+    assert.equal(raw.includes(plaintext),false);
+    assert.deepEqual(await decryptBackupArchive(encrypted,key),plaintext);
+    await assert.rejects(decryptBackupArchive(encrypted,crypto.randomBytes(32).toString('base64')));
+    await assert.rejects(encryptBackupArchive(file,''),/BACKUP_ENCRYPTION_KEY_REQUIRED/);
   }finally{await fsp.rm(dir,{recursive:true,force:true});}
 });
