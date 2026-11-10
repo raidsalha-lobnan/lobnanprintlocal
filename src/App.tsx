@@ -504,7 +504,7 @@ const MainLayout: React.FC = () => {
       <TransactionLifecycleModal />
       <OfflineIndicator />
       <TelegramBotIntegration />
-      {/* Google Drive/Firebase backup is disabled in PostgreSQL-only edition. */}
+      {/* Legacy cloud backup worker is disabled in PostgreSQL-only edition. */}
     </div>
   );
 };
