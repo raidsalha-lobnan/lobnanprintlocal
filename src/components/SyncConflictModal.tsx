@@ -18,7 +18,6 @@ import type {QueueComparison} from '../sync-next/queueDiagnostics';
 import {classifyQueueSafety} from '../sync-next/queueSafety';
 import { assessLocalStorageHealth } from '../sync-next/storageHealth';
 import { useAccounting } from '../context/AccountingContext';
-import firebaseConfig from '../../firebase-applet-config.example.json';
 
 interface SyncConflictModalProps {
   isOpen: boolean;
@@ -544,12 +543,12 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
                   <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                    <span className="text-slate-400 block text-[10px]">Project ID:</span>
-                    <span className="text-emerald-300 font-bold">{firebaseConfig.projectId || 'غير مهيأ'}</span>
+                    <span className="text-slate-400 block text-[10px]">Database backend:</span>
+                    <span className="text-emerald-300 font-bold">PostgreSQL</span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                    <span className="text-slate-400 block text-[10px]">Firestore Database ID:</span>
-                    <span className="text-emerald-300 font-bold">{firebaseConfig.firestoreDatabaseId || '(default)'}</span>
+                    <span className="text-slate-400 block text-[10px]">Synchronization API:</span>
+                    <span className="text-emerald-300 font-bold">/api/v1</span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
                     <span className="text-slate-400 block text-[10px]">Workspace Namespace:</span>
@@ -557,7 +556,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                   </div>
                   <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
                     <span className="text-slate-400 block text-[10px]">Sync Endpoint Path:</span>
-                    <span className="text-blue-300 font-bold">lobnan_sync_workspaces/lobnan_main/events</span>
+                    <span className="text-blue-300 font-bold">/api/v1/events?workspace=lobnan_main</span>
                   </div>
                 </div>
               </div>
