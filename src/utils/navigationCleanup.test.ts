@@ -37,7 +37,7 @@ test('all financial and operational screens remain reachable exactly once from d
    'report_payment_vouchers','report_employee_statement','report_payroll_sheets',
    'report_treasuries_movement','reports','users_permissions','settings_general',
    'settings_sql','settings_backup','action_local_database',
-   'action_import_master_snapshot','action_firebase_quota','audit_log','action_about'
+   'action_import_master_snapshot','audit_log','action_about'
  ];
  const ids=[...menu.matchAll(/\bid: '([a-z_]+)'/g)].map(x=>x[1]);
  for(const id of featureIds){
@@ -68,7 +68,7 @@ test('mobile administration preserves protected maintenance, audit and sync rout
  assert.match(mobile,/action_local_database: onOpenLocalDatabase/);
  assert.match(mobile,/action_import_master_snapshot: onImportMasterSnapshot/);
  assert.match(mobile,/action_about: onOpenAbout/);
- assert.match(mobile,/action_firebase_quota: onOpenLegacyDiagnostic/);
+ assert.doesNotMatch(mobile,/action_firebase_quota|onOpenLegacyDiagnostic/);
  assert.match(mobile,/id: 'audit_log'/);
  assert.match(mobile,/id: 'sync_statement'/);
  assert.match(mobile,/hasPermission\(item\.perm as any\)/);
