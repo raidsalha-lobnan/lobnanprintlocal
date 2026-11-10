@@ -2659,7 +2659,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
     } catch (error) {
       setIsPostingCloudInvoice(false);
       posSound.error();
-      alert(`تعذر حفظ الفاتورة: ${String(error)}\nمدخلاتك ما زالت موجودة على الشاشة، ولم نؤكد حفظها مركزيًا.`);
+      const message = String(error);
+      const browserDbClosed = /InvalidStateError|database connection is closing|IDBDatabase/i.test(message);
+      alert(browserDbClosed
+        ? 'تعذر الاتصال بمخزن المتصفح المحلي (IndexedDB): الاتصال مغلق أو قيد الإغلاق. قد يحدث ذلك بعد تحديث البرنامج أو فتحه في تبويب قديم. مدخلاتك باقية على الشاشة؛ لا تمسح بيانات الموقع، ولا تكرر الحفظ قبل مراجعة سجل الفاتورة.'
+        : `تعذر حفظ الفاتورة: ${message}\nمدخلاتك ما زالت موجودة على الشاشة، ولم نؤكد حفظها مركزيًا.`);
       return;
     }
 
@@ -2677,6 +2681,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
     }
 
     const savedInvoice = postRes.invoice;
+    if (postRes.warning) {
+      // The server accepted the edit, but the browser receipt was not saved.
+      // Show this separately from a rejected invoice to prevent duplicates.
+      alert(postRes.warning);
+    }
     setIsOfflineFrozen(false);
     onlineInvoicePostingService.clearStagedInvoiceDraft();
 
