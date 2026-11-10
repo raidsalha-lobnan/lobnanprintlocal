@@ -36,8 +36,8 @@ export const OfflineSqlSettings: React.FC = () => {
     journalEntries,
     employees,
     treasuries,
-    isFirebaseSyncing,
-    lastFirebaseSyncTime,
+    isServerSyncing,
+    lastServerSyncTime,
     hasUnsyncedChanges,
     pendingSyncCount,
     lastLocalSaveTime,
@@ -48,12 +48,12 @@ export const OfflineSqlSettings: React.FC = () => {
   const [config, setConfig] = useState<SqlServerConfig>(sqlServerConfig);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ success: boolean; message: string } | null>(null);
-  const [firebaseFeedback, setFirebaseFeedback] = useState<{ success: boolean; message: string } | null>(null);
+  const [serverFeedback, setServerFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
-  const handleFirebaseSync = async () => {
+  const handleServerSync = async () => {
     const res = await forceSyncNow();
-    setFirebaseFeedback(res);
-    setTimeout(() => setFirebaseFeedback(null), 5000);
+    setServerFeedback(res);
+    setTimeout(() => setServerFeedback(null), 5000);
   };
   const [selectedExportDialect, setSelectedExportDialect] = useState<'postgres' | 'mysql' | 'sqlite'>('postgres');
   const [copiedSql, setCopiedSql] = useState(false);
@@ -279,10 +279,10 @@ export const OfflineSqlSettings: React.FC = () => {
           </div>
 
           <button
-            onClick={handleFirebaseSync}
-            disabled={isFirebaseSyncing}
+            onClick={handleServerSync}
+            disabled={isServerSyncing}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs cursor-pointer ${
-              isFirebaseSyncing
+              isServerSyncing
                 ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                 : !isOnline
                 ? 'bg-amber-500 hover:bg-amber-600 text-white'
@@ -291,8 +291,8 @@ export const OfflineSqlSettings: React.FC = () => {
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
             }`}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isFirebaseSyncing ? 'animate-spin' : ''}`} />
-            <span>{isFirebaseSyncing ? 'جاري المزامنة...' : 'مزامنة فورية مع خادم PostgreSQL المعتمد'}</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${isServerSyncing ? 'animate-spin' : ''}`} />
+            <span>{isServerSyncing ? 'جاري المزامنة...' : 'مزامنة فورية مع خادم PostgreSQL المعتمد'}</span>
           </button>
         </div>
 
@@ -315,7 +315,7 @@ export const OfflineSqlSettings: React.FC = () => {
               </strong>
             </div>
             <span className="text-[10px] text-slate-400 block mt-1">
-              آخر مزامنة: {lastFirebaseSyncTime || lastSyncTime || 'الآن'}
+              آخر مزامنة: {lastServerSyncTime || lastSyncTime || 'الآن'}
             </span>
           </div>
 
@@ -332,22 +332,22 @@ export const OfflineSqlSettings: React.FC = () => {
           </div>
         </div>
 
-        {firebaseFeedback && (
+        {serverFeedback && (
           <div className={`p-2.5 rounded-lg text-xs flex items-center justify-between border ${
-            firebaseFeedback.success
+            serverFeedback.success
               ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
               : 'bg-rose-50 text-rose-800 border-rose-200'
           }`}>
             <div className="flex items-center gap-1.5">
-              {firebaseFeedback.success ? (
+              {serverFeedback.success ? (
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               ) : (
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
               )}
-              <span>{firebaseFeedback.message}</span>
+              <span>{serverFeedback.message}</span>
             </div>
             <button
-              onClick={() => setFirebaseFeedback(null)}
+              onClick={() => setServerFeedback(null)}
               className="text-xs font-bold underline cursor-pointer"
             >
               إغلاق
