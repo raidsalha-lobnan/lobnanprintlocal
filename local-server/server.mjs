@@ -144,6 +144,12 @@ const srv=http.createServer(async(req,res)=>{
           error:lastBackupResult.error||null}
       },cors);
     }
+    if(url.pathname==='/api/v1/backups/run' && req.method==='POST'){
+      if(!STRICT_AUTH || !access?.admin)throw new InputError('ADMIN_REQUIRED',403);
+      // Do not hold a browser request open while PostgreSQL is being dumped.
+      void backupScheduler.runOnce();
+      return json(res,202,{accepted:true,operation:'postgresql-backup'},cors);
+    }
     if(url.pathname==='/api/v1/attachments/upload' && req.method==='POST'){
       if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
       if(!driveStorage.configured())throw new InputError('DRIVE_OAUTH_NOT_CONFIGURED',503);
