@@ -22,7 +22,7 @@ jobs:
       - run: node --check local-server/sync-domain.mjs
       - run: node --check local-server/sync-service.mjs
       - run: node --test local-server/tests/domain.test.mjs local-server/tests/service.test.mjs
-      - run: node --test local-server/tests/catalog-reclassification-plan.test.mjs local-server/tests/catalog-approved-2026-11-10.test.mjs local-server/tests/entity-identity.test.mjs
+      - run: node --test local-server/tests/catalog-reclassification-plan.test.mjs local-server/tests/catalog-approved-2026-11-10.test.mjs local-server/tests/print-order-cleanup-plan.test.mjs local-server/tests/entity-identity.test.mjs
       - run: docker compose --env-file .env.local-server.example -f docker-compose.local.yml config -q
   postgres-integration:
     runs-on: ubuntu-latest

@@ -1,7 +1,9 @@
 import pg from 'pg';
 import {createHash} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 import {existsSync,statSync} from 'node:fs';
 import {makeApprovedCatalogPlan,APPROVED_CATEGORIES,relabelItemReferences} from './catalog-approved-2026-11-10.mjs';
+import {planPhantomPrintOrderCleanup} from './print-order-cleanup-plan.mjs';
 
 const WORKSPACE='lobnan_main';
 const MIGRATION='catalog-pri-bok-acc-2026-11-10-v1';
@@ -126,6 +128,9 @@ async function execute() {
   const invoices=byEntity('invoices');
   const journals=byEntity('journalEntries');
   const moves=byEntity('stockMovements');
+  const accounts=byEntity('accounts');
+  const identicalPri0015=inv.filter(r=>r.value?.code==='PRI-0015');
+  const approvedIdentityMergePending=identicalPri0015.length===2;
   if(inv.length!==28||inv.some(x=>!x.value))throw Error('CATALOG_28_RECORD_PRECONDITION_FAILED');
   if(orders.length!==102||orders.some(x=>!x.value))throw Error('PRINT_ORDERS_102_RECORD_PRECONDITION_FAILED');
   if(settings.length!==2||settings.some(x=>!x.value))throw Error('SETTINGS_2_RECORD_PRECONDITION_FAILED');
@@ -134,6 +139,21 @@ async function execute() {
   const journalDebit=journals.filter(x=>x.value?.referenceType==='print_order')
     .flatMap(x=>x.value.lines||[]).reduce((n,l)=>n+Number(l.debit||0),0);
   if(Math.abs(journalDebit-1311)>0.01)throw Error('PRINT_ORDER_JOURNAL_BALANCE_CHANGED');
+  const cleanup=planPhantomPrintOrderCleanup({
+    orders:orders.map(r=>({...r.value,id:r.record_id})),
+    invoices:invoices.map(r=>({...r.value,id:r.record_id})),
+    journals:journals.map(r=>({...r.value,id:r.record_id})),
+  });
+  if(cleanup.authorizedInvoiceCount!==98 || cleanup.linkedOrderCount!==0 ||
+    cleanup.eligibleOrderCount!==102 || cleanup.reversalCount!==48 ||
+    cleanup.debitMinorReversed!==131100)
+    throw Error('PRINT_ORDER_LINKS_OR_REVERSAL_TOTAL_CHANGED');
+  // The persisted account balance is not aligned with journal 4102 (1300 vs 1311).
+  // Never invent a correction to a cached financial balance.
+  const revenueAccount=accounts.find(r=>r.record_id==='4102');
+  const savedRevenueBalance=Number(revenueAccount?.value?.balance);
+  const accountBalanceRequiresReconciliation=!
+    Number.isFinite(savedRevenueBalance) || Math.abs(savedRevenueBalance-journalDebit)>0.005;
   const financialBefore=new Map([...invoices,...journals,...moves].map(x=>[x.entity+'::'+x.record_id,sha(pickFinancial(x.value))]));
   const originalInvoiceTotals=new Map(invoices.map(x=>[x.record_id,{total:x.value?.total,subtotal:x.value?.subtotal,
    paidAmount:x.value?.paidAmount,totalAmount:x.value?.totalAmount,items:(x.value?.items||[]).map(it=>({
@@ -189,8 +209,8 @@ async function execute() {
     if(changed.rowCount!==1)throw Error('OPTIMISTIC_VERSION_FAILED_'+rec.entity+'_'+rec.record_id);
     eventChanges.push({entity:rec.entity,id:rec.record_id,value:rec.newValue,version:nextVersion});
   }
-  // Archive all user-declared phantom orders for accounting traceability.
-  // Keep existing posted journals untouched (48 entries, ILS 1,311 debit and credit).
+  // Archive only verified unlinked phantom orders. Preserve original 48 journals
+  // and add balanced reversal journals so the original history remains auditable.
   for(const order of orders){
     await c.query('INSERT INTO sync_archived_print_orders(workspace,record_id,original_version,original_value,migration_id) VALUES($1,$2,$3,$4::jsonb,$5)',
       [WORKSPACE,order.record_id,order.version,JSON.stringify(order.value),MIGRATION]);
@@ -198,6 +218,12 @@ async function execute() {
       [Number(order.version)+1,WORKSPACE,'printOrders',order.record_id,order.version]);
     if(result.rowCount!==1)throw Error('ORDER_TOMBSTONE_VERSION_FAILED_'+order.record_id);
     eventChanges.push({entity:'printOrders',id:order.record_id,value:null,version:Number(order.version)+1});
+  }
+  const reversalById=new Map(cleanup.reversalEntries.map(entry=>[entry.id,entry]));
+  for(const entry of cleanup.reversalEntries){
+    await c.query('INSERT INTO sync_records(workspace,entity,record_id,version,value) VALUES($1,$2,$3,$4,$5::jsonb)',
+      [WORKSPACE,'journalEntries',entry.id,1,JSON.stringify(entry)]);
+    eventChanges.push({entity:'journalEntries',id:entry.id,value:entry,version:1});
   }
   let seq=sequenceStart;
   const batchSize=35;
@@ -217,6 +243,10 @@ async function execute() {
     invoiceRecords:invoices.length,stockMovements:moves.length,
     rewrittenByEntity:linkedByEntity,unchangedJournalRecords:journals.length,
     archivedPrintOrders:orders.length,printOrderJournalCount:48,printOrderJournalDebitsILS:journalDebit,
+    reversingJournalEntries:cleanup.reversalCount,reversalAmountILS:cleanup.debitMinorReversed/100,
+    savedRevenueAccountBalanceILS:savedRevenueBalance,
+    requiresRevenueAccountBalanceReconciliation:accountBalanceRequiresReconciliation,
+    requiresDuplicatePRI0015IdentityMerge:approvedIdentityMergePending,
     syncEventsEmitted:seq-sequenceStart,fromCursor:sequenceStart,toCursor:seq,
     invoiceNumberBefore:invoiceNumberStart,
     mappings:plan.map(p=>({id:p.id,oldCode:p.oldCode,newCode:p.newCode,oldCategory:p.oldCategory,newCategory:p.newCategory}))
@@ -225,6 +255,10 @@ async function execute() {
   const recheck=await c.query('SELECT entity,record_id,version,value FROM sync_records WHERE workspace=$1 AND entity=ANY($2::text[]) ORDER BY entity,record_id',[WORKSPACE,['invoices','journalEntries','stockMovements']]);
   for(const row of recheck.rows){
     const k=row.entity+'::'+row.record_id;
+    if(reversalById.has(row.record_id) && row.entity==='journalEntries'){
+      if(!isDeepStrictEqual(row.value,reversalById.get(row.record_id)))throw Error('REVERSING_JOURNAL_CHANGED_'+k);
+      continue;
+    }
     if(financialBefore.get(k)!==sha(pickFinancial(row.value)))throw Error('FINANCIAL_FINGERPRINT_CHANGED_'+k);
     if(row.entity==='invoices'){
       const old=originalInvoiceTotals.get(row.record_id);
@@ -246,6 +280,14 @@ async function execute() {
     [WORKSPACE,MIGRATION,apply?backup:'DRY_RUN',JSON.stringify(summary)]);
 
   if(apply){
+    // Two PRI-0015 IDs were already approved as one real product. Never assign
+    // two permanent catalog serials to that same item as a shortcut.
+    if(approvedIdentityMergePending)
+      throw Error('DUPLICATE_PRI_0015_REQUIRES_ID_PRESERVING_MERGE');
+    // The journal's real net and the persisted account balance disagree.
+    // This historical discrepancy must be reconciled separately, not guessed.
+    if(accountBalanceRequiresReconciliation)
+      throw Error('ACCOUNT_4102_SNAPSHOT_AND_JOURNAL_DISAGREE_RECONCILIATION_REQUIRED');
     await c.query('COMMIT');
     committed=true;
     console.log('CATALOG_MIGRATION_COMMITTED '+JSON.stringify(summary));
