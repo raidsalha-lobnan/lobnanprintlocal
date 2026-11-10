@@ -4,6 +4,7 @@ import {
   ServerEvent, StoredRecord, SyncCommand,
   toJsonObject, validateChanges
 } from './types';
+import {composeLocalSettingsDraft,type SettingsFieldPatch,type VerifiedSettingsReceipt} from './settingsPatch';
 
 const DB_VERSION = 2;
 const RECORDS = 'records';
@@ -394,6 +395,80 @@ export class LocalSyncDb {
     }
   }
 
+  /** Install the authenticated PostgreSQL workspace settings snapshot without
+   * touching any pending operations. Needed when the event cursor already
+   * advanced although the browser did not store the push acknowledgement.
+   */
+  async installAuthoritativeSettingsRows(rows:StoredRecord[]):Promise<void>{
+    const valid=rows.filter(r=>r.entity==='settings'&&
+      ['global','workspace-settings'].includes(r.id)&&
+      r.value!==null&&Number.isSafeInteger(r.version)&&r.version>0);
+    if(!valid.length)return;
+    const db=await this.dbPromise;
+    const tx=db.transaction(RECORDS,'readwrite');
+    const done=completed(tx);
+    try{
+      const records=tx.objectStore(RECORDS);
+      let updated=false;
+      for(const row of valid){
+        const previous=await request(records.get(recordKey(row.entity,row.id))) as StoredRecord|undefined;
+        if(!previous||previous.version<row.version){
+          records.put(row);
+          updated=true;
+        }
+      }
+      await done;
+      if(updated)this.changed();
+    }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
+  }
+
+  /** Local ACK of a previously committed settings command, only after the
+   * authenticated server has matched owner + exact fingerprint and returned
+   * a receipt. The authoritative row must already be present at that version.
+   * All original requests remain in the durable local receipts audit.
+   */
+  async acknowledgeVerifiedSettingsReceipts(proofs:VerifiedSettingsReceipt[]):Promise<number>{
+    if(!proofs.length)return 0;
+    const db=await this.dbPromise;
+    const tx=db.transaction([OUTBOX,RECEIPTS,RECORDS],'readwrite');
+    const done=completed(tx);
+    try{
+      const outbox=tx.objectStore(OUTBOX);
+      const receipts=tx.objectStore(RECEIPTS);
+      const records=tx.objectStore(RECORDS);
+      let count=0;
+      for(const proof of proofs){
+        if(proof.changes?.length!==1||proof.changes[0].entity!=='settings'||
+          !['global','workspace-settings'].includes(proof.changes[0].id)||
+          !Number.isSafeInteger(proof.changes[0].version)||proof.changes[0].version<1)
+          continue;
+        const command=await request(outbox.get(proof.id)) as SyncCommand|undefined;
+        if(!command||command.changes.length!==1||
+          command.changes[0].entity!=='settings'||
+          command.changes[0].id!==proof.changes[0].id)continue;
+        const record=await request(records.get(
+          recordKey('settings',proof.changes[0].id))) as StoredRecord|undefined;
+        if(!record||record.version<proof.changes[0].version)continue;
+        receipts.put({
+          id:proof.id,
+          resolution:'POSTGRES_RECEIPT_AND_FINGERPRINT_VERIFIED',
+          originalCommand:command,
+          authoritativeVersions:proof.changes.map(c=>({entity:c.entity,id:c.id,version:c.version})),
+          resolvedAt:new Date().toISOString(),
+        });
+        outbox.delete(proof.id);
+        count++;
+      }
+      await done;
+      if(count)this.changed();
+      return count;
+    }catch(error){
+      try{tx.abort()}catch{}
+      await done.catch(()=>{});
+      throw error;
+    }
+  }
+
   /** A cryptographically identified server snapshot proves the requested state
    * was already stored. Preserve a permanent local reconciliation receipt.
    */
@@ -549,16 +624,19 @@ export class LocalSyncDb {
       for (const c of cmd.changes) {
         if (c.entity !== entity) continue;
         const serverVersion = authoritativeVersions.get(c.id);
-        if (serverVersion !== undefined && c.expectedVersion < serverVersion) {
+        const fieldPatch=entity==='settings' && c.value?._settingsPatchV1===true;
+        if (!fieldPatch && serverVersion !== undefined && c.expectedVersion < serverVersion) {
           continue;
         }
-        if (serverVersion === undefined && c.expectedVersion !== 0) {
+        if (!fieldPatch && serverVersion === undefined && c.expectedVersion !== 0) {
           continue;
         }
         result.set(c.id, {
           id: c.id,
-          value: c.value,
-          version: c.expectedVersion,
+          value: fieldPatch
+            ? composeLocalSettingsDraft(result.get(c.id)?.value,c.value as unknown as SettingsFieldPatch)
+            : c.value,
+          version: fieldPatch ? (serverVersion ?? c.expectedVersion) : c.expectedVersion,
           pending: true
         });
       }

@@ -14,6 +14,7 @@ import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './acce
 import {stripPrivateFields} from './legacy-snapshot.mjs';
 import {classifyApprovedCatalogError} from './approved-settings-guard.mjs';
 import {settingsVisibleToUser} from './workspace-settings-public.mjs';
+import {findVerifiedSettingsReceipts} from './settings-field-patch.mjs';
 import {createAccessVerifier} from './access-verifier.mjs';
 import {adminDirectoryCommand} from './admin-directory.mjs';
 const dir=path.dirname(fileURLToPath(import.meta.url));
@@ -168,6 +169,13 @@ const srv=http.createServer(async(req,res)=>{
       const request=await parseBody(req,350000);
       const receipt=await revisePostedInvoice(service,workspace,request,user.id,access);
       return json(res,200,receipt,cors);
+    }
+    if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/receipts/check'){
+      // Verify an already-committed SETTINGS command by owner and exact payload
+      // fingerprint. Read-only: never reapply a posting or expose record values.
+      const input=await parseBody(req,12000);
+      const receipts=await findVerifiedSettingsReceipts(pool,workspace,user.id,input?.proofs);
+      return json(res,200,{receipts},cors);
     }
     if(req.method==='POST' && url.pathname==='/api/v1/push'){
       const command=await parseBody(req,1024*1024);
