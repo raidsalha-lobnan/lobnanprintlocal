@@ -51,6 +51,52 @@ export const GoogleDriveBackupSettings: React.FC = () => {
   const [serverBackup, setServerBackup] = useState<{ok:boolean;remoteVerified:boolean;lastCompletedAt:number;error?:string|null}|null>(null);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
 
+  const [driveAccountEmail,setDriveAccountEmail]=useState('');
+  const [oauthStatus,setOauthStatus]=useState<{
+    connected:boolean;email:string|null;connectedAt:string|null;oauthReady:boolean;mailReady:boolean
+  }|null>(null);
+  const [sendingConsent,setSendingConsent]=useState(false);
+  const [consentFeedback,setConsentFeedback]=useState('');
+  const refreshOAuthStatus=async()=>{
+    if(!secureLoginEnabled())return;
+    const base=publicSyncApiUrl();
+    const response=await fetch(base+'/api/v1/drive/oauth/status',{
+      headers:authHeaders(base),cache:'no-store'
+    });
+    if(!response.ok)throw new Error('HTTP_'+response.status);
+    const state=await response.json();
+    setOauthStatus(state);
+    if(state.email)setDriveAccountEmail(state.email);
+  };
+  const sendDriveConsentEmail=async()=>{
+    if(!driveAccountEmail.trim())return;
+    setSendingConsent(true);
+    setConsentFeedback('');
+    try{
+      const base=publicSyncApiUrl();
+      const response=await fetch(base+'/api/v1/drive/oauth/send',{
+        method:'POST',
+        headers:{...authHeaders(base),'Content-Type':'application/json'},
+        body:JSON.stringify({email:driveAccountEmail.trim()}),
+        cache:'no-store'
+      });
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(payload.code||'HTTP_'+response.status);
+      setConsentFeedback('تم إرسال رابط موافقة Google إلى '+payload.email+'؛ صلاحيته 15 دقيقة.');
+    }catch(error){
+      const code=String((error as Error).message||error);
+      setConsentFeedback(code==='GOOGLE_DRIVE_OAUTH_APP_NOT_CONFIGURED'
+        ?'يجب إعداد عميل OAuth الخاص بالبرنامج في الخادم أولًا.'
+        :code==='GOOGLE_DRIVE_EMAIL_DELIVERY_NOT_CONFIGURED'
+          ?'خدمة إرسال البريد غير مهيأة على الخادم.'
+          :'تعذر إرسال رابط التفويض: '+code);
+    }finally{setSendingConsent(false);}
+  };
+  useEffect(()=>{
+    void refreshOAuthStatus().catch(()=>{});
+  },[]);
+
+
   // Settings state
   const [autoBackupEnabled, setAutoBackupEnabled] = useState<boolean>(() => {
     return localStorage.getItem(STORAGE_KEY_AUTO_BACKUP) !== 'false';
@@ -320,6 +366,39 @@ export const GoogleDriveBackupSettings: React.FC = () => {
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">
         حالة النسخة السحابية: {serverBackup?.remoteVerified?'تم التحقق من رفع آخر نسخة':'لا توجد شهادة رفع سحابي ناجح حتى الآن'}.
         يتم أخذ نسخ قاعدة البيانات من PostgreSQL على الخادم، وليس من بيانات الشاشة.
+      </div>
+      <div dir="rtl" className="rounded-2xl border border-blue-200 bg-white p-4 shadow-sm space-y-3">
+        <div className="font-black text-sm text-slate-900">ربط حساب Google Drive الرئيسي عبر البريد</div>
+        <p className="text-xs text-slate-600">
+          يستخدم جميع الموظفين المصرّح لهم الاتصال المركزي نفسه. لا يحتاج أي موظف إلى تسجيل الدخول لحساب Google.
+          يرسل البرنامج رابط موافقة إلى صاحب البريد المحدد، ولا تُحفظ كلمة المرور أو رموز Google على أجهزة الموظفين.
+        </p>
+        <label className="block text-xs font-bold text-slate-700" htmlFor="drive-main-email">بريد حساب Google Drive الرئيسي</label>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input id="drive-main-email" type="email" autoComplete="email"
+            value={driveAccountEmail} onChange={event=>setDriveAccountEmail(event.target.value)}
+            placeholder="account@gmail.com"
+            className="min-w-0 flex-1 border border-slate-300 p-2 rounded-lg text-sm"
+          />
+          <button type="button" onClick={sendDriveConsentEmail}
+            disabled={sendingConsent||!/^\S+@\S+\.\S+$/.test(driveAccountEmail)}
+            className="rounded-lg bg-blue-700 px-3 py-2 text-white text-xs font-bold disabled:opacity-40">
+            {sendingConsent?'جارٍ إرسال التفويض...':'إرسال رابط الموافقة إلى البريد'}
+          </button>
+          <button type="button" onClick={()=>void refreshOAuthStatus().catch(()=>setConsentFeedback('تعذر تحديث حالة الربط.'))}
+            className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-800">تحديث الحالة</button>
+        </div>
+        <p className="text-xs text-slate-700">
+          الحالة: {oauthStatus?.connected
+            ?'تم التفويض لحساب '+oauthStatus.email
+            :oauthStatus?.oauthReady?'بانتظار موافقة صاحب الحساب':'إعداد OAuth للخادم غير مكتمل'}
+          {oauthStatus && !oauthStatus.mailReady?' — خدمة إرسال البريد تحتاج إعدادًا أوليًا':''}
+        </p>
+        {consentFeedback && <p role="status" className="text-xs font-bold text-amber-800">{consentFeedback}</p>}
+        <p className="text-[11px] text-slate-500">
+          يتطلب الإعداد الأولي مرة واحدة Google OAuth Web Client مع عنوان إعادة توجيه الخادم
+          وخدمة إرسال بريد. التفويض قابل للإلغاء من حساب Google عند الحاجة.
+        </p>
       </div>
       {/* 1. Header & Status Banner */}
       <div className="bg-gradient-to-l from-blue-900 via-blue-800 to-indigo-900 text-white p-5 rounded-2xl shadow-sm border border-blue-700/50">
