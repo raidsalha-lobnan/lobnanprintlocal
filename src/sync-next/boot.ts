@@ -1,4 +1,4 @@
-import {registerDurableWriter} from '../firebase';
+import {registerDurableWriter} from '../services/durableLegacyBridge';
 import {LocalHttpSyncTransport, getLocalSyncConfig} from './httpTransport';
 import {LocalSyncDb} from './localDb';
 import {SyncCoordinator} from './coordinator';
