@@ -6,7 +6,7 @@ import {UnifiedRepository} from './repository';
 import type {EntityName} from './types';
 import {secureLoginEnabled} from '../services/secureAuth';
 
-/** New database is intentionally isolated from historical Firebase IndexedDB queues. */
+/** New database is intentionally isolated from historical old cloud IndexedDB queues. */
 export async function createUnifiedDataLayer(workspaceId:string){
   const config=getLocalSyncConfig();
   if(config.workspace!==workspaceId) throw new Error('WORKSPACE_MISMATCH');
@@ -41,7 +41,7 @@ export async function createUnifiedDataLayer(workspaceId:string){
   try {
     const status=await local.bootstrapStatus();
     if(status==='empty') {
-      // Never upload historical device localStorage or Firebase cache automatically.
+      // Never upload historical device localStorage or retired cloud cache automatically.
       const snapshot=await remote.fetchAuthoritativeBootstrap();
       await local.initializeAuthoritativeSnapshot(snapshot.records,snapshot.cursor);
     } else if(status==='existing-data' && !(await local.cursor())) {
@@ -62,7 +62,7 @@ export async function createUnifiedDataLayer(workspaceId:string){
     await coordinator.start();
   }catch(error){
     unregister();
-    console.error('Local server initialization failed; no hidden Firebase fallback',error);
+    console.error('Local server initialization failed; no hidden legacy cloud fallback',error);
     throw error;
   }
   return {repository,coordinator,local,stop:()=>{unregister();coordinator.stop();}};
