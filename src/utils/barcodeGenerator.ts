@@ -129,6 +129,7 @@ export function generateSequentialSku(
 
   // Extract all numbers for items that start with this prefix (e.g. PRI-0001, PRI0001, PRI-001)
   let maxNumber = 0;
+  let serial25AlreadyUsed = false;
   const regex = new RegExp(`^${prefix}[-_]?(\\d+)$`, 'i');
 
   existingCodes.forEach(code => {
@@ -136,6 +137,7 @@ export function generateSequentialSku(
     const match = code.trim().match(regex);
     if (match && match[1]) {
       const num = parseInt(match[1], 10);
+      if (prefix === 'PRI' && num === 25) serial25AlreadyUsed = true;
       if (!isNaN(num) && num > maxNumber) {
         maxNumber = num;
       }
@@ -143,7 +145,12 @@ export function generateSequentialSku(
   });
 
   // Start with maxNumber + 1 (at least 1 for 0001)
-  let nextNumber = Math.max(1, maxNumber + 1);
+  // Explicitly released PRI-00025 can be assigned to the next newly created
+  // printing item, even if higher PRI numbers were created meanwhile.
+  // It must not be present among CURRENT catalog codes when this happens.
+  const releasedPriCode = 'PRI-00025';
+  let nextNumber = prefix === 'PRI' && maxNumber >= 25 && !serial25AlreadyUsed && !existingSet.has(releasedPriCode.toLowerCase())
+    ? 25 : Math.max(1, maxNumber + 1);
   let candidate = `${prefix}-${String(nextNumber).padStart(serialWidth, '0')}`;
 
   // Guaranteed uniqueness loop: if candidate exists for any reason, keep incrementing
