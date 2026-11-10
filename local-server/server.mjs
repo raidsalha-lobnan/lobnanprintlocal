@@ -18,6 +18,7 @@ import {findVerifiedSettingsReceipts} from './settings-field-patch.mjs';
 import {createAccessVerifier} from './access-verifier.mjs';
 import {adminDirectoryCommand} from './admin-directory.mjs';
 import {DriveStorage,readAttachmentBody,prepareAttachmentTable,recordUploadedAttachment,findUploadedAttachment,startBackupScheduler,safeName,safeMime} from './drive-storage.mjs';
+import {RcloneDriveStorage,useRcloneDrive} from './rclone-drive-storage.mjs';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 const PORT=Number(process.env.SYNC_PORT||4577);
 const TOKEN=process.env.SYNC_DEVICE_TOKEN||'';
@@ -46,7 +47,7 @@ const schema=fs.readFileSync(path.join(dir,'schema.sql'),'utf8');
 await pool.query(schema);
 const service=new SyncService(pool);
 await prepareAttachmentTable(pool);
-const driveStorage=new DriveStorage();
+const driveStorage=useRcloneDrive()?new RcloneDriveStorage():new DriveStorage();
 let lastBackupResult={ok:false,remoteVerified:false,error:'NOT_YET_RUN'};
 const backupScheduler=startBackupScheduler({drive:driveStorage,onResult:result=>{lastBackupResult=result;}});
 const telegramDelivery=new TelegramDelivery(pool,WORKSPACE);
@@ -136,7 +137,8 @@ const srv=http.createServer(async(req,res)=>{
     if(url.pathname==='/api/v1/drive/status' && req.method==='GET'){
       if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
       return json(res,200,{
-        configured:driveStorage.configured(),
+        configured:driveStorage.configured() && (typeof driveStorage.ready!=='function'||await driveStorage.ready()),
+        backend:driveStorage instanceof RcloneDriveStorage?'encrypted-rclone':'google-oauth',
         backup:{ok:lastBackupResult.ok,remoteVerified:lastBackupResult.remoteVerified,
           lastCompletedAt:backupScheduler.getStatus().lastCompletedAt,
           error:lastBackupResult.error||null}
