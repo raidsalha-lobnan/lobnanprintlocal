@@ -10,7 +10,7 @@ type Writer = (
   operation: DurableWriteOperation,
   reference: Reference,
   payload?: unknown,
-  options?: unknown
+  options?: { merge?: boolean }
 ) => Promise<boolean>;
 
 let registeredWriter: Writer | null = null;
@@ -60,7 +60,7 @@ export function onSnapshot(...args: any[]): () => void {
   if (onError) queueMicrotask(() => onError(noLegacyRead()));
   return () => {};
 }
-export async function setDoc(reference: Reference, payload: unknown, options?: unknown): Promise<void> {
+export async function setDoc(reference: Reference, payload: unknown, options?: { merge?: boolean }): Promise<void> {
   if (!registeredWriter) throw new Error('DURABLE_REPOSITORY_NOT_INITIALIZED');
   const persisted = await registeredWriter('set', reference, payload, options);
   if (!persisted) throw new Error('ENTITY_NOT_SUPPORTED_BY_DURABLE_REPOSITORY');
