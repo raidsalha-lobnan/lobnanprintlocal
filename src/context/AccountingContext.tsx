@@ -398,7 +398,7 @@ interface AccountingContextType {
       counterpartyId?: string;
       paymentNotes?: string;
     }
-  ) => Promise<{ success: boolean; invoice?: Invoice; error?: string; isOffline?: boolean; isBusy?: boolean }>;
+  ) => Promise<{ success: boolean; invoice?: Invoice; error?: string; isOffline?: boolean; isBusy?: boolean; warning?: string }>;
   addPosInvoice: (invoiceData: any) => Invoice;
   addPosInvoiceOnline: (invoiceData: any) => Promise<{ success: boolean; invoice?: Invoice; error?: string; isOffline?: boolean; isBusy?: boolean }>;
   updateInvoice: (
@@ -7735,21 +7735,34 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           commandId,invoiceId:original.id,expectedVersion:visible.version,
           proposed:proposed as unknown as Record<string,unknown>
         });
-        await repo.getLocalDb().ack(result.commandId,result.changes);
+        // PostgreSQL may already have committed when the browser's IndexedDB
+        // connection closes. Distinguish local cache failure from remote rejection.
+        let localReceiptWarning: string | undefined;
+        try {
+          await repo.getLocalDb().ack(result.commandId,result.changes);
+          localStorage.removeItem(stableKey);
+        } catch (receiptError) {
+          console.error('POSTGRES_CONFIRMED_LOCAL_RECEIPT_FAILED',receiptError);
+          localReceiptWarning =
+            'تم اعتماد تعديل الفاتورة على خادم PostgreSQL، لكن تعذّر تحديث النسخة المحلية بسبب انقطاع اتصال تخزين المتصفح. لا تحفظ الفاتورة مرة أخرى؛ افتحها من سجل الفواتير بعد تحديث الصفحة للتحقق من البيانات المعتمدة.';
+          try {localStorage.setItem('lobnan_postgres_reconciliation_required','true');}catch{}
+        }
         repo.requestSync();
-        localStorage.removeItem(stableKey);
         const confirmed=result.changes.find(row=>row.entity==='invoices'&&row.id===original.id);
         if(!confirmed?.value)throw new Error('CENTRAL_INVOICE_ACK_MISSING');
         const authoritative=confirmed.value as unknown as Invoice;
         setInvoices(prev=>prev.map(inv=>inv.id===original.id?authoritative:inv));
-        return {success:true,invoice:authoritative};
+        return {success:true,invoice:authoritative,...(localReceiptWarning?{warning:localReceiptWarning}: {})};
       }catch(error){
         const raw=String(error);
         const conflict=/INVOICE_CONCURRENT_MODIFICATION_REOPEN|VERSION_CONFLICT/.test(raw);
+        const localConnectionFailure=/InvalidStateError|database connection is closing|LOCAL_STORAGE_SESSION_CLOSED|IDBDatabase/i.test(raw);
         return {success:false,
           error:conflict
             ?'تغيرت الفاتورة المعتمدة في PostgreSQL بعد فتحها على هذا الجهاز. منعنا الكتابة فوق تعديل الجهاز الآخر. مدخلاتك الحالية لم تُحذف؛ أعد فتح أحدث نسخة من الفاتورة ثم طبّق تعديلاتك عليها.'
-            :raw,
+            :localConnectionFailure
+              ?'تعذر قراءة بيانات الفاتورة من مخزن المتصفح المحلي (IndexedDB): الاتصال بقاعدة التخزين مغلق أو قيد الإغلاق، وقد يحدث ذلك بعد تحديث البرنامج أو تبويب آخر. لم يُرسل طلب التعديل إلى PostgreSQL من هذا المسار. احتفظ بمدخلاتك، ولا تمسح بيانات الموقع، ثم أعد فتح البرنامج بعد التأكد من عدم وجود تبويبات قديمة.'
+              :raw,
           isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
       }
     }
