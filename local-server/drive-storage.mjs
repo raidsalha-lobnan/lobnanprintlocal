@@ -27,22 +27,25 @@ export async function readAttachmentBody(req,maxBytes=MAX_ATTACHMENT_BYTES){
 }
 
 export class DriveStorage {
-  constructor({env=process.env,fetcher=fetch,clock=()=>Date.now()}={}){
+  constructor({env=process.env,fetcher=fetch,clock=()=>Date.now(),refreshTokenProvider=null}={}){
     this.env=env;this.fetcher=fetcher;this.clock=clock;
     this.token=null;this.tokenUntil=0;this.folders=new Map();
+    this.refreshTokenProvider=refreshTokenProvider;
   }
   configured(){
-    return Boolean(this.env.GOOGLE_OAUTH_CLIENT_ID&&this.env.GOOGLE_OAUTH_CLIENT_SECRET&&this.env.GOOGLE_OAUTH_REFRESH_TOKEN);
+    return Boolean(this.env.GOOGLE_OAUTH_CLIENT_ID&&this.env.GOOGLE_OAUTH_CLIENT_SECRET&&
+      (this.env.GOOGLE_OAUTH_REFRESH_TOKEN||this.refreshTokenProvider));
   }
   async tokenForDrive(){
     if(!this.configured())throw withError('DRIVE_OAUTH_NOT_CONFIGURED');
     if(this.token&&this.tokenUntil>this.clock()+60000)return this.token;
+    const refreshToken=this.refreshTokenProvider?await this.refreshTokenProvider():this.env.GOOGLE_OAUTH_REFRESH_TOKEN;
     const response=await this.fetcher('https://oauth2.googleapis.com/token',{
       method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
       body:new URLSearchParams({
         client_id:this.env.GOOGLE_OAUTH_CLIENT_ID,
         client_secret:this.env.GOOGLE_OAUTH_CLIENT_SECRET,
-        refresh_token:this.env.GOOGLE_OAUTH_REFRESH_TOKEN,
+        refresh_token:refreshToken,
         grant_type:'refresh_token'
       })
     });
