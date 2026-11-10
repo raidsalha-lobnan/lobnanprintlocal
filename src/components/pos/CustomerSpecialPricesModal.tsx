@@ -53,6 +53,7 @@ export const CustomerSpecialPricesModal: React.FC<CustomerSpecialPricesModalProp
         !q ||
         item.name.toLowerCase().includes(q) ||
         item.code.toLowerCase().includes(q) ||
+        (item.legacyCodes?.some(code => code?.toLowerCase().includes(q)) ?? false) ||
         (item.barcode && item.barcode.toLowerCase().includes(q));
       return matchCat && matchSearch;
     });
@@ -150,11 +151,9 @@ export const CustomerSpecialPricesModal: React.FC<CustomerSpecialPricesModalProp
               className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
             >
               <option value="all">كل الأقسام</option>
-              <option value="stationery">أدوات ومستلزمات مكتبية</option>
-              <option value="books">كتب ومراجع</option>
-              <option value="shields_gifts">دروع وهدايا تذكارية</option>
-              <option value="print_raw">خامات وأوراق طباعة</option>
-              <option value="copy_scan">خدمات وتصوير</option>
+              {(settings.categories || []).map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
             </select>
           </div>
 

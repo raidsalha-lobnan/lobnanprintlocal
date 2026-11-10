@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { InventoryItem } from '../../types';
 import { ItemUnitSelector } from '../ItemUnitSelector';
+import { generateSequentialSku } from '../../utils/barcodeGenerator';
 import { X, Plus, Sparkles, Check, Hash, Tag, Barcode, FolderOpen, DollarSign, Archive } from 'lucide-react';
 
 interface QuickAddItemModalProps {
@@ -17,12 +18,12 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
   onItemCreatedAndAdd,
   initialName = ''
 }) => {
-  const { addInventoryItem, settings } = useAccounting();
+  const { addInventoryItem, settings, inventory } = useAccounting();
 
   const [code, setCode] = useState('');
   const [name, setName] = useState(initialName);
   const [barcode, setBarcode] = useState('');
-  const [category, setCategory] = useState<string>('office_supplies');
+  const [category, setCategory] = useState<string>('print_raw');
   const [purchasePrice, setPurchasePrice] = useState<number>(0);
   const [sellingPrice, setSellingPrice] = useState<number>(0);
   const [stockQuantity, setStockQuantity] = useState<number>(10);
@@ -32,7 +33,8 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setName(initialName || '');
-      setCode('ITM-' + Math.floor(1000 + Math.random() * 9000));
+      setCategory('print_raw');
+      setCode(generateSequentialSku('print_raw', inventory.map(item => item.code), settings.categories));
       setBarcode('');
       setPurchasePrice(0);
       setSellingPrice(0);
@@ -49,7 +51,7 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
   };
 
   const generateItemCode = () => {
-    setCode('ITM-' + Math.floor(1000 + Math.random() * 9000));
+    setCode(generateSequentialSku(category, inventory.map(item => item.code), settings.categories));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -57,7 +59,7 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
     if (!name.trim()) return;
 
     const newItem: Omit<InventoryItem, 'id'> = {
-      code: code.trim() || ('ITM-' + Math.floor(1000 + Math.random() * 9000)),
+      code: code.trim() || generateSequentialSku(category, inventory.map(item => item.code), settings.categories),
       name: name.trim(),
       barcode: barcode.trim() || ('628' + Date.now().toString().slice(-8)),
       category: category as any,
@@ -113,7 +115,8 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
                   type="text"
                   required
                   value={code}
-                  onChange={e => setCode(e.target.value)}
+                  readOnly
+                  title="الكود التسلسلي يصدر تلقائيًا ولا يمكن تعديله يدويًا"
                   placeholder="رقم الصنف..."
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono font-bold text-blue-700 bg-white outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
                 />
@@ -181,7 +184,10 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
               </label>
               <select
                 value={category}
-                onChange={e => setCategory(e.target.value)}
+                onChange={e => {
+                  setCategory(e.target.value);
+                  setCode(generateSequentialSku(e.target.value, inventory.map(item => item.code), settings.categories));
+                }}
                 className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-white font-bold text-slate-700 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
               >
                 {(settings.categories && settings.categories.length > 0) ? (
@@ -192,12 +198,9 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
                   ))
                 ) : (
                   <>
-                    <option value="office_supplies">أدوات مكتبية ومدرسية</option>
-                    <option value="stationery">قرطاسية ومكتبية</option>
-                    <option value="print_raw">خامات ومواد الطباعة</option>
-                    <option value="copy_scan">خدمات تصوير وتصميم</option>
-                    <option value="books">كتب وروايات وملازم</option>
-                    <option value="shields_gifts">دروع وهدايا</option>
+                    <option value="print_raw">مطبعة</option>
+                     <option value="stationery">مكتبة وقرطاسية</option>
+                     <option value="office_supplies">أصناف متنوعة واكسسوارات</option>
                   </>
                 )}
               </select>

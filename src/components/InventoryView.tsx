@@ -353,6 +353,7 @@ export const InventoryView: React.FC = () => {
       const matchSearch =
         (it.name && typeof it.name === 'string' ? it.name.toLowerCase().includes(q) : false) ||
         (it.code && typeof it.code === 'string' ? it.code.toLowerCase().includes(q) : false) ||
+        (it.legacyCodes?.some(code => code?.toLowerCase().includes(q)) ?? false) ||
         Boolean(matchBarcode);
 
       return matchCat && matchSearch;
@@ -417,6 +418,7 @@ export const InventoryView: React.FC = () => {
   };
 
   const handleCategoryChange = (newCat: ItemCategory) => {
+    if (editingItem) return; // Existing category IDs are immutable outside audited migration.
     setFormCategory(newCat);
     if (!editingItem && formCode.trim()) {
       const nextCode = generateSequentialSku(newCat, inventory.map(i => i.code), allCategories);
@@ -1508,7 +1510,9 @@ export const InventoryView: React.FC = () => {
                         type="text"
                         required={Boolean(editingItem)}
                         value={formCode}
-                        onChange={e => setFormCode(e.target.value)}
+                        disabled={Boolean(editingItem)}
+                        readOnly
+                        title="كود الصنف يصدر تلقائيًا حسب المجموعة، ويبقى ثابتًا بعد الحفظ"
                         placeholder="تلقائي بعد الحفظ..."
                         className={`w-full border rounded-md p-1.5 pr-2.5 pl-8 font-mono text-xs font-bold text-center outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
                           !skuValidation.isUnique ? 'bg-rose-50 border-rose-400 text-rose-800' : 'bg-white border-slate-300 text-blue-700'
@@ -1517,6 +1521,7 @@ export const InventoryView: React.FC = () => {
                       <button
                         type="button"
                         onClick={handleRegenerateCode}
+                        disabled={Boolean(editingItem)}
                         className="absolute left-1 top-1/2 -translate-y-1/2 text-blue-600 hover:text-blue-800 p-1 flex items-center cursor-pointer"
                         title="توليد تلقائي"
                       >
@@ -1597,6 +1602,8 @@ export const InventoryView: React.FC = () => {
                     </label>
                     <select
                       value={formCategory}
+                      disabled={Boolean(editingItem)}
+                      title={editingItem ? 'نقل صنف بين التصنيفات يتم فقط بترحيل إداري مدقق' : 'مجموعة الصنف'}
                       onChange={e => handleCategoryChange(e.target.value as ItemCategory)}
                       className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs text-slate-700 font-semibold focus:ring-1 focus:ring-blue-500 outline-none cursor-pointer"
                     >

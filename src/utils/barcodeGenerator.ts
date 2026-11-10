@@ -117,6 +117,8 @@ export function generateSequentialSku(
     def = CATEGORY_DEFINITIONS.textiles;
   }
   const prefix = (customDef?.prefix || def?.prefix || (typeof category === 'string' && category.length <= 8 ? category : 'ITEM')).trim().toUpperCase();
+  // Approved PRI/BOK/ACC catalog uses five-digit permanent sequences.
+  const serialWidth = ['PRI', 'BOK', 'ACC'].includes(prefix) ? 5 : 4;
 
   // Normalized set of all existing codes (lowercase trimmed)
   const existingSet = new Set(
@@ -142,12 +144,12 @@ export function generateSequentialSku(
 
   // Start with maxNumber + 1 (at least 1 for 0001)
   let nextNumber = Math.max(1, maxNumber + 1);
-  let candidate = `${prefix}-${String(nextNumber).padStart(4, '0')}`;
+  let candidate = `${prefix}-${String(nextNumber).padStart(serialWidth, '0')}`;
 
   // Guaranteed uniqueness loop: if candidate exists for any reason, keep incrementing
   while (existingSet.has(candidate.toLowerCase())) {
     nextNumber++;
-    candidate = `${prefix}-${String(nextNumber).padStart(4, '0')}`;
+    candidate = `${prefix}-${String(nextNumber).padStart(serialWidth, '0')}`;
   }
 
   return candidate;
@@ -398,8 +400,11 @@ export function matchItemByBarcode(item: InventoryItem, scannedCode: string): bo
     return true;
   }
 
-  // 2. Item SKU / Code match
+  // 2. Current and previously assigned permanent SKU codes
   if (item.code && item.code.trim().toLowerCase() === clean) {
+    return true;
+  }
+  if (item.legacyCodes?.some(code => code?.trim().toLowerCase() === clean)) {
     return true;
   }
 
@@ -477,6 +482,16 @@ export function getAllItemBarcodes(item: InventoryItem): ItemBarcodeOption[] {
           isPrimary: false
         });
       }
+    }
+  }
+
+  // Previously printed SKU labels must still resolve to their canonical item.
+  // These are aliases only: never issue them as fresh product serial numbers.
+  for (const historic of item.legacyCodes || []) {
+    const code = historic?.trim();
+    if (code && !seen.has(code.toLowerCase())) {
+      seen.add(code.toLowerCase());
+      result.push({ barcode: code, label: 'كود سابق للصنف', isPrimary: false });
     }
   }
 

@@ -6,7 +6,7 @@ import {InputError} from './sync-domain.mjs';
  */
 const serials={
   parties:['code'],
-  inventory:['code'],
+  inventory:['code','category'],
   treasuries:['code','accountCode']
 };
 const normalized=v=>String(v??'').trim().toLocaleLowerCase('en-US');

@@ -108,6 +108,7 @@ export interface CustomerSpecialPrice {
 export interface InventoryItem {
   id: string;
   code: string;
+  legacyCodes?: string[]; // Immutable previous SKU codes, reserved for historic lookup and scanning.
   barcode: string;
   barcodeType?: BarcodeFormat;
   additionalBarcodes?: string[]; // قائمة الباركودات الإضافية / البديلة

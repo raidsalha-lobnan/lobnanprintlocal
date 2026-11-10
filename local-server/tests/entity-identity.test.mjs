@@ -43,3 +43,15 @@ test('new customers, items and cashboxes require their own permanent visible cod
    /ENTITY_SERIAL_REQUIRED/);
  }
 });
+
+test('category of an existing inventory item is immutable outside audited migration',async()=>{
+ const current={id:'sku-1',code:'PRI-0001',category:'print_raw',name:'Printing item',stockQuantity:10};
+ const db={query:async()=>{throw Error('no duplicate query expected for an unchanged identity')}};
+ await assertStableEntitySerial(db,'lobnan_main','inventory','sku-1',current,
+   {...current,name:'Renamed for display'});
+ await assert.rejects(
+   assertStableEntitySerial(db,'lobnan_main','inventory','sku-1',current,
+     {...current,category:'stationery'}),
+   /ENTITY_SERIAL_IMMUTABLE/
+ );
+});
