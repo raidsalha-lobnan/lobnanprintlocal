@@ -26,7 +26,7 @@ export function saveSyncToken(token: string, expiresInSeconds: number = 3600) {
   localStorage.setItem(STORAGE_KEY_TOKEN_EXP, (Date.now() + expiresInSeconds * 1000).toString());
 }
 
-import { authenticateWithGoogleDrive } from './firebaseDriveAuth';
+import { authenticateWithGoogleDrive } from './googleDriveAuth';
 
 export async function requestGoogleDriveToken(promptUser: boolean = false): Promise<string | null> {
   const existing = getCachedSyncToken();
