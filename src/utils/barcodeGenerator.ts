@@ -400,8 +400,11 @@ export function matchItemByBarcode(item: InventoryItem, scannedCode: string): bo
     return true;
   }
 
-  // 2. Item SKU / Code match
+  // 2. Current and previously assigned permanent SKU codes
   if (item.code && item.code.trim().toLowerCase() === clean) {
+    return true;
+  }
+  if (item.legacyCodes?.some(code => code?.trim().toLowerCase() === clean)) {
     return true;
   }
 
@@ -479,6 +482,16 @@ export function getAllItemBarcodes(item: InventoryItem): ItemBarcodeOption[] {
           isPrimary: false
         });
       }
+    }
+  }
+
+  // Previously printed SKU labels must still resolve to their canonical item.
+  // These are aliases only: never issue them as fresh product serial numbers.
+  for (const historic of item.legacyCodes || []) {
+    const code = historic?.trim();
+    if (code && !seen.has(code.toLowerCase())) {
+      seen.add(code.toLowerCase());
+      result.push({ barcode: code, label: 'كود سابق للصنف', isPrimary: false });
     }
   }
 

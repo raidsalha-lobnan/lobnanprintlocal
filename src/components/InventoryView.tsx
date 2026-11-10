@@ -353,6 +353,7 @@ export const InventoryView: React.FC = () => {
       const matchSearch =
         (it.name && typeof it.name === 'string' ? it.name.toLowerCase().includes(q) : false) ||
         (it.code && typeof it.code === 'string' ? it.code.toLowerCase().includes(q) : false) ||
+        (it.legacyCodes?.some(code => code?.toLowerCase().includes(q)) ?? false) ||
         Boolean(matchBarcode);
 
       return matchCat && matchSearch;

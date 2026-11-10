@@ -53,6 +53,7 @@ export const CustomerSpecialPricesModal: React.FC<CustomerSpecialPricesModalProp
         !q ||
         item.name.toLowerCase().includes(q) ||
         item.code.toLowerCase().includes(q) ||
+        (item.legacyCodes?.some(code => code?.toLowerCase().includes(q)) ?? false) ||
         (item.barcode && item.barcode.toLowerCase().includes(q));
       return matchCat && matchSearch;
     });
