@@ -321,7 +321,7 @@ export async function syncWithWebServer(
     if (!url) {
       return {
         success: false,
-        message: 'عنوان السيرفر غير مدخل. يرجى إدخال رابط سيرفر المزامنة أو الاعتماد على سحابة Firebase.'
+        message: 'عنوان السيرفر غير مدخل. يرجى إدخال رابط خادم مزامنة PostgreSQL المعتمد.'
       };
     }
 
