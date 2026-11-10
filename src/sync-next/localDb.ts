@@ -32,6 +32,8 @@ function completed(tx: IDBTransaction): Promise<void> {
 
 export class LocalSyncDb {
   private dbPromise: Promise<IDBDatabase>;
+  private disposed = false;
+  private readonly databaseName: string;
   private listeners = new Set<() => void>();
   private channel: BroadcastChannel | null = null;
 
@@ -40,9 +42,21 @@ export class LocalSyncDb {
       throw new Error('Invalid workspace ID');
     }
 
-    this.dbPromise = new Promise((resolve, reject) => {
+    this.databaseName = `${namespace}-${workspaceId}`;
+    this.dbPromise = this.openDatabase();
+
+    if (typeof BroadcastChannel !== 'undefined') {
+      this.channel = new BroadcastChannel(`lobnan-sync-${workspaceId}`);
+      this.channel.onmessage = () => {
+        for (const fn of this.listeners) fn();
+      };
+    }
+  }
+
+  private openDatabase(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
       const r = indexedDB.open(
-        `${namespace}-${workspaceId}`,
+        this.databaseName,
         DB_VERSION
       );
 
@@ -80,7 +94,10 @@ export class LocalSyncDb {
       };
 
       r.onsuccess = () => {
-        r.result.onversionchange = () => r.result.close();
+        r.result.onversionchange = () => {
+          r.result.close();
+          if (!this.disposed) this.dbPromise = this.openDatabase();
+        };
         resolve(r.result);
       };
 
@@ -88,15 +105,24 @@ export class LocalSyncDb {
       r.onblocked = () =>
         console.warn('IndexedDB upgrade is blocked');
     });
+  }
 
-    if (typeof BroadcastChannel !== 'undefined') {
-      this.channel = new BroadcastChannel(
-        `lobnan-sync-${workspaceId}`
-      );
-
-      this.channel.onmessage = () => {
-        for (const fn of this.listeners) fn();
-      };
+  // Probe only an empty readonly transaction. If this cached connection
+  // closed because of browser lifecycle or a database upgrade, reopen it.
+  // Never automatically replay any partially executed financial write.
+  private async getDb(): Promise<IDBDatabase> {
+    if (this.disposed) throw new Error('LOCAL_STORAGE_SESSION_CLOSED');
+    const db = await this.dbPromise;
+    try {
+      const probe = db.transaction(META, 'readonly');
+      probe.abort();
+      return db;
+    } catch (error) {
+      if (!(error instanceof DOMException) ||
+          !['InvalidStateError', 'TransactionInactiveError'].includes(error.name)) throw error;
+      db.close();
+      this.dbPromise = this.openDatabase();
+      return this.dbPromise;
     }
   }
 
@@ -112,6 +138,7 @@ export class LocalSyncDb {
 
   async close(): Promise<void> {
     this.channel?.close();
+    this.disposed = true;
     (await this.dbPromise).close();
   }
 
@@ -133,7 +160,7 @@ export class LocalSyncDb {
         : toJsonObject(c.value)
     }));
 
-    const db = await this.dbPromise;
+    const db = await this.getDb();
     const tx = db.transaction(
       [RECORDS, OUTBOX, RECEIPTS],
       'readwrite'
@@ -239,7 +266,7 @@ export class LocalSyncDb {
   }
 
   async pending(): Promise<SyncCommand[]> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
     const tx = db.transaction(OUTBOX, 'readonly');
 
     const data = await request(
@@ -254,7 +281,7 @@ export class LocalSyncDb {
   }
 
   async cursor(): Promise<ServerCursor | null> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
     const tx = db.transaction(META, 'readonly');
 
     const row = await request(
@@ -265,7 +292,7 @@ export class LocalSyncDb {
   }
 
   async applyEvent(event: ServerEvent): Promise<void> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
 
     const tx = db.transaction(
       [RECORDS, OUTBOX, META, RECEIPTS],
@@ -341,7 +368,7 @@ export class LocalSyncDb {
     commandId: string,
     changes: AppliedChange[]
   ): Promise<void> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
 
     const tx = db.transaction(
       [RECORDS, OUTBOX, RECEIPTS],
@@ -554,7 +581,7 @@ export class LocalSyncDb {
     error: string,
     retryAt = 0
   ): Promise<void> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
     const tx = db.transaction(OUTBOX, 'readwrite');
     const done = completed(tx);
     const store = tx.objectStore(OUTBOX);
@@ -580,7 +607,7 @@ export class LocalSyncDb {
   async listVisible(
     entity: EntityName
   ): Promise<LocalView[]> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
 
     const tx = db.transaction(
       [RECORDS, OUTBOX],
@@ -651,7 +678,7 @@ export class LocalSyncDb {
    * Never use the invoice list alone as a proxy for database emptiness.
    */
   async bootstrapStatus(): Promise<'empty' | 'initialized' | 'existing-data'> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
     const tx = db.transaction([RECORDS, OUTBOX, META], 'readonly');
     const [flag, recordCount, operationCount] = await Promise.all([
       request(tx.objectStore(META).get('authoritativeBootstrap')),
@@ -670,7 +697,7 @@ export class LocalSyncDb {
   async initializeAuthoritativeSnapshot(
     records: StoredRecord[], cursor: ServerCursor
   ): Promise<boolean> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
     const tx = db.transaction([RECORDS, OUTBOX, META], 'readwrite');
     const done = completed(tx);
     try {
@@ -717,7 +744,7 @@ export class LocalSyncDb {
   async refreshAuthoritativeSnapshot(
     snapshot: StoredRecord[], serverCursor: ServerCursor
   ): Promise<number> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
     const tx = db.transaction([RECORDS, OUTBOX, META, RECEIPTS], 'readwrite');
     const done = completed(tx);
     try {
@@ -785,7 +812,7 @@ export class LocalSyncDb {
   }
 
   async getConflicts(): Promise<SyncCommand[]> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
     const tx = db.transaction(OUTBOX, 'readonly');
     const commands = await request(
       tx.objectStore(OUTBOX).getAll()
@@ -821,7 +848,7 @@ export class LocalSyncDb {
       throw new Error('Financial or stock changes cannot be discarded without a documented reconciliation and reversal.');
     }
 
-    const db = await this.dbPromise;
+    const db = await this.getDb();
     const tx = db.transaction(OUTBOX, 'readwrite');
     const done = completed(tx);
     tx.objectStore(OUTBOX).delete(commandId);
