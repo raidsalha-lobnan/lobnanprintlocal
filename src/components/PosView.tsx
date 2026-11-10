@@ -2696,11 +2696,6 @@ const getInitialPosDraft = (): PosFullDraftData => {
       setSelectedInvoiceForPrint(savedInvoice);
     }
 
-    // Set notification for single-entry automated cycle review
-    if (savedInvoice) {
-      setLastSavedInvoiceNotice(savedInvoice);
-    }
-
     // Reset to a fresh blank invoice
     setInvoiceSeqNumber('');
 
