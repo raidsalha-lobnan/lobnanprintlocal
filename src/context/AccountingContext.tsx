@@ -1892,7 +1892,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Real-time Firestore Collection Listeners
   // [OPTIMIZED FOR SPARK FREE-TIER]: The legacy full-collection listeners (invoices, inventory, parties, etc.)
   // have been fully migrated to the lightweight single change feed listener (subscribeToFirestoreLiveDeltas at line ~3009).
-  // This saves ~98% of daily read units and guarantees the app stays within Firebase's 50,000 free daily reads limit!
+  // Keep polling conservative; PostgreSQL event stream remains the canonical source of truth.
   useEffect(() => {
     // Single change feed subscription handles incoming live changes without re-reading whole collections.
   }, [isLocalOnlyMode]);
@@ -3011,7 +3011,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   fetchFromServerRef.current = fetchCloudData;
 
-  // No additional Firebase settings listener or full legacy fetch at startup.
+  // No additional legacy settings listener or full database merge at startup.
   // Settings are read from the canonical repository like other entities.
 
   const [selectedPurchaseForPrint, setSelectedPurchaseForPrint] = useState<PurchaseInvoice | null>(null);
@@ -10104,7 +10104,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       users: cleanUsers
     };
 
-    // 2. Pure local export to conserve Firebase Firestore quota completely
+    // 2. Local-only export without remote writes
 
     // 3. Calculate total records matching exactly what is active on the screen
     const totalRecords =
@@ -10797,7 +10797,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     })();
 
-    // Invalidate local synced hashes so Firebase accepts the zeroed state on all collections
+    // Invalidate legacy local sync hashes; server acknowledgements remain authoritative
     try {
       localStorage.removeItem('accounting_synced_hashes');
       localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
@@ -10810,7 +10810,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setTimeout(() => {
       if (syncToServerRef.current) {
         syncToServerRef.current(true).catch(err => {
-          console.error('Firebase sync after zeroing failed:', err);
+          console.error('Server sync after zeroing failed:', err);
         });
       }
     }, 100);
