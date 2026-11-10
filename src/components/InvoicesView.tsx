@@ -6,16 +6,10 @@ import {
   Search,
   Printer,
   Calendar,
-  CheckCircle,
-  Clock,
-  Eye,
   CreditCard,
   Banknote,
   Building2,
   GitBranch,
-  Layers,
-  CheckCircle2,
-  ArrowLeft,
   History,
   FileSpreadsheet,
   Trash2,
@@ -23,13 +17,12 @@ import {
   Edit3,
   CalendarCheck,
   Wallet,
-  RefreshCw
+  X
 } from 'lucide-react';
 import { InvoiceStatusHistoryModal } from './pos/InvoiceStatusHistoryModal';
 import { DraftInvoicesQueueModal } from './pos/DraftInvoicesQueueModal';
 import { DeletedInvoicesModal } from './pos/DeletedInvoicesModal';
 import { InvoiceAuditLogModal } from './pos/InvoiceAuditLogModal';
-import { DeleteAllSalesInvoicesModal } from './modals/DeleteAllSalesInvoicesModal';
 import {
   getInvoiceWorkflowStatusMeta,
   getInvoicePaymentStatusMeta,
@@ -70,8 +63,7 @@ export const InvoicesView: React.FC = () => {
     settings,
     setActiveTab,
     setEditingPosInvoiceId,
-    deleteInvoice,
-    recoverInvoicesFromAllBackups
+    deleteInvoice
   } = useAccounting();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -84,22 +76,6 @@ export const InvoicesView: React.FC = () => {
   const [isDraftQueueOpen, setIsDraftQueueOpen] = useState<boolean>(false);
   const [isDeletedInvoicesOpen, setIsDeletedInvoicesOpen] = useState<boolean>(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState<boolean>(false);
-  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState<boolean>(false);
-  const [isRecovering, setIsRecovering] = useState<boolean>(false);
-  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
-
-  const handleRecoverInvoices = async () => {
-    setIsRecovering(true);
-    setRecoveryNotice(null);
-    try {
-      const res = await recoverInvoicesFromAllBackups();
-      setRecoveryNotice(res.message);
-    } catch (e: any) {
-      setRecoveryNotice('حدث خطأ أثناء فحص واسترجاع الفواتير: ' + (e?.message || 'غير معروف'));
-    } finally {
-      setIsRecovering(false);
-    }
-  };
 
   const filteredInvoices = invoices
     .filter(inv => {
@@ -162,267 +138,168 @@ export const InvoicesView: React.FC = () => {
 
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
-            <FileText className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">سجل فواتير المبيعات</h2>
-            <p className="text-[10px] text-slate-400 font-light">فواتير نقاط البيع السريعة، وأوامر مطبوعات المطبعة المعتمدة</p>
-          </div>
+    <div className="space-y-3">
+      {/* One compact, responsive sales register command bar. */}
+      <section
+        className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-xs"
+        dir="rtl"
+        aria-label="سجل فواتير المبيعات وأدواته"
+      >
+        <div className="flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700">
+            <FileText className="h-4 w-4" />
+          </span>
+          <h2 className="whitespace-nowrap text-sm font-bold text-slate-900">
+            سجل فواتير المبيعات
+          </h2>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            type="button"
-            onClick={handleRecoverInvoices}
-            disabled={isRecovering}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer disabled:opacity-50"
-            title="فحص واسترجاع ودمج كافة الفواتير المدخلة من كافة النسخ الاحتياطية وقاعدة البيانات السحابية"
-          >
-            <RefreshCw className={`w-4 h-4 text-emerald-100 ${isRecovering ? 'animate-spin' : ''}`} />
-            <span>{isRecovering ? 'جاري الاسترجاع والدمج...' : 'استرجاع ودمج الفواتير'}</span>
-          </button>
+        <div className="relative min-w-[175px] max-w-[280px] flex-[1_1_190px]">
+          <Search className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="search"
+            aria-label="بحث في فواتير المبيعات"
+            placeholder="رقم الفاتورة أو اسم العميل..."
+            value={searchQuery}
+            onChange={event => setSearchQuery(event.target.value)}
+            className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pr-9 pl-2 text-xs text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+          />
+        </div>
 
+        <select
+          value={filterType}
+          onChange={event => setFilterType(event.target.value)}
+          aria-label="تصفية فواتير المبيعات حسب النوع"
+          className="h-9 min-w-[125px] rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-medium text-slate-700"
+        >
+          <option value="all">كل أنواع الفواتير</option>
+          <option value="pos">نقطة بيع</option>
+          <option value="print_order">أوامر طباعة</option>
+        </select>
+
+        <div className="flex shrink-0 items-center gap-1.5" aria-label="تصفية الفواتير حسب التاريخ">
+          <Calendar className="h-4 w-4 text-indigo-500" />
+          <select
+            id="sales-invoices-date-mode"
+            value={dateFilterMode}
+            onChange={event => setDateFilterMode(event.target.value as InvoiceDateFilterMode)}
+            aria-label="فترة الفواتير"
+            className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700"
+          >
+            <option value="all">جميع التواريخ</option>
+            <option value="single">تاريخ محدد</option>
+            <option value="range">فترة زمنية</option>
+          </select>
+          {dateFilterMode === 'single' && (
+            <input
+              type="date"
+              aria-label="تاريخ الفواتير المطلوب"
+              value={singleDate}
+              onChange={event => setSingleDate(event.target.value)}
+              dir="ltr"
+              className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-xs text-slate-800"
+            />
+          )}
+          {dateFilterMode === 'range' && (
+            <>
+              <input
+                type="date"
+                aria-label="من تاريخ"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={event => setDateFrom(event.target.value)}
+                dir="ltr"
+                className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-xs text-slate-800"
+              />
+              <input
+                type="date"
+                aria-label="إلى تاريخ"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={event => setDateTo(event.target.value)}
+                dir="ltr"
+                className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-xs text-slate-800"
+              />
+            </>
+          )}
+          {dateFilterMode !== 'all' && (
+            <button
+              type="button"
+              onClick={() => { setDateFilterMode('all'); setDateFrom(''); setDateTo(''); }}
+              title="إلغاء تصفية التاريخ"
+              aria-label="إلغاء تصفية التاريخ"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            onClick={() => setIsDeleteAllModalOpen(true)}
-            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
-            title="حذف كافة فواتير المبيعات من قاعدة البيانات واسترجاع المخزون وحذف السندات المرتبطة"
+            onClick={handlePrintDetailedInvoices}
+            disabled={filteredInvoices.length === 0}
+            title="طباعة كشف تفصيلي بالفواتير المعروضة طبقًا للتصفية"
+            className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg bg-indigo-700 px-2.5 text-xs font-bold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            <Trash2 className="w-4 h-4 text-rose-200" />
-            <span>حذف كل فواتير المبيعات</span>
-            {invoices.length > 0 && (
-              <span className="bg-rose-800 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full font-mono">
-                {invoices.length}
-              </span>
-            )}
+            <Printer className="h-4 w-4" />
+            طباعة الكشف
           </button>
 
           <button
             type="button"
             onClick={() => setIsDeletedInvoicesOpen(true)}
-            className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
-            title="سلة فواتير المبيعات المحذوفة - استعراض وتعديل واسترجاع الفواتير المحذوفة"
+            title="عرض سلة فواتير المبيعات المحذوفة واسترجاعها"
+            className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-lg border border-amber-200 bg-amber-50 px-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
           >
-            <Trash2 className="w-4 h-4 text-amber-700" />
-            <span>سلة الفواتير المحذوفة</span>
+            <Trash2 className="h-3.5 w-3.5" />
+            المحذوفة
             {(deletedInvoices?.length || 0) > 0 && (
-              <span className="bg-amber-500 text-slate-950 text-[11px] font-black px-2 py-0.5 rounded-full font-mono">
-                {deletedInvoices.length}
-              </span>
+              <span className="rounded-full bg-amber-200 px-1.5 text-[10px] font-bold">{deletedInvoices.length}</span>
             )}
           </button>
 
           <button
             type="button"
             onClick={() => setIsAuditLogOpen(true)}
-            className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
-            title="سجل تدقيق الحذف من قاعدة البيانات السحابية (Audit Log)"
+            title="سجل تدقيق عمليات حذف الفواتير"
+            className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
           >
-            <ShieldAlert className="w-4 h-4 text-rose-600" />
-            <span>سجل الحذف (Audit Log)</span>
+            <ShieldAlert className="h-3.5 w-3.5" />
+            سجل الحذف
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('daily_entry_sheet')}
-            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
-            title="فتح شاشة كشف الإدخال اليومي لتسجيل ومتابعة الحركات اليومية"
+            title="كشف الإدخال اليومي"
+            className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
           >
-            <CalendarCheck className="w-4 h-4 text-blue-200" />
-            <span>كشف إدخال يومي</span>
+            <CalendarCheck className="h-3.5 w-3.5" />
+            الإدخال اليومي
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('excel_drafts')}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
-            title="فتح الشاشة المخصصة لإدارة واستيراد مسودات الفواتير من Excel و OneDrive وتعديلها واعتمادها بالتتابع"
+            title="إدارة واستيراد مسودات الفواتير من Excel و OneDrive"
+            className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-            <span>مسودات Excel / OneDrive</span>
-          </button>
-
-          <div className="text-left bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 text-xs">
-            <span className="text-slate-500 block">إجمالي الفواتير المعروضة:</span>
-            <strong className="text-slate-900 text-sm font-mono font-black">
-              {(totalInvoiced || 0).toLocaleString('ar-SA')} {settings.currency}
-            </strong>
-          </div>
-        </div>
-      </div>
-
-      {recoveryNotice && (
-        <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 p-4 rounded-2xl flex items-center justify-between text-xs font-bold shadow-xs">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
-            <span>{recoveryNotice}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setRecoveryNotice(null)}
-            className="text-slate-400 hover:text-slate-600 text-sm font-bold px-2 py-1"
-          >
-            ✕
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            مسودات Excel
           </button>
         </div>
-      )}
 
-      {/* Single-Entry 7-Stage Cascade Architecture Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4 rounded-2xl border border-indigo-900/50 shadow-md">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 mb-2.5">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center">
-              <GitBranch className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-xs font-bold">دورة الإدخال الواحد المؤتمتة (Single Entry Cascading Flow)</h3>
-              <p className="text-[11px] text-slate-400">تُسجل الفاتورة مرة واحدة لتُحدث تلقائياً السلسلة المحاسبية الكاملة دون أي تكرار يدوي:</p>
-            </div>
-          </div>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-            ✓ ترحيل فوري متوازي 100%
+        <div className="mr-auto flex shrink-0 flex-wrap items-center gap-2 border-r border-slate-200 pr-2 text-[11px]">
+          <span className="whitespace-nowrap font-semibold text-slate-600" role="status">
+            {filteredInvoices.length} / {invoices.length} فاتورة
+          </span>
+          <span className="whitespace-nowrap font-bold tabular-nums text-slate-900" title="إجمالي الفواتير المعروضة">
+            {totalInvoiced.toLocaleString('ar-SA')} {settings.currency}
           </span>
         </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-1.5 text-center text-[11px] pt-2 border-t border-slate-800">
-          <div className="bg-slate-800/80 p-1.5 rounded-lg border border-slate-700 font-medium text-slate-200">
-            1. الفاتورة
-          </div>
-          <div className="bg-slate-800/80 p-1.5 rounded-lg border border-slate-700 font-medium text-slate-200">
-            2. المخزون
-          </div>
-          <div className="bg-slate-800/80 p-1.5 rounded-lg border border-slate-700 font-medium text-slate-200">
-            3. العميل
-          </div>
-          <div className="bg-slate-800/80 p-1.5 rounded-lg border border-slate-700 font-medium text-slate-200">
-            4. الصندوق/البنك
-          </div>
-          <div className="bg-slate-800/80 p-1.5 rounded-lg border border-slate-700 font-medium text-slate-200">
-            5. تكلفة المبيعات
-          </div>
-          <div className="bg-slate-800/80 p-1.5 rounded-lg border border-slate-700 font-medium text-slate-200">
-            6. الحسابات
-          </div>
-          <div className="bg-indigo-900/80 p-1.5 rounded-lg border border-indigo-700 font-bold text-indigo-200">
-            7. التقارير
-          </div>
-        </div>
-      </div>
-
-      {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3 flex-1 min-w-[240px]">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="ابحث برقم الفاتورة، اسم العميل..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pr-9 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-
-          <select
-            value={filterType}
-            onChange={e => setFilterType(e.target.value)}
-            className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
-          >
-            <option value="all">كافة أنواع الفواتير</option>
-            <option value="pos">فواتير نقطة البيع (الكاشير)</option>
-            <option value="print_order">فواتير أوامر الطباعة</option>
-          </select>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2" dir="rtl" aria-label="تصفية فواتير المبيعات حسب التاريخ">
-          <label htmlFor="sales-invoices-date-mode" className="text-xs font-bold text-slate-700 whitespace-nowrap">
-            <Calendar className="w-3.5 h-3.5 inline-block ml-1 text-indigo-600" />
-            تصفية حسب التاريخ
-          </label>
-          <select
-            id="sales-invoices-date-mode"
-            value={dateFilterMode}
-            onChange={e => setDateFilterMode(e.target.value as InvoiceDateFilterMode)}
-            className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
-          >
-            <option value="all">كل الفواتير</option>
-            <option value="single">تاريخ محدد</option>
-            <option value="range">من تاريخ إلى تاريخ</option>
-          </select>
-
-          {dateFilterMode === 'single' && (
-            <label className="inline-flex items-center gap-2 text-xs text-slate-600">
-              <span>التاريخ</span>
-              <input
-                type="date"
-                aria-label="تاريخ الفواتير المطلوب"
-                value={singleDate}
-                onChange={e => setSingleDate(e.target.value)}
-                dir="ltr"
-                className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800"
-              />
-            </label>
-          )}
-
-          {dateFilterMode === 'range' && (
-            <>
-              <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
-                <span>من</span>
-                <input
-                  type="date"
-                  aria-label="من تاريخ"
-                  value={dateFrom}
-                  max={dateTo || undefined}
-                  onChange={e => setDateFrom(e.target.value)}
-                  dir="ltr"
-                  className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800"
-                />
-              </label>
-              <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
-                <span>إلى</span>
-                <input
-                  type="date"
-                  aria-label="إلى تاريخ"
-                  value={dateTo}
-                  min={dateFrom || undefined}
-                  onChange={e => setDateTo(e.target.value)}
-                  dir="ltr"
-                  className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800"
-                />
-              </label>
-            </>
-          )}
-
-          {dateFilterMode !== 'all' && (
-            <button
-              type="button"
-              onClick={() => { setDateFilterMode('all'); setDateFrom(''); setDateTo(''); }}
-              className="text-xs text-indigo-700 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl"
-              title="إلغاء تصفية التاريخ وعرض جميع الفواتير"
-            >
-              عرض كل الفواتير
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handlePrintDetailedInvoices}
-            disabled={filteredInvoices.length === 0}
-            className="inline-flex items-center gap-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-xl px-4 py-2 shadow-xs transition-colors"
-            title="طباعة كشف تفصيلي للفواتير المطابقة للتاريخ والبحث ونوع الفاتورة"
-          >
-            <Printer className="w-4 h-4" />
-            طباعة كشف الفواتير المعروضة
-          </button>
-          <span className="text-[11px] text-slate-500" role="status">
-            المعروض: {filteredInvoices.length} من {invoices.length} فاتورة
-          </span>
-        </div>
-      </div>
+      </section>
 
       {/* Invoices Table - Single line per invoice */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
@@ -649,12 +526,6 @@ export const InvoicesView: React.FC = () => {
         isOpen={isAuditLogOpen}
         onClose={() => setIsAuditLogOpen(false)}
         initialInvoiceId="29"
-      />
-
-      {/* Delete All Sales Invoices Modal */}
-      <DeleteAllSalesInvoicesModal
-        isOpen={isDeleteAllModalOpen}
-        onClose={() => setIsDeleteAllModalOpen(false)}
       />
     </div>
   );
