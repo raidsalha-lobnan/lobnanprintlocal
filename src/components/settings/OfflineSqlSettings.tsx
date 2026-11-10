@@ -292,7 +292,7 @@ export const OfflineSqlSettings: React.FC = () => {
             }`}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isFirebaseSyncing ? 'animate-spin' : ''}`} />
-            <span>{isFirebaseSyncing ? 'جاري المزامنة...' : 'مزامنة فورية مع قاعدة البيانات وGoogle Drive'}</span>
+            <span>{isFirebaseSyncing ? 'جاري المزامنة...' : 'مزامنة فورية مع خادم PostgreSQL المعتمد'}</span>
           </button>
         </div>
 
