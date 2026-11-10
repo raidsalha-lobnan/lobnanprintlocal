@@ -577,7 +577,7 @@ export const LocalDatabaseModal: React.FC<LocalDatabaseModalProps> = ({ isOpen, 
                   <span className="block text-xs font-extrabold text-slate-800">
                     {isExporting ? 'جاري السحب المباشر من فير بيس...' : 'تصدير نسخة احتياطية (JSON)'}
                   </span>
-                  <span className="block text-[10.5px] text-slate-500">حفظ نسخة كاملة 100% مسحوبة مباشرة من سحابة Firebase</span>
+                  <span className="block text-[10.5px] text-slate-500">تصدير نسخة بيانات محلية للمراجعة؛ تأكيد بيانات الخادم يتطلب فحص المزامنة</span>
                 </div>
               </button>
 
