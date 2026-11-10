@@ -55,7 +55,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
     resetAllData,
     exportDataJSON,
     importDataJSON,
-    syncCurrentDataToFirestore,
+    forceSyncNow,
     invoices,
     parties,
     inventory,
@@ -1365,7 +1365,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                 type="button"
                 onClick={async () => {
                   setIsSyncingToCloud(true);
-                  const res = await syncCurrentDataToFirestore();
+                  const res = await forceSyncNow();
                   setIsSyncingToCloud(false);
                   if (res.success) {
                     alert(res.message);
@@ -1375,10 +1375,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                 }}
                 disabled={isSyncingToCloud}
                 className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-lg transition-colors cursor-pointer text-xs disabled:opacity-50 shadow-xs"
-                title="مزامنة ونقل قاعدة البيانات بالكامل (كافة الفواتير، العمليات، القيود، الحسابات، والأصناف والعملاء) إلى سحابة فيربيس وباقي الشاشات فوراً"
+                title="مزامنة العمليات المعلقة والتحقق من اعتمادها في قاعدة PostgreSQL الحالية دون استبدال بيانات الأجهزة الأخرى"
               >
                 <Cloud className={`w-3.5 h-3.5 ${isSyncingToCloud ? 'animate-spin' : ''}`} />
-                <span>{isSyncingToCloud ? 'جاري رفع ومزامنة كامل القاعدة سحابياً...' : `مزامنة كامل قاعدة البيانات (${totalDatabaseRecords} سجل) مع السحابة فوراً ☁️`}</span>
+                <span>{isSyncingToCloud ? 'جاري مزامنة العمليات المعلقة...' : 'مزامنة العمليات المعلقة مع الخادم الآن'}</span>
               </button>
 
               <button
