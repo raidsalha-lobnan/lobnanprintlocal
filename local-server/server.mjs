@@ -19,6 +19,7 @@ import {createAccessVerifier} from './access-verifier.mjs';
 import {adminDirectoryCommand} from './admin-directory.mjs';
 import {DriveStorage,readAttachmentBody,prepareAttachmentTable,recordUploadedAttachment,findUploadedAttachment,startBackupScheduler,safeName,safeMime} from './drive-storage.mjs';
 import {RcloneDriveStorage,useRcloneDrive} from './rclone-drive-storage.mjs';
+import {GoogleDriveAuthorization} from './drive-oauth.mjs';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 const PORT=Number(process.env.SYNC_PORT||4577);
 const TOKEN=process.env.SYNC_DEVICE_TOKEN||'';
@@ -47,9 +48,18 @@ const schema=fs.readFileSync(path.join(dir,'schema.sql'),'utf8');
 await pool.query(schema);
 const service=new SyncService(pool);
 await prepareAttachmentTable(pool);
-const driveStorage=useRcloneDrive()?new RcloneDriveStorage():new DriveStorage();
+const driveAuthorization=new GoogleDriveAuthorization({pool,workspace:WORKSPACE});
+await driveAuthorization.prepare();
+const driveStorage=driveAuthorization.ready()
+  ?new DriveStorage({refreshTokenProvider:()=>driveAuthorization.refreshToken()})
+  :useRcloneDrive()?new RcloneDriveStorage():new DriveStorage();
 let lastBackupResult={ok:false,remoteVerified:false,error:'NOT_YET_RUN'};
-const backupScheduler=startBackupScheduler({drive:driveStorage,onResult:result=>{lastBackupResult=result;}});
+// The main Windows machine already has an hourly backup task. Avoid creating
+// a second hourly dump unless the operator expressly enables the server worker.
+const backupScheduler=process.env.LOBNAN_ENABLE_SERVER_BACKUPS==='1'
+  ?startBackupScheduler({drive:driveStorage,onResult:result=>{lastBackupResult=result;}})
+  :{runOnce:async()=>{throw new InputError('SERVER_BACKUP_WORKER_DISABLED',503);},
+    stop:()=>{},getStatus:()=>({running:false,lastCompletedAt:0})};
 const telegramDelivery=new TelegramDelivery(pool,WORKSPACE);
 const telegramHub=new TelegramHub(pool,WORKSPACE);
 const telegramTimer=setInterval(()=>{void telegramDelivery.drainOnce().catch(e=>console.error('telegram worker',e.message));},10000);
@@ -108,9 +118,32 @@ const srv=http.createServer(async(req,res)=>{
   if(origin && !cors) {json(res,403,{code:'ORIGIN_NOT_ALLOWED'});return;}
   // Origin-side signature validation means a publicly misconfigured Tunnel
   // cannot leak data solely by adding an untrusted request header.
-  if (verifyAccess) {
+  // Google's redirect is a browser GET without the staff's API bearer token.
+  // A single-use, expiring server-side OAuth state and verified email are required.
+  // Cloudflare Access is bypassed ONLY for this exact callback route.
+  const oauthCallbackPath='/api/v1/drive/oauth/callback';
+  const isOauthCallback=req.method==='GET' &&
+    new URL(req.url||'/','http://localhost').pathname===oauthCallbackPath;
+  if (verifyAccess && !isOauthCallback) {
     try { await verifyAccess(req.headers['cf-access-jwt-assertion']); }
     catch (error) { return json(res,403,{code:'CLOUDFLARE_ACCESS_REQUIRED'},cors); }
+  }
+  if(isOauthCallback){
+    try{
+      const callbackUrl=new URL(req.url,'http://localhost');
+      if(callbackUrl.searchParams.get('error'))throw new Error('GOOGLE_ACCESS_DENIED');
+      await driveAuthorization.callback({
+        state:callbackUrl.searchParams.get('state'),
+        code:callbackUrl.searchParams.get('code')
+      });
+      res.writeHead(200,{'content-type':'text/html; charset=utf-8',
+        'cache-control':'no-store','x-content-type-options':'nosniff'});
+      res.end('<!doctype html><meta charset="utf-8"><title>تم ربط Google Drive</title><p dir="rtl">تم ربط حساب Google Drive بالبرنامج. يمكنك إغلاق هذه الصفحة والعودة إلى إعدادات البرنامج.</p>');
+    }catch(error){
+      res.writeHead(400,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});
+      res.end('<!doctype html><meta charset="utf-8"><p dir="rtl">تعذر إتمام التفويض. أعد إرسال رابط تفويض جديد من إعدادات البرنامج.</p>');
+    }
+    return;
   }
   try {
     const url=new URL(req.url||'/', 'http://localhost');
@@ -137,12 +170,24 @@ const srv=http.createServer(async(req,res)=>{
     if(url.pathname==='/api/v1/drive/status' && req.method==='GET'){
       if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
       return json(res,200,{
-        configured:driveStorage.configured() && (typeof driveStorage.ready!=='function'||await driveStorage.ready()),
+        configured:driveAuthorization.ready()
+          ?(await driveAuthorization.status()).connected
+          :driveStorage.configured() && (typeof driveStorage.ready!=='function'||await driveStorage.ready()),
         backend:driveStorage instanceof RcloneDriveStorage?'encrypted-rclone':'google-oauth',
         backup:{ok:lastBackupResult.ok,remoteVerified:lastBackupResult.remoteVerified,
           lastCompletedAt:backupScheduler.getStatus().lastCompletedAt,
           error:lastBackupResult.error||null}
       },cors);
+    }
+    if(url.pathname==='/api/v1/drive/oauth/status'&&req.method==='GET'){
+      if(!STRICT_AUTH||!access?.admin)throw new InputError('ADMIN_REQUIRED',403);
+      return json(res,200,await driveAuthorization.status(),cors);
+    }
+    if(url.pathname==='/api/v1/drive/oauth/send'&&req.method==='POST'){
+      if(!STRICT_AUTH||!access?.admin)throw new InputError('ADMIN_REQUIRED',403);
+      const payload=await parseBody(req,1024);
+      const result=await driveAuthorization.sendLink(payload?.email,user.id);
+      return json(res,202,result,cors);
     }
     if(url.pathname==='/api/v1/backups/run' && req.method==='POST'){
       if(!STRICT_AUTH || !access?.admin)throw new InputError('ADMIN_REQUIRED',403);
