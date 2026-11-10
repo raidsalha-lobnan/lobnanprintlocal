@@ -1,7 +1,6 @@
-import React, { useMemo } from 'react';
-import { useAccounting } from '../context/AccountingContext';
-import { getProgramUnitsWithCounts } from '../utils/unitsOfMeasure';
-import { Scale, Settings2 } from 'lucide-react';
+import React, {useMemo} from 'react';
+import {useAccounting} from '../context/AccountingContext';
+import {Scale, Settings2} from 'lucide-react';
 
 interface ItemUnitSelectorProps {
   value: string;
@@ -14,110 +13,72 @@ interface ItemUnitSelectorProps {
   compact?: boolean;
 }
 
+/**
+ * Only the units expressly configured in Settings are selectable.
+ * Historical inventory units are preserved in existing records but are not
+ * silently promoted to approved choices or altered without user selection.
+ */
 export const ItemUnitSelector: React.FC<ItemUnitSelectorProps> = ({
-  value,
-  onChange,
-  label = 'وحدة القياس:',
-  placeholder = 'اختر وحدة القياس...',
-  className = '',
-  showLabel = true,
-  compact = false
+  value, onChange, label = 'وحدة الصنف:',
+  placeholder = 'اختر وحدة من الإعدادات',
+  className = '', showLabel = true, compact = false,
 }) => {
-  const { inventory, settings, setActiveTab } = useAccounting();
-
-  // جلب الوحدات المعتمدة من إعدادات البرنامج والأصناف
-  const programUnits = useMemo(() => {
-    return getProgramUnitsWithCounts(inventory, settings.unitsOfMeasure);
-  }, [inventory, settings.unitsOfMeasure]);
-
-  // الوحدات المضافة في إعدادات البرنامج
-  const settingsUnits = useMemo(() => {
-    return (settings.unitsOfMeasure || []).map(u => ({
-      name: u.name,
-      symbol: u.symbol || u.name,
-      calc: u.calculationType
-    }));
+  const {settings, setActiveTab} = useAccounting();
+  const units = useMemo(() => {
+    const known = new Set<string>();
+    return (settings.unitsOfMeasure || []).filter(unit => {
+      const id=(unit.symbol || unit.name || '').trim();
+      if (!id || known.has(id)) return false;
+      known.add(id);
+      return true;
+    });
   }, [settings.unitsOfMeasure]);
 
-  // التحقق مما إذا كانت القيمة الحالية موجودة في القائمة
-  const isValueIncluded = useMemo(() => {
-    if (!value) return true;
-    return programUnits.some(u => u.unit.trim().toLowerCase() === value.trim().toLowerCase());
-  }, [programUnits, value]);
+  const approvedUnit = units.find(unit =>
+    unit.symbol === value || unit.name === value
+  );
+  const selectedValue = approvedUnit
+    ? (approvedUnit.symbol || approvedUnit.name) : '';
+  const unsupportedValue = Boolean(value && !approvedUnit);
 
   return (
-    <div className={`space-y-1.5 ${className}`}>
+    <div className={'space-y-1.5 '+className}>
       {showLabel && (
-        <div className="flex items-center justify-between">
-          <label className="block text-slate-700 font-semibold text-[11px] flex items-center gap-1">
-            <Scale className="w-3 h-3 text-blue-600" />
-            <span>{label}</span>
+        <div className="flex items-center justify-between gap-2">
+          <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-700">
+            <Scale className="h-3.5 w-3.5 text-blue-600"/>
+            {label}
           </label>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab('settings')}
-              className="text-[9px] text-slate-400 font-light hover:text-blue-600 flex items-center gap-0.5 transition-colors cursor-pointer"
-              title="إضافة أو تعديل وحدات القياس في إعدادات البرنامج"
-            >
-              <Settings2 className="w-2.5 h-2.5" />
-              <span>إعدادات الوحدات</span>
-            </button>
-            <span
-              className="text-[9px] text-blue-600 bg-blue-50 px-1 py-0.2 rounded font-medium border border-blue-100"
-              title="الوحدات المستخرجة من إعدادات البرنامج والأصناف"
-            >
-              {programUnits.length} وحدة
-            </span>
-          </div>
+          <span className="text-[10px] text-slate-500">{units.length} وحدة معتمدة</span>
         </div>
       )}
-
-      {/* Dropdown Menu (قائمة منسدلة) */}
-      <div className="relative">
-        <select
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className={`w-full bg-slate-50 border border-slate-300 rounded-md p-1.5 text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 font-medium cursor-pointer shadow-2xs ${
-            compact ? 'py-1 text-[11px]' : ''
-          }`}
-          title="اختر وحدة القياس من قائمة وحدات البرنامج المعتمدة"
-        >
-          <option value="" disabled>
-            {placeholder}
+      <select
+        value={selectedValue}
+        onChange={e => onChange(e.target.value)}
+        aria-label={label}
+        className={'w-full cursor-pointer rounded-md border border-slate-300 bg-white p-1.5 text-xs font-medium text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ' +
+          (compact ? 'py-1 text-[11px]' : '')}
+      >
+        <option value="" disabled>{units.length ? placeholder : 'لا توجد وحدات معتمدة في الإعدادات'}</option>
+        {units.map(unit => (
+          <option key={unit.id} value={unit.symbol || unit.name}>
+            {unit.name}{unit.symbol && unit.symbol !== unit.name ? ' ('+unit.symbol+')' : ''}
           </option>
-
-          {/* إذا كانت القيمة الحالية مخصصة وليست مدرجة مسبقاً */}
-          {value && !isValueIncluded && (
-            <option value={value}>
-              {value} (مخصصة)
-            </option>
-          )}
-
-          {/* وحدات مضافة في إعدادات النظام */}
-          {settingsUnits.length > 0 && (
-            <optgroup label="⚙️ وحدات معرفة في إعدادات البرنامج">
-              {settingsUnits.map((u, idx) => (
-                <option key={`set-${idx}`} value={u.symbol || u.name}>
-                  {u.name} {u.symbol && u.symbol !== u.name ? `(${u.symbol})` : ''}
-                </option>
-              ))}
-            </optgroup>
-          )}
-
-          {/* سائر الوحدات المعتمدة في البرنامج والأصناف */}
-          <optgroup label="📦 قائمة وحدات القياس المعتمدة">
-            {programUnits.map(u => {
-              // لا نكرر إذا كانت موجودة بالاسم
-              return (
-                <option key={u.unit} value={u.unit}>
-                  {u.unit} {u.isFromInventory ? `(مستخدمة في ${u.count} صنف)` : ''}
-                </option>
-              );
-            })}
-          </optgroup>
-        </select>
-      </div>
+        ))}
+      </select>
+      {(unsupportedValue || units.length === 0) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+          <span>
+            {unsupportedValue
+              ? 'الوحدة الحالية غير معتمدة. اختر وحدة من الإعدادات دون تغيير السجلات السابقة تلقائيًا.'
+              : 'أضف وحدة صنف من إعدادات البرنامج أولًا.'}
+          </span>
+          <button type="button" onClick={() => setActiveTab('settings')}
+            className="inline-flex items-center gap-1 font-bold text-blue-700 hover:underline">
+            <Settings2 className="h-3 w-3"/> الإعدادات
+          </button>
+        </div>
+      )}
     </div>
   );
 };

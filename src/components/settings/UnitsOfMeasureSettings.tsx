@@ -1,18 +1,21 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { UnitOfMeasure, UnitCalculationType } from '../../types';
-import { defaultUnitsOfMeasure, getUnitCalculationLabel } from '../../utils/unitsOfMeasure';
+import { getUnitCalculationLabel } from '../../utils/unitsOfMeasure';
 import { Scale, Plus, Edit2, Trash2, Check, X, Info } from 'lucide-react';
 import { posSound } from '../../utils/audio';
 
 export const UnitsOfMeasureSettings: React.FC = () => {
   const { settings, updateSettings } = useAccounting();
 
-  const currentUnits: UnitOfMeasure[] = settings.unitsOfMeasure && settings.unitsOfMeasure.length > 0
-    ? settings.unitsOfMeasure
-    : defaultUnitsOfMeasure;
+  // The settings registry is the only source of approved units.
+  // Never inject packaged defaults or units discovered in old inventory.
+  const currentUnits: UnitOfMeasure[] = settings.unitsOfMeasure || [];
 
   const [units, setUnits] = useState<UnitOfMeasure[]>(currentUnits);
+  useEffect(() => {
+    setUnits(settings.unitsOfMeasure || []);
+  }, [settings.unitsOfMeasure]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
 
@@ -138,6 +141,14 @@ export const UnitsOfMeasureSettings: React.FC = () => {
           </ul>
         </div>
       </div>
+
+      {units.length === 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900">
+          لا توجد وحدات أصناف معتمدة في إعدادات البرنامج حاليًا.
+          استخدم زر «إضافة وحدة قياس» هنا لاعتماد الوحدات التي ترغب في استخدامها.
+          لن تُضاف وحدات تلقائيًا من الأصناف القديمة.
+        </div>
+      )}
 
       {/* Units Table */}
       <div className="border border-slate-200 rounded-xl overflow-hidden">

@@ -9,9 +9,9 @@ import { ItemUnitSelector } from './ItemUnitSelector';
 import { posSound } from '../utils/audio';
 import { useHardwareBarcodeScanner } from '../utils/useBarcodeScanner';
 import { isCashCustomerParty } from '../utils/partyUtils';
-import { sortInventoryForDisplay, inventoryCategoryOptions } from '../utils/inventoryDisplayOrder';
+import { sortInventoryForDisplay } from '../utils/inventoryDisplayOrder';
+import { approvedCatalogCategories, approvedCatalogCounts } from '../utils/approvedCatalogOptions';
 import {
-  CATEGORY_DEFINITIONS,
   generateSequentialSku,
   validateSkuUniqueness,
   generateValidEan13,
@@ -61,8 +61,7 @@ export const InventoryView: React.FC = () => {
     updateInventoryItem,
     adjustStock,
     settings,
-    currencies,
-    warehouses,
+     warehouses,
     activeWarehouseId,
     setActiveWarehouseId,
     getWarehouseStock,
@@ -79,16 +78,25 @@ export const InventoryView: React.FC = () => {
   // Multi-Currency Display & Valuation (Base: ILS ₪)
   const [selectedCurrencyCode, setSelectedCurrencyCode] = useState<string>(settings.baseCurrencyCode || 'ILS');
   const [selectedWarehouseFilter, setSelectedWarehouseFilter] = useState<string>('all');
-  const activeCurrency = useMemo(() => {
-    return currencies.find(c => c.code === selectedCurrencyCode) || currencies.find(c => c.isBase) || {
-      code: 'ILS',
-      name: 'شيكل',
-      symbol: '₪',
-      rateAgainstBase: 1.0,
-      isBase: true,
-      isActive: true
-    };
-  }, [currencies, selectedCurrencyCode]);
+  // Only currencies enabled in Settings can be chosen in the inventory list.
+  const approvedCurrencies = useMemo(
+    () => (settings.currencies || []).filter(c => c.isActive !== false),
+    [settings.currencies],
+  );
+  const activeCurrency = useMemo(
+    () => approvedCurrencies.find(c => c.code === selectedCurrencyCode)
+       || approvedCurrencies.find(c => c.isBase)
+       || approvedCurrencies[0]
+       || {code: '', name: '', symbol: '', rateAgainstBase: 1, isBase: true},
+    [approvedCurrencies, selectedCurrencyCode],
+  );
+  useEffect(() => {
+    if (approvedCurrencies.some(c => c.code === selectedCurrencyCode)) return;
+    setSelectedCurrencyCode(
+      approvedCurrencies.find(c => c.isBase)?.code
+      || approvedCurrencies[0]?.code || ''
+    );
+  }, [approvedCurrencies, selectedCurrencyCode]);
 
   const [dailyExchangeRate, setDailyExchangeRate] = useState<number>(activeCurrency.rateAgainstBase || 1.0);
 
@@ -330,6 +338,16 @@ export const InventoryView: React.FC = () => {
     posSound.playSuccessBeep();
   };
 
+  // Exactly the approved catalog groups in fixed serial order.
+  const allCategories = useMemo(
+    () => approvedCatalogCategories(settings.categories || []),
+    [settings.categories],
+  );
+  const categoryFilterOptions = useMemo(
+    () => approvedCatalogCounts(inventory, allCategories),
+    [inventory, allCategories],
+  );
+
   const filteredItems = useMemo(() => {
     return sortInventoryForDisplay(inventory.filter(it => {
       const matchCat = categoryFilter === 'all' || it.category === categoryFilter;
@@ -357,8 +375,8 @@ export const InventoryView: React.FC = () => {
         Boolean(matchBarcode);
 
       return matchCat && matchSearch;
-    }), settings.categories || []);
-  }, [inventory, settings.categories, categoryFilter, searchQuery, filterOnlyLowStock, filterOnlyFavorites, selectedWarehouseFilter]);
+    }), allCategories);
+  }, [inventory, allCategories, categoryFilter, searchQuery, filterOnlyLowStock, filterOnlyFavorites, selectedWarehouseFilter]);
 
   // Inventory financial totals
   const totalCostValue = inventory.reduce((acc, it) => acc + (it.stockQuantity * it.purchasePrice), 0);
@@ -368,18 +386,12 @@ export const InventoryView: React.FC = () => {
     .reduce((acc, it) => acc + (it.stockQuantity * it.purchasePrice), 0);
   const lowStockCount = inventory.filter(it => it.category !== 'copy_scan' && it.category !== 'services' && it.id !== 'srv-delivery' && it.id !== 'srv-delivery-mobile' && it.barcode !== 'DELIVERY' && it.name !== 'خدمة توصيل' && !it.name?.trim().startsWith('توصيل') && it.stockQuantity <= it.minAlertQuantity).length;
 
-  const allCategories = useMemo(() => {
-    return settings.categories || [];
-  }, [settings.categories]);
-
-  const categoryFilterOptions = useMemo(() =>
-    inventoryCategoryOptions(inventory, allCategories, CATEGORY_DEFINITIONS),
-    [inventory, allCategories]
-  );
-
-  const getCategoryDetails = (catId: string) => {
-    return allCategories.find(c => c.id === catId) || (CATEGORY_DEFINITIONS as any)[catId] || CATEGORY_DEFINITIONS['stationery'];
-  };
+  const getCategoryDetails = (catId: string) =>
+    allCategories.find(c => c.id === catId) || {
+      ...allCategories[0],
+      id: catId,
+      name: 'تصنيف غير معتمد',
+    };
 
   // Real-time SKU uniqueness check to guarantee no duplicate SKU exists in the system
   const skuValidation = useMemo(() => {
@@ -390,7 +402,7 @@ export const InventoryView: React.FC = () => {
   }, [showAddModal, formCode, inventory, editingItem, allCategories]);
 
   const handleOpenAdd = (defaultCat?: ItemCategory) => {
-    const cat = defaultCat || (allCategories[0]?.id as ItemCategory) || 'stationery';
+    const cat = defaultCat || (allCategories[0]?.id as ItemCategory) || 'print_raw';
     setEditingItem(null);
     setFormName('');
     setFormCode(''); // Leave empty to generate sequential SKU safely after save
@@ -400,7 +412,9 @@ export const InventoryView: React.FC = () => {
     setNewEntryLabel('باركود كرتونة / عبوة');
     setTargetBarcodeScanField('primary');
     setFormCategory(cat);
-    setFormUnit('حبة');
+    // Units can be selected only from the Settings registry.
+    const defaultUnit = settings.unitsOfMeasure?.find(u => u.isDefault) || settings.unitsOfMeasure?.[0];
+    setFormUnit(defaultUnit?.symbol || defaultUnit?.name || '');
     setFormPurchasePrice('');
     setFormSellingPrice('');
     setFormSellingPrice2('');
@@ -561,6 +575,19 @@ export const InventoryView: React.FC = () => {
   const handleSaveItem = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) return;
+    if (!allCategories.some(category => category.id === formCategory)) {
+      alert('هذا التصنيف غير معتمد. اختر مجموعة معتمدة من القائمة.');
+      return;
+    }
+    const unitIsApproved = (settings.unitsOfMeasure || []).some(unit =>
+      unit.symbol === formUnit || unit.name === formUnit
+    );
+    // An existing historic unit can remain unchanged while editing other
+    // fields. A new item or a changed unit must use Settings-approved units.
+    if (!unitIsApproved && (!editingItem || formUnit !== editingItem.unit)) {
+      alert('وحدة الصنف غير معتمدة. أضف الوحدة من إعدادات البرنامج، ثم اخترها من القائمة.');
+      return;
+    }
 
     let trimmedCode = formCode.trim();
 
@@ -845,7 +872,8 @@ export const InventoryView: React.FC = () => {
               <select id="inventory-list-currency" value={selectedCurrencyCode}
                 onChange={e => setSelectedCurrencyCode(e.target.value)}
                 className="cursor-pointer border-0 bg-transparent text-xs font-bold text-slate-700 outline-none">
-                {currencies.map(c => <option key={c.code} value={c.code}>({c.symbol}) {c.code}</option>)}
+                {approvedCurrencies.length === 0 && <option value="">لا توجد عملات مفعلة في الإعدادات</option>}
+                {approvedCurrencies.map(c => <option key={c.code} value={c.code}>({c.symbol}) {c.code}</option>)}
               </select>
               {selectedCurrencyCode !== 'ILS' && (
                 <label className="inline-flex items-center gap-1 border-r border-slate-200 pr-2 text-[11px] text-slate-600">

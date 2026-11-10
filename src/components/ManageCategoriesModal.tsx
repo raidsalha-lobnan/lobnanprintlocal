@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { X, LockKeyhole, Layers } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
+import {approvedCatalogCategories, approvedCatalogCounts} from '../utils/approvedCatalogOptions';
 
 interface Props {
   isOpen: boolean;
@@ -8,64 +9,62 @@ interface Props {
 }
 
 /**
- * The catalog's category definitions are display-only in client apps.
- * Reclassification and changes to permanent SKUs require a reviewed
- * server-side migration, preserving internal item IDs and financial history.
+ * Read-only approved groups. The saved item category ID and code remain
+ * immutable; reclassification is performed by audited server migration only.
  */
-export default function ManageCategoriesModal({ isOpen, onClose }: Props) {
-  const { settings, inventory } = useAccounting();
-  const categories = settings.categories || [];
-  const counts = useMemo(() => {
-    const byCategory = new Map<string, number>();
-    for (const item of inventory) {
-      byCategory.set(item.category, (byCategory.get(item.category) || 0) + 1);
-    }
-    return byCategory;
-  }, [inventory]);
-  const legacy = useMemo(
-    () => [...counts.keys()].filter(id => id && !categories.some(cat => cat.id === id)).sort(),
-    [counts, categories]
+export default function ManageCategoriesModal({isOpen,onClose}:Props) {
+  const {settings,inventory} = useAccounting();
+  const groups=useMemo(
+    ()=>approvedCatalogCategories(settings.categories || []),
+    [settings.categories],
   );
+  const counts=useMemo(()=>approvedCatalogCounts(inventory,groups),[inventory,groups]);
 
-  if (!isOpen) return null;
+  if(!isOpen)return null;
+
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4" dir="rtl">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        <div className="flex justify-between items-center p-4 bg-slate-50 border-b border-slate-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" dir="rtl">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
           <div className="flex items-center gap-2">
-            <Layers className="w-5 h-5 text-indigo-700" />
-            <h2 className="text-base font-bold text-slate-800">تصنيفات الأصناف</h2>
+            <Layers className="h-5 w-5 text-indigo-700"/>
+            <h2 className="text-base font-bold text-slate-900">تصنيفات الأصناف المعتمدة</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="إغلاق" className="p-1.5 rounded hover:bg-slate-200">
-            <X className="w-5 h-5" />
+          <button type="button" onClick={onClose} aria-label="إغلاق"
+            className="rounded-lg p-1.5 text-slate-600 transition hover:bg-slate-200">
+            <X className="h-5 w-5"/>
           </button>
         </div>
-        <div className="flex items-start gap-2 p-3 mx-4 mt-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 text-sm">
-          <LockKeyhole className="w-4 h-4 mt-0.5 shrink-0" />
-          <p>التصنيفات والأكواد التسلسلية ثابتة ولا يمكن تغييرها من واجهات البرنامج. أي إعادة تصنيف أو ترقيم تتم مركزيًا بعد تدقيق العلاقات المحاسبية والمخزون.</p>
+        <div className="mx-4 mt-4 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">
+          <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0"/>
+          <p>
+            التصنيفات وأكواد الأصناف المحفوظة ثابتة. لا تظهر هنا التصنيفات القديمة.
+            اعتماد أي تصنيف جديد يتم من إعدادات البرنامج بعد التحقق من سلامة الأكواد والارتباطات المحاسبية.
+          </p>
         </div>
-        <div className="overflow-y-auto p-4 space-y-2">
-          {categories.map(cat => (
-            <div key={cat.id} className="border border-slate-200 rounded-lg p-3 bg-white flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-bold text-sm text-slate-900">{cat.name}</div>
-                <div className="text-xs text-slate-500 mt-1" dir="ltr">{cat.id}</div>
+        <div className="space-y-2 overflow-y-auto p-4">
+          {groups.map((group,index)=>(
+            <div key={group.id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-sm font-bold text-indigo-700">
+                  {index+1}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-slate-900">{group.name}</div>
+                  <div className="mt-0.5 text-[11px] text-slate-500">الرقم التسلسلي للمجموعة {index+1}</div>
+                </div>
               </div>
-              <div className="shrink-0 flex items-center gap-2">
-                <span className="font-mono text-xs bg-slate-100 border border-slate-200 rounded px-2 py-1">{cat.prefix}</span>
-                <span className="text-xs text-slate-700 whitespace-nowrap">{counts.get(cat.id) || 0} صنف</span>
+              <div className="flex shrink-0 items-center gap-3">
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs font-bold text-indigo-800" dir="ltr">
+                  {group.prefix}
+                </span>
+                <span className="min-w-[62px] text-left text-xs font-semibold text-slate-700">
+                  {counts[index]?.count || 0} صنف
+                </span>
               </div>
             </div>
           ))}
-          {legacy.map(id => (
-            <div key={id} className="border border-amber-200 bg-amber-50 rounded-lg p-3 flex items-center justify-between gap-2">
-              <span className="text-sm text-amber-900">تصنيف مستخدم غير موجود في القائمة المعتمدة: <span dir="ltr">{id}</span></span>
-              <span className="text-xs font-bold text-amber-900 whitespace-nowrap">{counts.get(id)} صنف</span>
-            </div>
-          ))}
-          {categories.length === 0 && legacy.length === 0 && (
-            <p className="text-center text-slate-500 p-6">لا توجد مجموعات لعرضها.</p>
-          )}
         </div>
       </div>
     </div>
