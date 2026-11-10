@@ -117,8 +117,6 @@ import {
   subscribeToConnectionIssuesFromFirestore,
   fetchFullDatabaseFromFirestore
 } from '../services/firebaseFirestoreSyncService';
-import { FirebaseConnectionDiagnostic } from './FirebaseConnectionDiagnostic';
-import { FirebaseQuotaModal } from './FirebaseQuotaModal';
 import { SyncConflictModal } from './SyncConflictModal';
 import {
   RefreshCw,
@@ -199,7 +197,6 @@ export const SyncAuditStatementView: React.FC = () => {
   const [isConnectingDrive, setIsConnectingDrive] = useState(false);
   const [isTestingPing, setIsTestingPing] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; seq?: number; ms?: number; message: string } | null>(null);
-  const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false);
   const [isConflictModalOpen, setIsConflictModalOpen] = useState(false);
   const [cloudCounts, setCloudCounts] = useState<Record<string, number> | null>(null);
   const [auditedCloudRecords, setAuditedCloudRecords] = useState<Record<string, any[]> | null>(null);
@@ -505,7 +502,7 @@ export const SyncAuditStatementView: React.FC = () => {
   return (
     <div className="space-y-3 p-1 sm:p-2 text-slate-800" dir="rtl">
       {/* التشخيص الفوري */}
-      <FirebaseConnectionDiagnostic />
+      {/* PostgreSQL connection is checked by the canonical sync coordinator. */}
       {/* 1. Official Header & Voucher Title Banner */}
       <div className="bg-white rounded-xl border border-slate-300 shadow-xs p-3.5 print:border-none print:shadow-none">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pb-3 border-b border-slate-200">
@@ -516,45 +513,27 @@ export const SyncAuditStatementView: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base sm:text-lg font-black text-slate-900">
-                  سند مطابقة وتدقيق المزامنة وفحص قاعدة بيانات Firebase
+                  سند مطابقة وتدقيق المزامنة وفحص قاعدة البيانات الرئيسية
                 </h1>
                 <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200">
                   {statementVoucherNumber}
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                كشف إداري ومحاسبي تفصيلي يوضح حالة الاستقبال والإرسال الحية مع سحابة Firebase Firestore وقواعد البيانات
+                كشف إداري ومحاسبي تفصيلي لحالة الإرسال والاستقبال ومطابقة البيانات مع الخادم الرئيسي
               </p>
             </div>
           </div>
 
           {/* Quick Action Commands */}
           <div className="flex items-center gap-2 flex-wrap print:hidden">
-            <div 
-              onClick={() => setIsQuotaModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-300 cursor-pointer hover:bg-emerald-100 transition"
-              title="انقر لعرض حاسبة حصة فايربيس السحابية"
-            >
-              <Cloud className="w-4 h-4 text-emerald-600 animate-pulse" />
-              <span>الحالة تحتاج تدقيقًا من قاعدة السحابة</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIsQuotaModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-lg shadow-xs transition active:translate-y-px cursor-pointer"
-              title="عرض حاسبة الاستهلاك اليومي ورابط منصة فايربيس والعداد التنازلي للتجديد"
-            >
-              <Database className="w-3.5 h-3.5 text-slate-900" />
-              <span>مؤشر حصة فايربيس</span>
-            </button>
 
             <button
               type="button"
               onClick={handleTriggerFullSync}
               disabled={isFirebaseSyncing}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition active:translate-y-px cursor-pointer disabled:opacity-75"
-              title="إجبار المزامنة الفورية وتحديث كافة الجداول في Firebase Firestore"
+              title="طلب مزامنة العمليات المعلقة والتحقق من تأكيدها من الخادم"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isFirebaseSyncing ? 'animate-spin' : ''}`} />
               <span>{isFirebaseSyncing ? 'جارِ المزامنة...' : 'مزامنة شاملة الآن'}</span>
@@ -621,7 +600,7 @@ export const SyncAuditStatementView: React.FC = () => {
             <span className="text-[10px] text-slate-400 block font-light">حالة الاتصال السحابي:</span>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <strong className="text-emerald-700 font-bold">Firebase متصل ومستقر</strong>
+              <strong className="text-emerald-700 font-bold">حالة اتصال الخادم</strong>
               {serverPingMs !== null && (
                 <span className="text-[10px] text-slate-500 font-mono">({serverPingMs}ms)</span>
               )}
@@ -657,7 +636,7 @@ export const SyncAuditStatementView: React.FC = () => {
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 animate-pulse" />
                 <h3 className="text-sm font-black text-white">
-                  فحص وإرسال واستقبال الإدخالات في قاعدة بيانات Firebase Firestore فورياً
+                  فحص إرسال واستقبال الإدخالات عبر خادم المزامنة الرئيسي
                 </h3>
               </div>
               <p className="text-xs text-slate-300 mt-1">
@@ -854,7 +833,7 @@ export const SyncAuditStatementView: React.FC = () => {
             <thead>
               <tr className="bg-slate-100 text-slate-600 border-b border-slate-200 font-bold text-[11px]">
                 <th className="p-2.5">اسم السجل / الكيان المحاسبي</th>
-                <th className="p-2.5 text-center">العدد بقاعدة بيانات Firebase</th>
+                <th className="p-2.5 text-center">العدد بقاعدة بيانات الخادم</th>
                 <th className="p-2.5 text-center">العدد بالجهاز الحالي</th>
                 <th className="p-2.5 text-center">حالة النقل والتطابق</th>
                 <th className="p-2.5 text-center">الفارق</th>
@@ -1250,12 +1229,6 @@ export const SyncAuditStatementView: React.FC = () => {
           </div>
         </div>
       )}
-
-      {/* Firebase Quota & Operations Monitor Modal */}
-      <FirebaseQuotaModal
-        isOpen={isQuotaModalOpen}
-        onClose={() => setIsQuotaModalOpen(false)}
-      />
 
       {/* Sync Conflict and Outbox Disclosure Modal */}
       <SyncConflictModal
