@@ -75,21 +75,18 @@ export function registerDurableWriter(writer: DurableWriter): () => void {
   return () => { if (durableWriter === writer) durableWriter = null; };
 }
 
-import { firebaseQuotaTracker } from './services/firebaseQuotaTracker';
 
 // Tracked wrappers for real-time accurate quota metering with preserved TypeScript overloaded signatures
 const trackedGetDoc = (async (...args: any[]) => {
   if (LOCAL_PG_MODE) throw new Error('LEGACY_FIREBASE_READ_BLOCKED');
   const snapshot = await (getDoc as any)(...args);
   if (snapshot && snapshot.metadata?.fromCache !== true) {
-    firebaseQuotaTracker.trackRead(1);
   }
   return snapshot;
 }) as typeof getDoc;
 
 const trackedGetDocFromServer = ((...args: any[]) => {
   if (LOCAL_PG_MODE) return Promise.reject(new Error('LEGACY_FIREBASE_READ_BLOCKED')) as any;
-  firebaseQuotaTracker.trackRead(1);
   return (getDocFromServer as any)(...args);
 }) as typeof getDocFromServer;
 
@@ -100,9 +97,7 @@ const trackedGetDocs = (async (...args: any[]) => {
     const fromCache = snapshot.metadata?.fromCache === true;
     if (!fromCache) {
       if (snapshot.docs) {
-        firebaseQuotaTracker.trackRead(snapshot.docs.length || 1);
       } else {
-        firebaseQuotaTracker.trackRead(1);
       }
     }
   }
@@ -114,12 +109,10 @@ const trackedSetDoc = ((...args: any[]) => {
     return durableWriter('set', args[0], args[1], args[2]).then(handled => {
       if (handled) return;
       if (LOCAL_PG_MODE) throw new Error('LEGACY_FIREBASE_WRITE_BLOCKED');
-      firebaseQuotaTracker.trackWrite(1);
       return (setDoc as any)(...args);
     });
   }
   if (LOCAL_PG_MODE) return Promise.reject(new Error('LEGACY_FIREBASE_WRITE_BLOCKED')) as any;
-  firebaseQuotaTracker.trackWrite(1);
   return (setDoc as any)(...args);
 }) as typeof setDoc;
 
@@ -128,12 +121,10 @@ const trackedDeleteDoc = ((...args: any[]) => {
     return durableWriter('delete', args[0]).then(handled => {
       if (handled) return;
       if (LOCAL_PG_MODE) throw new Error('LEGACY_FIREBASE_DELETE_BLOCKED');
-      firebaseQuotaTracker.trackDelete(1);
       return (deleteDoc as any)(...args);
     });
   }
   if (LOCAL_PG_MODE) return Promise.reject(new Error('LEGACY_FIREBASE_DELETE_BLOCKED')) as any;
-  firebaseQuotaTracker.trackDelete(1);
   return (deleteDoc as any)(...args);
 }) as typeof deleteDoc;
 
@@ -167,11 +158,9 @@ const trackedOnSnapshot = ((...args: any[]) => {
               if (changes && changes.length > 0) {
                 const serverChanges = changes.filter((c: any) => !c.doc?.metadata?.hasPendingWrites);
                 if (serverChanges.length > 0) {
-                  firebaseQuotaTracker.trackRead(serverChanges.length);
                 }
               }
             } else if (snapshot.docs) {
-              firebaseQuotaTracker.trackRead(snapshot.docs.length);
             }
           } catch {}
         }
