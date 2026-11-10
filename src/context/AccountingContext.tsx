@@ -464,7 +464,7 @@ interface AccountingContextType {
   hasUnsyncedChanges: boolean;
   pendingSyncCount: number;
   lastLocalSaveTime: string;
-  syncToServer: (force?: boolean) => Promise<boolean>;
+  syncWithCoordinator: (force?: boolean) => Promise<boolean>;
   forceSyncNow: () => Promise<{ success: boolean; message: string }>;
   forcePushAndPullSync: () => Promise<{ success: boolean; message: string; invoicesCount: number }>;
   importMasterDatabaseSnapshot: () => Promise<{ success: boolean; message: string }>;
@@ -2958,7 +2958,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const syncToServer = async (_force = false): Promise<boolean> => {
+  const syncWithCoordinator = async (_force = false): Promise<boolean> => {
     const coordinator = unifiedRepoRef.current?.getCoordinator();
     if (!coordinator || !navigator.onLine || isLocalOnlyMode) return false;
     const status = await coordinator.syncNow(30000);
@@ -2968,7 +2968,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (success) setLastServerSyncTime(new Date(status.lastSuccessAt!).toLocaleTimeString('ar-EG'));
     return success;
   };
-  syncToServerRef.current = syncToServer;
+  syncToServerRef.current = syncWithCoordinator;
 
   const executeServerFullSync = async () => ({
     success: false, deltaMode: true,
@@ -11408,7 +11408,7 @@ return (
         updateSqlServerConfig,
         generateSqlBackup,
         downloadSqlBackup,
-        syncToServer,
+        syncWithCoordinator,
         isOnline,
         lastSyncTime,
         isServerSyncing,
