@@ -54,12 +54,23 @@ const driveStorage=driveAuthorization.ready()
   ?new DriveStorage({refreshTokenProvider:()=>driveAuthorization.refreshToken()})
   :useRcloneDrive()?new RcloneDriveStorage():new DriveStorage();
 let lastBackupResult={ok:false,remoteVerified:false,error:'NOT_YET_RUN'};
-// The main Windows machine already has an hourly backup task. Avoid creating
-// a second hourly dump unless the operator expressly enables the server worker.
-const backupScheduler=process.env.LOBNAN_ENABLE_SERVER_BACKUPS==='1'
-  ?startBackupScheduler({drive:driveStorage,onResult:result=>{lastBackupResult=result;}})
-  :{runOnce:async()=>{throw new InputError('SERVER_BACKUP_WORKER_DISABLED',503);},
-    stop:()=>{},getStatus:()=>({running:false,lastCompletedAt:0})};
+let backupScheduler=null;
+// The Windows hourly task remains untouched. A second, encrypted Google
+// backup worker starts only after the admin has authorized this OAuth app.
+async function enableVerifiedCloudBackups(){
+  if(backupScheduler||process.env.LOBNAN_ENABLE_SERVER_BACKUPS==='0'||
+     !driveAuthorization.ready())return false;
+  if(!(await driveAuthorization.status()).connected)return false;
+  backupScheduler=startBackupScheduler({
+    drive:driveStorage,onResult:result=>{lastBackupResult=result;}
+  });
+  return true;
+}
+await enableVerifiedCloudBackups();
+const currentBackupScheduler=()=>backupScheduler||{
+  runOnce:async()=>{throw new InputError('DRIVE_ADMIN_CONSENT_REQUIRED',503);},
+  stop:()=>{},getStatus:()=>({running:false,lastCompletedAt:0})
+};
 const telegramDelivery=new TelegramDelivery(pool,WORKSPACE);
 const telegramHub=new TelegramHub(pool,WORKSPACE);
 const telegramTimer=setInterval(()=>{void telegramDelivery.drainOnce().catch(e=>console.error('telegram worker',e.message));},10000);
@@ -136,6 +147,7 @@ const srv=http.createServer(async(req,res)=>{
         state:callbackUrl.searchParams.get('state'),
         code:callbackUrl.searchParams.get('code')
       });
+      await enableVerifiedCloudBackups();
       res.writeHead(200,{'content-type':'text/html; charset=utf-8',
         'cache-control':'no-store','x-content-type-options':'nosniff'});
       res.end('<!doctype html><meta charset="utf-8"><title>تم ربط Google Drive</title><p dir="rtl">تم ربط حساب Google Drive بالبرنامج. يمكنك إغلاق هذه الصفحة والعودة إلى إعدادات البرنامج.</p>');
@@ -175,7 +187,7 @@ const srv=http.createServer(async(req,res)=>{
           :driveStorage.configured() && (typeof driveStorage.ready!=='function'||await driveStorage.ready()),
         backend:driveStorage instanceof RcloneDriveStorage?'encrypted-rclone':'google-oauth',
         backup:{ok:lastBackupResult.ok,remoteVerified:lastBackupResult.remoteVerified,
-          lastCompletedAt:backupScheduler.getStatus().lastCompletedAt,
+          lastCompletedAt:currentBackupScheduler().getStatus().lastCompletedAt,
           error:lastBackupResult.error||null}
       },cors);
     }
@@ -192,11 +204,14 @@ const srv=http.createServer(async(req,res)=>{
     if(url.pathname==='/api/v1/backups/run' && req.method==='POST'){
       if(!STRICT_AUTH || !access?.admin)throw new InputError('ADMIN_REQUIRED',403);
       // Do not hold a browser request open while PostgreSQL is being dumped.
-      void backupScheduler.runOnce();
+      void currentBackupScheduler().runOnce().catch(error=>{lastBackupResult={ok:false,error:error.message};});
       return json(res,202,{accepted:true,operation:'postgresql-backup'},cors);
     }
     if(url.pathname==='/api/v1/attachments/upload' && req.method==='POST'){
       if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
+      if(!access?.can('view')||
+         !['view_invoices','view_print_orders','view_pos'].some(key=>access.can(key)))
+        throw new InputError('ATTACHMENT_PERMISSION_DENIED',403);
       if(!driveStorage.configured())throw new InputError('DRIVE_OAUTH_NOT_CONFIGURED',503);
       const filename=safeName(url.searchParams.get('name'));
       const mime=safeMime(url.searchParams.get('mime'));
@@ -210,6 +225,9 @@ const srv=http.createServer(async(req,res)=>{
     }
     if(req.method==='GET'&&url.pathname.startsWith('/api/v1/attachments/content/')){
       if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
+      if(!access?.can('view')||
+         !['view_invoices','view_print_orders','view_pos'].some(key=>access.can(key)))
+        throw new InputError('ATTACHMENT_PERMISSION_DENIED',403);
       const id=decodeURIComponent(url.pathname.slice('/api/v1/attachments/content/'.length));
       if(!/^[a-zA-Z0-9_-]{8,200}$/.test(id))throw new InputError('INVALID_ATTACHMENT_ID',400);
       const row=await findUploadedAttachment(pool,workspace,id);
@@ -308,4 +326,4 @@ const BIND_HOST=process.env.SYNC_BIND_HOST||(STRICT_AUTH?'127.0.0.1':'0.0.0.0');
 if(STRICT_AUTH && BIND_HOST!=='127.0.0.1' && BIND_HOST!=='::1')
   throw new Error('Strict authentication API must bind to loopback; access it through zrok instead');
 srv.listen(PORT,BIND_HOST,()=>console.log(`Lobnan private sync API listening on ${BIND_HOST}:${PORT}`));
-process.on('SIGTERM',()=>{backupScheduler.stop();clearInterval(telegramTimer);clearInterval(telegramPollingTimer);srv.close();pool.end().finally(()=>process.exit(0));});
+process.on('SIGTERM',()=>{currentBackupScheduler().stop();clearInterval(telegramTimer);clearInterval(telegramPollingTimer);srv.close();pool.end().finally(()=>process.exit(0));});
