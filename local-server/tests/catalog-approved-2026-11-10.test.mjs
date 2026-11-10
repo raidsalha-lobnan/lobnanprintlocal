@@ -44,6 +44,16 @@ test('reject catalog drift and ambiguous duplicate or different prices',()=>{
  const wrong=makeItems();wrong.find(x=>x.id===old.id).sellingPrice=18;
  assert.throws(()=>makeApprovedCatalogPlan(wrong),/DUPLICATE_PRODUCT_FIELD_MISMATCH/);
 });
+test('catalog identity merge stops if retired record has warehouse stock or conflicting unit',()=>{
+ const stock=makeItems();
+ stock.find(x=>x.id===old.id).warehouseStock={MAIN:3};
+ assert.throws(()=>makeApprovedCatalogPlan(stock),/DUPLICATE_SOURCE_WAREHOUSE_BALANCE/);
+ const unit=makeItems();
+ unit.find(x=>x.id===old.id).unitId='kg';
+ unit.find(x=>x.id===canonical.id).unitId='pcs';
+ assert.throws(()=>makeApprovedCatalogPlan(unit),/DUPLICATE_SOURCE_UNIT_ID_CONFLICT/);
+});
+
 test('duplicate invoice and stock pointers canonicalize without touching amounts',()=>{
  const plan=makeApprovedCatalogPlan(makeItems());
  const byId=new Map(plan.entries.map(x=>[x.id,x]));

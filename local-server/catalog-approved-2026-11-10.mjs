@@ -39,8 +39,14 @@ export function makeApprovedCatalogPlan(items){
   if(!sameJson(old[field],canonical[field]))throw Error('DUPLICATE_PRODUCT_FIELD_MISMATCH_'+field);
  }
  if(old.stockQuantity!==0)throw Error('DUPLICATE_SOURCE_NONZERO_STOCK_REQUIRES_WAREHOUSE_MERGE');
+ if(old.warehouseStock && Object.values(old.warehouseStock).some(q=>!Number.isFinite(Number(q))||Number(q)!==0))
+  throw Error('DUPLICATE_SOURCE_WAREHOUSE_BALANCE_REQUIRES_RECONCILIATION');
  if(old.customerSpecialPrices?.length||old.sellingPrice2||old.sellingPrice3)
   throw Error('DUPLICATE_SOURCE_PRICING_REQUIRES_MANUAL_REVIEW');
+ if(old.barcode && canonical.barcode && old.barcode!==canonical.barcode)
+  throw Error('DUPLICATE_SOURCE_BARCODE_CONFLICT');
+ if(old.unitId && canonical.unitId && old.unitId!==canonical.unitId)
+  throw Error('DUPLICATE_SOURCE_UNIT_ID_CONFLICT');
  const survivors=items.filter(it=>it.id!==PRI_0015_MERGE.fromId);
  const printers=survivors.filter(it=>!BOOK_IDS.has(it.id)&&!ACC_IDS.has(it.id)).sort(sortPress);
  const books=[...BOOK_IDS].map(id=>idIndex.get(id)).sort((a,b)=>natural(a.code,b.code));

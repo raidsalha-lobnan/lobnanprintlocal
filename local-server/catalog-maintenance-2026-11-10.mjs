@@ -62,6 +62,17 @@ BEGIN
    IF new_code IS NULL OR new_group IS NULL THEN
      RAISE EXCEPTION 'CATALOG_CODE_AND_CATEGORY_REQUIRED';
    END IF;
+   IF coalesce(current_setting('lobnan.catalog_admin_migration',true),'')<>'approved'
+     AND EXISTS (SELECT 1 FROM sync_catalog_admin_migrations
+       WHERE workspace=NEW.workspace AND migration_id='catalog-pri-bok-acc-2026-11-10-v2-105') THEN
+     IF NOT (
+       (new_group='print_raw' AND new_code ~ '^PRI-[0-9]{5}$') OR
+       (new_group='stationery' AND new_code ~ '^BOK-[0-9]{5}$') OR
+       (new_group='office_supplies' AND new_code ~ '^ACC-[0-9]{5}$')
+     ) THEN
+       RAISE EXCEPTION 'CATALOG_ONLY_APPROVED_GROUPS_AND_FIVE_DIGIT_SKUS_ALLOWED';
+     END IF;
+   END IF;
    IF TG_OP='UPDATE' AND OLD.value IS NOT NULL THEN
      old_code:=nullif(btrim(OLD.value->>'code'),'');
      old_group:=nullif(btrim(OLD.value->>'category'),'');
