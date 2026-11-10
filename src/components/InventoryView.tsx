@@ -674,326 +674,201 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Inventory KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 mb-1.5">
-            <span className="text-[11px] font-semibold">إجمالي قيمة المخزون (بالتكلفة)</span>
-            <div className="w-6 h-6 rounded bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Boxes className="w-3.5 h-3.5" />
-            </div>
+      {/* Compact inventory summary — equal-height, clearly aligned cards */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" dir="rtl" aria-label="ملخص المخزون">
+        <div className="flex min-h-[96px] flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+          <div className="flex items-start justify-between gap-3">
+            <span className="text-xs font-semibold leading-5 text-slate-500">إجمالي قيمة المخزون (بالتكلفة)</span>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><Boxes className="h-4 w-4" /></span>
           </div>
-          <div className="text-lg font-bold font-mono text-slate-900">
-            {totalCostValue.toLocaleString('ar-SA')} <span className="text-[10px] font-normal text-slate-500 font-sans">{settings.currency}</span>
-          </div>
-          {selectedCurrencyCode !== 'ILS' && (
-            <div className="text-xs font-bold text-blue-600 font-mono mt-0.5">
-              ≈ {(totalCostValue / dailyExchangeRate).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {activeCurrency.symbol}
-            </div>
-          )}
+          <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{totalCostValue.toLocaleString('ar-SA')} <span className="text-xs font-medium text-slate-500">{settings.currency}</span></div>
+          {selectedCurrencyCode !== 'ILS' && <div className="mt-1 text-xs font-semibold text-blue-700">≈ {(totalCostValue / dailyExchangeRate).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {activeCurrency.symbol}</div>}
         </div>
-
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 mb-1.5">
-            <span className="text-[11px] font-semibold">القيمة البيعية المتوقعة</span>
-            <div className="w-6 h-6 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <DollarSign className="w-3.5 h-3.5" />
-            </div>
+        <div className="flex min-h-[96px] flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+          <div className="flex items-start justify-between gap-3">
+            <span className="text-xs font-semibold leading-5 text-slate-500">القيمة البيعية المتوقعة</span>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><DollarSign className="h-4 w-4" /></span>
           </div>
-          <div className="text-lg font-bold font-mono text-emerald-700">
-            {totalSaleValue.toLocaleString('ar-SA')} <span className="text-[10px] font-normal text-slate-500 font-sans">{settings.currency}</span>
-          </div>
-          {selectedCurrencyCode !== 'ILS' && (
-            <div className="text-xs font-bold text-emerald-600 font-mono mt-0.5">
-              ≈ {(totalSaleValue / dailyExchangeRate).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {activeCurrency.symbol}
-            </div>
-          )}
+          <div className="mt-2 text-xl font-bold tabular-nums text-emerald-700">{totalSaleValue.toLocaleString('ar-SA')} <span className="text-xs font-medium text-slate-500">{settings.currency}</span></div>
+          {selectedCurrencyCode !== 'ILS' && <div className="mt-1 text-xs font-semibold text-emerald-700">≈ {(totalSaleValue / dailyExchangeRate).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {activeCurrency.symbol}</div>}
         </div>
-
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 mb-1.5">
-            <span className="text-[11px] font-semibold">خامات وأوراق وأحبار المطبعة</span>
-            <div className="w-6 h-6 rounded bg-sky-50 text-sky-600 flex items-center justify-center">
-              <Layers className="w-3.5 h-3.5" />
-            </div>
+        <div className="flex min-h-[96px] flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+          <div className="flex items-start justify-between gap-3">
+            <span className="text-xs font-semibold leading-5 text-slate-500">خامات وأوراق وأحبار الطباعة</span>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600"><Layers className="h-4 w-4" /></span>
           </div>
-          <div className="text-lg font-bold font-mono text-slate-900">
-            {rawMaterialsValue.toLocaleString('ar-SA')} <span className="text-[10px] font-normal text-slate-500 font-sans">{settings.currency}</span>
-          </div>
+          <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{rawMaterialsValue.toLocaleString('ar-SA')} <span className="text-xs font-medium text-slate-500">{settings.currency}</span></div>
         </div>
-
-        <div
-          onClick={() => handleOpenStockCard(undefined, 'alerts')}
-          className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs hover:border-rose-300 transition cursor-pointer group"
-          title="اضغط لعرض تقرير وتنبيهات الأصناف الحرجة"
-        >
-          <div className="flex items-center justify-between text-slate-500 mb-1.5">
-            <span className="text-[11px] font-semibold group-hover:text-rose-600 transition">أصناف تحت حد الطلب (نواقص)</span>
-            <div className="w-6 h-6 rounded bg-rose-50 text-rose-600 flex items-center justify-center">
-              <AlertTriangle className="w-3.5 h-3.5" />
-            </div>
+        <button type="button" onClick={() => handleOpenStockCard(undefined, 'alerts')}
+          title="عرض الأصناف التي بلغت حد الطلب أو انخفضت عنه"
+          className="group flex min-h-[96px] w-full flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 text-right shadow-xs transition hover:border-rose-300 hover:bg-rose-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400">
+          <div className="flex w-full items-start justify-between gap-3">
+            <span className="text-xs font-semibold leading-5 text-slate-500 group-hover:text-rose-700">أصناف تحت حد الطلب (نواقص)</span>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-rose-600"><AlertTriangle className="h-4 w-4" /></span>
           </div>
-          <div className="text-lg font-bold font-mono text-rose-600 flex items-center justify-between">
-            <span>{lowStockCount} <span className="text-[10px] font-normal text-slate-500 font-sans">صنف</span></span>
-            <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-              عرض النواقص ⚠️
-            </span>
+          <div className="mt-2 flex w-full items-center justify-between gap-2">
+            <span className="text-xl font-bold tabular-nums text-rose-600">{lowStockCount} <span className="text-xs font-medium text-slate-500">صنف</span></span>
+            <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700">عرض النواقص</span>
           </div>
-        </div>
+        </button>
       </div>
 
-      {/* Unified Command & Operations Console (شريط العمليات والباركود والماسح والمفضلة) */}
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-3">
-        {/* Row 1: Primary Action Operations & Barcode/Scanner Suite */}
-        {/* Row 1: Primary Action Operations & Barcode/Scanner Suite */}
-        <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-slate-100 text-xs">
-          {/* Action Buttons Group */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            {/* Manage Categories Button */}
-            <button
-              type="button"
-              onClick={() => setShowCategoriesModal(true)}
-              className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-xs transition shadow-xs cursor-pointer shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>التصنيفات</span>
+      {/* Inventory controls: actions, search and filters, view options */}
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs" dir="rtl" aria-label="أدوات إدارة الأصناف">
+        <div className="flex flex-col gap-3 px-4 py-3.5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="ml-2 flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-700"><Boxes className="h-[18px] w-[18px]" /></span>
+              <div className="leading-tight">
+                <h2 className="text-sm font-bold text-slate-800">إدارة الأصناف</h2>
+                <span className="mt-1 block text-[11px] text-slate-500">{filteredItems.length} من {inventory.length} صنف</span>
+              </div>
+            </div>
+            <button type="button" onClick={() => handleOpenAdd()}
+              className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+              <Plus className="h-4 w-4" /> إضافة صنف
             </button>
-            {/* Primary Add Button */}
-            <button
-              type="button"
-              onClick={() => handleOpenAdd()}
-              className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-xs transition shadow-xs cursor-pointer shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>إضافة صنف</span>
+            <button type="button" onClick={() => setShowCategoriesModal(true)}
+              className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+              <Layers className="h-4 w-4" /> التصنيفات
             </button>
-
-            {/* Stock Movement Ledger Button */}
-            <button
-              type="button"
-              onClick={() => handleOpenStockCard(undefined, 'card')}
-              className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-xs transition cursor-pointer shrink-0"
-              title="عرض كارتة حركة المخزون"
-            >
-              <ClipboardList className="w-3.5 h-3.5 text-amber-400" />
-              <span>كارتة الحركة</span>
+            <button type="button" onClick={() => handleOpenStockCard(undefined, 'card')}
+              title="فتح بطاقة حركة المخزون"
+              className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 text-xs font-semibold text-white transition hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500">
+              <ClipboardList className="h-4 w-4 text-amber-300" /> بطاقة الحركة
             </button>
-
-            {/* Warehouse Operations Button */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('warehouses')}
-              className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-xs transition cursor-pointer shrink-0"
-              title="العمليات المخزنية"
-            >
-              <PackageCheck className="w-3.5 h-3.5 text-indigo-600" />
-              <span>العمليات</span>
+            <button type="button" onClick={() => setActiveTab('warehouses')}
+              title="فتح عمليات المستودعات"
+              className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400">
+              <PackageCheck className="h-4 w-4 text-indigo-600" /> العمليات
             </button>
           </div>
-
-          {/* Barcode & Scanner Tools Suite */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-1 rounded-lg border border-slate-200 shrink-0">
-            {/* Barcode & QR Bank Button */}
-            <button
-              type="button"
-              onClick={() => handleOpenBarcodeBank()}
-              className="flex items-center gap-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold px-2.5 py-1.5 rounded-md shadow-2xs transition cursor-pointer shrink-0"
-            >
-              <BarcodeIcon className="w-3 h-3 text-indigo-600" />
-              <span>بنك الباركود والـ QR</span>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <button type="button" onClick={() => handleOpenBarcodeBank()}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+              <BarcodeIcon className="h-4 w-4" /> بنك الباركود و QR
             </button>
-
-            {/* Camera Barcode Scanner */}
-            <button
-              type="button"
-              onClick={() => {
-                setScannerForSearch(true);
-                setShowBarcodeScanner(prev => !prev);
-              }}
-              className={`p-1.5 rounded-md border flex items-center justify-center cursor-pointer transition shrink-0 ${
-                showBarcodeScanner
-                  ? 'bg-blue-600 text-white border-blue-700 shadow-inner'
-                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-              }`}
-              title="تشغيل كاميرا الباركود"
-            >
-              <Camera className={`w-3.5 h-3.5 ${showBarcodeScanner ? 'text-emerald-300 animate-pulse' : 'text-blue-600'}`} />
+            <button type="button" onClick={() => { setScannerForSearch(true); setShowBarcodeScanner(prev => !prev); }}
+              aria-label={showBarcodeScanner ? 'إغلاق ماسح الكاميرا' : 'فتح ماسح الكاميرا'}
+              aria-pressed={showBarcodeScanner} title="مسح الباركود باستخدام الكاميرا"
+              className={'inline-flex h-9 w-9 items-center justify-center rounded-lg border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ' + (showBarcodeScanner ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-blue-700 hover:bg-blue-50')}>
+              <Camera className="h-4 w-4" />
             </button>
-
-            {/* Hardware Scanner Live Status Indicator */}
-            <div className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md text-[11px] font-bold shadow-2xs whitespace-nowrap">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <Zap className="w-3 h-3 text-emerald-600" />
-              <span>الماسح متصل ⚡</span>
+            <div className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-semibold text-emerald-800">
+              <Zap className="h-3.5 w-3.5 text-emerald-600" /> الماسح متصل
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
             </div>
           </div>
         </div>
 
-        {/* Row 2: Search Box, Category/Warehouse Filters, Quick Filters (المفضلة والنواقص) and View Switcher */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          {/* Search Box & Dropdown Filters */}
-          <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-[240px]">
-            {/* Search Box */}
-            <div className="relative min-w-[160px] flex-1 max-w-xs">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="ابحث..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pr-7.5 pl-10 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-500 font-medium transition"
-              />
-              <div className="absolute left-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition cursor-pointer font-bold text-xs"
-                  >
-                    ×
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setScannerForSearch(true);
-                    setShowBarcodeScanner(true);
-                  }}
-                  className="text-slate-400 hover:text-blue-600 p-0.5 rounded cursor-pointer"
-                  title="البحث بالكاميرا"
-                >
-                  <Camera className="w-3.5 h-3.5" />
+        <div className="border-t border-slate-100 bg-slate-50/40 px-4 py-3">
+          <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.55fr)_minmax(220px,1fr)_minmax(220px,1fr)]">
+            <div className="min-w-0">
+              <label htmlFor="inventory-list-search" className="mb-1.5 block text-[11px] font-semibold text-slate-600">البحث عن صنف</label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input id="inventory-list-search" type="search"
+                  placeholder="ابحث بالاسم أو الكود أو الباركود..."
+                  value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                  className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white pr-10 pl-10 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+                <button type="button" onClick={() => { setScannerForSearch(true); setShowBarcodeScanner(true); }}
+                  title="البحث عبر كاميرا الباركود" aria-label="البحث عبر كاميرا الباركود"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700">
+                  <Camera className="h-4 w-4" />
                 </button>
               </div>
             </div>
-
-            {/* Category Filter */}
-            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs shrink-0">
-              <Filter className="w-3 h-3 text-slate-500" />
-              <select
-                value={categoryFilter}
-                onChange={e => setCategoryFilter(e.target.value)}
-                aria-label="تصفية المجموعات"
-                className="bg-transparent border-0 text-xs text-slate-800 font-semibold focus:outline-none cursor-pointer p-0.5"
-              >
-                <option value="all">كافة التصنيفات ({inventory.length})</option>
-                {categoryFilterOptions.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name} ({cat.count})</option>
-                ))}
-              </select>
+            <div className="min-w-0">
+              <label htmlFor="inventory-list-category" className="mb-1.5 block text-[11px] font-semibold text-slate-600">المجموعة</label>
+              <div className="relative flex h-10 min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+                <Filter className="h-4 w-4 shrink-0 text-indigo-500" />
+                <select id="inventory-list-category" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
+                  aria-label="تصفية الأصناف حسب المجموعة"
+                  className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-sm font-semibold text-slate-700 outline-none">
+                  <option value="all">كل المجموعات ({inventory.length})</option>
+                  {categoryFilterOptions.map(cat => <option key={cat.id} value={cat.id}>{cat.name} ({cat.count})</option>)}
+                </select>
+                {categoryFilter !== 'all' && (
+                  <button type="button" onClick={() => setCategoryFilter('all')} title="إظهار كل المجموعات"
+                    aria-label="إظهار كل المجموعات"
+                    className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
-            {categoryFilter !== "all" && (
-              <button type="button" onClick={() => setCategoryFilter("all")}
-                className="inline-flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
-                title="إلغاء تصفية المجموعة وإظهار جميع الأصناف">
-                <X className="w-3.5 h-3.5" /> إظهار كل المجموعات
-              </button>
-            )}
-
-            {/* Warehouse Filter */}
-            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs shrink-0">
-              <Boxes className="w-3 h-3 text-indigo-600" />
-              <select
-                value={selectedWarehouseFilter}
-                onChange={e => setSelectedWarehouseFilter(e.target.value)}
-                className="bg-transparent border-0 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer p-0.5"
-              >
-                <option value="all">جميع المستودعات ({warehouses.length})</option>
-                {warehouses.map(w => (
-                  <option key={w.id} value={w.id}>
-                    {w.code} - {w.name}
-                  </option>
-                ))}
-              </select>
+            <div className="min-w-0 md:col-span-2 xl:col-span-1">
+              <label htmlFor="inventory-list-warehouse" className="mb-1.5 block text-[11px] font-semibold text-slate-600">المستودع</label>
+              <div className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+                <Boxes className="h-4 w-4 shrink-0 text-slate-500" />
+                <select id="inventory-list-warehouse" value={selectedWarehouseFilter}
+                  onChange={e => setSelectedWarehouseFilter(e.target.value)}
+                  aria-label="تصفية الأصناف حسب المستودع"
+                  className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-sm font-semibold text-slate-700 outline-none">
+                  <option value="all">جميع المستودعات ({warehouses.length})</option>
+                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.code} - {w.name}</option>)}
+                </select>
+              </div>
             </div>
           </div>
+        </div>
 
-          {/* Quick Filters Group */}
-          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-            {/* Quick Favorite Items Filter */}
-            <button
-              type="button"
-              onClick={() => setFilterOnlyFavorites(prev => !prev)}
-              className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition border cursor-pointer shrink-0 ${
-                filterOnlyFavorites
-                  ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <Star className={`w-3.5 h-3.5 ${filterOnlyFavorites || inventory.some(i => i.isFavorite) ? 'fill-amber-400 text-amber-500' : 'text-slate-400'}`} />
-              <span>المفضلة بالكاشير ({inventory.filter(i => i.isFavorite).length})</span>
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-2.5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="ml-1 text-[11px] font-semibold text-slate-500">تصفية سريعة</span>
+            <button type="button" onClick={() => setFilterOnlyFavorites(prev => !prev)}
+              aria-pressed={filterOnlyFavorites}
+              className={'inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ' + (filterOnlyFavorites ? 'border-amber-400 bg-amber-100 text-amber-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50')}>
+              <Star className={'h-4 w-4 ' + (filterOnlyFavorites ? 'fill-amber-500 text-amber-600' : 'text-amber-500')} />
+              المفضلة ({inventory.filter(i => i.isFavorite).length})
             </button>
-
-            {/* Quick Low-Stock Filter */}
-            <button
-              type="button"
-              onClick={() => setFilterOnlyLowStock(prev => !prev)}
-              className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition border cursor-pointer shrink-0 ${
-                filterOnlyLowStock
-                  ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
-                  : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-              <span>نواقص ({lowStockCount})</span>
+            <button type="button" onClick={() => setFilterOnlyLowStock(prev => !prev)}
+              aria-pressed={filterOnlyLowStock}
+              className={'inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ' + (filterOnlyLowStock ? 'border-rose-500 bg-rose-100 text-rose-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-rose-50')}>
+              <AlertTriangle className="h-4 w-4" /> النواقص ({lowStockCount})
             </button>
-
-            {/* Multi-Currency Filter */}
-            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs shrink-0">
-              <Coins className="w-3 h-3 text-emerald-600" />
-              <select
-                value={selectedCurrencyCode}
+            {(searchQuery || categoryFilter !== 'all' || selectedWarehouseFilter !== 'all' || filterOnlyFavorites || filterOnlyLowStock) && (
+              <button type="button"
+                onClick={() => {
+                  setSearchQuery(''); setCategoryFilter('all'); setSelectedWarehouseFilter('all');
+                  setFilterOnlyFavorites(false); setFilterOnlyLowStock(false);
+                }}
+                className="inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800">
+                <X className="h-3.5 w-3.5" /> مسح التصفية
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5">
+              <Coins className="h-4 w-4 shrink-0 text-emerald-600" />
+              <label htmlFor="inventory-list-currency" className="text-[11px] font-semibold text-slate-600">العملة</label>
+              <select id="inventory-list-currency" value={selectedCurrencyCode}
                 onChange={e => setSelectedCurrencyCode(e.target.value)}
-                className="bg-transparent border-0 text-xs font-bold text-slate-700 focus:outline-none cursor-pointer p-0.5"
-              >
-                {currencies.map(c => (
-                  <option key={c.code} value={c.code}>
-                    ({c.symbol}) {c.code}
-                  </option>
-                ))}
+                className="cursor-pointer border-0 bg-transparent text-xs font-bold text-slate-700 outline-none">
+                {currencies.map(c => <option key={c.code} value={c.code}>({c.symbol}) {c.code}</option>)}
               </select>
               {selectedCurrencyCode !== 'ILS' && (
-                <div className="flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 text-[10px]">
-                  <span className="text-amber-800 font-bold">الصرف:</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    value={dailyExchangeRate}
+                <label className="inline-flex items-center gap-1 border-r border-slate-200 pr-2 text-[11px] text-slate-600">
+                  السعر
+                  <input type="number" min="0.01" step="0.01" value={dailyExchangeRate}
                     onChange={e => setDailyExchangeRate(parseFloat(e.target.value) || 1.0)}
-                    className="w-12 bg-white border border-amber-300 rounded px-1 text-center font-mono font-bold text-xs"
-                  />
-                  <span className="text-slate-600 font-bold">₪</span>
-                </div>
+                    className="w-16 rounded border border-amber-200 bg-white px-1 py-0.5 text-center text-xs font-semibold tabular-nums text-slate-800" />
+                </label>
               )}
             </div>
-
-            {/* View Mode Toggle */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
-              <button
-                type="button"
-                onClick={() => setViewMode('table')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold transition cursor-pointer ${
-                  viewMode === 'table' ? 'bg-white text-indigo-700 shadow-2xs font-extrabold' : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <List className="w-3.5 h-3.5" />
-                <span>جدول</span>
+            <div className="inline-flex items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-100 p-1" aria-label="طريقة العرض">
+              <button type="button" onClick={() => setViewMode('table')} aria-pressed={viewMode === 'table'}
+                className={'inline-flex min-h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ' + (viewMode === 'table' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-500 hover:text-slate-800')}>
+                <List className="h-4 w-4" /> جدول
               </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('cards')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold transition cursor-pointer ${
-                  viewMode === 'cards' ? 'bg-white text-indigo-700 shadow-2xs font-extrabold' : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>بطاقات</span>
+              <button type="button" onClick={() => setViewMode('cards')} aria-pressed={viewMode === 'cards'}
+                className={'inline-flex min-h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ' + (viewMode === 'cards' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-500 hover:text-slate-800')}>
+                <LayoutGrid className="h-4 w-4" /> بطاقات
               </button>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Inventory Items Display: Cards Grid or Table View */}
       {viewMode === 'cards' ? (
