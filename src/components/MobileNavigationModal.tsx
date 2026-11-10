@@ -69,7 +69,6 @@ interface MobileNavigationModalProps {
   onOpenLocalDatabase?: () => void;
   onImportMasterSnapshot?: () => void;
   onOpenAbout?: () => void;
-  onOpenLegacyDiagnostic?: () => void;
 }
 
 export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
@@ -78,7 +77,6 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
   onOpenLocalDatabase,
   onImportMasterSnapshot,
   onOpenAbout,
-  onOpenLegacyDiagnostic,
 }) => {
   const {
     activeTab,
@@ -428,7 +426,6 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
         { id: 'action_local_database', label: 'القاعدة المحلية والاتصال', icon: Layers, perm: 'view_settings' },
         { id: 'action_import_master_snapshot', label: 'استيعاب النسخة الرئيسية (إجراء إداري)', icon: Download, perm: 'view_settings' },
         { id: 'audit_log', label: 'سجل العمليات والتدقيق', icon: History, perm: 'view_settings' },
-        { id: 'action_firebase_quota', label: 'تشخيص خدمة Firebase القديمة', icon: Coins, perm: 'view_settings' },
         { id: 'action_about', label: 'حول البرنامج', icon: Compass },
         {
           id: 'settings_backup',
@@ -498,7 +495,6 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
       action_local_database: onOpenLocalDatabase,
       action_import_master_snapshot: onImportMasterSnapshot,
       action_about: onOpenAbout,
-      action_firebase_quota: onOpenLegacyDiagnostic,
     };
     if (Object.prototype.hasOwnProperty.call(adminActions, tabId)) {
       onClose();
