@@ -46,7 +46,7 @@ export async function authenticateWithGoogleDrive():
 Promise<{ token: string; user: { email: string; displayName: string } }> {
   const clientId = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID;
   if (!clientId || typeof clientId !== 'string') {
-    throw new Error('Google Drive OAuth requires a configured VITE_GOOGLE_OAUTH_CLIENT_ID.');
+    throw new Error('أصبح ربط Google Drive مُدارًا من الكمبيوتر الرئيسي؛ يجب إتمام تفويض حساب Google للخادم، ولا يلزم ربط كل موظف بصورة منفصلة.');
   }
   if (typeof window === 'undefined') throw new Error('GOOGLE_OAUTH_REQUIRES_BROWSER');
   await loadIdentityService();
