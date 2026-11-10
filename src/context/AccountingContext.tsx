@@ -468,7 +468,6 @@ interface AccountingContextType {
   forceSyncNow: () => Promise<{ success: boolean; message: string }>;
   forcePushAndPullSync: () => Promise<{ success: boolean; message: string; invoicesCount: number }>;
   importMasterDatabaseSnapshot: () => Promise<{ success: boolean; message: string }>;
-  cleanAndSyncFirebaseWithScreen: () => Promise<{ success: boolean; message: string; purgedCount: number }>;
   unifiedRepository: UnifiedRepository | null;
   syncCoordinatorState: SyncState;
   openConflictModal: () => void;
@@ -10048,113 +10047,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   });
 
-  const cleanAndSyncFirebaseWithScreen = async (): Promise<{ success: boolean; message: string; purgedCount: number }> => {
-    try {
-      const fullSnapshot: Record<string, any[]> = {
-        invoices: invoices || [],
-        parties: parties || [],
-        inventory: inventory || [],
-        accounts: accounts || [],
-        treasuries: treasuries || [],
-        vouchers: vouchers || [],
-        purchases: purchases || [],
-        purchaseReturns: purchaseReturns || [],
-        salesReturns: salesReturns || [],
-        journalEntries: journalEntries || [],
-        stockMovements: stockMovements || [],
-        expenses: expenses || [],
-        employees: employees || [],
-        employeeAdvances: employeeAdvances || [],
-        employeeDeductions: employeeDeductions || [],
-        employeeIncentives: employeeIncentives || [],
-        payrollSheets: payrollSheets || [],
-        printOrders: printOrders || [],
-        debtClearings: debtClearings || [],
-        companies: companies || [],
-        branches: branches || [],
-        warehouses: warehouses || [],
-        warehouseOperations: warehouseOperations || [],
-        roles: roles || [],
-        users: users || []
-      };
-
-      // 1. Mark cutoff timestamp & clear stale deletion tombstones
-      const nowTs = Date.now();
-      localStorage.setItem('accounting_database_imported_at', String(nowTs));
-      localStorage.setItem('accounting_last_firestore_delta_time', String(nowTs));
-      localStorage.setItem('accounting_last_seen_seq', String(nowTs));
-      localStorage.removeItem('accounting_deleted_docs');
-
-      // 2. Synchronize all entities to localStorage immediately
-      try {
-        localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(fullSnapshot.invoices));
-        localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(fullSnapshot.parties));
-        localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(fullSnapshot.inventory));
-        localStorage.setItem(`${STORAGE_KEY}_accounts`, JSON.stringify(fullSnapshot.accounts));
-        localStorage.setItem(`${STORAGE_KEY}_treasuries`, JSON.stringify(fullSnapshot.treasuries));
-        localStorage.setItem(`${STORAGE_KEY}_vouchers`, JSON.stringify(fullSnapshot.vouchers));
-        localStorage.setItem(`${STORAGE_KEY}_purchases`, JSON.stringify(fullSnapshot.purchases));
-        localStorage.setItem(`${STORAGE_KEY}_purchaseReturns`, JSON.stringify(fullSnapshot.purchaseReturns));
-        localStorage.setItem(`${STORAGE_KEY}_salesReturns`, JSON.stringify(fullSnapshot.salesReturns));
-        localStorage.setItem(`${STORAGE_KEY}_journals`, JSON.stringify(fullSnapshot.journalEntries));
-        localStorage.setItem(`${STORAGE_KEY}_stockMovements`, JSON.stringify(fullSnapshot.stockMovements));
-        localStorage.setItem(`${STORAGE_KEY}_expenses`, JSON.stringify(fullSnapshot.expenses));
-        localStorage.setItem(`${STORAGE_KEY}_employees`, JSON.stringify(fullSnapshot.employees));
-        localStorage.setItem(`${STORAGE_KEY}_printOrders`, JSON.stringify(fullSnapshot.printOrders));
-        localStorage.setItem(`${STORAGE_KEY}_debt_clearings`, JSON.stringify(fullSnapshot.debtClearings));
-      } catch (e) {}
-
-      // 3. Overwrite backend Express server state synchronously at /api/sync/replace-database
-      try {
-        await fetch('/api/sync/replace-database', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: fullSnapshot })
-        });
-      } catch (err) {
-        console.warn('Replace server database during cleanAndSync notice:', err);
-      }
-
-      // 4. Direct push to Firestore cloud database with 5s safety timeout
-      await Promise.race([
-        Promise.resolve({ success: false, reason: 'Legacy full-database push disabled; reconcile sources instead.' }),
-        new Promise(resolve => setTimeout(resolve, 5000))
-      ]).catch(err => {
-        console.warn('Push full DB notice:', err);
-      });
-
-      // Do not write legacy shadow collections in the fresh Firebase workspace.
-      // Daily sheets remain in the local snapshot until unified-repository migration.
-      console.warn('Legacy dailyEntrySheets Firebase shadow write disabled.');
-
-      // 5. Broadcast to all open screens & tabs to reload state atomically
-      window.dispatchEvent(new CustomEvent('accounting_database_updated'));
-      if (syncChannelRef.current) {
-        try {
-          syncChannelRef.current.postMessage({
-            type: 'DATABASE_IMPORTED',
-            payload: { timestamp: nowTs }
-          });
-        } catch {}
-      }
-
-      // No remote collection purge; authoritative records and pending writes are preserved.
-      const purgedCount = 0;
-
-      return {
-        success: true,
-        message: `تم تحديث البيانات المحلية. لا تُعتمد مطابقة الأجهزة إلا بعد تأكيد خادم PostgreSQL والطابور`,
-        purgedCount
-      };
-    } catch (e: any) {
-      return {
-        success: false,
-        message: 'حدث خطأ أثناء مراجعة قاعدة البيانات: ' + (e?.message || 'غير معروف'),
-        purgedCount: 0
-      };
-    }
-  };
-
   const exportDataJSON = async (): Promise<{ success: boolean; filename: string; totalRecords: number; message: string; data?: any }> => {
     // 1. Authoritative Snapshot: Exactly 100% of what is currently on screen & active in the system
     const cleanInvoices = Array.isArray(invoices) ? invoices : [];
@@ -11528,7 +11420,6 @@ return (
         forceSyncNow,
         forcePushAndPullSync,
         importMasterDatabaseSnapshot,
-        cleanAndSyncFirebaseWithScreen,
         unifiedRepository,
         syncCoordinatorState,
         openConflictModal,
