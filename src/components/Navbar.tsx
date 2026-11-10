@@ -55,7 +55,6 @@ import {
 } from 'lucide-react';
 import { CalculatorModal } from './pos/CalculatorModal';
 import { AboutAppModal } from './AboutAppModal';
-import { FirebaseQuotaModal } from './FirebaseQuotaModal';
 import { LocalDatabaseModal } from './LocalDatabaseModal';
 import { ServerOff } from 'lucide-react';
 import {authHeaders,clearSession,getCurrentSessionToken,publicSyncApiUrl,secureLoginEnabled} from '../services/secureAuth';
@@ -117,13 +116,12 @@ export const Navbar: React.FC = () => {
 
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isLocalDbModalOpen, setIsLocalDbModalOpen] = useState(false);
-  const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; success: boolean } | null>(null);
 
   const isSessionAdmin = Boolean(
     localStorage.getItem('alnoor_press_accounting_v1_session_admin') === 'true' ||
     localStorage.getItem('alnoor_press_accounting_v1_logged_in_user_id') === 'usr-1' ||
-    localStorage.getItem('auth_type') === 'firebase'
+    false
   );
 
   const isAdmin = Boolean(
@@ -556,7 +554,6 @@ export const Navbar: React.FC = () => {
         { id: 'action_local_database', label: 'القاعدة المحلية والاتصال', icon: HardDrive },
         { id: 'action_import_master_snapshot', label: 'استيعاب النسخة الرئيسية (إجراء إداري)', icon: Database },
         { id: 'audit_log', label: 'سجل العمليات والتدقيق', icon: History },
-        { id: 'action_firebase_quota', label: 'تشخيص خدمة Firebase القديمة', icon: Database },
         { id: 'action_about', label: 'حول البرنامج', icon: Info },
         {
           id: 'settings_backup',
@@ -581,11 +578,6 @@ export const Navbar: React.FC = () => {
     }
     if (itemId === 'action_calculator') {
       setIsCalculatorOpen(true);
-      setOpenDropdownId(null);
-      return;
-    }
-    if (itemId === 'action_firebase_quota') {
-      setIsQuotaModalOpen(true);
       setOpenDropdownId(null);
       return;
     }
@@ -672,7 +664,6 @@ export const Navbar: React.FC = () => {
           case 'settings_backup':
           case 'action_local_database':
           case 'action_import_master_snapshot':
-          case 'action_firebase_quota':
           case 'audit_log':
           case 'users_permissions':
           case 'branches':
@@ -1218,12 +1209,6 @@ export const Navbar: React.FC = () => {
         onClose={() => setIsLocalDbModalOpen(false)}
       />
 
-      {/* Firebase Quota & Operations Monitor Modal */}
-      <FirebaseQuotaModal
-        isOpen={isQuotaModalOpen}
-        onClose={() => setIsQuotaModalOpen(false)}
-      />
-
       {/* Mobile Navigation Hub / Modal */}
       <MobileNavigationModal
         isOpen={isMobileNavOpen}
@@ -1231,7 +1216,7 @@ export const Navbar: React.FC = () => {
         onOpenLocalDatabase={() => setIsLocalDbModalOpen(true)}
         onImportMasterSnapshot={() => { void handleImportMasterSnapshot(); }}
         onOpenAbout={() => setIsAboutOpen(true)}
-        onOpenLegacyDiagnostic={() => setIsQuotaModalOpen(true)}
+        onOpenLegacyDiagnostic={() => setIsLocalDbModalOpen(true)}
       />
     </header>
   );
