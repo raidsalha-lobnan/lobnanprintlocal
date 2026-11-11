@@ -5887,7 +5887,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const addInventoryItem = (item: Omit<InventoryItem, 'id'>) => {
-    const id = 'inv-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+    const id = 'inv-' + crypto.randomUUID();
     const today = new Date().toISOString().split('T')[0];
     const time = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
 
@@ -5907,10 +5907,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
 
-    // Save directly to cloud
-    setDoc(doc(db, 'inventory', newItem.id), cleanDocForFirestore(newItem)).catch(err => {
-      console.warn('Direct cloud save inventory notice:', err);
-    });
+    // One durable queue write is already scheduled by pushToServerSync above.
+    // Do not enqueue the same new record a second time.
 
     // If opening stock > 0, record opening balance in stock movements ledger
     if (item.stockQuantity > 0) {
@@ -6074,7 +6072,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     }
 
-    const id = 'pt-' + Date.now();
+    const id = 'pt-' + crypto.randomUUID();
     // Enforce sequential code generated automatically by the program (cannot be duplicated or altered)
     const code = generateSequentialPartyCode(partyData.type, parties, Boolean(partyData.isSubCustomer));
 
@@ -6110,10 +6108,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setHasUnsyncedChanges(true);
     setPendingSyncCount(prev => prev + 1);
 
-    // Save directly to cloud
-    setDoc(doc(db, 'parties', newParty.id), cleanDocForFirestore(newParty)).catch(err => {
-      console.warn('Direct cloud save party notice:', err);
-    });
+    // One durable queue write is already scheduled by pushToServerSync above.
+    // Do not enqueue the same new record a second time.
 
     return newParty;
   };
