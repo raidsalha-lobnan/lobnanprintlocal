@@ -59,6 +59,17 @@ export async function createUnifiedDataLayer(workspaceId:string){
         console.warn('Authoritative startup refresh postponed; local offline work preserved',error);
       }
     }
+    // The old global migration gate must remain for an unbootstrapped device.
+    // Once a valid PostgreSQL cursor exists, it is safe to resume the durable
+    // outbox with its original command IDs (idempotent server receipts).
+    // Do not let a past local acknowledgement failure freeze every other item.
+    const confirmedCursor=await local.cursor();
+    if(confirmedCursor &&
+       Number.isSafeInteger(confirmedCursor.sequence) &&
+       confirmedCursor.sequence>=0 &&
+       localStorage.getItem('lobnan_postgres_reconciliation_required')==='true'){
+      localStorage.removeItem('lobnan_postgres_reconciliation_required');
+    }
     await coordinator.start();
   }catch(error){
     unregister();
