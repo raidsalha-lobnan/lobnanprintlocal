@@ -144,12 +144,34 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     plan.accountDeltas={'1201':plan.totalDeltaMinor,'4101':-plan.totalDeltaMinor};
     plan.paymentDeltas={};
    }catch(recoveryError){
+    const types=journalRows.reduce((counts,row)=>{
+     const type=String(row.value?.referenceType||'unknown');
+     counts[type]=(counts[type]||0)+1;
+     return counts;
+    },{});
+    const questionableMovements=movementRows.filter(row=>{
+     const m=row.value||{};
+     const owned=m.sourceInvoiceId||m.referenceId;
+     // Stock movements identified only by a display invoice number are not
+     // proof if the dates differ from the posted source invoice.
+     return (owned&&owned!==invoice.id)||
+       (!owned&&m.date&&invoice.date&&m.date!==invoice.date);
+    });
     throw new InputError('INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION',409,{
      invoiceId:invoice.id,invoiceNumber:invoice.invoiceNumber,
      reason:String(error.message),legacyReason:String(recoveryError.message),
      manualReviewRequired:true,
      linkedJournalIds:journalRows.map(r=>r.record_id).slice(0,50),
-     linkedStockMovementIds:movementRows.map(r=>r.record_id).slice(0,50)
+     linkedStockMovementIds:movementRows.map(r=>r.record_id).slice(0,50),
+     diagnosis:{
+      salesJournalCount:types.pos_invoice||0,
+      cogsJournalCount:types.cogs||0,
+      correctionJournalCount:types.invoice_correction||0,
+      stockMovementCandidateCount:movementRows.length,
+      stockMovementsWithUnverifiedDateOrOwner:questionableMovements.length,
+      invoiceDate:invoice.date,
+      baselineRequiresAccountantReview:true
+     }
     });
    }
   }
