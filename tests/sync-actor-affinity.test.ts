@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {mayProcessForCurrentActor} from '../src/sync-next/actorAffinity';
+import {explainSyncFailure} from '../src/sync-next/syncFailureGuide';
+import {classifyQueueSafety} from '../src/sync-next/queueSafety';
 import {getCurrentSessionActorId,clearSession} from '../src/services/secureAuth';
 import {fingerprint} from '../local-server/sync-domain.mjs';
 
@@ -30,4 +32,19 @@ test('outbox persists creator before sync, and coordinator filters both retry an
  assert.match(local,/actorId:getCurrentSessionActorId\(\)/);
  const appearances=(coord.match(/mayProcessForCurrentActor\(/g)||[]).length;
  assert.equal(appearances,2);
+});
+
+test('old cross-user rejection clearly identifies the owner rather than an accounting duplicate',()=>{
+ const guide=explainSyncFailure('PermanentSyncError: COMMAND_OWNER_MISMATCH','inventory');
+ assert.equal(guide.kind,'fix-permissions');
+ assert.match(guide.title,/مستخدم/);
+ assert.equal(guide.safeToRetry,false);
+ const sample={id:'command-one',workspaceId:'lobnan_main',status:'rejected' as const,
+  createdAt:1,attempts:1,retryAt:0,error:'COMMAND_OWNER_MISMATCH',
+  changes:[{entity:'inventory' as const,id:'inv-one',expectedVersion:0,
+   value:{id:'inv-one',code:'PRI-00045'}}]};
+ const safety=classifyQueueSafety(sample);
+ assert.equal(safety.code,'owner');
+ assert.equal(safety.allowDiscard,false);
+ assert.equal(safety.allowRetry,false);
 });
