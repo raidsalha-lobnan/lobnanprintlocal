@@ -40,3 +40,43 @@ export async function assertStableEntitySerial(client,workspace,entity,recordId,
   }
  }
 }
+
+/**
+ * Assign a fresh sequential code only for NEW customer or inventory records
+ * that explicitly opted into automatic coding. This executes under the
+ * workspace's PostgreSQL FOR UPDATE lock, so concurrent devices cannot claim
+ * the same visible code. Stable internal IDs never change.
+ *
+ * Manually entered codes are NEVER silently renamed.
+ */
+export async function allocateAutomaticEntityCode(client,workspace,entity,recordId,oldValue,newValue){
+ if(oldValue||!newValue||newValue._serverAutoCode!==true||
+    !['parties','inventory'].includes(entity))return newValue;
+ const requested=String(newValue.code||'').trim().toUpperCase();
+ const parsed=requested.match(/^([A-Z]{2,12})[-_](\d{1,8})$/);
+ if(!parsed)throw new InputError('AUTO_SERIAL_FORMAT_INVALID',422,{entity,id:recordId});
+ const prefix=parsed[1];
+ const width=Math.max(parsed[2].length,['PRI','BOK','ACC'].includes(prefix)?5:4);
+ const result=await client.query(
+   "SELECT value->>'code' AS code FROM sync_records WHERE workspace=$1 AND entity=$2 AND value IS NOT NULL",
+   [workspace,entity]
+ );
+ const existingCodes=result.rows.map(row=>String(row.code||'').trim());
+ const used=new Set(existingCodes.map(x=>normalized(x)));
+ let code=requested;
+ if(used.has(normalized(code))){
+   const pattern=new RegExp('^'+prefix+'[-_]?(\\d+)$','i');
+   const highest=existingCodes.reduce((max,c)=>{
+     const match=c.match(pattern);
+     return match?Math.max(max,Number(match[1])):max;
+   },0);
+   let next=highest+1;
+   code=prefix+'-'+String(next).padStart(width,'0');
+   while(used.has(normalized(code))){
+     next++;
+     code=prefix+'-'+String(next).padStart(width,'0');
+   }
+ }
+ const {_serverAutoCode:marker,...clean}=newValue;
+ return {...clean,code};
+}
