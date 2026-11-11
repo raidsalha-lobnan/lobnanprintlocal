@@ -30,7 +30,15 @@ class PgFake{
    }
   }
   else if(sql.startsWith('SELECT version,value FROM sync_records')){const v=s.records.get(key(p[0],p[1],p[2]));if(v)rows.push(v);}
-  else if(sql.startsWith('SELECT record_id FROM sync_records')){const found=Array.from(s.records.values()).find(v=>v.workspace===p[0]&&v.entity==='journalEntries'&&v.value?.referenceId===p[1]&&v.value?.referenceType===p[2]);if(found)rows.push({record_id:found.record_id});}
+  else if(sql.startsWith('SELECT record_id FROM sync_records')){
+   const values=Array.from(s.records.values());
+   const found=sql.includes('lower(btrim')
+     ?values.find(v=>v.workspace===p[0]&&v.entity===p[1]&&v.record_id!==p[2]&&
+         String(v.value?.[p[3]]||'').trim().toLowerCase()===String(p[4]||'').trim().toLowerCase())
+     :values.find(v=>v.workspace===p[0]&&v.entity==='journalEntries'&&
+         v.value?.referenceId===p[1]&&v.value?.referenceType===p[2]);
+   if(found)rows.push({record_id:found.record_id});
+  }
   else if(sql.startsWith('INSERT INTO sync_records')){s.records.set(key(p[0],p[1],p[2]),{workspace:p[0],entity:p[1],record_id:p[2],version:p[3],value:p[4]});}
   else if(sql.startsWith('UPDATE sync_records SET')){const v=s.records.get(key(p[0],p[1],p[2]));v.version=p[3];v.value=p[4];}
   else if(sql.startsWith('INSERT INTO invoice_claims')){s.claims.set(key(p[0],p[1]),p[2]);}
@@ -84,4 +92,29 @@ test('version conflict rolls back invoice and all linked financial effects',asyn
  assert.equal(snapshot.find(x=>x.entity==='parties').value.balance,0);
  assert.equal(snapshot.find(x=>x.entity==='inventory').value.stockQuantity,10);
  assert.equal(await svc.head('lobnan_main'),1);
+});
+
+test('two new customers with identical automatically generated codes get distinct official codes',async()=>{
+ const db=new PgFake(),svc=new SyncService(db);
+ const one=await svc.push('lobnan_main',{
+  id:'create-first-party',workspaceId:'lobnan_main',changes:[
+   r('parties','party-one',{id:'party-one',type:'customer',code:'CUST-0002',_serverAutoCode:true,name:'One'})
+  ]
+ });
+ const two=await svc.push('lobnan_main',{
+  id:'create-second-party',workspaceId:'lobnan_main',changes:[
+   r('parties','party-two',{id:'party-two',type:'customer',code:'CUST-0002',_serverAutoCode:true,name:'Two'})
+  ]
+ });
+ assert.equal(one.changes[0].value.code,'CUST-0002');
+ assert.equal(two.changes[0].value.code,'CUST-0003');
+ assert.equal(two.changes[0].value._serverAutoCode,undefined);
+ assert.equal(two.changes[0].id,'party-two');
+ const retry=await svc.push('lobnan_main',{
+  id:'create-second-party',workspaceId:'lobnan_main',changes:[
+   r('parties','party-two',{id:'party-two',type:'customer',code:'CUST-0002',_serverAutoCode:true,name:'Two'})
+  ]
+ });
+ assert.deepEqual(retry,two);
+ assert.equal((await svc.bootstrap('lobnan_main')).records.filter(x=>x.entity==='parties').length,2);
 });
