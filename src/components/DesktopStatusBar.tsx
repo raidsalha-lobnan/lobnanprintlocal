@@ -87,7 +87,7 @@ export const DesktopStatusBar: React.FC = () => {
           className="flex items-center gap-1.5 px-2 py-0.5 bg-white border border-slate-300 rounded-xs shadow-inner shrink-0"
           title="حالة النظام: جاهز للعمل واستقبال الأوامر"
         >
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
           <span className="font-bold text-slate-800 text-[11px]">جاهز</span>
         </div>
 
