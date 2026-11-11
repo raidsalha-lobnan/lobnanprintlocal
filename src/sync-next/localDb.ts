@@ -35,7 +35,7 @@ export class LocalSyncDb {
   private dbPromise: Promise<IDBDatabase>;
   private disposed = false;
   private readonly databaseName: string;
-  private listeners = new Set<() => void>();
+  private listeners = new Set<(recordsChanged: boolean) => void>();
   private channel: BroadcastChannel | null = null;
 
   constructor(private workspaceId: string, namespace = 'lobnan-offline-v1') {
@@ -48,8 +48,10 @@ export class LocalSyncDb {
 
     if (typeof BroadcastChannel !== 'undefined') {
       this.channel = new BroadcastChannel(`lobnan-sync-${workspaceId}`);
-      this.channel.onmessage = () => {
-        for (const fn of this.listeners) fn();
+      this.channel.onmessage = event => {
+        // Outbox retry metadata is not a change to any accounting record.
+        const recordsChanged = event.data?.recordsChanged !== false;
+        for (const fn of this.listeners) fn(recordsChanged);
       };
     }
   }
@@ -127,12 +129,12 @@ export class LocalSyncDb {
     }
   }
 
-  private changed() {
-    for (const fn of this.listeners) fn();
-    this.channel?.postMessage('changed');
+  private changed(recordsChanged = true) {
+    for (const fn of this.listeners) fn(recordsChanged);
+    this.channel?.postMessage({ recordsChanged });
   }
 
-  subscribe(fn: () => void): () => void {
+  subscribe(fn: (recordsChanged: boolean) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
@@ -593,6 +595,7 @@ export class LocalSyncDb {
       store.get(commandId)
     ) as SyncCommand | undefined;
 
+    const previousStatus = cmd?.status;
     if (cmd) {
       store.put({
         ...cmd,
@@ -604,7 +607,10 @@ export class LocalSyncDb {
     }
 
     await done;
-    this.changed();
+    // Repeated retry attempts must not re-render every invoice and button.
+    // A status transition (pending -> conflict/rejected) still refreshes
+    // the visible records and the conflict review UI.
+    if (cmd) this.changed(status !== previousStatus);
   }
 
   async listVisible(
