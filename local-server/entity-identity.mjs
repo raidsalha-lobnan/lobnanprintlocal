@@ -19,6 +19,12 @@ export async function assertStableEntitySerial(client,workspace,entity,recordId,
  const required=requiredSerial[entity];
  if(!oldValue&&required&&!normalized(newValue[required]))
   throw new InputError('ENTITY_SERIAL_REQUIRED',422,{entity,id:recordId,field:required});
+ // CUST-0001 is the unique cash-customer identity, not an available number
+ // for an ordinary customer when a device has not yet loaded that record.
+ if(entity==='parties'&&!oldValue&&normalized(newValue.code)==='cust-0001' &&
+    !['pt-cust-1','cust-0001','c-0001','1'].includes(String(recordId).toLowerCase())){
+  throw new InputError('CASH_CUSTOMER_CODE_RESERVED',409,{entity,id:recordId,field:'code'});
+ }
  const fields=uniqueSerials[entity]||[];
  for(const field of immutableOnly[entity]||[]){
   if(oldValue && String(oldValue[field]??'')!==String(newValue[field]??''))
@@ -62,6 +68,10 @@ export async function allocateAutomaticEntityCode(client,workspace,entity,record
    [workspace,entity]
  );
  const existingCodes=result.rows.map(row=>String(row.code||'').trim());
+ if(entity==='parties'&&prefix==='CUST'){
+  // The cash-customer permanent display number is never auto-allocated.
+  existingCodes.push('CUST-0001');
+ }
  const used=new Set(existingCodes.map(x=>normalized(x)));
  let code=requested;
  if(used.has(normalized(code))){
