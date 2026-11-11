@@ -164,7 +164,7 @@ export class LocalHttpSyncTransport implements SyncTransport {
       catch(err){onError(err);}
       finally{busy=false;}
     };
-    const interval=setInterval(()=>{void probe();},15000);
+    const interval=setInterval(()=>{void probe();},4000);
     void probe();
     return ()=>{this.stopped=true;clearInterval(interval);};
   }
