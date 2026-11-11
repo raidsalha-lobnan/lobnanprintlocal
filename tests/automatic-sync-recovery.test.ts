@@ -67,3 +67,16 @@ test('unknown financial rejections never silently retry or disappear',()=>{
  assert.equal(unknown.kind,'review-ledger');
  assert.equal(unknown.safeToRetry,false);
 });
+
+test('new stock item with opening quantity is queued atomically and auto-generated prefills are marked',()=>{
+ const section=context.slice(context.indexOf('  const addInventoryItem = '),
+   context.indexOf('  const updateInventoryItem = '));
+ assert.match(section,/automaticallySuggested/);
+ assert.match(section,/proposedAutoCode/);
+ assert.match(section,/_serverAutoCode = true/);
+ assert.match(section,/repo\.commit\(\[/);
+ assert.match(section,/entity: 'inventory', id, value: newItem/);
+ assert.match(section,/entity: 'stockMovements', id: openingMovement.id/);
+ assert.doesNotMatch(section,/addStockMovement\(/);
+ assert.match(section,/pushToServerSync\('inventory', newItem\)/);
+});
