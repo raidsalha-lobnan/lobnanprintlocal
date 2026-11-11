@@ -7656,11 +7656,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         const repo=unifiedRepoRef.current;
         if(!repo)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
-        const visible=(await repo.all('invoices')).find(row=>row.id===extraOptions.editingInvoiceId);
-        if(!visible||!visible.value||visible.version<1)
-          throw new Error('INVOICE_AUTHORITATIVE_BASELINE_NOT_FOUND');
-        if(visible.pending)
-          throw new Error('INVOICE_HAS_PENDING_LOCAL_CHANGES_REVIEW_FIRST');
+        // Financial revisions must start from the authoritative PostgreSQL
+        // version, not from an IndexedDB cache that might be empty or stale.
+        const visible=await repo.getAuthoritativeInvoiceBaseline(
+          extraOptions.editingInvoiceId
+        );
         const original=visible.value as unknown as Invoice;
         // The record may have refreshed from PostgreSQL since this invoice was
         // opened in another tab or device. The editor must not overwrite those
@@ -7752,10 +7752,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return {success:true,invoice:authoritative,...(localReceiptWarning?{warning:localReceiptWarning}: {})};
       }catch(error){
         const raw=String(error);
+        const missingServerBaseline=/INVOICE_NOT_VISIBLE_IN_POSTGRES_SNAPSHOT/.test(raw);
         const conflict=/INVOICE_CONCURRENT_MODIFICATION_REOPEN|VERSION_CONFLICT/.test(raw);
         const localConnectionFailure=/InvalidStateError|database connection is closing|LOCAL_STORAGE_SESSION_CLOSED|IDBDatabase/i.test(raw);
         return {success:false,
-          error:conflict
+          error:missingServerBaseline
+            ?'تعذر العثور على الفاتورة المطلوبة ضمن السجلات التي يحق لهذا المستخدم قراءتها من PostgreSQL. لم نُرسل تعديلًا محاسبيًا. تأكد من اختيار الفاتورة الصحيحة وصلاحية الوصول، ثم افتح سجل الفواتير وحدّث البيانات.'
+            :conflict
             ?'تغيرت الفاتورة المعتمدة في PostgreSQL بعد فتحها على هذا الجهاز. منعنا الكتابة فوق تعديل الجهاز الآخر. مدخلاتك الحالية لم تُحذف؛ أعد فتح أحدث نسخة من الفاتورة ثم طبّق تعديلاتك عليها.'
             :localConnectionFailure
               ?'تعذر قراءة بيانات الفاتورة من مخزن المتصفح المحلي (IndexedDB): الاتصال بقاعدة التخزين مغلق أو قيد الإغلاق، وقد يحدث ذلك بعد تحديث البرنامج أو تبويب آخر. لم يُرسل طلب التعديل إلى PostgreSQL من هذا المسار. احتفظ بمدخلاتك، ولا تمسح بيانات الموقع، ثم أعد فتح البرنامج بعد التأكد من عدم وجود تبويبات قديمة.'
