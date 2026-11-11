@@ -193,7 +193,7 @@ export class SyncService {
             if(authorizedRevisionInvoiceId===change.id && old?.value?.id===change.id &&
               val?.invoiceNumber===old.value.invoiceNumber) {
               val={...val,id:old.value.id,invoiceNumber:old.value.invoiceNumber,
-                isOfficial:true,postedAt:old.value.postedAt};
+                isOfficial:old.value.isOfficial===true,postedAt:old.value.postedAt};
             } else val=preserveOfficialInvoiceFields(old?.value,val);
           }
         }
