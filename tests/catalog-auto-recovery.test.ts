@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {isSafeAutoCodeRetryCandidate} from '../src/sync-next/catalogAutoRecovery';
@@ -37,4 +38,19 @@ test('never retry financial entities, existing records, dependent operations or 
   {...baseline.changes[0],expectedVersion:2}]}),false,false),false);
  assert.equal(isSafeAutoCodeRetryCandidate(catalogCommand({changes:[
   baseline.changes[0],{...baseline.changes[0],id:'inv-two'}]}),false,false),false);
+});
+
+test('both read-only item entry screens explicitly mark generated SKUs as automatic',()=>{
+ const inventory=readFileSync(new URL('../src/components/InventoryView.tsx',import.meta.url),'utf8');
+ const quick=readFileSync(new URL('../src/components/pos/QuickAddItemModal.tsx',import.meta.url),'utf8');
+ assert.match(inventory,/readOnly\s*\n\s*title="كود الصنف/);
+ assert.match(inventory,/_serverAutoCode:\s*true/);
+ assert.match(quick,/readOnly\s*\n\s*title="الكود التسلسلي/);
+ assert.match(quick,/\(newItem as any\)\._serverAutoCode = true/);
+});
+test('quick POS item creation never fabricates ten units of opening stock',()=>{
+ const quick=readFileSync(new URL('../src/components/pos/QuickAddItemModal.tsx',import.meta.url),'utf8');
+ assert.match(quick,/stockQuantity, setStockQuantity\] = useState<number>\(0\)/);
+ assert.match(quick,/setStockQuantity\(0\)/);
+ assert.doesNotMatch(quick,/setStockQuantity\(10\)/);
 });
