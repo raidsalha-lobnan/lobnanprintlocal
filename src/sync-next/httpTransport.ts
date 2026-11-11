@@ -40,6 +40,26 @@ export class LocalHttpSyncTransport implements SyncTransport {
         // Token expiry requires re-login, NOT permanent rejection of offline work.
         throw new Error('SESSION_LOGIN_REQUIRED');
       }
+      if(response.status===409&&data.code==='INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION'){
+        const audit=data.detail?.diagnosis||{};
+        const number=String(data.detail?.invoiceNumber||'الفاتورة المحددة');
+        const sales=Number(audit.salesJournalCount??0);
+        const costs=Number(audit.cogsJournalCount??0);
+        const suspicious=Number(audit.stockMovementsWithUnverifiedDateOrOwner??0);
+        const reason=sales===0
+          ?'لا يوجد قيد مبيعات مربوط بالمعرّف الداخلي لهذه الفاتورة'
+          :'السجل المحاسبي التاريخي غير متطابق مع الفاتورة المعتمدة';
+        const stock=suspicious>0
+          ?' وتوجد '+suspicious+' حركة مخزون لا يمكن إثبات تبعيتها للفاتورة بسبب تاريخها أو معرّفها.'
+          :'';
+        throw new PermanentSyncError(
+          'هذه الفاتورة ('+number+') تحتاج مطابقة محاسبية قبل السماح بتعديل مالي. '+
+          reason+' (قيود المبيعات: '+sales+'، قيود التكلفة: '+costs+').'+stock+
+          ' لم يعتمد الخادم هذا التعديل ولم ينشئ قيدًا جديدًا. '+
+          'الرجاء مراجعة القيود وحركات المخزون المرتبطة بمعرّف الفاتورة واعتماد تسوية موثّقة. '+
+          'لا تكرر الحفظ ولا تعِد إنشاء الفاتورة.'
+        );
+      }
       if(response.status===403||response.status===422||response.status===409){
         const reviewDetail=data.detail?.manualReviewRequired
           ?'مراجعة مطلوبة للفاتورة '+String(data.detail?.invoiceNumber||'')+
