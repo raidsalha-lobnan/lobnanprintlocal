@@ -4,11 +4,14 @@ import {InputError} from './sync-domain.mjs';
  * Internal record_id is the primary reference used by all linked documents.
  * Names and descriptions are never identity keys.
  */
-const serials={
+const uniqueSerials={
   parties:['code'],
-  inventory:['code','category'],
+  inventory:['code'],
   treasuries:['code','accountCode']
 };
+// Category is immutable on an existing item but deliberately NOT unique:
+// every warehouse category can contain any number of different products.
+const immutableOnly={inventory:['category']};
 const normalized=v=>String(v??'').trim().toLocaleLowerCase('en-US');
 const requiredSerial={parties:'code',inventory:'code',treasuries:'accountCode'};
 export async function assertStableEntitySerial(client,workspace,entity,recordId,oldValue,newValue){
@@ -16,7 +19,11 @@ export async function assertStableEntitySerial(client,workspace,entity,recordId,
  const required=requiredSerial[entity];
  if(!oldValue&&required&&!normalized(newValue[required]))
   throw new InputError('ENTITY_SERIAL_REQUIRED',422,{entity,id:recordId,field:required});
- const fields=serials[entity]||[];
+ const fields=uniqueSerials[entity]||[];
+ for(const field of immutableOnly[entity]||[]){
+  if(oldValue && String(oldValue[field]??'')!==String(newValue[field]??''))
+   throw new InputError('ENTITY_SERIAL_IMMUTABLE',409,{entity,id:recordId,field});
+ }
  for(const field of fields){
   const oldCode=oldValue?.[field],newCode=newValue[field];
   if(oldValue && String(oldCode??'')!==String(newCode??'')){
