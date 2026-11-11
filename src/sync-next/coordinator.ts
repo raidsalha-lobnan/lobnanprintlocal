@@ -393,6 +393,23 @@ export class SyncCoordinator {
       const change=cmd.changes[0];
       if(!change)continue;
       const key=recordKey(change.entity,change.id);
+      // A *new, explicitly auto-coded* catalog record may have been refused
+      // because an older running backend did not allocate a concurrent serial.
+      // Once authenticated PostgreSQL proves that this exact record ID does
+      // not exist, retry the ORIGINAL immutable command ID and payload once.
+      // Only the server can choose the approved free code; no local renumber,
+      // command duplication, deletion, journal changes, or owner bypass.
+      const autoCodeRejected=cmd.status==='rejected'&&
+        ['inventory','parties'].includes(change.entity)&&
+        change.expectedVersion===0 &&
+        change.value?._serverAutoCode===true&&
+        /ENTITY_SERIAL_ALREADY_USED|CASH_CUSTOMER_CODE_RESERVED/.test(cmd.error||'')&&
+        cmd.attempts<=2 && !hasDependents && !index.has(key);
+      if(autoCodeRejected){
+        await this.local.markError(cmd.id,'pending','',0);
+        this.requested=true;
+        continue;
+      }
       const record=index.get(key);
       const related=hasDependents;
       const plan=planConflictResolution(cmd,record||null,related);
