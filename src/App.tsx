@@ -6,6 +6,7 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { TelegramBotIntegration } from './components/TelegramBotIntegration';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Navbar } from './components/Navbar';
+import {explainSyncFailure} from './sync-next/syncFailureGuide';
 import { DesktopStatusBar } from './components/DesktopStatusBar';
 import { HomeScreenView } from './components/HomeScreenView';
 import { DashboardView } from './components/DashboardView';
@@ -62,6 +63,22 @@ const MainLayout: React.FC = () => {
     selectedReturnForPrint,
     selectedSalesReturnForPrint,
   } = useAccounting();
+
+  const [localSaveFailure,setLocalSaveFailure]=React.useState<{
+    entity:string;raw:string;title:string;explanation:string;nextStep:string
+  }|null>(null);
+  React.useEffect(()=>{
+    const onFailure=(event:Event)=>{
+      const detail=(event as CustomEvent<{entity?:string;error?:string}>).detail;
+      const raw=String(detail?.error||'UNKNOWN_LOCAL_WRITE_FAILURE');
+      const entity=String(detail?.entity||'');
+      const guide=explainSyncFailure(raw,entity);
+      setLocalSaveFailure({entity,raw,title:guide.title,
+        explanation:guide.explanation,nextStep:guide.nextStep});
+    };
+    window.addEventListener('accounting_save_error',onFailure);
+    return()=>window.removeEventListener('accounting_save_error',onFailure);
+  },[]);
 
   const isPrintModalActive = Boolean(
     selectedInvoiceForPrint ||
@@ -482,6 +499,23 @@ const MainLayout: React.FC = () => {
         <Navbar />
       </div>
 
+      {localSaveFailure && !isPrintModalActive && (
+        <div role="alert" className="shrink-0 print:hidden z-40 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-slate-900">
+          <div className="flex gap-3 items-start justify-between">
+            <div>
+              <div className="font-bold">تعذر حفظ تغيير محليًا — {localSaveFailure.title}</div>
+              <div className="mt-1">{localSaveFailure.explanation}</div>
+              <div className="mt-1 font-semibold">{localSaveFailure.nextStep}</div>
+              <details className="mt-1 text-slate-600">
+                <summary className="cursor-pointer">تفاصيل تقنية للتشخيص</summary>
+                <code className="break-all">{localSaveFailure.entity}: {localSaveFailure.raw}</code>
+              </details>
+            </div>
+            <button type="button" className="rounded bg-slate-200 px-2 py-1 font-bold"
+              onClick={()=>setLocalSaveFailure(null)} aria-label="إغلاق التنبيه">إغلاق</button>
+          </div>
+        </div>
+      )}
       {/* Main Content Area - Only this container scrolls internally when content is long */}
       <main className={`flex-1 min-h-0 w-full flex flex-col ${(activeTab === 'pos' || activeTab === 'new_print_order' || activeTab === 'manual_invoices' || activeTab === 'special_invoice' || activeTab === 'daily_entry' || activeTab === 'parties' || activeTab === 'purchases_suppliers' || activeTab === 'employees') ? "p-1 sm:p-2 overflow-hidden" : "p-2.5 sm:p-3.5 overflow-y-auto"} ${isPrintModalActive ? "print:hidden" : "print:p-0 print:m-0 print:overflow-visible print:h-auto print:max-h-none"}`}>
         <ErrorBoundary fallbackTitle="حدث تنبيه في عرض هذه الشاشة">
