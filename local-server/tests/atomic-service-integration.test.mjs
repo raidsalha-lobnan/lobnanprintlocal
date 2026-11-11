@@ -53,13 +53,13 @@ const make=(id='atomic-1')=>({id:'cmd-'+id,workspaceId:'lobnan_main',atomicInvoi
   lines:[{accountCode:'5101',debit:4,credit:0},{accountCode:'1301',debit:0,credit:4}]}),
  r('stockMovements','movement-'+id,{id:'movement-'+id,referenceType:'pos_invoice',
   referenceNumber:'TEMP-'+id,itemId:'sku',quantity:2,totalValue:4,type:'out_sale'}),
- r('parties','customer',{id:'customer',code:'CUST-0001',type:'customer',balance:8},1),
+ r('parties','customer',{id:'customer',code:'CUST-0002',type:'customer',balance:8},1),
  r('inventory','sku',{id:'sku',code:'PRI-0001',stockQuantity:8},1)
 ]});
 test('commit and retry of full atomic sale never doubles invoice or entries',async()=>{
  const db=new PgFake(),svc=new SyncService(db);
  await svc.push('lobnan_main',{id:'seed',workspaceId:'lobnan_main',changes:[
-  r('parties','customer',{id:'customer',code:'CUST-0001',type:'customer',balance:0}),
+  r('parties','customer',{id:'customer',code:'CUST-0002',type:'customer',balance:0}),
   r('inventory','sku',{id:'sku',code:'PRI-0001',stockQuantity:10})]});
  const cmd=make();const a=await svc.push('lobnan_main',cmd);
  const b=await svc.push('lobnan_main',cmd);
@@ -74,7 +74,7 @@ test('commit and retry of full atomic sale never doubles invoice or entries',asy
 test('version conflict rolls back invoice and all linked financial effects',async()=>{
  const db=new PgFake(),svc=new SyncService(db);
  await svc.push('lobnan_main',{id:'seed',workspaceId:'lobnan_main',changes:[
-  r('parties','customer',{id:'customer',code:'CUST-0001',type:'customer',balance:0}),
+  r('parties','customer',{id:'customer',code:'CUST-0002',type:'customer',balance:0}),
   r('inventory','sku',{id:'sku',code:'PRI-0001',stockQuantity:10})]});
  const cmd=make('rollback-invoice');
  cmd.changes.find(c=>c.entity==='inventory').expectedVersion=0;
