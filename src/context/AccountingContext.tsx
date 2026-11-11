@@ -5883,7 +5883,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       pushToServerSync('stockMovements', newMovement);
       return next;
     });
-    setDoc(doc(db, 'stockMovements', newMovement.id), cleanDocForFirestore(newMovement)).catch(() => {});
+    // Stock movement is queued once by pushToServerSync inside setStockMovements.
   };
 
   const addInventoryItem = (item: Omit<InventoryItem, 'id'>) => {
@@ -5956,7 +5956,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } catch {}
       return next;
     });
-    setDoc(doc(db, 'inventory', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
+    // Updated item is already queued once by pushToServerSync inside setInventory.
 
     // Bidirectional sync: sync item special prices to customer profiles
     if (updated.customerSpecialPrices !== undefined) {
@@ -6172,9 +6172,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } catch (e) {}
 
       // 3. Direct cloud update and multi-device hub push
-      setDoc(doc(db, 'parties', targetId), cleanDocForFirestore(merged), { merge: true }).catch(err => {
-        console.warn('Direct cloud update party notice:', err);
-      });
+      // Updated party is queued once by pushToServerSync below.
       broadcastEntityChange('parties', nextParties);
       pushToServerSync('parties', merged);
 
