@@ -1009,7 +1009,7 @@ export const Navbar: React.FC = () => {
             <button
               type="button"
               onClick={openConflictModal}
-              className="px-2 py-0.5 flex items-center gap-1 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-xs shadow-xs active:translate-y-px transition cursor-pointer border border-rose-800 animate-pulse"
+              className="px-2 py-0.5 flex items-center gap-1 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-xs shadow-xs active:translate-y-px transition cursor-pointer border border-rose-800"
               title="يوجد تعارض في التزامن يتطلب المراجعة اليدوية"
             >
               <ShieldAlert className="w-3 h-3 text-white" />
@@ -1129,7 +1129,7 @@ export const Navbar: React.FC = () => {
               className="flex items-center gap-1 px-1.5 py-0.5 rounded-xs bg-amber-100 border border-amber-400 text-amber-900 font-bold text-[10.5px] hover:bg-amber-200 transition cursor-pointer"
               title="أوامر تشغيل معلقة بالورشة"
             >
-              <Clock className="w-3 h-3 text-amber-700 animate-pulse" />
+              <Clock className="w-3 h-3 text-amber-700" />
               <span>ورشة: {stats.pendingPrintJobs}</span>
             </button>
           )}
@@ -1154,7 +1154,7 @@ export const Navbar: React.FC = () => {
       {!isOnline && (
         <div className="bg-amber-100 text-amber-950 border-t border-amber-300 px-3 py-1 text-xs flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
-            <WifiOff className="w-3.5 h-3.5 text-amber-700 animate-pulse shrink-0" />
+            <WifiOff className="w-3.5 h-3.5 text-amber-700 shrink-0" />
             <span className="leading-tight text-[11px]">
               <strong>وضع عدم الاتصال بالإنترنت (Offline):</strong> قد تبقى عمليات محلية بانتظار المزامنة. راجع الحالة قبل العمل من جهاز آخر.
             </span>
