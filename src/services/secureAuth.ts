@@ -3,6 +3,7 @@ import type {SystemUser} from '../types';
 const STORED_LOGIN_KEY='lobnan_offline_encrypted_login_v1';
 export const AUTH_TOKEN_KEY='lobnan_postgres_user_session';
 const TOKEN_EXPIRY_KEY='lobnan_postgres_user_session_expires';
+const SESSION_ACTOR_KEY='lobnan_postgres_session_actor_id';
 const FALLBACK_API='https://lobnan-api.shares.zrok.io';
 const LOCAL_CREDENTIAL_MAX_AGE=7*24*60*60*1000;
 const encode=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes)));
@@ -16,6 +17,10 @@ export function publicSyncApiUrl():string {
   const url=(configured||FALLBACK_API).replace(/\/+$/,'');
   if(!/^https:\/\//.test(url))throw new Error('SECURE_SYNC_API_MUST_USE_HTTPS');
   return url;
+}
+/** An advisory local outbox owner. PostgreSQL authenticates every request independently. */
+export function getCurrentSessionActorId(): string {
+  try{return sessionStorage.getItem(SESSION_ACTOR_KEY)||'';}catch{return '';}
 }
 export function getCurrentSessionToken():string {
   try {
@@ -75,6 +80,7 @@ export async function loginOnline(identifier:string,password:string):Promise<Sys
   const user=payload.user as SystemUser;
   const expires=Number(payload.expiresInSeconds||0);
   storeSession(payload.token,expires);
+  sessionStorage.setItem(SESSION_ACTOR_KEY,user.id);
   // Offline unlock is available only AFTER this successful server login.
   // The opaque server token is encrypted at rest using this device's password.
   try{await cacheOfflineLogin(password,user,payload.token,expires);}
@@ -101,10 +107,14 @@ export async function loginOffline(identifier:string,password:string):Promise<Sy
     throw Error('BAD_USERNAME_OR_PASSWORD');
   if(Date.now()>=payload.expiresAt)throw Error('OFFLINE_LOGIN_EXPIRED');
   const seconds=Math.floor((payload.expiresAt-Date.now())/1000);
-  if(seconds>0 && payload.token)storeSession(payload.token,seconds);
+  if(seconds>0 && payload.token){
+    storeSession(payload.token,seconds);
+    sessionStorage.setItem(SESSION_ACTOR_KEY,user.id);
+  }
   return user;
 }
 export function clearSession(){
+  sessionStorage.removeItem(SESSION_ACTOR_KEY);
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
 }
