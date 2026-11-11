@@ -99,7 +99,7 @@ export async function resolveAccess(pool,workspace,profile,initialAdminId=''){
     if(value===null && FINANCIAL_ENTITIES.has(entity))return false;
     // Official invoices allow descriptive amendments only; money and posted
     // financial dimensions remain protected by the domain service.
-    if(previous?.isOfficial === true && entity==='invoices' &&
+    if((previous?.isOfficial === true || previous?.isAccountingPosted === true) && entity==='invoices' &&
        !officialInvoiceAmendment(previous,value).allowed)return false;
     if(!canRead(entity,value||previous,null))return false;
     if(!branchScope(value,entity)||!branchScope(previous,entity))return false;
@@ -188,7 +188,7 @@ export async function authorizeCommand(pool,workspace,access,command){
     const previous=row.rows[0]?.value||null;
     // A posted invoice's financial modification must go through the central
     // revision API. This is a ledger safeguard, NOT a missing role permission.
-    if(change.entity==='invoices'&&change.value!==null&&previous?.isOfficial===true&&
+    if(change.entity==='invoices'&&change.value!==null&&(previous?.isOfficial===true||previous?.isAccountingPosted===true)&&
        !officialInvoiceAmendment(previous,change.value).allowed)
       throw new InputError('OFFICIAL_INVOICE_REQUIRES_FINANCIAL_REVISION',409,{
         entity:'invoices',id:change.id,
