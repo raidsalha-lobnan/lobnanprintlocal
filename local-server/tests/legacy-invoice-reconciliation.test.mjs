@@ -60,3 +60,37 @@ test('read-only database access never executes record-changing SQL',async()=>{
  assert.deepEqual(executed.slice(1,-1).map(s=>s.slice(0,6)),['SELECT','SELECT','SELECT']);
  assert.equal(executed.at(-1),'COMMIT');
 });
+
+test('previously approved historical duplicate correction is not flagged as a new duplicate',()=>{
+ const invoice=mkInvoice('i-approved','INV-0071',61);
+ invoice.value.legacyRepair={repairId:'r1'};
+ invoice.value.paidAmount=0;invoice.value.exchangeRate=1;
+ const correction=(id,kind,account,debit,credit)=>({record_id:id,value:{
+   id,referenceId:'i-approved',referenceType:'invoice_correction',
+   correctionKind:kind,correctionGroupId:'revision-r1',
+   internalCorrection:true,approvedRevision:true,
+   lines:[{accountCode:account,debit,credit}]
+ }});
+ const costs=(id)=>({record_id:id,value:{
+   referenceId:'i-approved',referenceType:'cogs',
+   lines:[{accountCode:'5101',debit:12,credit:0},{accountCode:'1301',debit:0,credit:12}]
+ }});
+ const result=diagnoseLegacyInvoices({
+  invoices:[invoice],
+  journals:[
+   journal('sale1','i-approved','pos_invoice',61),
+   journal('sale2','i-approved','pos_invoice',61),
+   costs('cost1'),costs('cost2'),
+   correction('revenue-reverse','financial','1201',0,61),
+   correction('revenue-reverse-credit','financial','4101',61,0),
+   correction('cost-reverse','cogs','5101',0,12),
+   correction('cost-reverse-credit','cogs','1301',12,0)
+  ],
+  movements:[{record_id:'linked-stock',value:{
+   id:'linked-stock',sourceInvoiceId:'i-approved',referenceNumber:'INV-0071',
+   type:'out_sale',itemId:'paper',quantity:2,unitPrice:6,totalValue:12
+  }}]
+ });
+ assert.equal(result.totals.duplicatedSales,0);
+ assert.equal(result.totals.duplicatedCosts,0);
+});
