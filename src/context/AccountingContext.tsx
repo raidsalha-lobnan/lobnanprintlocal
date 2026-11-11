@@ -5898,10 +5898,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       uniqueCode = generateSequentialSku(item.category, inventory.map(i => i.code || ''), settings.categories);
     }
 
+    // Inventory and quick-add forms normally show a *suggested* serial before
+    // saving. It is still an automatic serial; two devices can show the same
+    // suggestion at the same moment. Let PostgreSQL allocate the winner.
+    const proposedAutoCode = generateSequentialSku(
+      item.category, inventory.map(i => i.code || ''), settings.categories
+    );
+    const automaticallySuggested = uniqueCode.toLowerCase() === proposedAutoCode.toLowerCase();
+    const explicitlyAuto = (item as any)._serverAutoCode === true;
     const newItem: InventoryItem = { ...item, id, code: uniqueCode, lastMovementDate: today };
-    // Server may allocate a different sequential code if another device claimed
-    // this automatically generated suggestion first. Manual codes remain fixed.
-    if (isAutoOrEmpty || isDuplicate) (newItem as any)._serverAutoCode = true;
+    // The transport strips this marker at the server after allocation.
+    if (isAutoOrEmpty || isDuplicate || automaticallySuggested || explicitlyAuto) {
+      (newItem as any)._serverAutoCode = true;
+    }
     setInventory(prev => {
       const next = [newItem, ...prev];
       broadcastEntityChange('inventory', next);
