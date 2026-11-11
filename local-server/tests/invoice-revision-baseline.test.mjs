@@ -32,7 +32,7 @@ test('invoice 66 baseline ignores unrelated reused number and verifies exact qua
 test('invoice 71-type duplicated sales and cost journals block unreviewed amendment',()=>{
  assert.throws(()=>verifyInvoiceRevisionBaseline({
   invoice:inv,proposed:edited,journals:[...linked,journal('duplicate','pos_invoice',8)],
-  movements}),/RECONCILED_JOURNAL_HISTORY/);
+  movements}),/REVISION_DUPLICATE_HISTORY_NEEDS_APPROVED_CORRECTION/);
 });
 test('mismatched stock and cost are never silently corrected',()=>{
  assert.throws(()=>verifyInvoiceRevisionBaseline({
