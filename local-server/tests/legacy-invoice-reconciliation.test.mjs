@@ -21,7 +21,7 @@ test('INV-0055 cannot borrow a differently dated movement sharing a display invo
  assert.equal(report.totals.missingRevenue,1);
  assert.equal(finding.status,'manual-review');
  assert.equal(finding.evidence.explicitStockOwnership,0);
- assert.ok(finding.reasons.includes('STOCK_NUMBER_REUSED_OR_DATE_MISMATCH'));
+ assert.ok(finding.warnings.includes('STOCK_NUMBER_REUSED_OR_DATE_MISMATCH'));
  assert.equal(finding.automaticFinancialRepair,false);
 });
 test('duplicate journal groups require correction even if one journal has matching amount',()=>{
@@ -93,4 +93,21 @@ test('previously approved historical duplicate correction is not flagged as a ne
  });
  assert.equal(result.totals.duplicatedSales,0);
  assert.equal(result.totals.duplicatedCosts,0);
+});
+
+test('ambiguous historical stock number alone is informational, not an accounting failure',()=>{
+ const invoice=mkInvoice('i-legacy','INV-0112',61);
+ const audit=diagnoseLegacyInvoices({
+  invoices:[invoice],
+  journals:[journal('j-legacy','i-legacy','pos_invoice',61)],
+  movements:[{record_id:'number-only',value:{
+   referenceNumber:'INV-0112',date:'2026-11-01',
+   type:'out_sale',itemId:'paper',quantity:1
+  }}]
+ });
+ assert.equal(audit.totals.needsReview,0);
+ assert.equal(audit.findings[0].status,'no-obvious-issue');
+ assert.equal(audit.findings[0].warnings.includes('STOCK_REFERENCE_ONLY_UNVERIFIED'),true);
+ assert.equal(audit.findings[0].warnings.includes('STOCK_NUMBER_REUSED_OR_DATE_MISMATCH'),true);
+ assert.equal(audit.findings[0].automaticFinancialRepair,false);
 });
