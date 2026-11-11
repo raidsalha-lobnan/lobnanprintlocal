@@ -27,7 +27,7 @@ test('React state updater callbacks do not launch network/outbox writes for new 
   [party,"pushToServerSync('parties', newParty)"]
  ] as const;
  for(const [section,enqueue] of checks){
-  const callbackEnd=section.indexOf('return next;\n    });');
+  const callbackEnd=section.search(/return next;\r?\n    \}\);/);
   assert.ok(callbackEnd>=0,'state updater closure is present');
   const queueAt=section.indexOf(enqueue);
   assert.ok(queueAt>callbackEnd,'durable enqueue happens after React state updater');
