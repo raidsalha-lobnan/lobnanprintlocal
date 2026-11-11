@@ -7,7 +7,7 @@ const FINANCIAL_OR_IDENTITY = new Set([
 ]);
 
 export type QueueSafetyClassification = {
-  code: 'permission' | 'party-bulk' | 'invoice-number' | 'financial' | 'other';
+  code: 'owner' | 'permission' | 'party-bulk' | 'invoice-number' | 'financial' | 'other';
   advice: string;
   allowRenumber: boolean;
   allowRetry: boolean;
@@ -19,7 +19,14 @@ export type QueueSafetyClassification = {
 export function classifyQueueSafety(cmd:SyncCommand):QueueSafetyClassification {
   const error=String(cmd.error || '');
   const protectedEntity=cmd.changes.some(change=>FINANCIAL_OR_IDENTITY.has(change.entity));
-  if(/ENTITY_PERMISSION_DENIED|COMMAND_OWNER_MISMATCH|ACCESS_DENIED|403\b/i.test(error)) {
+  if(/COMMAND_OWNER_MISMATCH|INVOICE_REVISION_WRONG_OWNER|OUTBOX_WAITING_FOR_ORIGINAL_USER_SESSION/i.test(error)){
+    return {
+      code:'owner',
+      advice:'هذه الحركة أُنشئت في جلسة مستخدم آخر على الجهاز. لا تعِد إرسالها بحسابك ولا تحذفها. ادخل بحساب منشئ الحركة لاستكمال المزامنة مع PostgreSQL.',
+      allowRenumber:false,allowRetry:false,allowDiscard:false,
+    };
+  }
+  if(/ENTITY_PERMISSION_DENIED|ACCESS_DENIED|403\b/i.test(error)) {
     return {
       code:'permission',
       advice:'رفض صلاحية: لا تغيّر رقم الفاتورة ولا تعِد إرسالها. احفظ نسخة الطابور وقارن العملية بسجل PostgreSQL المعتمد؛ راجع صلاحية الحساب ونوع التعديل.',
