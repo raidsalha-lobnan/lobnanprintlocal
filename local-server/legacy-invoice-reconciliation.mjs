@@ -3,6 +3,47 @@
 const money=v=>Math.round(Number(v||0)*100);
 const rowValue=row=>row?.value||row||{};
 const originalNumber=i=>String(i.invoiceNumber||'').trim();
+const approvedNetRepair=(invoice,linked,allStock)=>{
+ const repairId=invoice.legacyRepair?.repairId;
+ if(!repairId||Number(invoice.paidAmount||0)!==0||
+    Number(invoice.taxAmount||0)!==0||
+    Number(invoice.additionalCharges||0)!==0||
+    Number(invoice.exchangeRate||1)!==1)return false;
+ const corrections=linked.map(rowValue).filter(j=>
+   j.referenceType==='invoice_correction'&&
+   j.approvedRevision===true&&j.internalCorrection===true);
+ const group='revision-'+repairId;
+ if(!corrections.some(j=>j.correctionKind==='financial')||
+    !corrections.some(j=>j.correctionKind==='cogs')||
+    !corrections.every(j=>j.correctionGroupId===group))return false;
+ const accountNet=account=>linked.map(rowValue).reduce((sum,j)=>
+   sum+(j.lines||[]).filter(l=>l.accountCode===account).reduce(
+     (a,l)=>a+money(l.debit||0)-money(l.credit||0),0),0);
+ const total=money(invoice.baseTotalAmount??invoice.totalAmount);
+ const cost=accountNet('5101');
+ if(accountNet('1201')!==total||accountNet('4101')!==-total||cost<0)return false;
+ const movements=allStock.map(rowValue).filter(m=>m.sourceInvoiceId===invoice.id);
+ if(!movements.length)return false;
+ const qty=new Map();let value=0;
+ for(const m of movements){
+  const q=Number(m.quantity),price=Number(m.unitPrice),v=Number(m.totalValue);
+  if(!m.itemId||!Number.isFinite(q)||q<0||!Number.isFinite(price)||price<0||
+     !Number.isFinite(v)||money(q*price)!==money(v))return false;
+  const sign=m.type==='in_adjustment'?-1:
+   (m.type==='out_sale'||m.type==='out_adjustment')?1:null;
+  if(sign===null)return false;
+  qty.set(m.itemId,(qty.get(m.itemId)||0)+sign*q);
+  value+=sign*money(v);
+ }
+ const expected=new Map();
+ for(const item of invoice.items||[]){
+  if(['services','copy_scan','print_service'].includes(item.category)||
+    ['srv-delivery','srv-delivery-mobile'].includes(item.itemId))continue;
+  expected.set(item.itemId,(expected.get(item.itemId)||0)+Number(item.quantity||0));
+ }
+ if(value!==cost||qty.size!==expected.size)return false;
+ return [...expected].every(([id,q])=>Math.abs((qty.get(id)||0)-q)<0.000001);
+};
 export function diagnoseLegacyInvoices({invoices=[],journals=[],movements=[]}){
  const byRef=new Map(),byNumber=new Map(),byOwner=new Map();
  for(const j of journals){
@@ -35,10 +76,12 @@ export function diagnoseLegacyInvoices({invoices=[],journals=[],movements=[]}){
    reasons.push('MISSING_LINKED_REVENUE');
    totals.missingRevenue++;
   }
-  if(sales.length>1){
+  const reconciledHistory=(sales.length>1||cogs.length>1)&&
+    approvedNetRepair(i,linked,movements);
+  if(!reconciledHistory&&sales.length>1){
    reasons.push('DUPLICATE_SALES_POSTINGS');totals.duplicatedSales++;
   }
-  if(cogs.length>1){
+  if(!reconciledHistory&&cogs.length>1){
    reasons.push('DUPLICATE_COST_POSTINGS');totals.duplicatedCosts++;
   }
   const invoiceBase=money(i.baseTotalAmount??i.totalAmount);
