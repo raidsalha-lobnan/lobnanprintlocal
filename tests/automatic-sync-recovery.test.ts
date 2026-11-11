@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {explainSyncFailure} from '../src/sync-next/syncFailureGuide';
+import {classifyQueueSafety} from '../src/sync-next/queueSafety';
+import 'fake-indexeddb/auto';
+import {LocalSyncDb} from '../src/sync-next/localDb';
+import {SyncCoordinator} from '../src/sync-next/coordinator';
 
 const context=readFileSync(new URL('../src/context/AccountingContext.tsx',import.meta.url),'utf8');
 
@@ -79,4 +83,41 @@ test('new stock item with opening quantity is queued atomically and auto-generat
  assert.match(section,/entity: 'stockMovements', id: openingMovement.id/);
  assert.doesNotMatch(section,/addStockMovement\(/);
  assert.match(section,/pushToServerSync\('inventory', newItem\)/);
+});
+
+test('secondary-device rejected stock item cannot be deleted as an unprotected queue entry',()=>{
+ const cmd={id:'rejected-stock',workspaceId:'w',createdAt:0,
+  retryAt:0,attempts:1,status:'rejected',error:'ENTITY_SERIAL_ALREADY_USED',
+  changes:[{entity:'inventory',id:'inv-1',expectedVersion:0,
+   value:{id:'inv-1',code:'PRI-00002'}}]};
+ const classification=classifyQueueSafety(cmd as any);
+ assert.equal(classification.allowDiscard,false);
+ assert.equal(classification.allowRenumber,false);
+ assert.equal(classification.allowRetry,false);
+});
+test('reconnection resets only transient network retry delays, not rejected accounting actions',async()=>{
+ const db=new LocalSyncDb('w-'+crypto.randomUUID());
+ const cmd=await db.enqueue([{entity:'inventory',id:'inv-a',
+  value:{id:'inv-a',code:'PRI-00002'}}]);
+ await db.markError(cmd.id,'pending','LOCAL_SYNC_HTTP_503',Date.now()+600000);
+ const blocked=await db.enqueue([{entity:'invoices',id:'inv-b',
+  value:{id:'inv-b',invoiceNumber:'TEMP-x'}}]);
+ await db.markError(blocked.id,'rejected','ENTITY_PERMISSION_DENIED');
+ const coordinator=new SyncCoordinator(db as any,{} as any,'w');
+ await (coordinator as any).releaseTransportBackoffAfterReconnect();
+ const current=await db.pending();
+ const network=current.find(x=>x.id===cmd.id)!;
+ const denied=current.find(x=>x.id===blocked.id)!;
+ assert.equal(network.status,'pending');
+ assert.equal(network.retryAt,0);
+ assert.equal(denied.status,'rejected');
+ assert.equal(denied.error,'ENTITY_PERMISSION_DENIED');
+ await db.close();
+});
+test('local receipt-review flag does not trigger the hazardous unbootstrapped migration gate',()=>{
+ const boot=readFileSync(new URL('../src/sync-next/boot.ts',import.meta.url),'utf8');
+ assert.match(context,/lobnan_postgres_receipt_review_required/);
+ assert.doesNotMatch(context,/setItem\('lobnan_postgres_reconciliation_required'/);
+ assert.match(boot,/confirmedCursor/);
+ assert.match(boot,/localStorage\.removeItem\('lobnan_postgres_reconciliation_required'\)/);
 });
