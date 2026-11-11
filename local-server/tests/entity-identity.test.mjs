@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {assertStableEntitySerial} from '../entity-identity.mjs';
+import {assertStableEntitySerial,allocateAutomaticEntityCode} from '../entity-identity.mjs';
 
 const fake=(existing=[])=>({
  async query(sql,params){
@@ -77,4 +77,46 @@ test('multiple inventory products may share a category without duplicate-categor
    {code:'PRI-0001',category:'printing',name:'Duplicate code'}),
   /ENTITY_SERIAL_ALREADY_USED/
  );
+});
+
+test('two concurrent devices proposing the same auto customer code receive distinct serials under workspace lock',async()=>{
+ const rows=[{code:'CUST-0020'},{code:'CUST-0021'}];
+ const db={query:async(sql,args)=>{
+  assert.match(sql,/value->>'code' AS code/);
+  assert.equal(args[1],'parties');
+  return {rows};
+ }};
+ const proposed={id:'pt-new',code:'CUST-0021',name:'Customer',_serverAutoCode:true};
+ const allocated=await allocateAutomaticEntityCode(db,'lobnan_main','parties','pt-new',null,proposed);
+ assert.equal(allocated.code,'CUST-0022');
+ assert.equal(allocated.id,'pt-new');
+ assert.equal(allocated._serverAutoCode,undefined);
+ rows.push({code:allocated.code});
+ const next=await allocateAutomaticEntityCode(db,'lobnan_main','parties','pt-new2',null,proposed);
+ assert.equal(next.code,'CUST-0023');
+});
+
+test('automatic stock SKU preserves approved five-digit prefix, and manual serial is never rewritten',async()=>{
+ const rows=[{code:'PRI-00024'},{code:'PRI-00025'},{code:'PRI-00026'}];
+ const db={query:async(sql,args)=>{assert.equal(args[1],'inventory');return {rows};}};
+ const newItem={id:'item-next',code:'PRI-00025',category:'printing',_serverAutoCode:true};
+ const result=await allocateAutomaticEntityCode(db,'lobnan_main','inventory','item-next',null,newItem);
+ assert.equal(result.code,'PRI-00027');
+ assert.equal(result.category,'printing');
+ const manual=await allocateAutomaticEntityCode(db,'lobnan_main','inventory','item-manual',null,
+  {code:'PRI-00025',category:'printing'});
+ assert.equal(manual.code,'PRI-00025');
+ await assert.rejects(assertStableEntitySerial({
+  query:async()=>({rows:[{record_id:'item-existing'}]})
+ },'lobnan_main','inventory','item-manual',null,manual),/ENTITY_SERIAL_ALREADY_USED/);
+});
+
+test('existing customer code cannot be silently renumbered by an auto marker',async()=>{
+ const existing={id:'pt-123',code:'CUST-0072',name:'Earlier'};
+ const proposed={...existing,code:'CUST-0073',name:'Updated',_serverAutoCode:true};
+ const result=await allocateAutomaticEntityCode({query:async()=>{throw Error('unexpected query')}},
+  'lobnan_main','parties','pt-123',existing,proposed);
+ assert.equal(result.code,'CUST-0073');
+ await assert.rejects(assertStableEntitySerial({query:async()=>{throw Error('unexpected query')}},
+  'lobnan_main','parties','pt-123',existing,result),/ENTITY_SERIAL_IMMUTABLE/);
 });
