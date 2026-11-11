@@ -35,7 +35,7 @@ export function explainSyncFailure(error:unknown,entity?:string):FailureGuide{
   if(/SERIAL|SKU|CODE_CONFLICT|DUPLICATE.*CODE|CASH_CUSTOMER_IMMUTABLE|OFFICIAL_NUMBER_IMMUTABLE|INVALID_WORKSPACE_SETTINGS_ID|INVOICE_NUMBER_CONFLICT/.test(raw))
     return mk('fix-input','المعرّف أو الكود غير صالح لهذه العملية',
       'رموز العملاء والأصناف والأرقام الرسمية لا يجوز تغيير هويتها أو إعطاؤها رقمًا مكررًا.',
-      'استعمل معرّف السجل الداخلي الثابت؛ أكواد جديدة تُخصص من الخادم بعد التحقق من عدم وجود تكرار.');
+      'احتفظ بمعرّف السجل الداخلي الثابت؛ افحص الكود المعتمد على PostgreSQL قبل اختيار كود جديد غير مستخدم.');
   if(/PARTY_HAS_FINANCIAL_REFERENCES|INVOICE_REVISION_SUBCUSTOMER_PARENT_MISMATCH|INVOICE_REVISION_SUBCUSTOMER_WRONG_TARGET/.test(raw))
     return mk('fix-input','هذا السجل مرتبط بحسابات أخرى',
       'الحذف أو نقل العميل الفرعي قد يفصل فواتير أو سندات عن مرجعها.',
