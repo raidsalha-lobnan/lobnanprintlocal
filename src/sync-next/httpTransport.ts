@@ -164,7 +164,9 @@ export class LocalHttpSyncTransport implements SyncTransport {
       catch(err){onError(err);}
       finally{busy=false;}
     };
-    const interval=setInterval(()=>{void probe();},4000);
+    // Check for newly committed PostgreSQL events frequently without
+    // reloading full tables when nothing changed across devices.
+    const interval=setInterval(()=>{void probe();},2500);
     void probe();
     return ()=>{this.stopped=true;clearInterval(interval);};
   }
