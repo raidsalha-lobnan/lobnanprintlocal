@@ -78,7 +78,7 @@ export const OperationalHealthPanel:React.FC=()=>{
     هذه مؤشرات تدقيق؛ قد توجد عدة مؤشرات للسجل الواحد، ولا تعني وجود خسارة مؤكدة.
    </p>
    <div className="space-y-1">
-    {Object.entries(report.byType).sort((a,b)=>b[1]-a[1]).map(([kind,count])=>
+    {Object.entries(report.byType).sort((a,b)=>Number(b[1])-Number(a[1])).map(([kind,count])=>
      <div key={kind} className="flex justify-between gap-2 border-b border-slate-100 py-1 text-xs">
       <span>{descriptions[kind]||kind}</span><b>{count}</b>
      </div>)}
