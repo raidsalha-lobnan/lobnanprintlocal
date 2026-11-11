@@ -26,7 +26,7 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
   const [category, setCategory] = useState<string>('print_raw');
   const [purchasePrice, setPurchasePrice] = useState<number>(0);
   const [sellingPrice, setSellingPrice] = useState<number>(0);
-  const [stockQuantity, setStockQuantity] = useState<number>(10);
+  const [stockQuantity, setStockQuantity] = useState<number>(0);
   const [unit, setUnit] = useState<string>('قطعة');
   const [autoAdd, setAutoAdd] = useState<boolean>(true);
 
@@ -38,7 +38,9 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
       setBarcode('');
       setPurchasePrice(0);
       setSellingPrice(0);
-      setStockQuantity(10);
+      // A quick-added item must not silently create ten units of stock.
+      // Opening stock is a separate inventory-controlled operation.
+      setStockQuantity(0);
       setUnit('قطعة');
     }
   }, [isOpen, initialName]);
@@ -70,6 +72,10 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
       unit: unit || 'قطعة'
     };
 
+    // This dialog's SKU input is read-only: it is never a manual identity.
+    // Let the central server allocate another serial if two devices picked
+    // the same code before either device completed synchronization.
+    (newItem as any)._serverAutoCode = true;
     const createdItem = addInventoryItem(newItem);
 
     if (autoAdd && onItemCreatedAndAdd) {
