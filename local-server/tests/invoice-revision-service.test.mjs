@@ -30,7 +30,7 @@ const fixture=(options={})=>{
   ...invoice,customerId:'emp1',counterpartyType:'employee',counterpartyId:'emp1',employeeId:'emp1'
  }:invoice;
  const records={
-  journalEntries:options.duplicate?[...originalJournals,j('duplicate','pos_invoice',8)]:originalJournals,
+  journalEntries:options.missingJournals?[]:options.duplicate?[...originalJournals,j('duplicate','pos_invoice',8)]:originalJournals,
   stockMovements:movements,
   parties:[{id:'cust',version:31,value:{id:'cust',balance:1246.4}}],
   inventory:[{id:'paper',version:1,value:{id:'paper',stockQuantity:400,
@@ -152,4 +152,19 @@ test('description-only revision is posted once without financial side effects, e
  assert.equal(result.changes[0].value.items[0].description,'ملاحظة طباعية');
  assert.equal(result.changes[0].value.items[0].id,invoice.items[0].id);
  assert.equal(result.changes.filter(c=>['journalEntries','inventory','stockMovements','parties'].includes(c.entity)).length,0);
+});
+
+test('missing accounting journal rejects legacy financial changes with actionable evidence and no posting',async()=>{
+ const f=fixture({missingJournals:true});
+ let actual;
+ try{await revisePostedInvoice(f.svc,'lobnan_main',req,'admin',access);}
+ catch(error){actual=error;}
+ assert.equal(actual?.message,'INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION');
+ assert.equal(actual?.status,409);
+ assert.equal(actual?.detail?.invoiceNumber,'INV-0066');
+ assert.equal(actual?.detail?.diagnosis?.salesJournalCount,0);
+ assert.equal(actual?.detail?.diagnosis?.cogsJournalCount,0);
+ assert.equal(actual?.detail?.diagnosis?.stockMovementCandidateCount,2);
+ assert.equal(actual?.detail?.diagnosis?.baselineRequiresAccountantReview,true);
+ assert.equal(f.commands,0);
 });
