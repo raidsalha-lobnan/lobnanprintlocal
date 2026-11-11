@@ -5916,14 +5916,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       broadcastEntityChange('inventory', next);
       return next;
     });
-    pushToServerSync('inventory', newItem);
 
-    // One durable queue write is already scheduled by pushToServerSync above.
-    // Do not enqueue the same new record a second time.
-
-    // If opening stock > 0, record opening balance in stock movements ledger
-    if (item.stockQuantity > 0) {
-      addStockMovement({
+    // New item + its opening stock are ONE durable outbox transaction.
+    // Separate commands can leave an item saved but its stock movement rejected
+    // (especially for a POS user who may create items but not adjust stock).
+    if (Number(item.stockQuantity) > 0) {
+      const openingMovement: StockMovement = {
+        id: 'sm-' + crypto.randomUUID(),
         itemId: id,
         itemCode: uniqueCode,
         itemName: item.name,
@@ -5931,16 +5930,40 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         date: today,
         time,
         type: 'in_opening',
-        quantity: item.stockQuantity,
+        quantity: Number(item.stockQuantity),
         balanceBefore: 0,
-        balanceAfter: item.stockQuantity,
-        unitPrice: item.purchasePrice,
-        totalValue: item.stockQuantity * item.purchasePrice,
+        balanceAfter: Number(item.stockQuantity),
+        unitPrice: Number(item.purchasePrice),
+        totalValue: Number(item.stockQuantity) * Number(item.purchasePrice),
         referenceType: 'opening',
         referenceNumber: 'OP-' + uniqueCode,
         reason: 'رصيد افتتاحي عند تعريف وتكويد الصنف',
         performedBy: 'أمين المستودع'
+      };
+      setStockMovements(prev => {
+        const next = [openingMovement, ...prev];
+        try { localStorage.setItem(`${STORAGE_KEY}_stockMovements`, JSON.stringify(next)); } catch {}
+        broadcastEntityChange('stockMovements', next);
+        return next;
       });
+      const repo = unifiedRepoRef.current;
+      if (repo) {
+        void repo.commit([
+          { entity: 'inventory', id, value: newItem as unknown as JsonObject },
+          { entity: 'stockMovements', id: openingMovement.id, value: openingMovement as unknown as JsonObject }
+        ]).catch(error => {
+          console.error('ATOMIC_ITEM_OPENING_SAVE_FAILED', error);
+          try { window.dispatchEvent(new CustomEvent('accounting_save_error', {
+            detail: { entity: 'inventory', error: String(error) }
+          })); } catch {}
+        });
+      } else {
+        try { window.dispatchEvent(new CustomEvent('accounting_save_error', {
+          detail: { entity: 'inventory', error: 'LOCAL_REPOSITORY_NOT_INITIALIZED' }
+        })); } catch {}
+      }
+    } else {
+      pushToServerSync('inventory', newItem);
     }
 
     return newItem;
