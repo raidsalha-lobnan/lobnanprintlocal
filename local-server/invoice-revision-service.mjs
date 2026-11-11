@@ -117,8 +117,8 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
    "SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='journalEntries' AND value->>'referenceId'=$2",
    [workspace,invoice.id])).rows;
   const movementRows=(await client.query(
-   "SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='stockMovements' AND (value->>'referenceNumber'=$2 OR value->>'referenceNumber'=$3)",
-   [workspace,invoice.invoiceNumber,'TEMP-'+invoice.id])).rows;
+   "SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='stockMovements' AND (value->>'sourceInvoiceId'=$4 OR value->>'referenceId'=$4 OR value->>'referenceNumber'=$2 OR value->>'referenceNumber'=$3)",
+   [workspace,invoice.invoiceNumber,'TEMP-'+invoice.id,invoice.id])).rows;
   let plan,legacyRecovery=null;
   try{
    plan=verifyInvoiceRevisionBaseline({invoice,proposed,journals:journalRows,movements:movementRows});
