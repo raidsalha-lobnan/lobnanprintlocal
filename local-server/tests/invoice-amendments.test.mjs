@@ -30,3 +30,13 @@ test('posted amount, quantity, payment, party, invoice number, and prior history
 test('old client cannot de-certify a posted invoice',()=>{
  assert.equal(officialInvoiceAmendment(old,{...old,isOfficial:false}).allowed,false);
 });
+
+test('legacy posted invoices without official certification remain protected',()=>{
+ const legacy={...old,isOfficial:false,invoiceNumber:'INV-0055'};
+ assert.equal(officialInvoiceAmendment(legacy,{...legacy,totalAmount:58}).allowed,false);
+ assert.equal(officialInvoiceAmendment(legacy,{...legacy,items:[{...legacy.items[0],quantity:1}]}).allowed,false);
+ const notes=preserveOfficialInvoiceFields(legacy,{...legacy,notes:'Verified annotation'});
+ assert.equal(notes.isOfficial,false,'notes must not certify incomplete accounting history');
+ assert.equal(notes.notes,'Verified annotation');
+ assert.equal(notes.totalAmount,legacy.totalAmount);
+});
