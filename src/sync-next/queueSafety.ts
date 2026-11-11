@@ -3,7 +3,7 @@ import type {SyncCommand} from './types';
 const FINANCIAL_OR_IDENTITY = new Set([
   'invoices','parties','vouchers','journalEntries','purchases',
   'purchaseReturns','salesReturns','stockMovements','treasuryTransactions',
-  'treasuries','accounts','printOrders','payrollSheets','debtClearings',
+  'treasuries','accounts','inventory','printOrders','payrollSheets','debtClearings',
 ]);
 
 export type QueueSafetyClassification = {
