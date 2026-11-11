@@ -67,6 +67,7 @@ export function diagnoseLegacyInvoices({invoices=[],journals=[],movements=[]}){
   const cogs=linked.filter(j=>rowValue(j).referenceType==='cogs');
   const corrections=linked.filter(j=>rowValue(j).referenceType==='invoice_correction');
   const reasons=[];
+  const warnings=[];
   if(seen.has(number)){
    reasons.push('INVOICE_NUMBER_REUSED');
    totals.reusedInvoiceNumbers++;
@@ -107,14 +108,14 @@ export function diagnoseLegacyInvoices({invoices=[],journals=[],movements=[]}){
   if(isPosted&&physical&&!stockEvidence.length&&!displayCandidates.length){
    reasons.push('STOCK_RECORD_NOT_FOUND');totals.missingStockReferences++;
   }else if(isPosted&&physical&&!stockEvidence.length&&displayCandidates.length){
-   reasons.push('STOCK_REFERENCE_ONLY_UNVERIFIED');
+   warnings.push('STOCK_REFERENCE_ONLY_UNVERIFIED');
   }
   const unrelatedCandidates=displayCandidates.filter(m=>{
    const v=rowValue(m);
    const owner=v.sourceInvoiceId||v.referenceId;
    return (owner&&owner!==id)||(!owner&&v.date&&i.date&&v.date!==i.date);
   });
-  if(unrelatedCandidates.length)reasons.push('STOCK_NUMBER_REUSED_OR_DATE_MISMATCH');
+  if(unrelatedCandidates.length)warnings.push('STOCK_NUMBER_REUSED_OR_DATE_MISMATCH');
   const requiresReview=reasons.length>0;
   if(requiresReview)totals.needsReview++;else totals.accepted++;
   findings.push({
@@ -122,7 +123,7 @@ export function diagnoseLegacyInvoices({invoices=[],journals=[],movements=[]}){
    date:i.date||'',totalAmount:Number(i.totalAmount||0),
    accountingPosted:isPosted,
    status:requiresReview?'manual-review':'no-obvious-issue',
-   reasons,
+   reasons,warnings,
    evidence:{
     salesJournalCount:sales.length,costJournalCount:cogs.length,
     correctionCount:corrections.length,
