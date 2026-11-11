@@ -43,18 +43,20 @@ export class LocalHttpSyncTransport implements SyncTransport {
       if(response.status===409&&data.code==='INVOICE_REVISION_BASELINE_NEEDS_RECONCILIATION'){
         const audit=data.detail?.diagnosis||{};
         const number=String(data.detail?.invoiceNumber||'الفاتورة المحددة');
-        const sales=Number(audit.salesJournalCount??0);
-        const costs=Number(audit.cogsJournalCount??0);
+        const hasCounts=Number.isSafeInteger(audit.salesJournalCount)&&Number.isSafeInteger(audit.cogsJournalCount);
+        const sales=hasCounts?audit.salesJournalCount:0;
+        const costs=hasCounts?audit.cogsJournalCount:0;
         const suspicious=Number(audit.stockMovementsWithUnverifiedDateOrOwner??0);
-        const reason=sales===0
+        const reason=hasCounts&&sales===0
           ?'لا يوجد قيد مبيعات مربوط بالمعرّف الداخلي لهذه الفاتورة'
           :'السجل المحاسبي التاريخي غير متطابق مع الفاتورة المعتمدة';
+        const counts=hasCounts?' (قيود المبيعات: '+sales+'، قيود التكلفة: '+costs+').':'.';
         const stock=suspicious>0
           ?' وتوجد '+suspicious+' حركة مخزون لا يمكن إثبات تبعيتها للفاتورة بسبب تاريخها أو معرّفها.'
           :'';
         throw new PermanentSyncError(
           'هذه الفاتورة ('+number+') تحتاج مطابقة محاسبية قبل السماح بتعديل مالي. '+
-          reason+' (قيود المبيعات: '+sales+'، قيود التكلفة: '+costs+').'+stock+
+          reason+counts+stock+
           ' لم يعتمد الخادم هذا التعديل ولم ينشئ قيدًا جديدًا. '+
           'الرجاء مراجعة القيود وحركات المخزون المرتبطة بمعرّف الفاتورة واعتماد تسوية موثّقة. '+
           'لا تكرر الحفظ ولا تعِد إنشاء الفاتورة.'
