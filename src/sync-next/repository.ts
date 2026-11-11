@@ -15,7 +15,7 @@ export class UnifiedRepository {
     private sync: SyncCoordinator
   ) {}
 
-  subscribe(callback: () => void): () => void {
+  subscribe(callback: (recordsChanged: boolean) => void): () => void {
     return this.local.subscribe(callback);
   }
 
