@@ -5,7 +5,11 @@
  */
 import pg from 'pg';
 
-const numbers=process.argv.slice(2).filter(v=>/^\d{1,12}$/.test(v));
+const normalizedNumber=value=>{
+ const match=/^(?:INV[-\\s]*)?0*(\\d{1,12})$/i.exec(String(value??'').trim());
+ return match?String(BigInt(match[1])):null;
+};
+const numbers=[...new Set(process.argv.slice(2).map(normalizedNumber).filter(Boolean))];
 if(!numbers.length){
  console.error('Usage: node local-server/diagnose-invoice-queue.mjs <invoice-number> [...]');
  process.exitCode=2;
@@ -20,10 +24,10 @@ if(!numbers.length){
   const workspace=process.env.SYNC_WORKSPACE||'lobnan_main';
   const inv=(await client.query(
    "SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='invoices'",
-   [workspace])).rows.filter(row=>numbers.includes(String(row.value?.invoiceNumber??'')));
+   [workspace])).rows.filter(row=>numbers.includes(normalizedNumber(row.value?.invoiceNumber)));
   const result=[];
   for(const number of numbers){
-   const matched=inv.filter(row=>String(row.value?.invoiceNumber)===number);
+   const matched=inv.filter(row=>normalizedNumber(row.value?.invoiceNumber)===number);
    if(!matched.length){
     result.push({number,status:'NOT_FOUND_ON_SERVER',nextStep:'Compare the original device outbox command ID with sync_commands; do not recreate invoice yet'});
     continue;
@@ -57,7 +61,7 @@ if(!numbers.length){
     if((journalKinds.pos_invoice||0)>1)concerns.push('MULTIPLE_SALES_JOURNALS_REVIEW_HISTORY');
     if(journalUnbalanced.length)concerns.push('UNBALANCED_OR_EMPTY_JOURNAL');
     result.push({
-      number,recordId:row.record_id,serverVersion:Number(row.version),
+      number,storedInvoiceNumber:invoice.invoiceNumber,recordId:row.record_id,serverVersion:Number(row.version),
       isOfficial:invoice.isOfficial===true,isAccountingPosted:invoice.isAccountingPosted===true,
       journalKinds,stockMovementCount:movements.length,
       committedInvoiceCommands:changes.map(x=>({sequence:Number(x.sequence),commandId:x.command_id})),
