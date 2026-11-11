@@ -18,11 +18,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --check local-server/server.mjs
-      - run: node --check local-server/sync-domain.mjs
-      - run: node --check local-server/sync-service.mjs
-      - run: node --test local-server/tests/domain.test.mjs local-server/tests/service.test.mjs
-      - run: node --test local-server/tests/catalog-reclassification-plan.test.mjs local-server/tests/catalog-approved-2026-11-10.test.mjs local-server/tests/print-order-cleanup-plan.test.mjs local-server/tests/mobile-credit-acc-plan.test.mjs local-server/tests/entity-identity.test.mjs
+      - name: Install private API dependencies for the full server suite
+        run: npm install --prefix local-server --omit=dev --ignore-scripts --no-audit --no-fund
+      - name: Syntax-check the private server and new audit engine
+        run: |
+          node --check local-server/server.mjs
+          node --check local-server/sync-domain.mjs
+          node --check local-server/sync-service.mjs
+          node --check local-server/operational-health-audit.mjs
+      - name: Run every isolated server regression test
+        run: |
+          find local-server/tests -maxdepth 1 -name '*.test.mjs' \
+            ! -name 'integration.postgres.test.mjs' \
+            ! -name 'auth-postgres-integration.test.mjs' -print0 |
+            xargs -0 node --test
       - run: docker compose --env-file .env.local-server.example -f docker-compose.local.yml config -q
   postgres-integration:
     runs-on: ubuntu-latest
