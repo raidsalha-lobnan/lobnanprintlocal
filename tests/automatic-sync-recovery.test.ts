@@ -17,6 +17,24 @@ test('new customer and stock item have exactly one durable enqueue path each',()
  assert.doesNotMatch(party,/setDoc\(doc\(db, 'parties', newParty.id/);
  assert.doesNotMatch(movement,/setDoc\(doc\(db, 'stockMovements', newMovement.id/);
 });
+test('React state updater callbacks do not launch network/outbox writes for new customer, item or stock movement',()=>{
+ const movement=context.slice(context.indexOf('  const addStockMovement = '),context.indexOf('  const addInventoryItem = '));
+ const inventory=context.slice(context.indexOf('  const addInventoryItem = '),context.indexOf('  const updateInventoryItem = '));
+ const party=context.slice(context.indexOf('  const addParty = '),context.indexOf('  const updateParty = '));
+ const checks=[
+  [movement,"pushToServerSync('stockMovements', newMovement)"],
+  [inventory,"pushToServerSync('inventory', newItem)"],
+  [party,"pushToServerSync('parties', newParty)"]
+ ] as const;
+ for(const [section,enqueue] of checks){
+  const callbackEnd=section.indexOf('return next;\n    });');
+  assert.ok(callbackEnd>=0,'state updater closure is present');
+  const queueAt=section.indexOf(enqueue);
+  assert.ok(queueAt>callbackEnd,'durable enqueue happens after React state updater');
+  assert.equal(section.split(enqueue).length-1,1,'one durable enqueue per action');
+ }
+});
+
 test('editing a customer or item does not queue identical changes twice',()=>{
  const item=context.slice(context.indexOf('  const updateInventoryItem = '),context.indexOf('  const deleteInventoryItem = '));
  const party=context.slice(context.indexOf('  const updateParty = '),context.indexOf('  const deleteParty = '));
