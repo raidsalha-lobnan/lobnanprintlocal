@@ -5899,6 +5899,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     const newItem: InventoryItem = { ...item, id, code: uniqueCode, lastMovementDate: today };
+    // Server may allocate a different sequential code if another device claimed
+    // this automatically generated suggestion first. Manual codes remain fixed.
+    if (isAutoOrEmpty || isDuplicate) (newItem as any)._serverAutoCode = true;
     setInventory(prev => {
       const next = [newItem, ...prev];
       broadcastEntityChange('inventory', next);
@@ -6093,6 +6096,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       openingBalanceType: partyData.openingBalanceType || (initialBal < 0 ? 'credit' : 'debit'),
       openingBalanceDate: partyData.openingBalanceDate || new Date().toISOString().split('T')[0]
     };
+    (newParty as any)._serverAutoCode = true;
     setParties(prev => {
       const next = [...prev, newParty];
       broadcastEntityChange('parties', next);
