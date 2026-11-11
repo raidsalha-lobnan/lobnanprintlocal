@@ -20,7 +20,11 @@ export function explainSyncFailure(error:unknown,entity?:string):FailureGuide{
     return mk('review-ledger','العملية محمية حتى تكتمل المطابقة المحاسبية',
       'الفاتورة أو القيد أو حركة المخزون ليس لها مرجع تاريخي مثبت، أو توجد عملية مالية معلقة على السجل.',
       'يحتفظ البرنامج بالعملية دون ترحيلها مرة ثانية. افحص القيود وحركات المخزون وأصل المستند؛ وأكمل التسوية المعتمدة فقط.');
-  if(/DUPLICATE_INVOICE_JOURNAL_REJECTED|INVOICE_JOURNAL_REFERENCE_REQUIRED|BULK_PARTY_SNAPSHOT_REJECTED|IDEMPOTENCY_KEY_REUSED|COMMAND_OWNER_MISMATCH/.test(raw))
+  if(/COMMAND_OWNER_MISMATCH|INVOICE_REVISION_WRONG_OWNER|OUTBOX_WAITING_FOR_ORIGINAL_USER_SESSION/.test(raw))
+    return mk('fix-permissions','العملية تخص مستخدمًا آخر على هذا الجهاز',
+      'طابور المتصفح يحتفظ بأمر أنشأه حساب سابق. الخادم يمنع المستخدم الحالي من انتحال صاحب العملية، حتى إن كان لديه صلاحية مشابهة.',
+      'لا تحذف العملية ولا تعِد إنشاء الفاتورة أو الصنف. افتح البرنامج بحساب منشئ الأمر الأصلي لاستكمال المزامنة، أو راجع سجل اعتمادها مع مدير النظام.');
+  if(/DUPLICATE_INVOICE_JOURNAL_REJECTED|INVOICE_JOURNAL_REFERENCE_REQUIRED|BULK_PARTY_SNAPSHOT_REJECTED|IDEMPOTENCY_KEY_REUSED/.test(raw))
     return mk('review-ledger','منع تكرار قيد أو عملية سابقة',
       'الخادم اكتشف تسجيلًا سابقًا محتملًا أو طلبًا لا يطابق بصمة العملية الأصلية.',
       'لا تنشئ نسخة جديدة؛ طابِق معرّف العملية وقيود PostgreSQL قبل أي إعادة إرسال.');
