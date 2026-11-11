@@ -25,6 +25,8 @@ export interface AppliedChange extends ProposedChange {
 export interface SyncCommand {
   id: string;               // stable idempotency ID, preserved across retries
   workspaceId: string;
+  /** Advisory local creator identity; server still authorizes using the session. */
+  actorId?: string;
   /** Opt-in all-or-nothing accounting bundle. Absent for legacy queued commands. */
   atomicInvoiceId?: string;
   changes: VersionedChange[];
