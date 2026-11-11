@@ -7155,7 +7155,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
         } else {
           // Auto-create new sub-customer connected to main customer
-          const subId = 'pt-sub-' + Date.now();
+          const subId = 'pt-sub-' + crypto.randomUUID();
           const subCode = generateSequentialPartyCode('customer', parties, true);
           newlyCreatedSubParty = {
             id: subId,
@@ -7171,6 +7171,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             openingBalanceType: 'debit',
             notes: `زبون فرعي / دين مؤقت متصل بالعميل الرئيسي: ${customerName || ''}`
           };
+          (newlyCreatedSubParty as any)._serverAutoCode = true;
           resolvedSubCustId = subId;
         }
       } else {
