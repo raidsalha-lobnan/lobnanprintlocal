@@ -6,7 +6,7 @@
 import pg from 'pg';
 
 const normalizedNumber=value=>{
- const match=/^(?:INV[-\\s]*)?0*(\\d{1,12})$/i.exec(String(value??'').trim());
+ const match=/^(?:INV[-\s]*)?0*(\d{1,12})$/i.exec(String(value??'').trim());
  return match?String(BigInt(match[1])):null;
 };
 const numbers=[...new Set(process.argv.slice(2).map(normalizedNumber).filter(Boolean))];
