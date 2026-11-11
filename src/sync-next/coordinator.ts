@@ -1,7 +1,7 @@
 import { LocalSyncDb } from './localDb';
 import {planConflictResolution,planAtomicCommandAlreadyConfirmed} from './conflictResolution';
 import {recordKey,type StoredRecord} from './types';
-import {getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
+import {getCurrentSessionActorId,getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
 import {isSafeAutoCodeRetryCandidate} from './catalogAutoRecovery';
 import {fingerprintSyncCommand,type SettingsReceiptProof,type VerifiedSettingsReceipt} from './settingsPatch';
 
@@ -377,6 +377,11 @@ export class SyncCoordinator {
     const index=new Map(snapshot.records.map(r=>[recordKey(r.entity,r.id),r]));
     for(const cmd of unresolved){
       if(!this.started)return;
+      // Different program users share a browser's IndexedDB database, but
+      // only the original actor may reconcile or resend their own outbox.
+      // Older untagged commands remain preserved for manual provenance review.
+      if(secureLoginEnabled()&&cmd.actorId&&
+         cmd.actorId!==getCurrentSessionActorId())continue;
       const keys=new Set(cmd.changes.map(c=>recordKey(c.entity,c.id)));
       const hasDependents=queued.some(other=>other.id!==cmd.id&&
         other.changes.some(c=>keys.has(recordKey(c.entity,c.id))));
@@ -430,6 +435,14 @@ export class SyncCoordinator {
     for (const cmd of commands) {
       if (!this.started || !this.online()) return;
       const keys = cmd.changes.map(c => `${c.entity}\u001f${c.id}`);
+      if(secureLoginEnabled()&&cmd.actorId&&
+         cmd.actorId!==getCurrentSessionActorId()){
+        // Never send user A's cached operation under user B's bearer token.
+        // Keep it on disk unchanged until the original user signs in.
+        keys.forEach(k=>blocked.add(k));
+        this.report({lastError:'OUTBOX_WAITING_FOR_ORIGINAL_USER_SESSION'});
+        continue;
+      }
       if (cmd.status !== 'pending') {
         if (cmd.error?.startsWith('Superseded by')) continue;
         keys.forEach(k => blocked.add(k));
