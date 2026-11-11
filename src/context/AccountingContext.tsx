@@ -1263,26 +1263,32 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setUnifiedRepository(layer.repository);
         stopFn = layer.stop;
 
+        let latestRepositoryRefresh = 0;
         const syncStateWithRepository = async (repo: UnifiedRepository) => {
+          const refresh = ++latestRepositoryRefresh;
           try {
             const grouped = await repo.getAllVisibleGrouped();
-            if (unmounted) return;
+            if (unmounted || refresh !== latestRepositoryRefresh) return;
+            // Repeated outbox notifications can return identical snapshots.
+            // Preserve React array references when the accounting data is unchanged.
+            const unchanged = (previous: unknown[], incoming: unknown[]) =>
+              JSON.stringify(previous) === JSON.stringify(incoming);
             // Once authoritative initialization succeeds, an empty server collection
             // is meaningful: do not display an old localStorage list as cloud truth.
             const canonical = (await repo.getLocalDb().bootstrapStatus()) === 'initialized';
-            if (Array.isArray(grouped.invoices) && (canonical || grouped.invoices.length > 0)) setInvoices(grouped.invoices);
-            if (Array.isArray(grouped.parties) && (canonical || grouped.parties.length > 0)) setParties(grouped.parties);
-            if (Array.isArray(grouped.inventory) && (canonical || grouped.inventory.length > 0)) setInventory(grouped.inventory);
-            if (Array.isArray(grouped.accounts) && (canonical || grouped.accounts.length > 0)) setAccounts(grouped.accounts);
-            if (Array.isArray(grouped.treasuries) && (canonical || grouped.treasuries.length > 0)) setTreasuries(grouped.treasuries);
-            if (Array.isArray(grouped.journalEntries) && (canonical || grouped.journalEntries.length > 0)) setJournalEntries(grouped.journalEntries);
-            if (Array.isArray(grouped.stockMovements) && (canonical || grouped.stockMovements.length > 0)) setStockMovements(grouped.stockMovements);
-            if (Array.isArray(grouped.printOrders) && (canonical || grouped.printOrders.length > 0)) setPrintOrders(grouped.printOrders);
-            if (Array.isArray(grouped.vouchers) && (canonical || grouped.vouchers.length > 0)) setVouchers(grouped.vouchers);
-            if (Array.isArray(grouped.purchases) && (canonical || grouped.purchases.length > 0)) setPurchases(grouped.purchases);
-            if (Array.isArray(grouped.employees) && (canonical || grouped.employees.length > 0)) setEmployees(grouped.employees);
-            if (Array.isArray(grouped.roles) && (canonical || grouped.roles.length > 0)) setRoles(grouped.roles);
-            if (Array.isArray(grouped.users) && (canonical || grouped.users.length > 0)) setUsers(grouped.users);
+            if (Array.isArray(grouped.invoices) && (canonical || grouped.invoices.length > 0)) setInvoices(prev => unchanged(prev, grouped.invoices) ? prev : grouped.invoices);
+            if (Array.isArray(grouped.parties) && (canonical || grouped.parties.length > 0)) setParties(prev => unchanged(prev, grouped.parties) ? prev : grouped.parties);
+            if (Array.isArray(grouped.inventory) && (canonical || grouped.inventory.length > 0)) setInventory(prev => unchanged(prev, grouped.inventory) ? prev : grouped.inventory);
+            if (Array.isArray(grouped.accounts) && (canonical || grouped.accounts.length > 0)) setAccounts(prev => unchanged(prev, grouped.accounts) ? prev : grouped.accounts);
+            if (Array.isArray(grouped.treasuries) && (canonical || grouped.treasuries.length > 0)) setTreasuries(prev => unchanged(prev, grouped.treasuries) ? prev : grouped.treasuries);
+            if (Array.isArray(grouped.journalEntries) && (canonical || grouped.journalEntries.length > 0)) setJournalEntries(prev => unchanged(prev, grouped.journalEntries) ? prev : grouped.journalEntries);
+            if (Array.isArray(grouped.stockMovements) && (canonical || grouped.stockMovements.length > 0)) setStockMovements(prev => unchanged(prev, grouped.stockMovements) ? prev : grouped.stockMovements);
+            if (Array.isArray(grouped.printOrders) && (canonical || grouped.printOrders.length > 0)) setPrintOrders(prev => unchanged(prev, grouped.printOrders) ? prev : grouped.printOrders);
+            if (Array.isArray(grouped.vouchers) && (canonical || grouped.vouchers.length > 0)) setVouchers(prev => unchanged(prev, grouped.vouchers) ? prev : grouped.vouchers);
+            if (Array.isArray(grouped.purchases) && (canonical || grouped.purchases.length > 0)) setPurchases(prev => unchanged(prev, grouped.purchases) ? prev : grouped.purchases);
+            if (Array.isArray(grouped.employees) && (canonical || grouped.employees.length > 0)) setEmployees(prev => unchanged(prev, grouped.employees) ? prev : grouped.employees);
+            if (Array.isArray(grouped.roles) && (canonical || grouped.roles.length > 0)) setRoles(prev => unchanged(prev, grouped.roles) ? prev : grouped.roles);
+            if (Array.isArray(grouped.users) && (canonical || grouped.users.length > 0)) setUsers(prev => unchanged(prev, grouped.users) ? prev : grouped.users);
             if (Array.isArray(grouped.companies) && (canonical || grouped.companies.length > 0)) setCompanies(grouped.companies);
             if (Array.isArray(grouped.branches) && (canonical || grouped.branches.length > 0)) setBranches(grouped.branches);
             if (Array.isArray(grouped.warehouses) && (canonical || grouped.warehouses.length > 0)) setWarehouses(grouped.warehouses);
@@ -1317,8 +1323,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         };
 
         await syncStateWithRepository(layer.repository);
-        unsubscribeRepo = layer.repository.subscribe(() => {
-          syncStateWithRepository(layer.repository);
+        unsubscribeRepo = layer.repository.subscribe(recordsChanged => {
+          // Error/retry metadata belongs to the sync indicator, not the
+          // financial record lists. Do not redraw the entire application.
+          if (recordsChanged) void syncStateWithRepository(layer.repository);
         });
 
         unsubscribeState = layer.coordinator.onState(st => {
