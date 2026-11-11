@@ -78,7 +78,23 @@ export class SyncCoordinator {
     } catch { return true; }
   };
 
-  private onlineHandler = () => this.requestSync();
+  // Network recovery should flush only *pending transport failures* promptly.
+  // Never turn a rejected accounting/permission command back into a write.
+  private onlineHandler = () => {
+    void this.releaseTransportBackoffAfterReconnect().then(
+      () => this.requestSync(),
+      error => this.report({lastError:String(error)})
+    );
+  };
+
+  private async releaseTransportBackoffAfterReconnect():Promise<void>{
+    const commands=await this.local.pending();
+    for(const command of commands){
+      if(command.status!=='pending'||!command.error)continue;
+      if(!/(?:LOCAL_SYNC_HTTP_(?:429|500|502|503|504)|NETWORK|FAILED TO FETCH|TIMEOUT|ECONN|FETCHERROR|OFFLINE)/i.test(command.error))continue;
+      await this.local.retryCommand(command.id);
+    }
+  }
 
   private visibilityHandler = () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
