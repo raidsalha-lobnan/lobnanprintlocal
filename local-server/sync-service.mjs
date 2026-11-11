@@ -2,7 +2,7 @@ import {InputError, fingerprint, makeNumber, makeCursor, validateCommand} from '
 import {preserveOfficialInvoiceFields} from './invoice-amendments.mjs';
 import {telegramRelevantChanges} from './telegram-delivery.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
-import {assertStableEntitySerial} from './entity-identity.mjs';
+import {assertStableEntitySerial,allocateAutomaticEntityCode} from './entity-identity.mjs';
 import {validateInvoiceCounterparty} from './invoice-counterparty.mjs';
 import {normalizeSingleWarehouseInventory} from './single-warehouse-inventory.mjs';
 import {preserveWorkspaceSettingsCredentials} from './workspace-settings-public.mjs';
@@ -130,6 +130,28 @@ export class SyncService {
             previous:old?.value,next:val,warehouseId:singleWarehouseId,
             commandId:command.id,now:new Date().toISOString()
           });
+        }
+        // The workspace row is locked above. Resolve only explicitly automatic
+        // NEW customer/item codes; never change existing identities or manual
+        // codes, even if two devices submitted the same proposed number.
+        if(actual===0 && (change.entity==='parties'||change.entity==='inventory')){
+          val=await allocateAutomaticEntityCode(
+            client,workspace,change.entity,change.id,old?.value,val
+          );
+        }
+        if(actual===0 && change.entity==='stockMovements' && val?.itemId &&
+           val?.referenceType==='opening'){
+          const linked=await client.query(
+            "SELECT value->>'code' AS code FROM sync_records WHERE workspace=$1 AND entity='inventory' AND record_id=$2",
+            [workspace,String(val.itemId)]
+          );
+          const authoritativeCode=linked.rows[0]?.code;
+          if(authoritativeCode && authoritativeCode!==val.itemCode){
+            const oldCode=String(val.itemCode||'');
+            val={...val,itemCode:authoritativeCode,
+              referenceNumber:val.referenceNumber==='OP-'+oldCode
+                ?'OP-'+authoritativeCode:val.referenceNumber};
+          }
         }
         // Enforce business-code identity inside the serialized PostgreSQL commit.
         // A display-name edit cannot change account/customer/item identity.
