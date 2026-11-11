@@ -146,11 +146,13 @@ export class SyncCoordinator {
   }
 
   private report(partial: Partial<SyncState>) {
-    this.state = { ...this.state, ...partial };
-
-    for (const fn of this.listeners) {
-      fn({ ...this.state });
-    }
+    const next = { ...this.state, ...partial };
+    // Avoid broadcasting a new React state when no observable state changed.
+    // Retry attempts and no-op polling must not keep re-rendering the UI.
+    if ((Object.keys(next) as Array<keyof SyncState>)
+      .every(key => Object.is(next[key], this.state[key]))) return;
+    this.state = next;
+    for (const fn of this.listeners) fn({ ...this.state });
   }
 
   async start() {
