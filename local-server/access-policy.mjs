@@ -1,4 +1,4 @@
-import {fingerprint} from './sync-domain.mjs';
+import {fingerprint,InputError} from './sync-domain.mjs';
 import {officialInvoiceAmendment} from './invoice-amendments.mjs';
 /**
  * Server-enforced permissions for the single-workspace transitional API.
@@ -41,11 +41,7 @@ const FINANCIAL_ENTITIES=new Set([
 ]);
 const GLOBAL_ENTITIES=new Set(['settings','users','roles','companies','branches','accounts','parties','inventory','warehouses']);
 
-const denied=(code='ACCESS_DENIED')=>{
-  const e=new Error(code);
-  e.status=403;
-  return e;
-};
+const denied=(code='ACCESS_DENIED',detail)=>new InputError(code,403,detail);
 
 export async function resolveAccess(pool,workspace,profile,initialAdminId=''){
   if(!profile||profile.status!=='active'||typeof profile.id!=='string')
@@ -190,8 +186,23 @@ export async function authorizeCommand(pool,workspace,access,command){
       'SELECT value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',
       [workspace,change.entity,change.id]);
     const previous=row.rows[0]?.value||null;
+    // A posted invoice's financial modification must go through the central
+    // revision API. This is a ledger safeguard, NOT a missing role permission.
+    if(change.entity==='invoices'&&previous?.isOfficial===true&&
+       !officialInvoiceAmendment(previous,change.value).allowed)
+      throw new InputError('OFFICIAL_INVOICE_REQUIRES_FINANCIAL_REVISION',409,{
+        entity:'invoices',id:change.id,
+        reason:'Posted financial fields cannot be updated through ordinary sync'
+      });
     if(!access.canChange(change.entity,change.value,previous)&&
        !authorizedAtomicOpeningStock(access,command,change,previous))
-      throw denied('ENTITY_PERMISSION_DENIED');
+      throw denied('ENTITY_PERMISSION_DENIED',{
+        entity:change.entity,id:change.id,
+        operation:previous===null?'add':'edit',
+        requiredPermission:previous===null?'add':'edit',
+        acceptableSections:PERMISSIONS[change.entity]||[],
+        roleId:access.profile.roleId,
+        branchId:(change.value||previous)?.branchId||null
+      });
   }
 }
