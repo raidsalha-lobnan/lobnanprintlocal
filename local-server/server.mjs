@@ -18,6 +18,7 @@ import {findVerifiedSettingsReceipts} from './settings-field-patch.mjs';
 import {createAccessVerifier} from './access-verifier.mjs';
 import {adminDirectoryCommand} from './admin-directory.mjs';
 import {auditLegacyInvoicesReadOnly} from './legacy-invoice-reconciliation.mjs';
+import {runWorkspaceReadOnlyAudit} from './operational-health-audit.mjs';
 import {DriveStorage,readAttachmentBody,prepareAttachmentTable,recordUploadedAttachment,findUploadedAttachment,startBackupScheduler,safeName,safeMime} from './drive-storage.mjs';
 import {RcloneDriveStorage,useRcloneDrive} from './rclone-drive-storage.mjs';
 import {GoogleDriveAuthorization} from './drive-oauth.mjs';
@@ -244,6 +245,11 @@ const srv=http.createServer(async(req,res)=>{
         'vary':'Origin'
       });
       return res.end(bytes);
+    }
+    if(STRICT_AUTH&&req.method==='GET'&&url.pathname==='/api/v1/admin/operational-health'){
+      if(!access?.admin)throw new InputError('ADMIN_REQUIRED',403);
+      const report=await runWorkspaceReadOnlyAudit(pool,workspace);
+      return json(res,200,report,cors);
     }
     if(STRICT_AUTH&&req.method==='GET'&&url.pathname==='/api/v1/admin/invoices/reconciliation'){
       if(!access?.admin)throw new InputError('ADMIN_REQUIRED',403);
