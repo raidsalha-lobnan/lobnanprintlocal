@@ -84,3 +84,47 @@ test('admin requires imported system role or explicit configuration, not account
   const explicit=await resolveAccess(makePool(null),'lobnan_main',adminLike,'admin');
   assert.equal(explicit.admin,true);
 });
+
+test('POS cashier may create item with exact opening stock atomically but not independently adjust inventory',async()=>{
+ const pool=makePool(cashier);
+ const access=await resolveAccess(pool,'lobnan_main',user);
+ const item={id:'item-a',code:'PRI-00025',category:'print_raw',
+   name:'Paper',stockQuantity:5,purchasePrice:2};
+ const movement={id:'movement-a',itemId:'item-a',itemCode:'PRI-00025',
+   category:'print_raw',referenceType:'opening',type:'in_opening',
+   referenceNumber:'OP-PRI-00025',quantity:5,balanceBefore:0,
+   balanceAfter:5,unitPrice:2,totalValue:10};
+ const changes=[
+  {entity:'inventory',id:'item-a',expectedVersion:0,value:item},
+  {entity:'stockMovements',id:'movement-a',expectedVersion:0,value:movement}
+ ];
+ await authorizeCommand(pool,'lobnan_main',access,{id:'atomic-test-a',changes});
+ await assert.rejects(authorizeCommand(pool,'lobnan_main',access,{
+   id:'separate-stock',changes:[changes[1]]
+ }),/ENTITY_PERMISSION_DENIED/);
+ await assert.rejects(authorizeCommand(pool,'lobnan_main',access,{
+   id:'wrong-opening',changes:[changes[0],{
+     ...changes[1],value:{...movement,quantity:40,totalValue:80}
+   }]
+ }),/ENTITY_PERMISSION_DENIED/);
+ await assert.rejects(authorizeCommand(pool,'lobnan_main',access,{
+   id:'wrong-reference',changes:[changes[0],{
+     ...changes[1],value:{...movement,referenceNumber:'OP-someone-else'}
+   }]
+ }),/ENTITY_PERMISSION_DENIED/);
+});
+test('permission to create an opening movement never overrides role-level add denial',async()=>{
+ const viewer=await resolveAccess(makePool({
+   code:'VIEW_ONLY',permissions:{view:true,view_pos:true,add:false,edit:false}
+ }), 'lobnan_main', user);
+ const item={id:'item-a',code:'PRI-00025',category:'print_raw',stockQuantity:5,purchasePrice:2};
+ const m={id:'movement-a',itemId:'item-a',itemCode:'PRI-00025',category:'print_raw',
+  referenceType:'opening',type:'in_opening',referenceNumber:'OP-PRI-00025',
+  quantity:5,balanceBefore:0,balanceAfter:5,unitPrice:2,totalValue:10};
+ await assert.rejects(authorizeCommand(makePool(cashier),'lobnan_main',viewer,{
+  id:'viewer-forbidden',changes:[
+   {entity:'inventory',id:'item-a',expectedVersion:0,value:item},
+   {entity:'stockMovements',id:'movement-a',expectedVersion:0,value:m}
+  ]
+ }),/ENTITY_PERMISSION_DENIED/);
+});
