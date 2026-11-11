@@ -7774,7 +7774,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           console.error('POSTGRES_CONFIRMED_LOCAL_RECEIPT_FAILED',receiptError);
           localReceiptWarning =
             'تم اعتماد تعديل الفاتورة على خادم PostgreSQL، لكن تعذّر تحديث النسخة المحلية بسبب انقطاع اتصال تخزين المتصفح. لا تحفظ الفاتورة مرة أخرى؛ افتحها من سجل الفواتير بعد تحديث الصفحة للتحقق من البيانات المعتمدة.';
-          try {localStorage.setItem('lobnan_postgres_reconciliation_required','true');}catch{}
+          try {localStorage.setItem('lobnan_postgres_receipt_review_required','true');}catch{}
         }
         repo.requestSync();
         const confirmed=result.changes.find(row=>row.entity==='invoices'&&row.id===original.id);
