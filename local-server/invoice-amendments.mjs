@@ -38,7 +38,7 @@ function appendOnlyHistory(oldHistory,newHistory){
  * can only change the allowlisted presentation/workflow fields.
  */
 export function officialInvoiceAmendment(previous,proposed){
-  if(!previous||previous.isOfficial!==true)return {allowed:true};
+  if(!previous||(previous.isOfficial!==true&&previous.isAccountingPosted!==true))return {allowed:true};
   if(!proposed||typeof proposed!=='object'||Array.isArray(proposed))
     return {allowed:false,reason:'POSTED_INVOICE_CORRECTION_REQUIRED'};
   if(proposed.id!==previous.id||proposed.invoiceNumber!==previous.invoiceNumber)
@@ -66,10 +66,10 @@ export function officialInvoiceAmendment(previous,proposed){
   return {allowed:true};
 }
 export function preserveOfficialInvoiceFields(previous,proposed){
-  if(!previous||previous.isOfficial!==true)return proposed;
+  if(!previous||(previous.isOfficial!==true&&previous.isAccountingPosted!==true))return proposed;
   const check=officialInvoiceAmendment(previous,proposed);
   if(!check.allowed){const err=new Error(check.reason);err.status=422;throw err;}
-  return {...proposed,isOfficial:true,
+  return {...proposed,isOfficial:previous.isOfficial===true,
     ...(previous.tempInvoiceNumber!==undefined?{tempInvoiceNumber:previous.tempInvoiceNumber}:{}),
     ...(previous.postedAt!==undefined?{postedAt:previous.postedAt}:{})};
 }
