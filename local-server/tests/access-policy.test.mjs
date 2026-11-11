@@ -72,7 +72,7 @@ test('financial tombstones and finalized invoice modifications are prohibited',a
   const access=await resolveAccess(pool,'lobnan_main',user);
   await assert.rejects(authorizeCommand(pool,'lobnan_main',access,{changes:[
     {entity:'invoices',id:'i1',value:{id:'i1',branchId:'b1',isOfficial:true,total:25}}
-  ]}),/ENTITY_PERMISSION_DENIED/);
+  ]}),/OFFICIAL_INVOICE_REQUIRES_FINANCIAL_REVISION/);
   await assert.rejects(authorizeCommand(pool,'lobnan_main',access,{changes:[
     {entity:'invoices',id:'i1',value:null}
   ]}),/ENTITY_PERMISSION_DENIED/);
@@ -127,4 +127,21 @@ test('permission to create an opening movement never overrides role-level add de
    {entity:'stockMovements',id:'movement-a',expectedVersion:0,value:m}
   ]
  }),/ENTITY_PERMISSION_DENIED/);
+});
+
+test('role denial identifies the required operation without exposing other user credentials',async()=>{
+ const pool=makePool({...cashier,permissions:{...cashier.permissions,add:false}});
+ const access=await resolveAccess(pool,'lobnan_main',user);
+ await assert.rejects(authorizeCommand(pool,'lobnan_main',access,{changes:[
+  {entity:'inventory',id:'inventory-new',value:{id:'inventory-new',code:'PRI-00021'}}
+ ]}),error=>{
+  assert.equal(error.message,'ENTITY_PERMISSION_DENIED');
+  assert.equal(error.status,403);
+  assert.equal(error.detail.entity,'inventory');
+  assert.equal(error.detail.operation,'add');
+  assert.equal(error.detail.requiredPermission,'add');
+  assert.ok(error.detail.acceptableSections.includes('view_pos'));
+  assert.equal(error.detail.roleId,'cashier');
+  return true;
+ });
 });
