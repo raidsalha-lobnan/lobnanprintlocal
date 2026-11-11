@@ -16,6 +16,7 @@ import {
 import { SyncCommand } from '../sync-next/types';
 import type {QueueComparison} from '../sync-next/queueDiagnostics';
 import {classifyQueueSafety} from '../sync-next/queueSafety';
+import {explainSyncFailure} from '../sync-next/syncFailureGuide';
 import { assessLocalStorageHealth } from '../sync-next/storageHealth';
 import { useAccounting } from '../context/AccountingContext';
 
@@ -382,8 +383,14 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                               {cmd.changes.slice(0, 3).map(c => getEntityLabel(c.entity)).join('، ')}
                               {cmd.changes.length > 3 ? ` (+${cmd.changes.length - 3} سجلات)` : ''}
                             </div>
-                            <div className="text-[11px] text-rose-300 mt-1 font-mono">
-                              الخطأ: {cmd.error || 'تم اكتشاف تعديل مسبق للنسخة على جهاز آخر'}
+                            <div className="mt-2 rounded-lg bg-slate-900/60 border border-slate-700 p-2 text-xs">
+                              <div className="font-bold text-amber-200">{explainSyncFailure(cmd.error,cmd.changes[0]?.entity).title}</div>
+                              <div className="mt-1 text-slate-200">{explainSyncFailure(cmd.error,cmd.changes[0]?.entity).explanation}</div>
+                              <div className="mt-1 text-sky-200">{explainSyncFailure(cmd.error,cmd.changes[0]?.entity).nextStep}</div>
+                              <details className="mt-2 text-slate-400">
+                                <summary className="cursor-pointer">التفاصيل التقنية</summary>
+                                <div className="break-all font-mono mt-1">{cmd.error || 'تعارض نسخة بدون تفاصيل إضافية'}</div>
+                              </details>
                             </div>
                             {classifyQueueSafety(cmd).advice && (
                               <div role="alert" className="mt-2 max-w-3xl text-[11px] leading-relaxed text-amber-200">
