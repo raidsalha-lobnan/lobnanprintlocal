@@ -141,6 +141,34 @@ export function filterEvents(events,access){
     access.canRead(change.entity,change.value,change.id))}));
 }
 
+/**
+ * A cashier allowed to create catalog items may supply their opening stock
+ * ONLY in the very same transaction as that new item. This does not grant a
+ * general inventory-adjustment or stock-transfer permission.
+ */
+export function authorizedAtomicOpeningStock(access,command,change,previous){
+  if(previous!==null||change?.entity!=='stockMovements')return false;
+  if(!access?.can?.('view')||!access.can('view_pos')||!access.can('add'))return false;
+  const v=change.value;
+  if(!v||v.type!=='in_opening'||v.referenceType!=='opening'||
+     typeof v.itemId!=='string'||!v.itemId||
+     Number(v.balanceBefore)!==0)return false;
+  const qty=Number(v.quantity),price=Number(v.unitPrice),total=Number(v.totalValue);
+  if(!Number.isFinite(qty)||qty<=0||!Number.isFinite(price)||price<0||
+     !Number.isFinite(total)||Math.abs(qty*price-total)>0.01)return false;
+  const matching=command.changes.filter(c=>
+    c.entity==='inventory'&&c.id===v.itemId&&c.value&&
+    c.expectedVersion===0);
+  if(matching.length!==1)return false;
+  const item=matching[0].value;
+  if(!access.canChange('inventory',item,null))return false;
+  if(String(item.code||'')!==String(v.itemCode||'')||
+     String(item.category||'')!==String(v.category||'')||
+     Number(item.stockQuantity)!==qty||
+     Math.abs(Number(item.purchasePrice||0)-price)>0.00001)return false;
+  return v.referenceNumber==='OP-'+item.code;
+}
+
 export async function authorizeCommand(pool,workspace,access,command){
   if(!command||!Array.isArray(command.changes)||command.changes.length===0||
      command.changes.length>80)throw denied('INVALID_COMMAND');
@@ -162,6 +190,8 @@ export async function authorizeCommand(pool,workspace,access,command){
       'SELECT value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',
       [workspace,change.entity,change.id]);
     const previous=row.rows[0]?.value||null;
-    if(!access.canChange(change.entity,change.value,previous))throw denied('ENTITY_PERMISSION_DENIED');
+    if(!access.canChange(change.entity,change.value,previous)&&
+       !authorizedAtomicOpeningStock(access,command,change,previous))
+      throw denied('ENTITY_PERMISSION_DENIED');
   }
 }
