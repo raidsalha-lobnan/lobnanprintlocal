@@ -5,6 +5,7 @@ import {
   toJsonObject, validateChanges
 } from './types';
 import {composeLocalSettingsDraft,type SettingsFieldPatch,type VerifiedSettingsReceipt} from './settingsPatch';
+import {getCurrentSessionActorId,secureLoginEnabled} from '../services/secureAuth';
 
 const DB_VERSION = 2;
 const RECORDS = 'records';
@@ -244,6 +245,8 @@ export class LocalSyncDb {
       const cmd: SyncCommand = {
         id: commandId,
         workspaceId: this.workspaceId,
+        ...(secureLoginEnabled()&&getCurrentSessionActorId()
+          ? {actorId:getCurrentSessionActorId()} : {}),
         ...(atomicInvoiceId ? { atomicInvoiceId } : {}),
         changes: versioned,
         baseRecords: safeChanges.map(change=>bases.get(recordKey(change.entity,change.id))??null),
