@@ -62,6 +62,43 @@ export class LocalHttpSyncTransport implements SyncTransport {
           'لا تكرر الحفظ ولا تعِد إنشاء الفاتورة.'
         );
       }
+      // These errors describe different problems. In particular, a posted
+      // invoice's accounting safeguard is not an employee permission problem.
+      if(data.code==='ENTITY_PERMISSION_DENIED'){
+        const d=data.detail||{};
+        const section=String(d.entity||'السجل');
+        const operation=d.operation==='add'?'الإضافة':'التعديل';
+        const role=String(d.roleId||'غير محدد');
+        const needed=String(d.requiredPermission||'غير معروف');
+        throw new PermanentSyncError(
+          'ENTITY_PERMISSION_DENIED: رفض خادم PostgreSQL '+operation+
+          ' في '+section+'. حساب المستخدم الحالي لا يملك الصلاحية المطلوبة ('+
+          needed+') ضمن الدور '+role+
+          '. يجب أن يحدّث مدير النظام صلاحيات هذا الحساب أو القسم من شاشة الإدارة؛ لا تُكرّر العملية بحساب آخر.'
+        );
+      }
+      if(data.code==='OFFICIAL_INVOICE_REQUIRES_FINANCIAL_REVISION'){
+        throw new PermanentSyncError(
+          'OFFICIAL_INVOICE_REQUIRES_FINANCIAL_REVISION: هذه فاتورة معتمدة، '+
+          'وتعديل مبلغها أو أصنافها يحتاج أمر تصحيح محاسبي مركزي بدلاً من حفظ نسخة فاتورة مباشرة. '+
+          'لم يُكتب أي قيد جديد، ولا يجب إعادة إنشاء الفاتورة.'
+        );
+      }
+      if(data.code==='ENTITY_SERIAL_ALREADY_USED'){
+        const d=data.detail||{};
+        throw new PermanentSyncError(
+          'ENTITY_SERIAL_ALREADY_USED: كود السجل ('+String(d.field||'code')+
+          ') مستخدم بالفعل في PostgreSQL للسجل '+String(d.existingId||'آخر')+
+          '. إذا كان الكود مقترحًا تلقائيًا، يجب أن يخصص الخادم كودًا جديدًا، '+
+          'ولا تُغيّر المعرّف الداخلي للسجل أو ترسل نسخة أخرى قبل مراجعة طابور الجهاز.'
+        );
+      }
+      if(data.code==='ENTITY_SERIAL_IMMUTABLE'){
+        throw new PermanentSyncError(
+          'ENTITY_SERIAL_IMMUTABLE: معرّف أو كود أو فئة السجل المعتمد لا يمكن تغييرها '+
+          'أثناء التعديل العادي. يجب الاحتفاظ برقم السجل الداخلي ومطابقة النسخة المعتمدة مع طابور الجهاز.'
+        );
+      }
       if(response.status===403||response.status===422||response.status===409){
         const reviewDetail=data.detail?.manualReviewRequired
           ?'مراجعة مطلوبة للفاتورة '+String(data.detail?.invoiceNumber||'')+
