@@ -188,7 +188,7 @@ export async function authorizeCommand(pool,workspace,access,command){
     const previous=row.rows[0]?.value||null;
     // A posted invoice's financial modification must go through the central
     // revision API. This is a ledger safeguard, NOT a missing role permission.
-    if(change.entity==='invoices'&&previous?.isOfficial===true&&
+    if(change.entity==='invoices'&&change.value!==null&&previous?.isOfficial===true&&
        !officialInvoiceAmendment(previous,change.value).allowed)
       throw new InputError('OFFICIAL_INVOICE_REQUIRES_FINANCIAL_REVISION',409,{
         entity:'invoices',id:change.id,
