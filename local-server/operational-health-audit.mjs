@@ -107,10 +107,10 @@ export async function runWorkspaceReadOnlyAudit(pool,workspace){
       entities[entity]=(await client.query('SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity=$2',[workspace,entity])).rows;
     }
     const records=assessWorkspaceRecords(entities);
-    const commandStates=(await client.query("SELECT status,count(*)::int AS count FROM sync_commands WHERE workspace=$1 GROUP BY status ORDER BY status",[workspace])).rows;
+    const commandStats=(await client.query("SELECT count(*)::int AS committed_commands, count(DISTINCT command_id)::int AS distinct_commands FROM sync_commands WHERE workspace=$1",[workspace])).rows[0];
     const eventStats=(await client.query("SELECT count(*)::bigint AS count, max(sequence)::bigint AS max_sequence FROM sync_events WHERE workspace=$1",[workspace])).rows[0];
     await client.query('COMMIT');
-    return {...records,commandStates,eventStats};
+    return {...records,commandStats,eventStats};
   }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error}
   finally{client.release()}
 }
