@@ -120,3 +120,16 @@ test('existing customer code cannot be silently renumbered by an auto marker',as
  await assert.rejects(assertStableEntitySerial({query:async()=>{throw Error('unexpected query')}},
   'lobnan_main','parties','pt-123',existing,result),/ENTITY_SERIAL_IMMUTABLE/);
 });
+
+test('CUST-0001 is reserved for the cash customer even without cached customer records',async()=>{
+ const db={query:async()=>({rows:[]})};
+ const created=await allocateAutomaticEntityCode(db,'lobnan_main','parties','pt-fresh',null,
+  {id:'pt-fresh',name:'Normal customer',type:'customer',code:'CUST-0001',_serverAutoCode:true});
+ assert.equal(created.code,'CUST-0002');
+ await assertStableEntitySerial(db,'lobnan_main','parties','pt-fresh',null,created);
+ await assert.rejects(
+  assertStableEntitySerial(db,'lobnan_main','parties','pt-manual',null,
+    {id:'pt-manual',name:'Normal customer',code:'CUST-0001'}),
+  /CASH_CUSTOMER_CODE_RESERVED/
+ );
+});
