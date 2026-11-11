@@ -41,7 +41,7 @@ test('operational scan is restricted to a PostgreSQL read-only transaction',asyn
  const queries=[];
  const pool={connect:async()=>({
   query:async(sql)=>{queries.push(sql);
-   if(sql.startsWith('SELECT status'))return {rows:[{status:'committed',count:3}]};
+   if(sql.startsWith('SELECT count(*)::int AS committed_commands'))return {rows:[{committed_commands:3,distinct_commands:3}]};
    if(sql.startsWith('SELECT count(*)'))return {rows:[{count:10,max_sequence:10}]};
    return {rows:[]};
   },release:()=>{}
