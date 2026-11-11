@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccounting } from '../context/AccountingContext';
+import {LegacyInvoiceAuditPanel} from './LegacyInvoiceAuditPanel';
 import { syncAuditService, SyncAuditItem, SyncConnectionIssue, ENTITY_ARABIC_NAMES } from '../services/syncAuditService';
 
 // Inlined self-contained reconciliation helpers to eliminate external module resolution issues in remote CI/CD builds
@@ -475,6 +476,7 @@ export const SyncAuditStatementView: React.FC = () => {
 
   return (
     <div className="space-y-3 p-1 sm:p-2 text-slate-800" dir="rtl">
+      <LegacyInvoiceAuditPanel/>
       {/* التشخيص الفوري */}
       {/* PostgreSQL connection is checked by the canonical sync coordinator. */}
       {/* 1. Official Header & Voucher Title Banner */}
