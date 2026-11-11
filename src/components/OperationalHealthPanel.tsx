@@ -38,7 +38,9 @@ export const OperationalHealthPanel:React.FC=()=>{
    });
    if(!response.ok)throw new Error(response.status===403
      ?'التقرير متاح لمدير النظام فقط.'
-     :'خطأ استجابة الخادم: '+response.status);
+     :response.status===404
+      ?'الخادم المحلي يعمل بالإصدار السابق؛ يجب تفعيل تحديث خدمة التدقيق على الكمبيوتر الرئيسي قبل تشغيل التقرير المباشر.'
+      :'خطأ استجابة الخادم: '+response.status);
    const data=await response.json();
    if(!data?.byType||!Array.isArray(data?.issues))throw new Error('استجابة الفحص غير مكتملة');
    setReport(data);
