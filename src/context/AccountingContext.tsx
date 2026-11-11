@@ -5870,7 +5870,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const addStockMovement = (movement: Omit<StockMovement, 'id'>) => {
-    const id = 'sm-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    const id = 'sm-' + crypto.randomUUID();
     const newMovement: StockMovement = {
       ...movement,
       id,
@@ -5880,10 +5880,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const next = [newMovement, ...prev];
       try { localStorage.setItem(`${STORAGE_KEY}_stockMovements`, JSON.stringify(next)); } catch {}
       broadcastEntityChange('stockMovements', next);
-      pushToServerSync('stockMovements', newMovement);
       return next;
     });
-    // Stock movement is queued once by pushToServerSync inside setStockMovements.
+    pushToServerSync('stockMovements', newMovement);
   };
 
   const addInventoryItem = (item: Omit<InventoryItem, 'id'>) => {
@@ -5903,9 +5902,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setInventory(prev => {
       const next = [newItem, ...prev];
       broadcastEntityChange('inventory', next);
-      pushToServerSync('inventory', newItem);
       return next;
     });
+    pushToServerSync('inventory', newItem);
 
     // One durable queue write is already scheduled by pushToServerSync above.
     // Do not enqueue the same new record a second time.
@@ -5950,13 +5949,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const next = prev.map(it => (it.id === id ? merged : it));
       if (!prev.some(it => it.id === id)) next.push(merged);
       broadcastEntityChange('inventory', next);
-      pushToServerSync('inventory', merged);
       try {
         localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(next));
       } catch {}
       return next;
     });
-    // Updated item is already queued once by pushToServerSync inside setInventory.
+    pushToServerSync('inventory', merged);
+    // Enqueue outside the React functional state updater.
 
     // Bidirectional sync: sync item special prices to customer profiles
     if (updated.customerSpecialPrices !== undefined) {
@@ -6097,7 +6096,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setParties(prev => {
       const next = [...prev, newParty];
       broadcastEntityChange('parties', next);
-      pushToServerSync('parties', newParty);
       try {
         localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(next));
         localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
@@ -6108,8 +6106,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setHasUnsyncedChanges(true);
     setPendingSyncCount(prev => prev + 1);
 
-    // One durable queue write is already scheduled by pushToServerSync above.
-    // Do not enqueue the same new record a second time.
+    pushToServerSync('parties', newParty);
+    // Enqueue once outside the React state updater.
 
     return newParty;
   };
