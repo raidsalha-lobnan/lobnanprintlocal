@@ -2,6 +2,7 @@ import { LocalSyncDb } from './localDb';
 import {planConflictResolution,planAtomicCommandAlreadyConfirmed} from './conflictResolution';
 import {recordKey,type StoredRecord} from './types';
 import {getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
+import {isSafeAutoCodeRetryCandidate} from './catalogAutoRecovery';
 import {fingerprintSyncCommand,type SettingsReceiptProof,type VerifiedSettingsReceipt} from './settingsPatch';
 
 import {
@@ -399,12 +400,9 @@ export class SyncCoordinator {
       // not exist, retry the ORIGINAL immutable command ID and payload once.
       // Only the server can choose the approved free code; no local renumber,
       // command duplication, deletion, journal changes, or owner bypass.
-      const autoCodeRejected=cmd.status==='rejected'&&
-        ['inventory','parties'].includes(change.entity)&&
-        change.expectedVersion===0 &&
-        change.value?._serverAutoCode===true&&
-        /ENTITY_SERIAL_ALREADY_USED|CASH_CUSTOMER_CODE_RESERVED/.test(cmd.error||'')&&
-        cmd.attempts<=2 && !hasDependents && !index.has(key);
+      const autoCodeRejected=isSafeAutoCodeRetryCandidate(
+        cmd,index.has(key),hasDependents
+      );
       if(autoCodeRejected){
         await this.local.markError(cmd.id,'pending','',0);
         this.requested=true;
