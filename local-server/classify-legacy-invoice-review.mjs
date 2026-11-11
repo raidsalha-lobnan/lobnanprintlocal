@@ -6,7 +6,8 @@ const queuePath='D:/LobnanData/audit/legacy-invoice-priority-queue.json';
 const audit=JSON.parse(fs.readFileSync(auditPath,'utf8'));
 const register=JSON.parse(fs.readFileSync(registerPath,'utf8'));
 if(!audit.readOnly||audit.workspace!=='lobnan_main'||register.accountingWritesEnabled!==false||
- audit.pending.length!==39||register.cases.length!==40)
+ audit.pending.length!==register.cases.filter(c=>!c.correctionApplied).length||
+ audit.pending.length+(audit.corrected||[]).length!==register.cases.length)
  throw Error('RECONCILIATION_WORKSPACE_OR_COUNT_INVALID');
 const evidenceIndex=new Map(audit.pending.map(x=>[x.recordId,x]));
 const priority=[];
@@ -44,7 +45,7 @@ for(const rec of register.cases){
   priority:flags.includes('PARTY_BALANCE_MISMATCH')?3:flags.includes('ITEM_CODE_IDENTITY_MISMATCH')?2:1,
   flags,reviewStatus:rec.reviewStatus,evidenceHash});
 }
-if(priority.length!==39)throw Error('EXPECTED_39_PENDING_CASES');
+if(priority.length!==audit.pending.length)throw Error('PENDING_CASE_COUNT_MISMATCH');
 priority.sort((a,b)=>a.priority-b.priority||
  Number(a.number.replace(/[^0-9]/g,''))-Number(b.number.replace(/[^0-9]/g,'')));
 register.lastCaseAuditAt=new Date().toISOString();
@@ -52,7 +53,7 @@ register.accountingWritesEnabled=false;
 const write=(file,x)=>{
  const tmp=file+'.tmp';fs.writeFileSync(tmp,JSON.stringify(x,null,2),'utf8');fs.renameSync(tmp,file);
 };
-write(queuePath,{readOnly:true,workspace:'lobnan_main',remaining:39,priority});
+write(queuePath,{readOnly:true,workspace:'lobnan_main',remaining:priority.length,priority});
 write(registerPath,register);
 console.log(JSON.stringify({registerPath,queuePath,pending:priority.length,
  firstCases:priority.slice(0,7),flags63:priority.find(x=>x.number==='INV-0063')?.flags,
