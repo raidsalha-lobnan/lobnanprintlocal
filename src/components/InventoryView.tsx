@@ -636,6 +636,10 @@ export const InventoryView: React.FC = () => {
     } else {
       addInventoryItem({
         code: trimmedCode,
+        // This screen's SKU field is read-only and always program-generated.
+        // Preserve that provenance even when another device has already
+        // claimed the displayed preview before the user presses Save.
+        ...({_serverAutoCode: true} as any),
         barcode: formBarcode.trim(),
         additionalBarcodes: additionalCodes,
         barcodeEntries: cleanedEntries,
