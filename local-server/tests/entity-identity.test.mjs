@@ -55,3 +55,26 @@ test('category of an existing inventory item is immutable outside audited migrat
    /ENTITY_SERIAL_IMMUTABLE/
  );
 });
+
+test('multiple inventory products may share a category without duplicate-category rejection',async()=>{
+ const existing=[
+  {entity:'inventory',id:'item-old',value:{id:'item-old',code:'PRI-0001',category:'printing',name:'Paper'}},
+  {entity:'inventory',id:'item-other',value:{id:'item-other',code:'PRI-0002',category:'printing',name:'Ink'}}
+ ];
+ const calls=[];
+ const db={query:async(sql,params)=>{
+  calls.push(params[3]);
+  const [,entity,id,field,serial]=params;
+  return {rows:existing.filter(x=>x.entity===entity&&x.id!==id&&
+    String(x.value[field]??'').trim().toLowerCase()===String(serial).trim().toLowerCase())
+    .map(x=>({record_id:x.id}))};
+ }};
+ await assertStableEntitySerial(db,'lobnan_main','inventory','item-new',null,
+  {code:'PRI-0003',category:'printing',name:'More paper'});
+ assert.deepEqual(calls,['code']);
+ await assert.rejects(
+  assertStableEntitySerial(db,'lobnan_main','inventory','item-new',null,
+   {code:'PRI-0001',category:'printing',name:'Duplicate code'}),
+  /ENTITY_SERIAL_ALREADY_USED/
+ );
+});
