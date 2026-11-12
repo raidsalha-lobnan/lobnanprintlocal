@@ -53,7 +53,8 @@ export const GoogleDriveBackupSettings: React.FC = () => {
 
   const [driveAccountEmail,setDriveAccountEmail]=useState('');
   const [oauthStatus,setOauthStatus]=useState<{
-    connected:boolean;email:string|null;connectedAt:string|null;oauthReady:boolean;mailReady:boolean
+    connected:boolean;email:string|null;connectedAt:string|null;oauthReady:boolean;mailReady:boolean;
+    missingOAuthSettings?:string[];missingMailSettings?:string[]
   }|null>(null);
   const [sendingConsent,setSendingConsent]=useState(false);
   const [consentFeedback,setConsentFeedback]=useState('');
@@ -70,6 +71,10 @@ export const GoogleDriveBackupSettings: React.FC = () => {
   };
   const sendDriveConsentEmail=async()=>{
     if(!driveAccountEmail.trim())return;
+    if(!oauthStatus?.oauthReady||!oauthStatus?.mailReady){
+      setConsentFeedback('الربط غير جاهز على الخادم. يجب إكمال إعداد Google OAuth وخدمة البريد مرة واحدة قبل إرسال الرابط.');
+      return;
+    }
     setSendingConsent(true);
     setConsentFeedback('');
     try{
@@ -89,7 +94,9 @@ export const GoogleDriveBackupSettings: React.FC = () => {
         ?'يجب إعداد عميل OAuth الخاص بالبرنامج في الخادم أولًا.'
         :code==='GOOGLE_DRIVE_EMAIL_DELIVERY_NOT_CONFIGURED'
           ?'خدمة إرسال البريد غير مهيأة على الخادم.'
-          :'تعذر إرسال رابط التفويض: '+code);
+          :code==='GOOGLE_DRIVE_AUTH_EMAIL_SEND_FAILED'
+            ?'فشل إرسال البريد من خدمة الإرسال. تحقق من حساب مزود البريد والنطاق الموثق.'
+            :'تعذر إرسال رابط التفويض: '+code);
     }finally{setSendingConsent(false);}
   };
   useEffect(()=>{
@@ -381,7 +388,7 @@ export const GoogleDriveBackupSettings: React.FC = () => {
             className="min-w-0 flex-1 border border-slate-300 p-2 rounded-lg text-sm"
           />
           <button type="button" onClick={sendDriveConsentEmail}
-            disabled={sendingConsent||!/^\S+@\S+\.\S+$/.test(driveAccountEmail)}
+            disabled={sendingConsent||!oauthStatus?.oauthReady||!oauthStatus?.mailReady||!/^\S+@\S+\.\S+$/.test(driveAccountEmail)}
             className="rounded-lg bg-blue-700 px-3 py-2 text-white text-xs font-bold disabled:opacity-40">
             {sendingConsent?'جارٍ إرسال التفويض...':'إرسال رابط الموافقة إلى البريد'}
           </button>
@@ -394,6 +401,18 @@ export const GoogleDriveBackupSettings: React.FC = () => {
             :oauthStatus?.oauthReady?'بانتظار موافقة صاحب الحساب':'إعداد OAuth للخادم غير مكتمل'}
           {oauthStatus && !oauthStatus.mailReady?' — خدمة إرسال البريد تحتاج إعدادًا أوليًا':''}
         </p>
+        {oauthStatus && (!oauthStatus.oauthReady || !oauthStatus.mailReady) && (
+          <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 space-y-1">
+            <p className="font-bold">إعداد الربط لم يكتمل على الكمبيوتر الرئيسي. إرسال الرابط معطل حتى يجهز الخادم.</p>
+            {oauthStatus.missingOAuthSettings?.length ? (
+              <p>إعدادات OAuth المطلوبة: <code dir="ltr" className="select-text">{oauthStatus.missingOAuthSettings.join('، ')}</code></p>
+            ) : !oauthStatus.oauthReady ? <p>بيانات OAuth غير مكتملة أو مفتاح التشفير غير صالح.</p> : null}
+            {oauthStatus.missingMailSettings?.length ? (
+              <p>إعدادات البريد المطلوبة: <code dir="ltr" className="select-text">{oauthStatus.missingMailSettings.join('، ')}</code></p>
+            ) : !oauthStatus.mailReady ? <p>خدمة إرسال البريد غير مفعلة.</p> : null}
+            <p>لا تدخل Client Secret أو رموز Google هنا؛ تُضبط على الخادم فقط. يمكن استمرار النسخ المحلية، لكن لا تعتمد على رفع Google Drive قبل نجاح اختبار اتصال موثق.</p>
+          </div>
+        )}
         {consentFeedback && <p role="status" className="text-xs font-bold text-amber-800">{consentFeedback}</p>}
         <p className="text-[11px] text-slate-500">
           يتطلب الإعداد الأولي مرة واحدة Google OAuth Web Client مع عنوان إعادة توجيه الخادم

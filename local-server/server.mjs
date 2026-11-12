@@ -22,6 +22,7 @@ import {runWorkspaceReadOnlyAudit} from './operational-health-audit.mjs';
 import {DriveStorage,readAttachmentBody,prepareAttachmentTable,recordUploadedAttachment,findUploadedAttachment,startBackupScheduler,safeName,safeMime} from './drive-storage.mjs';
 import {RcloneDriveStorage,useRcloneDrive} from './rclone-drive-storage.mjs';
 import {GoogleDriveAuthorization} from './drive-oauth.mjs';
+import {sanitizedDriveHttpError} from './drive-error-response.mjs';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 const PORT=Number(process.env.SYNC_PORT||4577);
 const TOKEN=process.env.SYNC_DEVICE_TOKEN||'';
@@ -328,9 +329,13 @@ const srv=http.createServer(async(req,res)=>{
   }catch(e){
     const err=classifyApprovedCatalogError(e);
     console.error('sync request',err?.message);
-    const safeStatus=err instanceof InputError?err.status:err?.status===403?403:500;
+    const driveProblem=sanitizedDriveHttpError(err);
+    // Expected OAuth configuration failures are actionable errors, not generic
+    // SERVER_ERROR 500. Only explicitly allowlisted codes can be returned.
+    const safeStatus=driveProblem?.status||
+      (err instanceof InputError?err.status:err?.status===403?403:500);
     json(res,safeStatus,
-      {code:safeStatus===500?'SERVER_ERROR':err.message,
+      {code:driveProblem?.code||(safeStatus===500?'SERVER_ERROR':err.message),
        detail:err instanceof InputError?err.detail:undefined},cors);
   }
 });
