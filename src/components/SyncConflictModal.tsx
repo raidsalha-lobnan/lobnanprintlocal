@@ -135,20 +135,21 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
   const archiveBlockedWithPrivateBackup = async () => {
     if(!unifiedRepository||!privateBackupSnapshot)return;
     const plan=planBlockedCommandQuarantine(privateBackupSnapshot);
-    if(plan.counts.quarantined===0){setFeedback('لا توجد عمليات متوقفة تحتاج إلى أرشفة.');return;}
+    if(plan.counts.quarantined===0){setFeedback('لا توجد عمليات قديمة متوقفة تحتاج إلى حذف من طابور المزامنة.');return;}
     const approval=window.prompt(
       'سيتم إخراج '+plan.counts.quarantined+' عملية من الطابور النشط، منها '+
       plan.counts.rejected+' مرفوضة و'+plan.counts.conflict+' متعارضة و'+
-      plan.counts.dependentPending+' تابعة لها. ستُحفظ داخليًا في أرشيف مستقل، '+
-      'لكنها لن تُرسل إلى PostgreSQL ولن تُعتبر محفوظة ماليًا. تأكد من حفظ النسخة الخاصة التي نزّلتها، ثم اكتب: أرشفة');
-    if(approval!=='أرشفة')return;
+      plan.counts.dependentPending+' تابعة لها. ستُحذف من طابور المزامنة النشط ولن تُرسل تلقائيًا مجددًا، '+
+      'مع الاحتفاظ بنسخة إنقاذ داخلية للمراجعة المحاسبية، دون حذف أي فاتورة أو رصيد من PostgreSQL. '+
+      'تأكد من حفظ ملف النسخة الخاصة في جهازك، ثم اكتب: حذف القديمة');
+    if(approval!=='حذف القديمة')return;
     setIsLoading(true);setFeedback(null);
     try{
       const archive=await unifiedRepository.getCoordinator().withPausedQueueMaintenance(
         ()=>unifiedRepository.getLocalDb().quarantineBlockedAfterBackup(privateBackupSnapshot));
       setPrivateBackupSnapshot(null);
-      setFeedback('تم بدء طابور جديد بأمان؛ أُرشفت '+archive.counts.quarantined+
-        ' عملية محليًا دون إرسالها إلى PostgreSQL. يمكن تنزيلها من قسم الأرشيف للمراجعة لاحقًا.');
+      setFeedback('تم حذف '+archive.counts.quarantined+
+        ' عملية قديمة من طابور المزامنة النشط. لن تُرسل من جديد. بقيت نسخة إنقاذ خاصة داخل سجل المراجعة، ولم يتغير شيء مالي في PostgreSQL.');
       await loadData();
     }catch(err:any){
       setFeedback('لم يتم التصفير؛ بقيت البيانات محفوظة: '+String(err?.message||err)+
@@ -405,8 +406,8 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
 
               {savedArchives.length>0 && (
                 <div className="p-3 rounded-lg border border-amber-800 bg-amber-950/30 text-xs text-amber-100 space-y-2">
-                  <div className="font-bold">الأرشيف المحلي: {savedArchives.reduce((n,a)=>n+a.counts.quarantined,0)} عملية محفوظة للمراجعة (غير مُزامنة).</div>
-                  <div>العدّاد الحالي لا يشمل العمليات المؤرشفة؛ أرشفتها ليست إثبات حفظ مالي على PostgreSQL.</div>
+                  <div className="font-bold">سجل إنقاذ العمليات القديمة: {savedArchives.reduce((n,a)=>n+a.counts.quarantined,0)} عملية محذوفة من الطابور النشط ومحفوظة للمراجعة فقط.</div>
+                  <div>هذه العمليات لن تعود إلى طابور المزامنة تلقائيًا، ولا تُحتسب تعارضات نشطة. نسخة الإنقاذ ليست إثباتًا بحفظها على PostgreSQL.</div>
                   <button type="button" disabled={isLoading} onClick={()=>downloadPrivateArchive(savedArchives[0].archiveId)}
                     className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 font-bold disabled:opacity-50">
                     تنزيل أحدث أرشيف خاص للمراجعة
@@ -436,7 +437,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                     {privateBackupSnapshot && planBlockedCommandQuarantine(privateBackupSnapshot).counts.quarantined>0 && (
                       <button type="button" onClick={archiveBlockedWithPrivateBackup} disabled={isLoading}
                         className="px-3 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-600 text-xs text-white font-bold disabled:opacity-50">
-                        أرشفة المتوقف وبدء طابور جديد (بعد حفظ النسخة الخاصة)
+                        حذف التعارضات القديمة من الطابور وبدء مزامنة نظيفة
                       </button>
                     )}
                     <button type="button" onClick={saveEmergencyQueueCopy} disabled={isLoading}
