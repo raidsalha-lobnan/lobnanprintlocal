@@ -146,6 +146,23 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
       setFeedback('تعذر تصدير التقرير: '+String(error?.message||error));
     }finally{setIsLoading(false);}
   };
+  const downloadAuthoritativeReviewV2 = async () => {
+    if(!unifiedRepository)return;
+    setIsLoading(true);setFeedback(null);
+    try {
+      const diagnosis=await unifiedRepository.inspectDeviceQueueV2ReadOnly();
+      const blob=new Blob([JSON.stringify(diagnosis,null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download='lobnan-device-queue-authoritative-review-v2-'+new Date().toISOString().slice(0,10)+'.json';
+      document.body.appendChild(a);a.click();a.remove();
+      window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+      setFeedback('اكتملت مقارنة طابور هذا الجهاز مع PostgreSQL للقراءة فقط؛ لم تُعد محاولة أي عملية ولم يُغيّر أي رصيد أو صنف أو فاتورة. التقرير يحتوي أسماء وأكواد الأصناف وأرقام الفواتير فقط، ويُحفظ بشكل خاص.');
+    } catch(err:any) {
+      setFeedback('تعذرت المقارنة المركزية دون تعديل البيانات: '+String(err?.message||err));
+    } finally {setIsLoading(false);}
+  };
   const handleSearchDiagnostic = async () => {
     if (!searchQuery.trim() || !unifiedRepository) return;
     setIsLoading(true);
@@ -353,6 +370,10 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                     <button type="button" onClick={downloadSafeDiagnostics} disabled={isLoading}
                       className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-xs text-white font-bold disabled:opacity-50">
                       تصدير تقرير أسباب التعارض (بدون بيانات مالية)
+                    </button>
+                    <button type="button" onClick={downloadAuthoritativeReviewV2} disabled={isLoading}
+                      className="px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-600 text-xs text-white font-bold disabled:opacity-50">
+                      تقرير المطابقة التفصيلية مع PostgreSQL — قراءة فقط
                     </button>
                     <button type="button" onClick={saveEmergencyQueueCopy} disabled={isLoading}
                       className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs text-white font-bold disabled:opacity-50">
