@@ -44,7 +44,7 @@ test('tracks orphan invoice journals separately from valid accounting records',(
   const r=audit([inv('uuid-one',5)],[journal('orphan','no-such-uuid','pos_invoice','4101',0,100)]);
   assert.equal(r.orphanJournals.length,1);
   assert.equal(r.cases.length,0);
-  assert.equal(r.problems[0].reason,'POSTED_WITHOUT_LINKED_REVENUE');
+  assert.equal(r.problems[0].reason,'POSTED_WITHOUT_LINKED_SALE_CREDITS');
 });
 
 test('flags non-numeric journal entries instead of treating them as zero',()=>{
@@ -55,6 +55,40 @@ test('flags non-numeric journal entries instead of treating them as zero',()=>{
 test('ignores sub-cent representation drift',()=>{
   const r=audit([inv('x',10.001)],[journal('j','x','pos_invoice','4101',0,10.0001)]);
   assert.equal(r.cases.length,0);
+});
+
+test('15 ILS delivery credited to courier liability 2104 is NOT an income shortfall',()=>{
+  const invoices=[inv('INV-0024',1180)];
+  const journals=[
+    journal('rev','INV-0024','pos_invoice','4101',0,1165),
+    journal('delivery','INV-0024','pos_invoice','2104',0,15)
+  ];
+  const r=audit(invoices,journals);
+  assert.equal(r.linkedInvoiceCreditVarianceCount,0);
+  assert.equal(r.negativeLinkedVariance,0);
+  assert.equal(r.problems.length,0);
+  const allocated=audit([inv('DELIVERY-ONLY',15)],[
+    journal('delivery-only','DELIVERY-ONLY','pos_invoice','2104',0,15)
+  ]);
+  assert.equal(allocated.problems.length,0);
+  assert.equal(allocated.linkedInvoiceCreditVarianceCount,0);
+});
+
+test('VAT 2103 is not sales revenue but is a valid invoice credit',()=>{
+  const r=audit([inv('VAT-EXAMPLE',110)],[
+    journal('revenue','VAT-EXAMPLE','pos_invoice','4101',0,100),
+    journal('vat','VAT-EXAMPLE','pos_invoice','2103',0,10)
+  ]);
+  assert.equal(r.linkedInvoiceCreditVarianceCount,0);
+  assert.equal(r.negativeLinkedVariance,0);
+});
+
+test('missing delivery liability still triggers invoice-credit variance',()=>{
+  const r=audit([inv('NOT-CORRECTLY-POSTED',1180)],[
+    journal('revenue','NOT-CORRECTLY-POSTED','pos_invoice','4101',0,1165)
+  ]);
+  assert.equal(r.linkedInvoiceCreditVarianceCount,1);
+  assert.equal(r.cases[0].variance,-15);
 });
 
 test('runs in a PostgreSQL read-only consistent transaction with parameterized SELECTs',async()=>{
