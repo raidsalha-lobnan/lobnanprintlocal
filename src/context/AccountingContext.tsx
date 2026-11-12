@@ -2459,7 +2459,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const time = new Date(status.lastSuccessAt).toLocaleTimeString('ar-EG');
       setLastSyncTime(time);
       setLastServerSyncTime(time);
-      return { success: true, message: `اكتملت المزامنة المؤكدة مع خادم قاعدة البيانات الحالية عند ${time}.` };
+      return { success: true, message: (status.archived||0)>0
+        ? 'مزامنة العمليات النشطة مؤكدة عند '+time+'. يوجد '+status.archived+' عملية مؤرشفة لم تُرحّل وتحتاج مراجعة منفصلة.'
+        : 'اكتملت المزامنة المؤكدة مع خادم قاعدة البيانات الحالية عند '+time+'.' };
     } catch (error) {
       return { success: false, message: `فشلت المزامنة: ${String(error)}` };
     } finally {

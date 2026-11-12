@@ -7,6 +7,7 @@ import {
 import {composeLocalSettingsDraft,type SettingsFieldPatch,type VerifiedSettingsReceipt} from './settingsPatch';
 import {getCurrentSessionActorId,secureLoginEnabled} from '../services/secureAuth';
 import {isProtectedRejectedBulkPartySnapshot,isVerifiedRejectedBulkBystander,rejectedBulkBystanderKey} from './rejectedBulkBystanders';
+import {planBlockedCommandQuarantine} from './blockedQueueQuarantine';
 
 const DB_VERSION = 2;
 const RECORDS = 'records';
@@ -295,6 +296,69 @@ export class LocalSyncDb {
     );
   }
 
+  /** Move ONLY blocked commands and their dependent pending chain into a durable
+   * local archive (RECEIPTS). Archive and outbox removal happen atomically.
+   * Preconditions: the operator downloaded a full private JSON backup of
+   * exactly these commands; the coordinator must be paused by the UI.
+   * NO PostgreSQL writes, no ACKs, no changes to IDs, records or server cursor.
+   */
+  async quarantineBlockedAfterBackup(expectedSnapshot:readonly SyncCommand[]) {
+    const expected=planBlockedCommandQuarantine(expectedSnapshot);
+    if(expected.quarantined.length===0)throw new Error('NO_BLOCKED_COMMANDS_TO_ARCHIVE');
+    const db=await this.getDb();
+    const tx=db.transaction([OUTBOX,RECEIPTS],'readwrite');
+    const done=completed(tx);
+    try{
+      const outbox=tx.objectStore(OUTBOX);
+      const receipts=tx.objectStore(RECEIPTS);
+      const all=(await request(outbox.getAll()) as SyncCommand[])
+        .sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));
+      const current=planBlockedCommandQuarantine(all);
+      if(JSON.stringify(current.quarantined)!==JSON.stringify(expected.quarantined))
+        throw new Error('LOCAL_OUTBOX_CHANGED_SINCE_PRIVATE_BACKUP');
+      const archiveId='quarantined-outbox-v1-'+crypto.randomUUID();
+      const archivedAt=new Date().toISOString();
+      receipts.add({
+        id:archiveId, resolution:'OPERATOR_QUARANTINED_NOT_SERVER_COMMITTED',
+        archivedAt, workspaceId:this.workspaceId,
+        originalCommands:current.quarantined,
+        counts:current.counts,
+        warning:'Commands remain UNSYNCED and may contain financial edits. This archive is NOT a server commit or reversal.'
+      });
+      for(const cmd of current.quarantined)outbox.delete(cmd.id);
+      await done;
+      this.changed();
+      return {archiveId,archivedAt,counts:current.counts};
+    }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
+  }
+
+  /** Archived full requests remain auditable even when the active counter is zero. */
+  async listQuarantinedArchives() {
+    const db=await this.getDb();
+    const tx=db.transaction(RECEIPTS,'readonly');
+    const done=completed(tx);
+    const all=await request(tx.objectStore(RECEIPTS).getAll()) as any[];
+    await done;
+    return all.filter(x=>x.resolution==='OPERATOR_QUARANTINED_NOT_SERVER_COMMITTED')
+      .map(x=>({archiveId:String(x.id),archivedAt:String(x.archivedAt),
+        counts:x.counts as ReturnType<typeof planBlockedCommandQuarantine>['counts']}))
+      .sort((a,b)=>b.archivedAt.localeCompare(a.archivedAt));
+  }
+
+  /** Re-export private original commands for accounting review. Never replay automatically. */
+  async exportQuarantinedArchive(archiveId:string) {
+    const db=await this.getDb();
+    const tx=db.transaction(RECEIPTS,'readonly');
+    const done=completed(tx);
+    const saved=await request(tx.objectStore(RECEIPTS).get(archiveId)) as any;
+    await done;
+    if(!saved||saved.resolution!=='OPERATOR_QUARANTINED_NOT_SERVER_COMMITTED')
+      throw new Error('ARCHIVE_NOT_FOUND');
+    return {kind:'LOBNA_PRIVATE_OUTBOX_QUARANTINE_V1',
+      archiveId:saved.id,archivedAt:saved.archivedAt,counts:saved.counts,
+      warning:'PRIVATE FINANCIAL BACKUP. Never upload publicly. Not committed to PostgreSQL.',
+      originalCommands:saved.originalCommands as SyncCommand[]};
+  }
   /** Record server-proven no-op entries in a rejected legacy bulk party snapshot.
    * Never acknowledge, delete, or resend the original financial-sensitive bulk command.
    * Future independent edits of these party IDs may proceed, while genuinely

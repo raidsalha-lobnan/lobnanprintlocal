@@ -18,6 +18,7 @@ import type {QueueComparison} from '../sync-next/queueDiagnostics';
 import {classifyQueueSafety} from '../sync-next/queueSafety';
 import {explainSyncFailure} from '../sync-next/syncFailureGuide';
 import {buildSafeQueueDiagnostic} from '../sync-next/syncOutboxDiagnosis';
+import {planBlockedCommandQuarantine} from '../sync-next/blockedQueueQuarantine';
 import { assessLocalStorageHealth } from '../sync-next/storageHealth';
 import { useAccounting } from '../context/AccountingContext';
 
@@ -30,6 +31,8 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
   const { unifiedRepository, isOnline, invoices } = useAccounting();
   const [conflicts, setConflicts] = useState<SyncCommand[]>([]);
   const [pendingCommands, setPendingCommands] = useState<SyncCommand[]>([]);
+  const [privateBackupSnapshot,setPrivateBackupSnapshot]=useState<SyncCommand[]|null>(null);
+  const [savedArchives,setSavedArchives]=useState<Array<{archiveId:string;archivedAt:string;counts:{quarantined:number}}>>([]);
   const [authoritativeComparison,setAuthoritativeComparison]=useState<QueueComparison[]|null>(null);
   const [selectedCommand, setSelectedCommand] = useState<SyncCommand | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,6 +52,8 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
     try {
       const localDb = unifiedRepository.getLocalDb();
       const allPending = await localDb.pending();
+      const archived=await localDb.listQuarantinedArchives();
+      setSavedArchives(archived);
       setPendingCommands(allPending);
       setConflicts(allPending.filter(c => c.status === 'conflict' || c.status === 'rejected'));
       const health = await assessLocalStorageHealth();
@@ -75,7 +80,9 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
     try {
       const result=await unifiedRepository.getCoordinator().syncNow();
       setFeedback(result.pending===0 && result.conflict===0
-        ? 'اكتملت المزامنة وأكد الخادم حفظ العمليات؛ لا توجد عمليات معلقة أو متعارضة.'
+        ? ((result.archived||0)>0
+          ? 'مزامنة الطابور النشط مؤكدة؛ لكن هناك '+result.archived+' عملية مؤرشفة لم تُرسل إلى PostgreSQL.'
+          : 'اكتملت المزامنة وأكد الخادم حفظ العمليات؛ لا توجد عمليات معلقة أو متعارضة.')
         : 'لا تزال توجد عمليات محلية تحتاج إلى مراجعة قبل تأكيد المزامنة.');
     } catch(err:any) {
       setFeedback('لم تكتمل المزامنة على الخادم: '+(err?.message||'خطأ غير معروف')+
@@ -117,6 +124,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
       document.body.appendChild(link);
       link.click();
       link.remove();
+      setPrivateBackupSnapshot(queue);
       setTimeout(()=>URL.revokeObjectURL(url),1000);
       setFeedback('تم إعداد تنزيل نسخة إنقاذ خاصة من الطابور. يحتوي الملف بيانات حقيقية؛ لا تشاركه أو ترفعه إلى مستودع عام.');
     } catch(err:any) {
@@ -124,6 +132,46 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
     } finally {setIsLoading(false);}
   };
 
+  const archiveBlockedWithPrivateBackup = async () => {
+    if(!unifiedRepository||!privateBackupSnapshot)return;
+    const plan=planBlockedCommandQuarantine(privateBackupSnapshot);
+    if(plan.counts.quarantined===0){setFeedback('لا توجد عمليات متوقفة تحتاج إلى أرشفة.');return;}
+    const approval=window.prompt(
+      'سيتم إخراج '+plan.counts.quarantined+' عملية من الطابور النشط، منها '+
+      plan.counts.rejected+' مرفوضة و'+plan.counts.conflict+' متعارضة و'+
+      plan.counts.dependentPending+' تابعة لها. ستُحفظ داخليًا في أرشيف مستقل، '+
+      'لكنها لن تُرسل إلى PostgreSQL ولن تُعتبر محفوظة ماليًا. تأكد من حفظ النسخة الخاصة التي نزّلتها، ثم اكتب: أرشفة');
+    if(approval!=='أرشفة')return;
+    setIsLoading(true);setFeedback(null);
+    try{
+      const archive=await unifiedRepository.getCoordinator().withPausedQueueMaintenance(
+        ()=>unifiedRepository.getLocalDb().quarantineBlockedAfterBackup(privateBackupSnapshot));
+      setPrivateBackupSnapshot(null);
+      setFeedback('تم بدء طابور جديد بأمان؛ أُرشفت '+archive.counts.quarantined+
+        ' عملية محليًا دون إرسالها إلى PostgreSQL. يمكن تنزيلها من قسم الأرشيف للمراجعة لاحقًا.');
+      await loadData();
+    }catch(err:any){
+      setFeedback('لم يتم التصفير؛ بقيت البيانات محفوظة: '+String(err?.message||err)+
+        '. إن تغير الطابور فأعد تنزيل نسخة إنقاذ جديدة.');
+    }finally{setIsLoading(false);}
+  };
+
+  const downloadPrivateArchive = async (archiveId:string) => {
+    if(!unifiedRepository)return;
+    setIsLoading(true);
+    try{
+      const archive=await unifiedRepository.getLocalDb().exportQuarantinedArchive(archiveId);
+      const blob=new Blob([JSON.stringify(archive,null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;a.download='lobnan-archived-private-queue-'+
+        new Date().toISOString().slice(0,10)+'.json';
+      document.body.appendChild(a);a.click();a.remove();
+      window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+      setFeedback('تم إعداد تنزيل الأرشيف الخاص. يحتوي على عمليات مالية قديمة؛ احفظه بسرية ولا ترفعه علنًا.');
+    }catch(err:any){setFeedback('تعذر تصدير الأرشيف: '+String(err?.message||err));}
+    finally{setIsLoading(false);}
+  };
   const downloadSafeDiagnostics = async () => {
     if (!unifiedRepository) return;
     setIsLoading(true);
@@ -355,6 +403,16 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                 </div>
               )}
 
+              {savedArchives.length>0 && (
+                <div className="p-3 rounded-lg border border-amber-800 bg-amber-950/30 text-xs text-amber-100 space-y-2">
+                  <div className="font-bold">الأرشيف المحلي: {savedArchives.reduce((n,a)=>n+a.counts.quarantined,0)} عملية محفوظة للمراجعة (غير مُزامنة).</div>
+                  <div>العدّاد الحالي لا يشمل العمليات المؤرشفة؛ أرشفتها ليست إثبات حفظ مالي على PostgreSQL.</div>
+                  <button type="button" disabled={isLoading} onClick={()=>downloadPrivateArchive(savedArchives[0].archiveId)}
+                    className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 font-bold disabled:opacity-50">
+                    تنزيل أحدث أرشيف خاص للمراجعة
+                  </button>
+                </div>
+              )}
               {/* Conflict List */}
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -375,6 +433,12 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                       className="px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-600 text-xs text-white font-bold disabled:opacity-50">
                       تقرير المطابقة التفصيلية مع PostgreSQL — قراءة فقط
                     </button>
+                    {privateBackupSnapshot && planBlockedCommandQuarantine(privateBackupSnapshot).counts.quarantined>0 && (
+                      <button type="button" onClick={archiveBlockedWithPrivateBackup} disabled={isLoading}
+                        className="px-3 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-600 text-xs text-white font-bold disabled:opacity-50">
+                        أرشفة المتوقف وبدء طابور جديد (بعد حفظ النسخة الخاصة)
+                      </button>
+                    )}
                     <button type="button" onClick={saveEmergencyQueueCopy} disabled={isLoading}
                       className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs text-white font-bold disabled:opacity-50">
                       حفظ نسخة إنقاذ خاصة للطابور
