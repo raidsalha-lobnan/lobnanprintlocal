@@ -126,3 +126,33 @@ test('ordinary browser cannot forge internal accounting correction entries',asyn
    e=>e instanceof InputError&&e.message==='INVOICE_CORRECTION_REQUIRES_SERVER_REVISION');
  assert.equal(await svc.head('lobnan_main'),0);
 });
+
+test('committed journal entry cannot be rewritten by a later device or command',async()=>{
+ const pool=new FakePostgres(),svc=new SyncService(pool);
+ const journal=(amount)=>record('journalEntries','je-immutable',{
+  id:'je-immutable',referenceType:'manual',referenceId:'manual-source',
+  lines:[{accountCode:'1201',debit:amount,credit:0},{accountCode:'4101',debit:0,credit:amount}]
+ });
+ await svc.push('lobnan_main',make('first-journal',[journal(50)]));
+ await assert.rejects(svc.push('lobnan_main',make('tampered-journal',[
+  record('treasuries','unrelated-cash',{id:'unrelated-cash',balance:25}),
+  {...journal(500),expectedVersion:1}
+ ])), e=>e instanceof InputError&&e.message==='POSTED_ACCOUNTING_EVIDENCE_IMMUTABLE');
+ const snap=await svc.bootstrap('lobnan_main');
+ assert.equal(snap.records.find(x=>x.id==='je-immutable').value.lines[0].debit,50);
+ assert.equal(snap.records.some(x=>x.id==='unrelated-cash'),false);
+ assert.equal(await svc.head('lobnan_main'),1);
+});
+test('historical stock movement is immutable; replacement requires a separate adjustment',async()=>{
+ const pool=new FakePostgres(),svc=new SyncService(pool);
+ const stock=(qty)=>record('stockMovements','old-stock',{
+  id:'old-stock',referenceType:'pos_invoice',referenceNumber:'INV-0009',
+  itemId:'sku-1',type:'out_sale',quantity:qty,totalValue:qty*2
+ });
+ await svc.push('lobnan_main',make('original-stock',[stock(3)]));
+ await assert.rejects(svc.push('lobnan_main',make('overwrite-stock',[
+  {...stock(50),expectedVersion:1}
+ ])),e=>e instanceof InputError&&e.message==='POSTED_ACCOUNTING_EVIDENCE_IMMUTABLE');
+ assert.equal((await svc.bootstrap('lobnan_main')).records[0].value.quantity,3);
+ assert.equal(await svc.head('lobnan_main'),1);
+});
