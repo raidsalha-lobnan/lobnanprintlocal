@@ -17,6 +17,7 @@ import { SyncCommand } from '../sync-next/types';
 import type {QueueComparison} from '../sync-next/queueDiagnostics';
 import {classifyQueueSafety} from '../sync-next/queueSafety';
 import {explainSyncFailure} from '../sync-next/syncFailureGuide';
+import {buildSafeQueueDiagnostic} from '../sync-next/syncOutboxDiagnosis';
 import { assessLocalStorageHealth } from '../sync-next/storageHealth';
 import { useAccounting } from '../context/AccountingContext';
 
@@ -123,6 +124,28 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
     } finally {setIsLoading(false);}
   };
 
+  const downloadSafeDiagnostics = async () => {
+    if (!unifiedRepository) return;
+    setIsLoading(true);
+    try {
+      // Always reread the current IndexedDB outbox; never export a stale UI count.
+      const queue = await unifiedRepository.getLocalDb().pending();
+      const diagnostic = buildSafeQueueDiagnostic(queue);
+      const data = JSON.stringify(diagnostic,null,2);
+      const file = new Blob([data],{type:'application/json'});
+      const url = URL.createObjectURL(file);
+      const anchor = document.createElement('a');
+      anchor.href=url;
+      anchor.download='lobnan-safe-sync-diagnostics-'+new Date().toISOString().slice(0,10)+'.json';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+      setFeedback('تم تصدير أسباب التعارض والرفض وأرقام العمليات فقط؛ دون أسماء العملاء أو مبالغ الفواتير أو كلمات المرور. احتفظ بالملف خاصًا.');
+    }catch(error:any){
+      setFeedback('تعذر تصدير التقرير: '+String(error?.message||error));
+    }finally{setIsLoading(false);}
+  };
   const handleSearchDiagnostic = async () => {
     if (!searchQuery.trim() || !unifiedRepository) return;
     setIsLoading(true);
@@ -282,7 +305,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                   </div>
                   <div>
                     <div className="text-[11px] text-slate-400">طابور الانتظار المحلي</div>
-                    <div className="text-sm font-bold text-white">{pendingCommands.length} عملية</div>
+                    <div className="text-sm font-bold text-white">{pendingCommands.filter(c=>c.status==='pending').length} عملية بانتظار الإرسال</div>
                   </div>
                 </div>
 
@@ -292,7 +315,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                   </div>
                   <div>
                     <div className="text-[11px] text-slate-400">حالات التعارض / الرفض</div>
-                    <div className="text-sm font-bold text-amber-300">{conflicts.length} عملية</div>
+                    <div className="text-sm font-bold text-amber-300">{conflicts.filter(c=>c.status==='conflict').length} تعارض، {conflicts.filter(c=>c.status==='rejected').length} رفض</div>
                   </div>
                 </div>
 
@@ -326,6 +349,10 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                     <button type="button" onClick={inspectAgainstPostgres} disabled={isLoading}
                       className="px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-xs text-white font-bold disabled:opacity-50">
                       مقارنة الطابور مع PostgreSQL (دون تعديل)
+                    </button>
+                    <button type="button" onClick={downloadSafeDiagnostics} disabled={isLoading}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-xs text-white font-bold disabled:opacity-50">
+                      تصدير تقرير أسباب التعارض (بدون بيانات مالية)
                     </button>
                     <button type="button" onClick={saveEmergencyQueueCopy} disabled={isLoading}
                       className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs text-white font-bold disabled:opacity-50">

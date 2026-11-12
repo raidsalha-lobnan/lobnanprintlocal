@@ -7,6 +7,7 @@ import { TelegramBotIntegration } from './components/TelegramBotIntegration';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Navbar } from './components/Navbar';
 import {explainSyncFailure} from './sync-next/syncFailureGuide';
+import {shouldUpgradeClientBuild} from './utils/buildUpgrade';
 import { DesktopStatusBar } from './components/DesktopStatusBar';
 import { HomeScreenView } from './components/HomeScreenView';
 import { DashboardView } from './components/DashboardView';
@@ -106,6 +107,7 @@ const MainLayout: React.FC = () => {
   const safeAutoUpgradeRef = React.useRef({activeTab, hasUnsyncedChanges, isPrintModalActive});
   safeAutoUpgradeRef.current = {activeTab, hasUnsyncedChanges, isPrintModalActive};
   React.useEffect(() => {
+    const loadedBuildSha = String(import.meta.env.VITE_CLIENT_BUILD_SHA || '').trim();
     let currentServerVersion: string | null = null;
     let pendingVersion: string | null = null;
     let checking = false;
@@ -118,14 +120,17 @@ const MainLayout: React.FC = () => {
         const data = await res.json();
         const next = typeof data.version === 'string' ? data.version.trim() : '';
         if (!next) return;
-        if (currentServerVersion === null) currentServerVersion = next;
-        else if (currentServerVersion !== next) pendingVersion = next;
+        pendingVersion = shouldUpgradeClientBuild(loadedBuildSha,currentServerVersion,next) ? next : null;
+        currentServerVersion = next;
         if (pendingVersion) {
           const s = safeAutoUpgradeRef.current;
           const el = document.activeElement as HTMLElement | null;
           const editing = !!el?.matches('input,textarea,select,[contenteditable="true"]');
           const safeTab = s.activeTab === 'home' || s.activeTab === 'dashboard';
-          if (!s.hasUnsyncedChanges && !s.isPrintModalActive && !editing && safeTab) {
+          // Outbox data is already durable in IndexedDB, including rejected
+          // commands. Blocking code upgrades whenever a conflict exists would
+          // leave those devices permanently trapped on an obsolete JS build.
+          if (!s.isPrintModalActive && !editing && safeTab) {
             window.location.reload();
           }
         }

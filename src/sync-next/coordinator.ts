@@ -328,7 +328,9 @@ export class SyncCoordinator {
     const commands = await this.local.pending();
 
     this.report({
-      pending: commands.length,
+      // Separate queued transport work from conflicts/rejections. Mixing them
+      // made the dashboard's waiting count and success banners misleading.
+      pending: commands.filter(c => c.status === 'pending').length,
       conflict: commands.filter(
         c => c.status !== 'pending'
       ).length
@@ -378,6 +380,9 @@ export class SyncCoordinator {
     if(!unresolved.length||!this.remote.fetchAuthoritativeBootstrap)return;
     const snapshot=await this.remote.fetchAuthoritativeBootstrap();
     const index=new Map(snapshot.records.map(r=>[recordKey(r.entity,r.id),r]));
+    // Verify every harmless bystander in a rejected historical bulk snapshot
+    // against authenticated PostgreSQL. Preserve the original queued command.
+    await this.local.recordVerifiedRejectedBulkBystanders(unresolved,snapshot.records);
     for(const cmd of unresolved){
       if(!this.started)return;
       // Different program users share a browser's IndexedDB database, but
@@ -442,13 +447,15 @@ export class SyncCoordinator {
          secureLoginEnabled())){
         // Never send user A's cached operation under user B's bearer token.
         // Keep it on disk unchanged until the original user signs in.
-        keys.forEach(k=>blocked.add(k));
+        const proven=await this.local.confirmedBystanderKeys(cmd);
+        keys.filter(k=>!proven.has(k)).forEach(k=>blocked.add(k));
         this.report({lastError:'OUTBOX_WAITING_FOR_ORIGINAL_USER_SESSION'});
         continue;
       }
       if (cmd.status !== 'pending') {
         if (cmd.error?.startsWith('Superseded by')) continue;
-        keys.forEach(k => blocked.add(k));
+        const proven=await this.local.confirmedBystanderKeys(cmd);
+        keys.filter(k=>!proven.has(k)).forEach(k=>blocked.add(k));
         this.report({ lastError: `Review required: ${cmd.status}: ${cmd.id}` });
         continue;
       }

@@ -24,7 +24,11 @@ export function explainSyncFailure(error:unknown,entity?:string):FailureGuide{
     return mk('fix-permissions','العملية تخص مستخدمًا آخر على هذا الجهاز',
       'طابور المتصفح يحتفظ بأمر أنشأه حساب سابق. الخادم يمنع المستخدم الحالي من انتحال صاحب العملية، حتى إن كان لديه صلاحية مشابهة.',
       'لا تحذف العملية ولا تعِد إنشاء الفاتورة أو الصنف. افتح البرنامج بحساب منشئ الأمر الأصلي لاستكمال المزامنة، أو راجع سجل اعتمادها مع مدير النظام.');
-  if(/DUPLICATE_INVOICE_JOURNAL_REJECTED|INVOICE_JOURNAL_REFERENCE_REQUIRED|BULK_PARTY_SNAPSHOT_REJECTED|IDEMPOTENCY_KEY_REUSED/.test(raw))
+  if(/BULK_PARTY_SNAPSHOT_REJECTED/.test(raw))
+    return mk('review-ledger','رُفضت قائمة عملاء جماعية قديمة',
+      'هذا أمر سابق أرسل نسخًا متعددة من أرصدة وبيانات العملاء دفعة واحدة. يمنع الخادم تطبيقه حمايةً للأرصدة.',
+      'يفحص البرنامج العناصر المطابقة لـ PostgreSQL تلقائيًا ويحررها من حظر هذا الأمر فقط. تبقى أي عناصر مختلفة للمراجعة، ويمكن تصدير التقرير من لوحة التعارضات.');
+  if(/DUPLICATE_INVOICE_JOURNAL_REJECTED|INVOICE_JOURNAL_REFERENCE_REQUIRED|IDEMPOTENCY_KEY_REUSED/.test(raw))
     return mk('review-ledger','منع تكرار قيد أو عملية سابقة',
       'الخادم اكتشف تسجيلًا سابقًا محتملًا أو طلبًا لا يطابق بصمة العملية الأصلية.',
       'لا تنشئ نسخة جديدة؛ طابِق معرّف العملية وقيود PostgreSQL قبل أي إعادة إرسال.');
