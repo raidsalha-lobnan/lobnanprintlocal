@@ -6,7 +6,8 @@ export default function handler(req, res) {
 
   if (req.method === 'GET' && req.url?.split('?')[0] === '/api/app-version') {
     return res.status(200).json({
-      version: '1.0.0',
+      // Each Vercel deployment exposes a different immutable build ID.
+      version: process.env.VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_DEPLOYMENT_ID || '1.0.0',
       storage: 'local-postgresql',
       syncApi: 'external',
     });
