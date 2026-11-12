@@ -5,6 +5,7 @@ import { createUnifiedDataLayer } from '../sync-next/boot';
 import { secureLoginEnabled } from '../services/secureAuth';
 import { getBinaryAttachment } from '../utils/fileStorage';
 import {registeredSubCustomer} from '../utils/subCustomerIdentity';
+import {stablePosJournalId,stablePosStockMovementId} from '../utils/posPostingIdentity';
 import { uploadCentralAttachment } from '../services/centralAttachmentApi';
 import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
@@ -1244,6 +1245,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const openConflictModal = () => setIsConflictModalOpen(true);
   const closeConflictModal = () => setIsConflictModalOpen(false);
   const unifiedRepoRef = React.useRef<UnifiedRepository | null>(null);
+  // Prevent two click/keyboard submissions from creating two financial sales.
+  const posSubmissionInFlightRef = React.useRef(false);
   const settingsWriteChainRef = React.useRef<Promise<unknown>>(Promise.resolve());
 
   // Initialize unified offline-first data layer (LocalSyncDb + FirestoreSyncTransport + SyncCoordinator)
@@ -5172,7 +5175,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const validLines = entry.lines.map(line => ({ ...line }));
 
     const uniqueSuffix = Math.random().toString(36).substring(2, 8) + '-' + Math.floor(Math.random() * 1000);
-    const id = 'je-' + Date.now() + '-' + uniqueSuffix;
+    const id = (entry.referenceType === 'pos_invoice' || entry.referenceType === 'cogs') && entry.referenceId
+      ? stablePosJournalId(entry.referenceType, entry.referenceId)
+      : 'je-' + Date.now() + '-' + uniqueSuffix;
     const createdAt = new Date().toISOString();
     const nextIndex = journalEntries.length + 1;
     const entryNumber = `JE-2026-${String(nextIndex).padStart(4, '0')}`;
@@ -5338,7 +5343,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const addStockMovement = (movement: Omit<StockMovement, 'id'>) => {
-    const id = 'sm-' + crypto.randomUUID();
+    const id = movement.type === 'out_sale' && movement.referenceType === 'pos_invoice' &&
+      movement.referenceNumber && movement.itemId
+      ? stablePosStockMovementId(movement.referenceNumber, movement.itemId)
+      : 'sm-' + crypto.randomUUID();
     const newMovement: StockMovement = {
       ...movement,
       id,
@@ -6412,6 +6420,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       counterpartyType?: 'customer' | 'supplier' | 'employee';
       counterpartyId?: string;
       paymentNotes?: string;
+      // postPosSaleOnline already awaits its single durable enqueue receipt.
+      skipInvoiceAutoEnqueue?: boolean;
     }
   ): Invoice => {
     // ربط العميل النقدي برمز CUST-0001
@@ -7030,8 +7040,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
     }
     
-    // Direct immediate cloud save for multi-user synchronization
-    pushToServerSync('invoices', newInvoice);
+    // Browser's online POS flow explicitly awaits one durable invoice enqueue.
+    // Legacy synchronous callers continue to use their normal outbox route.
+    if (!extraOptions?.skipInvoiceAutoEnqueue) {
+      pushToServerSync('invoices', newInvoice);
+    }
 
     // The PostgreSQL sync server confirms successful financial commits via Telegram.
     // Browser-side or offline drafts NEVER send accounting confirmations.
@@ -7110,7 +7123,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } as Invoice;
   };
 
-  const postPosSaleOnline = async (
+  const postPosSaleOnlineCore = async (
     items: Parameters<typeof createPosSale>[0],
     customerName: string,
     paymentMethod: PaymentMethod,
@@ -7238,19 +7251,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Legacy behavior: fail closed for financial edits until revision protocol
     // is enabled; do not re-run postings for an existing official invoice.
     try {
-
+      // Fail before ANY local side effects if no durable outbox exists.
+      const repo = unifiedRepoRef.current;
+      if (!repo) throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
       const localInvoice = createPosSale(
         items,
         customerName,
         paymentMethod,
         customerId,
         notes,
-        extraOptions
+        {...extraOptions, skipInvoiceAutoEnqueue: true}
       );
-      // This only confirms local queueing, not PostgreSQL acceptance.
+      // Exactly one awaited local invoice enqueue. This confirms IndexedDB
+      // durability only; PostgreSQL acceptance is a separate cloud ACK.
       // Ledger, stock and party posting still requires atomic integration.
-      const repo = unifiedRepoRef.current;
-      if (!repo) throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
       await repo.put('invoices', localInvoice.id, localInvoice as unknown as JsonObject);
       return { success: true, invoice: localInvoice };
     } catch (error) {
@@ -7261,6 +7275,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           : `تعذر تأكيد حفظ الفاتورة محلياً: ${String(error)}`,
         isOffline: typeof navigator !== 'undefined' && !navigator.onLine
       };
+    }
+  };
+
+  // A second click must not create another invoice while the first save is
+  // enqueuing or awaiting an authoritative invoice-revision receipt.
+  // No blocking across devices: server-side command IDs remain authoritative.
+  const postPosSaleOnline = async (
+    ...args: Parameters<typeof postPosSaleOnlineCore>
+  ): ReturnType<typeof postPosSaleOnlineCore> => {
+    if (posSubmissionInFlightRef.current) {
+      return {
+        success: false, isBusy: true,
+        error: 'POS_SUBMISSION_ALREADY_IN_PROGRESS'
+      };
+    }
+    posSubmissionInFlightRef.current = true;
+    try {
+      return await postPosSaleOnlineCore(...args);
+    } finally {
+      posSubmissionInFlightRef.current = false;
     }
   };
 
