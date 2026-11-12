@@ -43,6 +43,22 @@ export function registeredSubCustomer(parties: Party[], parentId: string, name: 
   );
 }
 
+/**
+ * POS must reuse a registered sub-customer ONLY within the currently selected
+ * permanent parent. A stale selected sub-ID from another parent is not valid.
+ * Never merge debtor balances merely because two names look alike.
+ */
+export function findSubCustomerForSale(
+  parties: Party[], parentId: string, name: string, selectedId?: string
+): Party | undefined {
+  if (!parentId) return undefined;
+  const selected = selectedId
+    ? parties.find(p => p.id === selectedId && p.isSubCustomer === true &&
+        subCustomerParentId(p) === parentId)
+    : undefined;
+  return selected || registeredSubCustomer(parties, parentId, name);
+}
+
 export function isInvoiceOnlySubCustomer(party: Pick<Party, 'id'>): boolean {
   return party.id.startsWith('invoice-sub:');
 }
