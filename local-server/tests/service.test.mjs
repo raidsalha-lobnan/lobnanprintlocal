@@ -135,12 +135,12 @@ test('committed journal entry cannot be rewritten by a later device or command',
  });
  await svc.push('lobnan_main',make('first-journal',[journal(50)]));
  await assert.rejects(svc.push('lobnan_main',make('tampered-journal',[
-  record('treasuries','unrelated-cash',{id:'unrelated-cash',balance:25}),
+  record('stockMovements','unrelated-stock',{id:'unrelated-stock',itemId:'sku-other',type:'out_adjustment',quantity:1}),
   {...journal(500),expectedVersion:1}
  ])), e=>e instanceof InputError&&e.message==='POSTED_ACCOUNTING_EVIDENCE_IMMUTABLE');
  const snap=await svc.bootstrap('lobnan_main');
  assert.equal(snap.records.find(x=>x.id==='je-immutable').value.lines[0].debit,50);
- assert.equal(snap.records.some(x=>x.id==='unrelated-cash'),false);
+ assert.equal(snap.records.some(x=>x.id==='unrelated-stock'),false);
  assert.equal(await svc.head('lobnan_main'),1);
 });
 test('historical stock movement is immutable; replacement requires a separate adjustment',async()=>{
