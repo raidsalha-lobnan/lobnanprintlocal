@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createUnifiedDataLayer } from '../sync-next/boot';
 import { secureLoginEnabled } from '../services/secureAuth';
 import { getBinaryAttachment } from '../utils/fileStorage';
-import {registeredSubCustomer} from '../utils/subCustomerIdentity';
+import {registeredSubCustomer,findSubCustomerForSale,normalizeSubCustomerName} from '../utils/subCustomerIdentity';
 import {stablePosJournalId,stablePosStockMovementId} from '../utils/posPostingIdentity';
 import { uploadCentralAttachment } from '../services/centralAttachmentApi';
 import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
@@ -6591,40 +6591,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (resolvedSubCustName && resolvedSubCustName.trim()) {
       const cleanName = resolvedSubCustName.trim();
       // Normalize Arabic diacritics and letters for grouping identical names
-      const normQuery = cleanName
-        .toLowerCase()
-        .replace(/[\u064B-\u065F\u0670]/g, '')
-        .replace(/[إأآا]/g, 'ا')
-        .replace(/ة/g, 'ه')
-        .replace(/[يى]/g, 'ي')
-        .trim();
-
-      // Verify that this name does NOT belong to an existing main customer (main customers cannot be sub-customers)
-      const isMainCustomer = parties.some(p => {
-        if (p.isSubCustomer) return false;
-        const normMain = (p.name || '')
-          .toLowerCase()
-          .replace(/[\u064B-\u065F\u0670]/g, '')
-          .replace(/[إأآا]/g, 'ا')
-          .replace(/ة/g, 'ه')
-          .replace(/[يى]/g, 'ي')
-          .trim();
-        return normMain === normQuery;
-      });
+      const normQuery = normalizeSubCustomerName(cleanName);
+      // Only the selected parent can own the sub-customer identity. A main
+      // customer with the same display name under a DIFFERENT parent must not
+      // suppress a legitimate walk-in customer here.
+      const isMainCustomer = parties.some(p =>
+        p.id === customerId && !p.isSubCustomer &&
+        normalizeSubCustomerName(p.name) === normQuery
+      );
 
       if (!isMainCustomer) {
-        const existingSub = parties.find(p => {
-          if (!p.isSubCustomer) return false;
-          if (resolvedSubCustId && p.id === resolvedSubCustId) return true;
-          const normExisting = (p.name || '')
-            .toLowerCase()
-            .replace(/[\u064B-\u065F\u0670]/g, '')
-            .replace(/[إأآا]/g, 'ا')
-            .replace(/ة/g, 'ه')
-            .replace(/[يى]/g, 'ي')
-            .trim();
-          return normExisting === normQuery;
-        });
+        const existingSub = findSubCustomerForSale(
+          parties, String(customerId || ''), cleanName, resolvedSubCustId
+        );
 
         if (existingSub) {
           resolvedSubCustId = existingSub.id;
