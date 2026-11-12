@@ -8,7 +8,8 @@ const cmd=()=>{
  return {id:'cmd71',workspaceId:'lobnan_main',atomicInvoiceId:invoiceId,changes:[
   {entity:'invoices',id:invoiceId,expectedVersion:0,value:{
    id:invoiceId,invoiceNumber:'TEMP-i71',customerId:'party71',isAccountingPosted:true,
-   totalAmount:8,baseTotalAmount:8,remainingAmount:8,
+   subtotal:8,discountTotal:0,taxAmount:0,additionalCharges:0,
+   totalAmount:8,baseTotalAmount:8,basePaidAmount:0,exchangeRate:1,remainingAmount:8,
    items:[{itemId:'sku71',quantity:2,unitPrice:4,total:8,category:'print_raw'}]}},
   {entity:'journalEntries',id:'jrev',expectedVersion:0,value:{
    id:'jrev',referenceId:invoiceId,referenceType:'pos_invoice',
@@ -17,8 +18,8 @@ const cmd=()=>{
    id:'jcogs',referenceId:invoiceId,referenceType:'cogs',
    lines:[{accountCode:'5101',debit:4,credit:0},{accountCode:'1301',debit:0,credit:4}]}},
   {entity:'stockMovements',id:'stock',expectedVersion:0,value:{
-   id:'stock',referenceNumber:'TEMP-i71',referenceType:'pos_invoice',
-   itemId:'sku71',quantity:2,totalValue:4,type:'out_sale'}},
+   id:'stock',referenceNumber:'TEMP-i71',sourceInvoiceId:invoiceId,referenceType:'pos_invoice',
+   itemId:'sku71',quantity:2,totalValue:4,type:'out_sale',balanceBefore:20,balanceAfter:18}},
   {entity:'parties',id:'party71',expectedVersion:1,value:{id:'party71',balance:8}},
   {entity:'inventory',id:'sku71',expectedVersion:1,value:{id:'sku71',stockQuantity:18}}
  ]};
@@ -50,7 +51,7 @@ test('rejects duplicate and inconsistent journal postings',()=>{
 });
 test('rejects changed item references or stock quantity inflation',()=>{
  let c=cmd();c.changes[3].value.quantity=45;
- expect(c,'ATOMIC_POSTING_STOCK_QUANTITY_EXCEEDS_INVOICE');
+ expect(c,'ATOMIC_POSTING_STOCK_BALANCE_DELTA_INVALID');
  c=cmd();c.changes[3].value.referenceNumber='INV-0033';
  expect(c,'ATOMIC_POSTING_WRONG_STOCK_REFERENCE');
 });

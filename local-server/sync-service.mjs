@@ -2,6 +2,7 @@ import {InputError, fingerprint, makeNumber, makeCursor, validateCommand} from '
 import {preserveOfficialInvoiceFields} from './invoice-amendments.mjs';
 import {telegramRelevantChanges} from './telegram-delivery.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
+import {authoritativeAtomicSaleEffect} from './atomic-pos-ledger-scope.mjs';
 import {assertStableEntitySerial,allocateAutomaticEntityCode} from './entity-identity.mjs';
 import {validateInvoiceCounterparty} from './invoice-counterparty.mjs';
 import {assertAppendOnlyAccountingEvidence} from './append-only-financial-evidence.mjs';
@@ -77,6 +78,8 @@ export class SyncService {
         let val=isFieldPatch
           ? applySettingsFieldPatch(old?.value,change.value,actual,change.expectedVersion)
           : change.value;
+        if(command.atomicInvoiceId && ['parties','inventory'].includes(change.entity))
+          val=authoritativeAtomicSaleEffect(command,change,old?.value||null);
         // Journal entries and stock movements are permanent accounting
         // evidence. New corrections must append new records, never rewrite a
         // previously committed record (including an old client resubmission).

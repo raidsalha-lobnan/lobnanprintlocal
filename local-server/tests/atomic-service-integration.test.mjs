@@ -56,14 +56,18 @@ class PgFake{
 }
 const r=(entity,id,value,expectedVersion=0)=>({entity,id,value,expectedVersion});
 const make=(id='atomic-1')=>({id:'cmd-'+id,workspaceId:'lobnan_main',atomicInvoiceId:id,changes:[
- r('invoices',id,{id,invoiceNumber:'TEMP-'+id,customerId:'customer',totalAmount:8,baseTotalAmount:8,
-  remainingAmount:8,isAccountingPosted:true,items:[{itemId:'sku',quantity:2,total:8,category:'print_raw'}]}),
+ r('invoices',id,{id,invoiceNumber:'TEMP-'+id,customerId:'customer',
+  subtotal:8,discountTotal:0,taxAmount:0,additionalCharges:0,
+  totalAmount:8,baseTotalAmount:8,basePaidAmount:0,exchangeRate:1,
+  remainingAmount:8,isAccountingPosted:true,
+  items:[{itemId:'sku',quantity:2,unitPrice:4,total:8,category:'print_raw'}]}),
  r('journalEntries','revenue-'+id,{id:'revenue-'+id,referenceId:id,referenceType:'pos_invoice',
   lines:[{accountCode:'1201',debit:8,credit:0},{accountCode:'4101',debit:0,credit:8}]}),
  r('journalEntries','cost-'+id,{id:'cost-'+id,referenceId:id,referenceType:'cogs',
   lines:[{accountCode:'5101',debit:4,credit:0},{accountCode:'1301',debit:0,credit:4}]}),
  r('stockMovements','movement-'+id,{id:'movement-'+id,referenceType:'pos_invoice',
-  referenceNumber:'TEMP-'+id,itemId:'sku',quantity:2,totalValue:4,type:'out_sale'}),
+  referenceNumber:'TEMP-'+id,sourceInvoiceId:id,itemId:'sku',quantity:2,
+  totalValue:4,type:'out_sale',balanceBefore:10,balanceAfter:8}),
  r('parties','customer',{id:'customer',code:'CUST-0002',type:'customer',balance:8},1),
  r('inventory','sku',{id:'sku',code:'PRI-0001',stockQuantity:8},1)
 ]});
