@@ -1,5 +1,5 @@
 /**
- * Pure, read-only reconciliation of invoice-linked journal revenue.
+ * Pure, read-only reconciliation of invoice-linked sales-credit allocations.
  * IMPORTANT: This is a candidate-finding tool, NOT an adjustment planner.
  * It cannot prove the absence of journals using other reference IDs.
  */
@@ -32,7 +32,8 @@ export function reconcileInvoiceLinkedRevenue(invoices, journalEntries) {
     }
     let item = byInvoice.get(referenceId);
     if (!item) {
-      item = {netRevenueCents:0,netCostCents:0,revenueLines:0,corrections:0,journals:[],invalidLine:false};
+      item = {netRevenueCents:0,netDeliveryLiabilityCents:0,netTaxLiabilityCents:0,
+        netCostCents:0,allocationLines:0,corrections:0,journals:[],invalidLine:false};
       byInvoice.set(referenceId,item);
     }
     item.journals.push({id:rowId(row),referenceType:type});
@@ -51,10 +52,12 @@ export function reconcileInvoiceLinkedRevenue(invoices, journalEntries) {
         continue;
       }
       const code = String(line?.accountCode ?? '');
-      if (code === '4101') {
-        item.netRevenueCents += credit - debit;
-        item.revenueLines++;
-      }
+      if (code === '4101') item.netRevenueCents += credit - debit;
+      // 2104 is a liability to the courier, NOT merchandise revenue;
+      // 2103 is collected tax payable. Both are valid sale credit allocations.
+      if (code === '2104') item.netDeliveryLiabilityCents += credit - debit;
+      if (code === '2103') item.netTaxLiabilityCents += credit - debit;
+      if (['4101','2104','2103'].includes(code)) item.allocationLines++;
       if (code === '5101') item.netCostCents += debit - credit;
     }
   }
@@ -65,13 +68,21 @@ export function reconcileInvoiceLinkedRevenue(invoices, journalEntries) {
     const invoice = rowValue(row);
     const id = rowId(row);
     const number = String(invoice.invoiceNumber || '').trim();
-    const linked = byInvoice.get(id) ?? {netRevenueCents:0,netCostCents:0,revenueLines:0,corrections:0,journals:[],invalidLine:false};
+    const linked = byInvoice.get(id) ?? {
+      netRevenueCents:0,netDeliveryLiabilityCents:0,netTaxLiabilityCents:0,
+      netCostCents:0,allocationLines:0,corrections:0,journals:[],invalidLine:false
+    };
+    const allocatedCents = linked.netRevenueCents +
+      linked.netDeliveryLiabilityCents + linked.netTaxLiabilityCents;
     const expectedRaw = invoice.baseTotalAmount ?? invoice.totalAmount;
     const expectedCents = cents(expectedRaw);
     const context = {
       invoiceNumber:number,invoiceId:id,
       expectedBaseAmount:expectedCents === null ? null : toAmount(expectedCents),
       linkedRevenue:toAmount(linked.netRevenueCents),
+      linkedDeliveryLiability:toAmount(linked.netDeliveryLiabilityCents),
+      linkedTaxLiability:toAmount(linked.netTaxLiabilityCents),
+      linkedSaleCredits:toAmount(allocatedCents),
       linkedCost:toAmount(linked.netCostCents),
       linkedJournalCount:linked.journals.length,
       linkedCorrectionCount:linked.corrections,
@@ -85,18 +96,18 @@ export function reconcileInvoiceLinkedRevenue(invoices, journalEntries) {
       problems.push({...context,reason:'INVALID_LINKED_JOURNAL_LINE'});
       continue;
     }
-    if (linked.revenueLines === 0) {
+    if (linked.allocationLines === 0) {
       if (invoice.isAccountingPosted === true) {
-        problems.push({...context,reason:'POSTED_WITHOUT_LINKED_REVENUE'});
+        problems.push({...context,reason:'POSTED_WITHOUT_LINKED_SALE_CREDITS'});
       }
       continue;
     }
-    const differenceCents = linked.netRevenueCents - expectedCents;
+    const differenceCents = allocatedCents - expectedCents;
     if (Math.abs(differenceCents) > MONEY_TOLERANCE_CENTS) {
-      const reason = differenceCents > 0 ? 'LINKED_REVENUE_ABOVE_INVOICE' : 'LINKED_REVENUE_BELOW_INVOICE';
+      const reason = differenceCents > 0 ? 'LINKED_SALE_CREDITS_ABOVE_INVOICE' : 'LINKED_SALE_CREDITS_BELOW_INVOICE';
       const caseRecord = {...context,reason,variance:toAmount(differenceCents),
-        // NOT proposed journal entries. Tax, charges, exchange and journals
-        // without the invoice UUID must be reconciled before posting changes.
+        // NOT proposed journal entries. Currency, other liability accounts,
+        // corrections using old IDs and cash receipts require review.
         requiresManualReconciliation:true};
       cases.push(caseRecord);
       if (differenceCents > 0) totals.positiveVarianceCents += differenceCents;
@@ -105,11 +116,12 @@ export function reconcileInvoiceLinkedRevenue(invoices, journalEntries) {
   }
   return {
     invoiceCount:invoices.length,journalCount:journalEntries.length,
-    linkedRevenueVarianceCount:cases.length,
+    linkedInvoiceCreditVarianceCount:cases.length,
+    linkedRevenueVarianceCount:cases.length, // deprecated field name: sale-credit variance
     positiveLinkedVariance:toAmount(totals.positiveVarianceCents),
     negativeLinkedVariance:toAmount(totals.negativeVarianceCents),
     cases,problems,orphanJournals,invalidJournalLines,
-    limitation:'Only journals linked by immutable invoice record ID are included. Do not create adjustments from this report alone.'
+    limitation:'Matches 4101 revenue + 2104 courier liability + 2103 VAT to the invoice total using linked journal IDs. Unlinked corrections and other allocated accounts require review; never create adjustments from this report alone.'
   };
 }
 
