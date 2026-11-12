@@ -83,7 +83,9 @@ export function indexedSubCustomers(parties: Party[], invoices: Invoice[]): Part
     result.push({
       id: placeholderId(parentId, name),
       name,
-      code: 'SUB-LEGACY',
+      // Synthetic invoice-only rows do not have an allocated business serial.
+      // Never present an invented code as an official customer ID.
+      code: '',
       type: 'customer',
       isSubCustomer: true,
       parentPartyId: parentId,
