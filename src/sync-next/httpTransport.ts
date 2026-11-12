@@ -2,6 +2,7 @@ import {VersionConflict, PermanentSyncError, type ServerCursor, type ServerEvent
 import type {SyncTransport} from './coordinator';
 import type {SettingsReceiptProof,VerifiedSettingsReceipt} from './settingsPatch';
 import {secureLoginEnabled,publicSyncApiUrl,getCurrentSessionToken,authHeaders} from '../services/secureAuth';
+import {fetchWithSyncDeadline,deadlineForSyncPath} from './requestDeadline';
 
 export const URL_KEY='lobnan_local_sync_server_url';
 export const TOKEN_KEY='lobnan_local_sync_device_token';
@@ -26,9 +27,9 @@ export class LocalHttpSyncTransport implements SyncTransport {
   private stopped=false;
   constructor(private url:string, private token:string, private workspaceId:string){}
   private async request<T>(path:string, options:RequestInit={}):Promise<T> {
-    const response=await fetch(`${this.url}/api/v1/${path}`,{
+    const response=await fetchWithSyncDeadline(`${this.url}/api/v1/${path}`,{
       ...options, headers:{...authHeaders(this.url,secureLoginEnabled()?getCurrentSessionToken():this.token),'Content-Type':'application/json',...options.headers},cache:'no-store'
-    });
+    },deadlineForSyncPath(path));
     let data:any;
     try {data=await response.json();} catch {throw new Error('INVALID_SERVER_REPLY');}
     if(!response.ok){
