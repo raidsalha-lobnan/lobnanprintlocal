@@ -1248,7 +1248,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let unmounted = false;
     let stopFn: (() => void) | null = null;
     let unsubscribeState: (() => void) | null = null;
-    let unsubscribeApplied: (() => void) | null = null;
     let unsubscribeRepo: (() => void) | null = null;
 
     const initLayer = async () => {
@@ -1299,10 +1298,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(grouped.payrollSheets) && (canonical || grouped.payrollSheets.length > 0)) setPayrollSheets(prev => unchanged(prev, grouped.payrollSheets) ? prev : grouped.payrollSheets);
             if (Array.isArray(grouped.debtClearings) && (canonical || grouped.debtClearings.length > 0)) setDebtClearings(prev => unchanged(prev, grouped.debtClearings) ? prev : grouped.debtClearings);
             if (Array.isArray(grouped.warehouseOperations) && (canonical || grouped.warehouseOperations.length > 0)) setWarehouseOperations(prev => unchanged(prev, grouped.warehouseOperations) ? prev : grouped.warehouseOperations);
+            // A migrated daily sheet is also a workspace record, not a private tab cache.
+            // Preserve unmigrated historical local sheets until explicitly reviewed.
+            if (Array.isArray(grouped.dailyEntrySheets) && grouped.dailyEntrySheets.length > 0) {
+              const nextSheets = Object.fromEntries(grouped.dailyEntrySheets
+                .filter((sheet: DailyEntrySheet) => sheet && typeof sheet.date === 'string')
+                .map((sheet: DailyEntrySheet) => [sheet.date, sheet])) as Record<string, DailyEntrySheet>;
+              setDailyEntrySheets(prev => JSON.stringify(prev) === JSON.stringify(nextSheets) ? prev : nextSheets);
+            }
             if (Array.isArray(grouped.companies) && (canonical || grouped.companies.length > 0)) setCompanies(grouped.companies);
             if (Array.isArray(grouped.branches) && (canonical || grouped.branches.length > 0)) setBranches(grouped.branches);
             if (Array.isArray(grouped.warehouses) && (canonical || grouped.warehouses.length > 0)) setWarehouses(grouped.warehouses);
-            const savedSettings = selectWorkspaceSettings(await repo.all('settings'));
+            const settingsRows = (grouped.settings || []).map((value: any) => ({
+              id: String(value?.id || ''), value, version: 0, pending: false
+            }));
+            const savedSettings = selectWorkspaceSettings(settingsRows);
             if (savedSettings?.value && !unmounted && refresh === latestRepositoryRefresh) {
               // The PostgreSQL record is authoritative across every device.
               // Retain one recoverable device-only copy of any older letterhead,
@@ -1347,153 +1357,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
         });
 
-        // 1. Live bidirectional event listener: applies Cloud changes instantly to React UI state
-        unsubscribeApplied = layer.coordinator.onApplied(changes => {
-          if (unmounted || !changes || changes.length === 0) return;
-
-          for (const c of changes) {
-            const id = c.id;
-            const val = c.value;
-
-            if (c.entity === 'invoices') {
-              setInvoices(prev => {
-                let next: Invoice[];
-                if (val === null) {
-                  next = prev.filter(i => i.id !== id);
-                } else {
-                  const idx = prev.findIndex(i => i.id === id);
-                  if (idx >= 0) {
-                    next = [...prev];
-                    next[idx] = val as unknown as Invoice;
-                  } else {
-                    next = [val as unknown as Invoice, ...prev];
-                  }
-                }
-                try { localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(next)); } catch {}
-                return next;
-              });
-            } else if (c.entity === 'parties') {
-              setParties(prev => {
-                let next: Party[];
-                if (val === null) {
-                  next = prev.filter(p => p.id !== id);
-                } else {
-                  const idx = prev.findIndex(p => p.id === id);
-                  if (idx >= 0) {
-                    next = [...prev];
-                    next[idx] = val as unknown as Party;
-                  } else {
-                    next = [...prev, val as unknown as Party];
-                  }
-                }
-                try { localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(next)); } catch {}
-                return next;
-              });
-            } else if (c.entity === 'inventory') {
-              setInventory(prev => {
-                let next: InventoryItem[];
-                if (val === null) {
-                  next = prev.filter(item => item.id !== id);
-                } else {
-                  const idx = prev.findIndex(item => item.id === id);
-                  if (idx >= 0) {
-                    next = [...prev];
-                    next[idx] = val as unknown as InventoryItem;
-                  } else {
-                    next = [...prev, val as unknown as InventoryItem];
-                  }
-                }
-                try { localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(next)); } catch {}
-                return next;
-              });
-            } else if (c.entity === 'vouchers') {
-              setVouchers(prev => {
-                let next: PaymentVoucher[];
-                if (val === null) {
-                  next = prev.filter(v => v.id !== id);
-                } else {
-                  const idx = prev.findIndex(v => v.id === id);
-                  if (idx >= 0) {
-                    next = [...prev];
-                    next[idx] = val as unknown as PaymentVoucher;
-                  } else {
-                    next = [...prev, val as unknown as PaymentVoucher];
-                  }
-                }
-                try { localStorage.setItem(`${STORAGE_KEY}_vouchers`, JSON.stringify(next)); } catch {}
-                return next;
-              });
-            } else if (c.entity === 'purchases') {
-              setPurchases(prev => {
-                let next: PurchaseInvoice[];
-                if (val === null) {
-                  next = prev.filter(p => p.id !== id);
-                } else {
-                  const idx = prev.findIndex(p => p.id === id);
-                  if (idx >= 0) {
-                    next = [...prev];
-                    next[idx] = val as unknown as PurchaseInvoice;
-                  } else {
-                    next = [val as unknown as PurchaseInvoice, ...prev];
-                  }
-                }
-                try { localStorage.setItem(`${STORAGE_KEY}_purchases`, JSON.stringify(next)); } catch {}
-                return next;
-              });
-            } else if (c.entity === 'journalEntries') {
-              setJournalEntries(prev => {
-                let next: JournalEntry[];
-                if (val === null) {
-                  next = prev.filter(j => j.id !== id);
-                } else {
-                  const idx = prev.findIndex(j => j.id === id);
-                  if (idx >= 0) {
-                    next = [...prev];
-                    next[idx] = val as unknown as JournalEntry;
-                  } else {
-                    next = [val as unknown as JournalEntry, ...prev];
-                  }
-                }
-                try { localStorage.setItem(`${STORAGE_KEY}_journals`, JSON.stringify(next)); } catch {}
-                return next;
-              });
-            } else if (c.entity === 'stockMovements') {
-              setStockMovements(prev => {
-                let next: StockMovement[];
-                if (val === null) {
-                  next = prev.filter(sm => sm.id !== id);
-                } else {
-                  const idx = prev.findIndex(sm => sm.id === id);
-                  if (idx >= 0) {
-                    next = [...prev];
-                    next[idx] = val as unknown as StockMovement;
-                  } else {
-                    next = [...prev, val as unknown as StockMovement];
-                  }
-                }
-                try { localStorage.setItem(`${STORAGE_KEY}_stockMovements`, JSON.stringify(next)); } catch {}
-                return next;
-              });
-            } else if (c.entity === 'treasuries') {
-              setTreasuries(prev => {
-                let next: Treasury[];
-                if (val === null) {
-                  next = prev.filter(t => t.id !== id);
-                } else {
-                  const idx = prev.findIndex(t => t.id === id);
-                  if (idx >= 0) {
-                    next = [...prev];
-                    next[idx] = val as unknown as Treasury;
-                  } else {
-                    next = [...prev, val as unknown as Treasury];
-                  }
-                }
-                try { localStorage.setItem(`${STORAGE_KEY}_treasuries`, JSON.stringify(next)); } catch {}
-                return next;
-              });
-            }
-          }
-        });
+        // Version-checked IndexedDB notifications refresh all screens through unsubscribeRepo.
+        // Never apply raw server events directly to React state: replayed events can be stale.
 
         // Initial canonical hydration completed above; never race it with another snapshot.
 
@@ -1506,7 +1371,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     return () => {
       unmounted = true;
-      if (unsubscribeApplied) unsubscribeApplied();
       if (unsubscribeRepo) unsubscribeRepo();
       if (unsubscribeState) unsubscribeState();
       if (stopFn) stopFn();
@@ -1532,312 +1396,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const channel = new BroadcastChannel('accounting_app_live_sync');
         syncChannelRef.current = channel;
 
-        channel.onmessage = (event) => {
-          if (!event.data || typeof event.data !== 'object') return;
-          const { type, payload } = event.data;
-
-          if (type === 'DATABASE_IMPORTED' || type === 'DATABASE_PURGED') {
-            // Re-load all entities directly from localStorage to ensure 100% unified state across screens
-            try {
-              const inv = safeLoadArray(`${STORAGE_KEY}_invoices`, []);
-              const pty = safeLoadArray(`${STORAGE_KEY}_parties`, []);
-              const invt = safeLoadArray(`${STORAGE_KEY}_inventory`, []);
-              const acc = safeLoadArray(`${STORAGE_KEY}_accounts`, []);
-              const trs = safeLoadArray(`${STORAGE_KEY}_treasuries`, []);
-              const vch = safeLoadArray(`${STORAGE_KEY}_vouchers`, []);
-              const pur = safeLoadArray(`${STORAGE_KEY}_purchases`, []);
-              const pret = safeLoadArray(`${STORAGE_KEY}_purchaseReturns`, []);
-              const sret = safeLoadArray(`${STORAGE_KEY}_salesReturns`, []);
-              const je = safeLoadArray(`${STORAGE_KEY}_journals`, []);
-              const sm = safeLoadArray(`${STORAGE_KEY}_stockMovements`, []);
-              const exp = safeLoadArray(`${STORAGE_KEY}_expenses`, []);
-              const emp = safeLoadArray(`${STORAGE_KEY}_employees`, []);
-              const po = safeLoadArray(`${STORAGE_KEY}_printOrders`, []);
-              const dc = safeLoadArray(`${STORAGE_KEY}_debt_clearings`, []);
-              const adv = safeLoadArray(`${STORAGE_KEY}_advances`, []);
-              const ded = safeLoadArray(`${STORAGE_KEY}_deductions`, []);
-              const inc = safeLoadArray(`${STORAGE_KEY}_incentives`, []);
-              const pay = safeLoadArray(`${STORAGE_KEY}_payrollSheets`, []);
-              const wo = safeLoadArray(`${STORAGE_KEY}_warehouse_operations`, []);
-              const cmp = safeLoadArray(`${STORAGE_KEY}_companies`, []);
-              const br = safeLoadArray(`${STORAGE_KEY}_branches`, []);
-              const wh = safeLoadArray(`${STORAGE_KEY}_warehouses`, []);
-              const rl = safeLoadArray(`${STORAGE_KEY}_roles`, []);
-              const usr = safeLoadArray(`${STORAGE_KEY}_users`, []);
-
-              setInvoices(inv);
-              setParties(pty);
-              setInventory(invt);
-              setAccounts(acc);
-              setTreasuries(trs);
-              setVouchers(vch);
-              setPurchases(pur);
-              setPurchaseReturns(pret);
-              setSalesReturns(sret);
-              setJournalEntries(je);
-              setStockMovements(sm);
-              setExpenses(exp);
-              setEmployees(emp);
-              setPrintOrders(po);
-              setDebtClearings(dc);
-              setEmployeeAdvances(adv);
-              setEmployeeDeductions(ded);
-              setEmployeeIncentives(inc);
-              setPayrollSheets(pay);
-              setWarehouseOperations(wo);
-              setCompanies(cmp);
-              setBranches(br);
-              setWarehouses(wh);
-              setRoles(rl);
-              setUsers(usr);
-            } catch (err) {
-              console.warn('DATABASE_IMPORTED reload notice:', err);
-            }
-          } else if (type === 'SYNC_DELTA_EVENT') {
-            const { entity, op, item, items, clientId } = payload || {};
-            if (!entity || clientId === myClientIdRef.current) return;
-            applyDeltaToState(entity, op || 'upsert', item, items);
-          } else if (type === 'SYNC_ENTITY_UPDATE') {
-            const { entity, data } = payload || {};
-            if (!entity || !data) return;
-
-            if (entity === 'settings') {
-              if (typeof data === 'object') {
-                const sObj = Array.isArray(data) ? data[0] : data;
-                setSettings(prev => {
-                  const merged = { ...prev, ...sObj };
-                  try { localStorage.setItem(`${STORAGE_KEY}_settings`, JSON.stringify(merged)); } catch {}
-                  return merged;
-                });
-              }
-            } else if (Array.isArray(data)) {
-              if (entity === 'invoices') {
-                setInvoices(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'parties') {
-                setParties(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'inventory') {
-                setInventory(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'treasuries') {
-                setTreasuries(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_treasuries`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'accounts') {
-                setAccounts(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_accounts`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'journalEntries') {
-                setJournalEntries(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_journals`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'stockMovements') {
-                setStockMovements(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_stockMovements`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'vouchers') {
-                setVouchers(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_vouchers`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'purchases') {
-                setPurchases(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_purchases`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'purchaseReturns') {
-                setPurchaseReturns(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_purchaseReturns`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'salesReturns') {
-                setSalesReturns(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_salesReturns`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'expenses') {
-                setExpenses(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_expenses`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'employees') {
-                setEmployees(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_employees`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'employeeAdvances') {
-                setEmployeeAdvances(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_advances`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'employeeDeductions') {
-                setEmployeeDeductions(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_deductions`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'employeeIncentives') {
-                setEmployeeIncentives(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_incentives`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'payrollSheets') {
-                setPayrollSheets(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_payrollSheets`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'printOrders') {
-                setPrintOrders(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_printOrders`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'debtClearings') {
-                setDebtClearings(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_debt_clearings`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'companies') {
-                setCompanies(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_companies`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'branches') {
-                setBranches(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_branches`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'warehouses') {
-                setWarehouses(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_warehouses`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'warehouseOperations') {
-                setWarehouseOperations(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_warehouse_operations`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'roles') {
-                setRoles(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_roles`, JSON.stringify(data)); } catch {}
-              } else if (entity === 'users') {
-                setUsers(data);
-                try { localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(data)); } catch {}
-              }
-            }
-          }
-        };
+        // Cross-tab data propagation is owned by LocalSyncDb's version-checked
+        // IndexedDB BroadcastChannel. Legacy full-array broadcasts are deliberately
+        // ignored to prevent stale localStorage from reverting current server data.
       }
     } catch (e) {
       console.warn('BroadcastChannel init note:', e);
     }
 
-    // Storage Event fallback for cross-tab sync
-    const handleStorageEvent = (e: StorageEvent) => {
-      if (!e.key || !e.newValue) return;
-      try {
-        if (e.key === `${STORAGE_KEY}_invoices`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setInvoices(parsed);
-        } else if (e.key === `${STORAGE_KEY}_parties`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setParties(parsed);
-        } else if (e.key === `${STORAGE_KEY}_inventory`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setInventory(parsed);
-        } else if (e.key === `${STORAGE_KEY}_treasuries`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setTreasuries(parsed);
-        } else if (e.key === `${STORAGE_KEY}_accounts`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setAccounts(parsed);
-        } else if (e.key === `${STORAGE_KEY}_journals`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setJournalEntries(parsed);
-        } else if (e.key === `${STORAGE_KEY}_stockMovements`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setStockMovements(parsed);
-        } else if (e.key === `${STORAGE_KEY}_vouchers`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setVouchers(parsed);
-        } else if (e.key === `${STORAGE_KEY}_purchases`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setPurchases(parsed);
-        } else if (e.key === `${STORAGE_KEY}_purchaseReturns`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setPurchaseReturns(parsed);
-        } else if (e.key === `${STORAGE_KEY}_salesReturns`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setSalesReturns(parsed);
-        } else if (e.key === `${STORAGE_KEY}_expenses`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setExpenses(parsed);
-        } else if (e.key === `${STORAGE_KEY}_employees`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setEmployees(parsed);
-        } else if (e.key === `${STORAGE_KEY}_advances`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setEmployeeAdvances(parsed);
-        } else if (e.key === `${STORAGE_KEY}_deductions`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setEmployeeDeductions(parsed);
-        } else if (e.key === `${STORAGE_KEY}_incentives`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setEmployeeIncentives(parsed);
-        } else if (e.key === `${STORAGE_KEY}_payrollSheets`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setPayrollSheets(parsed);
-        } else if (e.key === `${STORAGE_KEY}_printOrders`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setPrintOrders(parsed);
-        } else if (e.key === `${STORAGE_KEY}_debt_clearings`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setDebtClearings(parsed);
-        } else if (e.key === `${STORAGE_KEY}_settings`) {
-          const parsed = JSON.parse(e.newValue);
-          if (parsed && typeof parsed === 'object') setSettings(prev => ({ ...prev, ...parsed }));
-        } else if (e.key === `${STORAGE_KEY}_companies`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setCompanies(parsed);
-        } else if (e.key === `${STORAGE_KEY}_branches`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setBranches(parsed);
-        } else if (e.key === `${STORAGE_KEY}_warehouses`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setWarehouses(parsed);
-        } else if (e.key === `${STORAGE_KEY}_warehouse_operations`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setWarehouseOperations(parsed);
-        } else if (e.key === `${STORAGE_KEY}_roles`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setRoles(parsed);
-        } else if (e.key === `${STORAGE_KEY}_users`) {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setUsers(parsed);
-        }
-      } catch {}
-    };
-    window.addEventListener('storage', handleStorageEvent);
+    // Do not listen to legacy localStorage list events: they have no server
+    // versions and can overwrite the newer PostgreSQL/IndexedDB projection.
+    // The canonical IndexedDB channel already notifies all open tabs.
 
     const handleDatabaseUpdated = () => {
-      try {
-        const inv = safeLoadArray(`${STORAGE_KEY}_invoices`, []);
-        const pty = safeLoadArray(`${STORAGE_KEY}_parties`, []);
-        const invt = safeLoadArray(`${STORAGE_KEY}_inventory`, []);
-        const acc = safeLoadArray(`${STORAGE_KEY}_accounts`, []);
-        const trs = safeLoadArray(`${STORAGE_KEY}_treasuries`, []);
-        const vch = safeLoadArray(`${STORAGE_KEY}_vouchers`, []);
-        const pur = safeLoadArray(`${STORAGE_KEY}_purchases`, []);
-        const pret = safeLoadArray(`${STORAGE_KEY}_purchaseReturns`, []);
-        const sret = safeLoadArray(`${STORAGE_KEY}_salesReturns`, []);
-        const je = safeLoadArray(`${STORAGE_KEY}_journals`, []);
-        const sm = safeLoadArray(`${STORAGE_KEY}_stockMovements`, []);
-        const exp = safeLoadArray(`${STORAGE_KEY}_expenses`, []);
-        const emp = safeLoadArray(`${STORAGE_KEY}_employees`, []);
-        const po = safeLoadArray(`${STORAGE_KEY}_printOrders`, []);
-        const dc = safeLoadArray(`${STORAGE_KEY}_debt_clearings`, []);
-        const adv = safeLoadArray(`${STORAGE_KEY}_advances`, []);
-        const ded = safeLoadArray(`${STORAGE_KEY}_deductions`, []);
-        const inc = safeLoadArray(`${STORAGE_KEY}_incentives`, []);
-        const pay = safeLoadArray(`${STORAGE_KEY}_payrollSheets`, []);
-        const wo = safeLoadArray(`${STORAGE_KEY}_warehouse_operations`, []);
-        const cmp = safeLoadArray(`${STORAGE_KEY}_companies`, []);
-        const br = safeLoadArray(`${STORAGE_KEY}_branches`, []);
-        const wh = safeLoadArray(`${STORAGE_KEY}_warehouses`, []);
-        const rl = safeLoadArray(`${STORAGE_KEY}_roles`, []);
-        const usr = safeLoadArray(`${STORAGE_KEY}_users`, []);
-
-        setInvoices(inv);
-        setParties(pty);
-        setInventory(invt);
-        setAccounts(acc);
-        setTreasuries(trs);
-        setVouchers(vch);
-        setPurchases(pur);
-        setPurchaseReturns(pret);
-        setSalesReturns(sret);
-        setJournalEntries(je);
-        setStockMovements(sm);
-        setExpenses(exp);
-        setEmployees(emp);
-        setPrintOrders(po);
-        setDebtClearings(dc);
-        setEmployeeAdvances(adv);
-        setEmployeeDeductions(ded);
-        setEmployeeIncentives(inc);
-        setPayrollSheets(pay);
-        setWarehouseOperations(wo);
-        setCompanies(cmp);
-        setBranches(br);
-        setWarehouses(wh);
-        setRoles(rl);
-        setUsers(usr);
-      } catch (err) {
-        console.warn('handleDatabaseUpdated reload notice:', err);
-      }
+      // A legacy import notification requests a canonical catch-up instead
+      // of replacing all screens from unverified localStorage arrays.
+      unifiedRepoRef.current?.requestSync();
     };
     window.addEventListener('accounting_database_updated', handleDatabaseUpdated);
 
@@ -1863,14 +1437,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     window.addEventListener('offline', handleOffline);
 
     return () => {
-      window.removeEventListener('storage', handleStorageEvent);
       window.removeEventListener('accounting_database_updated', handleDatabaseUpdated);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       if (syncChannelRef.current) {
         try { syncChannelRef.current.close(); } catch {}
       }
-      window.removeEventListener('storage', handleStorageEvent);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
@@ -2144,6 +1716,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return {};
   });
 
+  const dailyEntrySheetsRef = React.useRef(dailyEntrySheets);
+  dailyEntrySheetsRef.current = dailyEntrySheets;
+
   const getDailyEntrySheet = (date: string): DailyEntrySheet => {
     if (dailyEntrySheets[date]) {
       return dailyEntrySheets[date];
@@ -2160,7 +1735,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // الحفظ المباشر والنهائي للأسطر المعتمدة: الأسطر المحذوفة تُحذف نهائياً ولا يتم إعادتها
     const finalRows = rows;
 
-    const currentLocks = { ...(dailyEntrySheets[date]?.activeLocks || {}) };
+    const currentLocks = { ...(dailyEntrySheetsRef.current[date]?.activeLocks || {}) };
     const now = Date.now();
     Object.keys(currentLocks).forEach(k => {
       if (now - (currentLocks[k]?.lockedAt || 0) > 120000) {
@@ -2171,22 +1746,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const sheetData: DailyEntrySheet = {
       date,
       rows: finalRows,
-      notes: notes !== undefined ? notes : (dailyEntrySheets[date]?.notes || ''),
+      notes: notes !== undefined ? notes : (dailyEntrySheetsRef.current[date]?.notes || ''),
       updatedAt: new Date().toISOString(),
       activeLocks: currentLocks
     };
-    setDailyEntrySheets(prev => {
-      const updated: Record<string, DailyEntrySheet> = {
-        ...prev,
-        [date]: sheetData
-      };
-      try {
-        localStorage.setItem('accounting_daily_entry_sheets_v1', JSON.stringify(updated));
-      } catch (err) {
-        console.warn('Failed to save daily entry sheets to localStorage', err);
-      }
-      return updated;
-    });
+    const updated: Record<string, DailyEntrySheet> = { ...dailyEntrySheetsRef.current, [date]: sheetData };
+    dailyEntrySheetsRef.current = updated;
+    setDailyEntrySheets(updated);
+    try { localStorage.setItem('accounting_daily_entry_sheets_v1', JSON.stringify(updated)); } catch {}
 
     // مزامنة سحابية فورية لكشف الإدخال اليومي عبر Firestore ليعمل متزامناً لدى كافة المستخدمين
     try {
@@ -2199,40 +1766,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const saveDailyEntryRow = (date: string, row: DailyEntryRow) => {
-    setDailyEntrySheets(prev => {
-      const sheet = prev[date] || { date, rows: [], notes: '', updatedAt: new Date().toISOString() };
-      const currentRows = sheet.rows || [];
-      const rowIndex = currentRows.findIndex(r => r.id === row.id);
-      let updatedRows: DailyEntryRow[];
-      if (rowIndex >= 0) {
-        updatedRows = currentRows.map(r => r.id === row.id ? row : r);
-      } else {
-        updatedRows = [...currentRows, row];
-      }
-      const updatedSheet: DailyEntrySheet = {
-        ...sheet,
-        rows: updatedRows,
-        updatedAt: new Date().toISOString()
-      };
-      const updated: Record<string, DailyEntrySheet> = {
-        ...prev,
-        [date]: updatedSheet
-      };
-      try {
-        localStorage.setItem('accounting_daily_entry_sheets_v1', JSON.stringify(updated));
-      } catch (err) {}
-
-      // Atomic row update in sub-collection
-      try {
-        setDoc(doc(db, 'dailyEntrySheets', date, 'rows', row.id), cleanDocForFirestore(row)).catch(err => {
-          console.warn('Firestore sub-collection row write failed:', err);
-        });
-      } catch (e) {}
-
-      return updated;
-    });
+    const current = dailyEntrySheetsRef.current[date] ||
+      { date, rows: [], notes: '', updatedAt: new Date().toISOString() };
+    const rows = current.rows || [];
+    const next = rows.some(r => r.id === row.id)
+      ? rows.map(r => r.id === row.id ? row : r)
+      : [...rows, row];
+    // Save the whole versioned parent record. The old four-segment subcollection
+    // path was not supported by the PostgreSQL durable writer and never synced.
+    // Conflicting simultaneous row edits require review, never silent replacement.
+    saveDailyEntrySheet(date, next, current.notes);
   };
-
   const deleteDailyEntrySheet = (date: string) => {
     setDailyEntrySheets(prev => {
       const next = { ...prev };
@@ -2262,50 +1806,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const markDailyEntryRowsApproved = (date: string, rowIds: string[], invoiceId: string, invoiceNumber: string) => {
-    let sheetToSync: DailyEntrySheet | null = null;
-    setDailyEntrySheets(prev => {
-      const sheet = prev[date];
-      if (!sheet || !sheet.rows) return prev;
-      const updatedRows = sheet.rows.map(r => {
-        if (rowIds.includes(r.id)) {
-          return {
-            ...r,
-            isApproved: true,
-            approvedInvoiceId: invoiceId,
-            approvedInvoiceNumber: invoiceNumber,
-            approvedAt: new Date().toISOString()
-          };
-        }
-        return r;
-      });
-      sheetToSync = {
-        ...sheet,
-        rows: updatedRows,
-        updatedAt: new Date().toISOString()
-      };
-      const updated: Record<string, DailyEntrySheet> = {
-        ...prev,
-        [date]: sheetToSync
-      };
-      try {
-        localStorage.setItem('accounting_daily_entry_sheets_v1', JSON.stringify(updated));
-      } catch (err) {
-        console.warn('Failed to update daily entry sheet approval in localStorage', err);
-      }
-      return updated;
-    });
-
-    if (sheetToSync) {
-      try {
-        setDoc(doc(db, 'dailyEntrySheets', date), sheetToSync).catch(err => {
-          console.warn('Firestore live update dailyEntrySheets approval error:', err);
-        });
-      } catch (e) {
-        console.warn('Firestore approval update failed:', e);
-      }
-    }
+    const sheet = dailyEntrySheetsRef.current[date];
+    if (!sheet || !Array.isArray(sheet.rows)) return;
+    const now = new Date().toISOString();
+    const rows = sheet.rows.map(row => rowIds.includes(row.id)
+      ? {...row, isApproved:true, approvedInvoiceId:invoiceId,
+          approvedInvoiceNumber:invoiceNumber, approvedAt:now}
+      : row);
+    // Commit exactly once, outside the React updater.
+    saveDailyEntrySheet(date, rows, sheet.notes);
   };
-
   // Granular Roles & System Users State
   const [roles, setRoles] = useState<Role[]>(() => {
     const loaded = safeLoadArray(`${STORAGE_KEY}_roles`, DEFAULT_ROLES);
@@ -2381,6 +1891,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Re-audit and sync treasuries whenever invoices, vouchers, purchases, or expenses change
   useEffect(() => {
+    // PostgreSQL is authoritative for synchronized treasury balances.
+    // The old client-only recalculation made two devices display different sums.
+    if (unifiedRepoRef.current) return;
     setTreasuries(prevTreasuries => {
       const audited = auditAndRecalculateTreasuries(
         prevTreasuries,
@@ -2460,51 +1973,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     'client-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7)
   );
 
-  // Cross-tab synchronization channel
-  const syncChannel = React.useMemo(() => new BroadcastChannel('accounting_sync_channel'), []);
-
-  useEffect(() => {
-    syncChannel.onmessage = (event) => {
-      const { entity, payload } = event.data;
-      console.log(`Received cross-tab sync for ${entity}`);
-      
-      switch (entity) {
-        case 'invoices': setInvoices(payload); break;
-        case 'parties': setParties(payload); break;
-        case 'inventory': setInventory(payload); break;
-        case 'vouchers': setVouchers(payload); break;
-        // Add other entities as needed
-        default: break;
-      }
-      window.dispatchEvent(new CustomEvent('accounting_database_updated', { detail: { entity } }));
-    };
-    return () => syncChannel.close();
-  }, [syncChannel, setInvoices, setParties, setInventory, setVouchers]);
-
-  const lastSeenSeqRef = React.useRef<number>(
-    parseInt(localStorage.getItem('accounting_last_seen_seq') || '0', 10) || 0
-  );
-
-  // Centralized dispatcher for entity updates
-  const dispatchEntityUpdate = async <T extends { id?: string }>(
-    entityName: string,
-    newValue: T[] | ((prev: T[]) => T[]),
-    setter: React.Dispatch<React.SetStateAction<T[]>>,
-    storageKeySuffix: string
-  ) => {
-    setter(prev => {
-      const nextValue = typeof newValue === 'function' ? (newValue as any)(prev) : newValue;
-      try { localStorage.setItem(`${STORAGE_KEY}_${storageKeySuffix}`, JSON.stringify(nextValue)); } catch {}
-      
-      // Broadcast to other tabs
-      syncChannel.postMessage({ entity: entityName, payload: nextValue });
-      
-      // Push to server
-      // Note: This logic assumes pushToServerSync is available in scope
-      // I will need to ensure this works or call the push function directly
-      return nextValue;
-    });
-  };
+  // Cross-tab updates come exclusively from version-checked LocalSyncDb BroadcastChannel.
+  // Remove obsolete full-array channel and unused dispatcher: they could revert
+  // a changed customer/invoice/stock record without checking server versions.
 
   const activeMasterHostRef = React.useRef<string>('');
 

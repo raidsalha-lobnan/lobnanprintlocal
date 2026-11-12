@@ -683,6 +683,52 @@ export class LocalSyncDb {
     );
   }
 
+  /** One stable IndexedDB read transaction for every accounting screen. */
+  async listVisibleGrouped(entities: readonly EntityName[]): Promise<Record<string, LocalView[]>> {
+    const db = await this.getDb();
+    const tx = db.transaction([RECORDS, OUTBOX], 'readonly');
+    const done = completed(tx);
+    const [records, outbox] = await Promise.all([
+      request(tx.objectStore(RECORDS).getAll()) as Promise<StoredRecord[]>,
+      request(tx.objectStore(OUTBOX).getAll()) as Promise<SyncCommand[]>
+    ]);
+    await done;
+    const requested = new Set(entities);
+    const indexed = new Map<EntityName, Map<string, LocalView>>();
+    for (const entity of requested) indexed.set(entity, new Map<string, LocalView>());
+    for (const rec of records) {
+      const collection = indexed.get(rec.entity);
+      if (!collection) continue;
+      collection.set(rec.id, {id: rec.id, value: rec.value, version: rec.version, pending: false});
+    }
+    const ordered = [...outbox].sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));
+    for (const cmd of ordered) {
+      if (cmd.status !== 'pending') continue;
+      for (const change of cmd.changes) {
+        const collection = indexed.get(change.entity);
+        if (!collection) continue;
+        const baseline = collection.get(change.id);
+        const serverVersion = baseline?.version;
+        const settingsPatch = change.entity === 'settings' && change.value?._settingsPatchV1 === true;
+        if (!settingsPatch && serverVersion !== undefined && change.expectedVersion < serverVersion) continue;
+        if (!settingsPatch && serverVersion === undefined && change.expectedVersion !== 0) continue;
+        collection.set(change.id, {
+          id: change.id,
+          value: settingsPatch
+            ? composeLocalSettingsDraft(baseline?.value, change.value as unknown as SettingsFieldPatch)
+            : change.value,
+          version: settingsPatch ? (serverVersion ?? change.expectedVersion) : change.expectedVersion,
+          pending: true
+        });
+      }
+    }
+    const result: Record<string, LocalView[]> = {};
+    for (const entity of entities) {
+      result[entity] = [...(indexed.get(entity)?.values() ?? [])].filter(row => row.value !== null);
+    }
+    return result;
+  }
+
   /** Whether IndexedDB has already been initialized (including an empty cloud).
    * Never use the invoice list alone as a proxy for database emptiness.
    */

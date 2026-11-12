@@ -169,9 +169,10 @@ export class UnifiedRepository {
       'stockMovements', 'warehouseOperations', 'dailyEntrySheets',
       'companies', 'branches', 'warehouses', 'roles', 'users', 'settings'
     ];
-    const collections = await Promise.all(supported.map(entity => this.local.listVisible(entity)));
-    return Object.fromEntries(supported.map((entity,index) => [
-      entity, collections[index].map(record => record.value).filter(Boolean)
+    // One consistent committed record/outbox snapshot across all screen entities.
+    const grouped = await this.local.listVisibleGrouped(supported);
+    return Object.fromEntries(supported.map(entity => [
+      entity, (grouped[entity] ?? []).map(record => record.value).filter(Boolean)
     ]));
   }
 }
