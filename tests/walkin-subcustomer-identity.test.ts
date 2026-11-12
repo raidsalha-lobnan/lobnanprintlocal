@@ -35,6 +35,8 @@ test('legacy invoice names appear as one searchable walk-in account per parent, 
   const before=JSON.stringify({parties,invoices});
   const indexed=indexedSubCustomers(parties,invoices);
   assert.equal(indexed.length,1);
+  // A legacy projection is searchable, but must never invent a real SUB serial.
+  assert.equal(indexed[0].code, '');
   assert.equal(indexed[0].parentPartyId,'cash');
   assert.equal(isInvoiceOnlySubCustomer(indexed[0]),true);
   const rows=report(parties,invoices,'مؤمن الدرفيل');
