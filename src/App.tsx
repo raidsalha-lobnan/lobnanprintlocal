@@ -12,6 +12,7 @@ import { DesktopStatusBar } from './components/DesktopStatusBar';
 import { HomeScreenView } from './components/HomeScreenView';
 import { DashboardView } from './components/DashboardView';
 import { PosView } from './components/PosView';
+import { MASTER_OPEN_EVENT, MASTER_DONE_EVENT, peekMasterFormRequest } from './utils/masterFormNavigation';
 import { PrintOrdersView } from './components/PrintOrdersView';
 import { NewPrintOrderView } from './components/NewPrintOrderView';
 import { InvoicesView } from './components/InvoicesView';
@@ -65,6 +66,25 @@ const MainLayout: React.FC = () => {
     selectedReturnForPrint,
     selectedSalesReturnForPrint,
   } = useAccounting();
+
+  // All Create buttons reach the ONE master-data form of their entity.
+  React.useEffect(() => {
+    const onOpen = () => {
+      const request = peekMasterFormRequest();
+      if (!request) return;
+      const tab = request.kind === 'party' ? 'parties'
+        : request.kind === 'item' ? 'inventory'
+        : request.kind === 'supplier' ? 'purchases_suppliers' : 'employees';
+      setActiveTab(tab);
+    };
+    const onDone = () => setActiveTab('pos');
+    window.addEventListener(MASTER_OPEN_EVENT, onOpen);
+    window.addEventListener(MASTER_DONE_EVENT, onDone);
+    return () => {
+      window.removeEventListener(MASTER_OPEN_EVENT, onOpen);
+      window.removeEventListener(MASTER_DONE_EVENT, onDone);
+    };
+  }, [setActiveTab]);
 
   const [localSaveFailure,setLocalSaveFailure]=React.useState<{
     entity:string;raw:string;title:string;explanation:string;nextStep:string

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Party } from '../../types';
+import { Party, Invoice } from '../../types';
+import { indexedSubCustomers, normalizeSubCustomerName, subCustomerParentId } from '../../utils/subCustomerIdentity';
 import { UserCheck, FileText, Phone, Link as LinkIcon, ChevronDown, Plus, AlertCircle } from 'lucide-react';
 
 interface SubCustomerFieldProps {
@@ -7,6 +8,7 @@ interface SubCustomerFieldProps {
   parentCustomerId?: string;
   parentCustomerName?: string;
   parties: Party[];
+  invoices?: Invoice[];
   customCustomerText: string;
   onChangeCustomText: (text: string) => void;
   subCustomerId?: string;
@@ -20,21 +22,14 @@ interface SubCustomerFieldProps {
   onQuickAddSub?: (name: string, phone: string) => void;
 }
 
-const normalizeArabic = (text: string = '') => {
-  return text
-    .trim()
-    .toLowerCase()
-    .replace(/[\u064B-\u065F\u0670]/g, '')
-    .replace(/[إأآا]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/[يى]/g, 'ي');
-};
+const normalizeArabic = normalizeSubCustomerName;
 
 export const SubCustomerField: React.FC<SubCustomerFieldProps> = ({
   compact = false,
   parentCustomerId,
   parentCustomerName,
   parties = [],
+  invoices = [],
   customCustomerText,
   onChangeCustomText,
   subCustomerId,
@@ -51,35 +46,17 @@ export const SubCustomerField: React.FC<SubCustomerFieldProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 1. All main customers in the system (strictly main only)
-  const mainCustomers = useMemo(() => {
-    return parties.filter(p => !p.isSubCustomer && (p.type === 'customer' || p.type === 'both'));
-  }, [parties]);
-
-  // Set of normalized names of all main customers
-  const mainCustomerNamesSet = useMemo(() => {
-    const set = new Set<string>();
-    mainCustomers.forEach(p => {
-      const norm = normalizeArabic(p.name);
-      if (norm) set.add(norm);
-    });
-    return set;
-  }, [mainCustomers]);
-
   // 2. All valid sub-customers: must have isSubCustomer===true AND must NEVER match any main customer name
   const allSubs = useMemo(() => {
-    return parties.filter(p => {
-      if (!p.isSubCustomer) return false;
-      const norm = normalizeArabic(p.name);
-      // Exclude if it shares the name of any main customer
-      if (mainCustomerNamesSet.has(norm)) return false;
-      return true;
-    });
-  }, [parties, mainCustomerNamesSet]);
+    // Names are scoped by parent account; matching a permanent customer's
+    // display name is not a reason to hide an occasional sub-customer.
+    return indexedSubCustomers(parties, invoices);
+  }, [parties, invoices]);
 
   // 3. Sub-customers associated with the selected main customer or general sub-customers
   const linkedSubCustomers = useMemo(() => {
     return allSubs.filter(p => 
-      (parentCustomerId && p.parentPartyId === parentCustomerId) ||
+      (parentCustomerId && subCustomerParentId(p) === parentCustomerId) ||
       (!parentCustomerId && p.isSubCustomer)
     );
   }, [allSubs, parentCustomerId]);
@@ -93,24 +70,24 @@ export const SubCustomerField: React.FC<SubCustomerFieldProps> = ({
     if (!raw) {
       // If empty query, show sub-customers linked to current parent customer or top 15
       return parentCustomerId
-        ? allSubs.filter(p => p.parentPartyId === parentCustomerId)
-        : allSubs.slice(0, 15);
+        ? linkedSubCustomers
+        : linkedSubCustomers.slice(0, 15);
     }
 
-    return allSubs.filter(p => {
+    return linkedSubCustomers.filter(p => {
       const normName = normalizeArabic(p.name);
       const cleanPhone = (p.phone || '').replace(/[\s-]/g, '');
       return normName.includes(raw) || cleanPhone.includes(raw);
     });
-  }, [allSubs, customCustomerText, parentCustomerId]);
+  }, [linkedSubCustomers, customCustomerText, parentCustomerId]);
 
   // Currently active or matched sub-customer (must not be a main customer)
   const activeSubCustomer = useMemo(() => {
-    return allSubs.find(p => 
+    return linkedSubCustomers.find(p =>
       (subCustomerId && p.id === subCustomerId) ||
-      (normalizeArabic(p.name) === normalizeArabic(subCustomerName))
+      (Boolean(subCustomerName?.trim()) && normalizeArabic(p.name) === normalizeArabic(subCustomerName))
     );
-  }, [allSubs, subCustomerId, subCustomerName]);
+  }, [linkedSubCustomers, subCustomerId, subCustomerName]);
 
   // Close dropdown on click outside
   useEffect(() => {

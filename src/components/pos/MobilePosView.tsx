@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import {requestMasterForm, peekMasterResult, consumeMasterResult} from '../../utils/masterFormNavigation';
+import {indexedSubCustomers, registeredSubCustomer, cleanSubCustomerName, isInvoiceOnlySubCustomer, subCustomerParentId} from '../../utils/subCustomerIdentity';
 import { onlineInvoicePostingService } from '../../services/onlineInvoicePostingService';
 import {
   ShoppingCart,
@@ -81,6 +83,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     parties,
     employees,
     addParty,
+    invoices,
     treasuries,
     settings,
     currencies,
@@ -246,16 +249,12 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   // Sub-Customers matching for selected customer
   const subCustomersForCustomer = useMemo(() => {
     if (!selectedCustomerId) return [];
-    return parties.filter(p => p.isSubCustomer && p.parentCustomerId === selectedCustomerId);
-  }, [parties, selectedCustomerId]);
+    return indexedSubCustomers(parties, invoices).filter(p => subCustomerParentId(p) === selectedCustomerId);
+  }, [parties, invoices, selectedCustomerId]);
 
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
 
-  // Quick new customer modal
-  const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false);
-  const [newCustomerName, setNewCustomerName] = useState('');
-  const [newCustomerPhone, setNewCustomerPhone] = useState('');
 
   // Cart state
   const [cart, setCart] = useState<MobileCartItem[]>(() => {
@@ -930,6 +929,11 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
           bankCurrency: activeBankCurr.code,
           bankExchangeRate: bankExchangeRate,
           branchId: activeBranchId,
+          counterpartyType: partyTypeMode,
+          counterpartyId: selectedCustomerId || undefined,
+          subCustomerId: selectedSubCustomerId && !isInvoiceOnlySubCustomer({id: selectedSubCustomerId}) ? selectedSubCustomerId : undefined,
+          subCustomerName: subCustName || undefined,
+          customCustomerText: subCustName || undefined,
           userId: currentUserId,
           userName: currentUser?.fullName || currentUser?.username || 'كاشير الهاتف',
           notes: invoiceNotes.trim()
@@ -942,6 +946,25 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       }
 
       const createdInvoice = postRes.invoice;
+      // A walk-in sub-customer is recorded under the permanent main customer
+      // only after this invoice has been durably accepted.
+      if (partyTypeMode === 'customer' && selectedCustomerId && subCustName) {
+        const parent = parties.find(p => p.id === selectedCustomerId && !p.isSubCustomer);
+        const walkInName = cleanSubCustomerName(subCustName);
+        if (parent && walkInName && !registeredSubCustomer(parties, parent.id, walkInName)) {
+          try {
+            addParty({
+              type: 'customer', name: walkInName,
+              isSubCustomer: true, parentPartyId: parent.id,
+              openingBalance: 0, initialBalance: 0
+            });
+          } catch (error) {
+            // The accounting invoice remains saved; read-only history lookup
+            // will still group it by its name and parent.
+            console.warn('Mobile walk-in registration pending:', error);
+          }
+        }
+      }
       onlineInvoicePostingService.clearStagedInvoiceDraft();
 
       setSuccessNotification({
@@ -980,28 +1003,39 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     }
   };
 
-  // Quick Add Customer Handler
-  const handleSaveQuickCustomer = () => {
-    if (!newCustomerName.trim()) {
-      alert('الرجاء إدخال اسم العميل');
+  React.useEffect(() => {
+    const result = peekMasterResult();
+    if (!result) return;
+    if (result.kind === 'employee') {
+      const employee = employees.find(e => e.id === result.id);
+      if (!employee) return;
+      consumeMasterResult();
+      setPartyTypeMode('employee');
+      setSelectedCustomerId(employee.id);
+      setCustomerNameInput(employee.name);
       return;
     }
-
-    const newCust: Party = {
-      id: `cust-${Date.now()}`,
-      name: newCustomerName.trim(),
-      phone: newCustomerPhone.trim(),
-      type: 'customer',
-      balance: 0,
-      code: `CUST-${String(parties.length + 1).padStart(4, '0')}`
-    };
-
-    addParty(newCust);
-    setSelectedCustomerId(newCust.id);
-    setShowQuickAddCustomer(false);
-    setNewCustomerName('');
-    setNewCustomerPhone('');
-  };
+    if (result.kind === 'item') {
+      const item = inventory.find(i => i.id === result.id);
+      if (!item) return;
+      consumeMasterResult();
+      // Item add remains an explicit cart action on mobile, not a hidden
+      // creation of stock quantity or financial lines.
+      setSearchBarcodeQuery(item.barcode || item.code || item.name);
+      return;
+    }
+    const party = parties.find(p => p.id === result.id);
+    if (!party) return;
+    consumeMasterResult();
+    if (result.isSubCustomer) {
+      setSelectedSubCustomerId(party.id);
+      setCustomSubCustomerName(party.name);
+      return;
+    }
+    setPartyTypeMode(result.kind === 'supplier' ? 'supplier' : 'customer');
+    setSelectedCustomerId(party.id);
+    setCustomerNameInput(party.name);
+  }, [parties, employees, inventory]);
 
   return (
     <div className="flex flex-col h-full bg-[#f1f5f9] w-full overflow-hidden text-slate-800 selection:bg-blue-500 selection:text-white" dir="rtl">
@@ -1328,12 +1362,13 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
           {partyTypeMode === 'customer' && (
             <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100">
               <span className="text-[11px] font-bold text-slate-400 shrink-0 px-1">الاسم الفرعي:</span>
-              {subCustomersForCustomer.length > 0 ? (
+              {subCustomersForCustomer.length > 0 && (
                 <select
                   value={selectedSubCustomerId}
                   onChange={(e) => {
-                    setSelectedSubCustomerId(e.target.value);
-                    if (e.target.value) setCustomSubCustomerName('');
+                    const match = subCustomersForCustomer.find(p => p.id === e.target.value);
+                    setSelectedSubCustomerId(match && !isInvoiceOnlySubCustomer(match) ? match.id : '');
+                    setCustomSubCustomerName(match?.name || '');
                   }}
                   className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500"
                 >
@@ -1344,15 +1379,14 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                     </option>
                   ))}
                 </select>
-              ) : (
+              )}
                 <input
                   type="text"
                   placeholder="الاسم الفرعي / القسم / المستلم (اختياري)..."
                   value={customSubCustomerName}
-                  onChange={(e) => setCustomSubCustomerName(e.target.value)}
+                  onChange={(e) => {setCustomSubCustomerName(e.target.value);setSelectedSubCustomerId('');}}
                   className="flex-1 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-colors"
                 />
-              )}
               {(selectedSubCustomerId || customSubCustomerName) && (
                 <button
                   type="button"
@@ -2397,12 +2431,12 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pr-9 pl-3 text-xs"
                 />
               </div>
-              {partyTypeMode !== 'employee' && (
+              {(
                 <button
                   type="button"
                   onClick={() => {
                     setShowCustomerPicker(false);
-                    setShowQuickAddCustomer(true);
+                    requestMasterForm({kind:partyTypeMode === 'supplier' ? 'supplier' : partyTypeMode === 'employee' ? 'employee' : 'party',source:'pos',initialName:customerSearch.trim()});
                   }}
                   className="bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1 shrink-0"
                 >
@@ -2499,54 +2533,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: Quick Add New Customer                                              */}
-      {/* ========================================================================= */}
-      {showQuickAddCustomer && (
-        <div className="fixed inset-0 z-[120] bg-black/70 flex flex-col justify-end animate-in fade-in">
-          <div className="bg-white rounded-t-3xl p-4 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h3 className="font-bold text-xs text-slate-800">إضافة عميل جديد سريع</h3>
-              <button
-                onClick={() => setShowQuickAddCustomer(false)}
-                className="p-1 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">اسم العميل / المنشأة:</label>
-              <input
-                type="text"
-                placeholder="اسم العميل..."
-                value={newCustomerName}
-                onChange={(e) => setNewCustomerName(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">رقم الهاتف / الجوال:</label>
-              <input
-                type="tel"
-                placeholder="رقم الهاتف..."
-                value={newCustomerPhone}
-                onChange={(e) => setNewCustomerPhone(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs font-mono"
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSaveQuickCustomer}
-              className="w-full bg-emerald-600 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1"
-            >
-              <Check className="w-4 h-4" />
-              <span>حفظ العميل وتحديده للفاتورة</span>
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Mobile customer creation uses the same master-data form as desktop. */}
 
       {/* Camera Barcode Scanner Modal */}
       <BarcodeScannerModal

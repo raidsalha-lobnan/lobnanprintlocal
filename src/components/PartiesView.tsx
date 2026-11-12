@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { claimMasterForm, finishMasterForm } from '../utils/masterFormNavigation';
 import { useAccounting } from '../context/AccountingContext';
 import { Party } from '../types';
 import {
@@ -217,6 +218,21 @@ export const PartiesView: React.FC = () => {
     setShowPartyModal(true);
   };
 
+  // The same full Add/Edit customer form is invoked by POS and master directory.
+  useEffect(() => {
+    const request = claimMasterForm('party');
+    if (!request) return;
+    const editing = request.editId ? parties.find(p => p.id === request.editId) : null;
+    if (editing) {
+      handleOpenEditModal(editing);
+    } else {
+      handleOpenAddModal(Boolean(request.isSubCustomer));
+      setParentPartyId(request.parentPartyId || '');
+      setName(request.initialName || '');
+      setCustomerSection(request.isSubCustomer ? 'sub' : 'main');
+    }
+  }, []);
+
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const handleSaveParty = (e: React.FormEvent) => {
@@ -237,6 +253,7 @@ export const PartiesView: React.FC = () => {
       return;
     }
 
+    let savedPartyId: string | null = editingPartyId;
     try {
       if (editingPartyId) {
         updateParty(editingPartyId, {
@@ -262,7 +279,7 @@ export const PartiesView: React.FC = () => {
           type: 'success'
         });
       } else {
-        addParty({
+        const createdParty = addParty({
           type: partyType,
           name: trimmedName,
           contactPerson: (contactPerson || '').trim(),
@@ -282,6 +299,7 @@ export const PartiesView: React.FC = () => {
           parentPartyId: addingSubCustomer ? parentPartyId : undefined,
           specialPrices
         });
+        savedPartyId = createdParty.id;
         posSound.playSuccessBeep();
         setToastMsg({
           text: `تم تسجيل العميل الجديد "${trimmedName}" بنجاح في الدليل!`,
@@ -289,6 +307,7 @@ export const PartiesView: React.FC = () => {
         });
       }
 
+      if (savedPartyId) finishMasterForm('party', savedPartyId);
       setShowPartyModal(false);
       setTimeout(() => {
         setToastMsg(null);

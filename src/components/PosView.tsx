@@ -6,7 +6,6 @@ import { MobilePosView } from './pos/MobilePosView';
 import { InventoryItem, PaymentMethod, Invoice, InvoiceItem, Party } from '../types';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { CalculatorModal } from './pos/CalculatorModal';
-import { QuickAddItemModal } from './pos/QuickAddItemModal';
 import { PriceEditModal } from './pos/PriceEditModal';
 import { CustomerLedgerModal } from './pos/CustomerLedgerModal';
 import { RequisitionModal } from './pos/RequisitionModal';
@@ -20,7 +19,6 @@ import { ItemSearchModal } from './pos/ItemSearchModal';
 import { ItemAutocompleteInput } from './pos/ItemAutocompleteInput';
 import { PosCustomerSearchInput } from './pos/PosCustomerSearchInput';
 import { AutocompleteCombobox, ComboboxOption } from './common/AutocompleteCombobox';
-import { QuickAddPartyModal } from './pos/QuickAddPartyModal';
 import { PosFavoritesSidebar } from './pos/PosFavoritesSidebar';
 import { posSound } from '../utils/audio';
 import { useHardwareBarcodeScanner } from '../utils/useBarcodeScanner';
@@ -107,6 +105,8 @@ import { PosButtonCustomizerModal } from './pos/PosButtonCustomizerModal';
 import { PosLayoutDesignerDrawer } from './pos/PosLayoutDesignerDrawer';
 import { PosBottomPaymentConsole } from './pos/PosBottomPaymentConsole';
 import { SubCustomerField } from './pos/SubCustomerField';
+import { requestMasterForm, peekMasterResult, consumeMasterResult } from '../utils/masterFormNavigation';
+import { cleanSubCustomerName, registeredSubCustomer, isInvoiceOnlySubCustomer } from '../utils/subCustomerIdentity';
 import { PosInlineBarcodeScanner } from './pos/PosInlineBarcodeScanner';
 import { CustomerSpecialPricesModal } from './pos/CustomerSpecialPricesModal';
 import { PosDailyInvoicesSidebar } from './pos/PosDailyInvoicesSidebar';
@@ -2304,6 +2304,62 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setActiveRowId(newLine.id);
   }, [aggregateDuplicateItems, getItemEffectivePrice, tableLines, calculateLineValues]);
 
+  // The complete master forms return the new record to POS without losing
+  // the invoice draft that was auto-saved before navigation.
+  React.useEffect(() => {
+    // MobilePosView owns result selection when its responsive UI is active.
+    if (typeof window !== 'undefined' && window.innerWidth < 768 &&
+        sessionStorage.getItem('pos_force_desktop') !== 'true') return;
+    const result = peekMasterResult();
+    if (!result) return;
+    if (result.kind === 'item') {
+      const item = inventory.find(x => x.id === result.id);
+      if (!item) return;
+      consumeMasterResult();
+      const price = getItemEffectivePrice(item);
+      if (activeRowId && tableLines.some(l => l.id === activeRowId)) {
+        setTableLines(prev => prev.map(l => l.id === activeRowId ? {
+          ...l,
+          itemCode: item.code || '',
+          itemName: item.name,
+          barcode: item.barcode || '',
+          inventoryItemId: item.id,
+          unit: item.unit,
+          unitPrice: price,
+          total: calculateLineTotal(l.length, l.width, l.quantity, price)
+        } : l));
+      } else handleAddItemToTable(item);
+      return;
+    }
+    if (result.kind === 'employee') {
+      const employee = employees.find(e => e.id === result.id);
+      if (!employee) return;
+      consumeMasterResult();
+      setPosTargetType('employee');
+      setSelectedCustomerId(employee.id);
+      setCustomerName(employee.name);
+      setCustomerCode(employee.code);
+      return;
+    }
+    const party = parties.find(p => p.id === result.id);
+    if (!party) return;
+    consumeMasterResult();
+    if (result.isSubCustomer) {
+      setSubCustomerId(party.id);
+      setSubCustomerName(party.name);
+      setSubCustomerPhone(party.phone || '');
+      setCustomCustomerText(party.name);
+      return;
+    }
+    setPosTargetType(result.kind === 'supplier' ? 'supplier' : 'customer');
+    setSelectedCustomerId(party.id);
+    setCustomerName(party.name);
+    setCustomerCode(party.code);
+    if (result.kind === 'party') {
+      setTableLines(prev => applyCustomerPricingToLines(party, prev));
+    }
+  }, [inventory, parties, employees, activeRowId, tableLines, handleAddItemToTable, getItemEffectivePrice]);
+
   // Unified barcode scanned handler (from hardware USB gun or camera)
   const handleBarcodeScanned = useCallback((scannedCode: string) => {
     const cleanCode = scannedCode.trim();
@@ -2681,6 +2737,30 @@ const getInitialPosDraft = (): PosFullDraftData => {
     }
 
     const savedInvoice = postRes.invoice;
+    // Auto-register an occasional / walk-in customer AFTER the invoice has a
+    // durable save receipt. A failed posting must not create orphan party records.
+    // Older name-only invoices are grouped read-only using the same identity key.
+    if (posTargetType === 'customer' && selectedCustomerId) {
+      const parent = parties.find(p => p.id === selectedCustomerId && !p.isSubCustomer);
+      const walkInName = cleanSubCustomerName(subCustomerName || customCustomerText);
+      if (parent && walkInName && !registeredSubCustomer(parties, parent.id, walkInName)) {
+        try {
+          addParty({
+            type: 'customer',
+            name: walkInName,
+            phone: subCustomerPhone || '',
+            isSubCustomer: true,
+            parentPartyId: parent.id,
+            openingBalance: 0,
+            initialBalance: 0
+          });
+        } catch (error) {
+          // Invoice is already saved. Lookup by name still includes it, and
+          // registration may be retried safely without changing the journal.
+          console.warn('Walk-in sub-customer registration pending:', error);
+        }
+      }
+    }
     if (postRes.warning) {
       // The server accepted the edit, but the browser receipt was not saved.
       // Show this separately from a rejected invoice to prevent duplicates.
@@ -4126,13 +4206,13 @@ const getInitialPosDraft = (): PosFullDraftData => {
                   }
                 }}
                 onQuickAdd={async name => {
-                  // No-op if they try to add from combobox directly, we use the + button now.
+                  requestMasterForm({kind: posTargetType === 'supplier' ? 'supplier' : posTargetType === 'employee' ? 'employee' : 'party', source: 'pos', initialName: name});
                 }}
               />
             </div>
             <button
               type="button"
-              onClick={() => setIsAddPartyModalOpen(true)}
+              onClick={() => requestMasterForm({kind: posTargetType === 'supplier' ? 'supplier' : posTargetType === 'employee' ? 'employee' : 'party', source: 'pos'})}
               className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm shrink-0 cursor-pointer transition-colors"
               title={
                 posTargetType === 'customer'
@@ -4166,8 +4246,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
                   <button
                     type="button"
                     onClick={() => {
-                      setPartyToEditInPos(currentCustomer);
-                      setIsAddPartyModalOpen(true);
+                      requestMasterForm({kind: 'party', source: 'pos', editId: currentCustomer.id});
                     }}
                     title="تعديل بيانات العميل الحالي"
                     className="p-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-700 rounded-lg cursor-pointer shrink-0 transition-colors"
@@ -4188,12 +4267,15 @@ const getInitialPosDraft = (): PosFullDraftData => {
                 parentCustomerId={selectedCustomerId}
                 parentCustomerName={customerName}
                 parties={parties}
+                invoices={invoices}
                 customCustomerText={customCustomerText}
                 onChangeCustomText={setCustomCustomerText}
                 subCustomerId={subCustomerId}
                 onSelectSubCustomer={sub => {
                   if (sub) {
-                    setSubCustomerId(sub.id);
+                    // Old invoice-only names have no permanent party ID yet.
+                    // Do not persist a synthetic lookup ID inside a financial invoice.
+                    setSubCustomerId(isInvoiceOnlySubCustomer(sub) ? '' : sub.id);
                     setSubCustomerName(sub.name);
                     setSubCustomerPhone(sub.phone || '');
                     setTableLines(prev => applyCustomerPricingToLines(sub, prev));
@@ -4222,28 +4304,15 @@ const getInitialPosDraft = (): PosFullDraftData => {
                   setSubCustomerPhone('');
                 }}
                 onQuickAddSub={(name, phone) => {
-                    if (!selectedCustomerId) {
-                        return; // Needs a parent
-                    }
-                    const createdSub = addParty({
-                        name: name,
-                        type: 'customer',
-                        phone: phone || '',
-                        isSubCustomer: true,
-                        parentCustomerId: selectedCustomerId,
-                        parentCustomerName: customerName,
-                        initialBalance: 0
-                    });
-                    setSubCustomerId(createdSub.id);
-                    setSubCustomerName(createdSub.name);
-                    setSubCustomerPhone(createdSub.phone || '');
-                    setTableLines(prev => applyCustomerPricingToLines(createdSub, prev));
+                  if (selectedCustomerId) {
+                    requestMasterForm({kind: 'party', source: 'pos', isSubCustomer: true, parentPartyId: selectedCustomerId, initialName: name});
+                  }
                 }}
               />
               <button
                 type="button"
                 onClick={() => {
-                  setIsAddPartyModalOpen(true);
+                  requestMasterForm({kind: 'party', source: 'pos', isSubCustomer: true, parentPartyId: selectedCustomerId, initialName: subCustomerName || customCustomerText});
                 }}
                 className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm shrink-0 cursor-pointer transition-colors"
                 title="فتح شاشة إضافة عميل جديد"
@@ -4855,8 +4924,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
                                   }, 80);
                                 }}
                                 onQuickAdd={nameQuery => {
-                                  setQuickAddInitialName(nameQuery);
-                                  setIsQuickAddOpen(true);
+                                  requestMasterForm({kind: 'item', source: 'pos', initialName: nameQuery});
                                 }}
                                 onOpenSearchModal={() => setIsItemSearchOpen(true)}
                               />
@@ -5963,40 +6031,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
         }}
       />
 
-      <QuickAddItemModal
-        isOpen={isQuickAddOpen}
-        onClose={() => {
-          setIsQuickAddOpen(false);
-          setQuickAddInitialName('');
-        }}
-        initialName={quickAddInitialName}
-        onItemCreatedAndAdd={item => {
-          if (activeRowId) {
-            const line = tableLines.find(l => l.id === activeRowId);
-            if (line && (!line.itemName || line.itemName === quickAddInitialName)) {
-              const price = getItemEffectivePrice(item);
-              setTableLines(prev =>
-                prev.map(l =>
-                  l.id === activeRowId
-                    ? {
-                        ...l,
-                        itemCode: item.code || '',
-                        itemName: item.name,
-                        barcode: item.barcode || '',
-                        inventoryItemId: item.id,
-                        unitPrice: price,
-                        total: calculateLineTotal(l.length, l.width, l.quantity, price)
-                      }
-                    : l
-                )
-              );
-              posSound.beep();
-              return;
-            }
-          }
-          handleAddItemToTable(item);
-        }}
-      />
+      {/* Stock items are created only with the full Inventory master form. */}
 
       <PriceEditModal
         isOpen={isPriceEditOpen}
@@ -6131,31 +6166,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
       />
 
       {/* Quick Add / Edit Party Modal (شاشة إضافة أو تعديل عميل / مورد / موظف) */}
-      <QuickAddPartyModal
-        isOpen={isAddPartyModalOpen}
-        onClose={() => {
-          setIsAddPartyModalOpen(false);
-          setPartyToEditInPos(null);
-        }}
-        initialType={posTargetType}
-        partyToEdit={partyToEditInPos}
-        onSuccess={(created) => {
-          setSelectedCustomerId(created.id);
-          setCustomerName(created.name);
-          setCustomerCode(created.code);
-          if (posTargetType === 'customer') {
-            setTableLines(prev => applyCustomerPricingToLines(created, prev));
-          }
-          // Reset sub-customer
-          setSubCustomerId('');
-          setSubCustomerName('');
-          setSubCustomerPhone('');
-          setCustomCustomerText('');
-          posSound.playSuccessBeep();
-        }}
-      />
-
-
+      {/* Parties are created only with their full master-data form. */}
 
       {/* Item Line Attachments Modal */}
       {activeLineForAttachments && (

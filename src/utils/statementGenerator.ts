@@ -15,6 +15,7 @@ import {
   LineAttachment
 } from '../types';
 import { isInvoiceAccountingEligible } from './invoiceStatusUtils';
+import {invoiceParentCustomerId, getInvoiceSubCustomerName, normalizeSubCustomerName, subCustomerParentId} from './subCustomerIdentity';
 import { isDimensionalInvoiceItem } from './invoiceDimensions';
 
 export interface StatementItemDetail {
@@ -163,8 +164,8 @@ export function generateAccountStatement(params: {
     if (!subCustomerId || subCustomerId === 'all') return true;
     if (invSubCustId && (invSubCustId === subCustomerId || (targetSubCustObj && invSubCustId === targetSubCustObj.id))) return true;
     if (targetSubCustName) {
-      if (invSubCustName && invSubCustName.trim().toLowerCase() === targetSubCustName) return true;
-      if (customText && customText.trim().toLowerCase().includes(targetSubCustName)) return true;
+      if (invSubCustName && normalizeSubCustomerName(invSubCustName) === normalizeSubCustomerName(targetSubCustName)) return true;
+      if (customText && normalizeSubCustomerName(getInvoiceSubCustomerName({subCustomerName: invSubCustName, customCustomerText: customText})) === normalizeSubCustomerName(targetSubCustName)) return true;
     }
     return false;
   };
@@ -203,13 +204,16 @@ export function generateAccountStatement(params: {
       return;
     }
 
-    const isMainCustMatch = inv.customerId === party.id;
+    const isMainCustMatch = invoiceParentCustomerId(inv) === party.id;
+    // Never identify a walk-in account by name across unrelated parent customers.
+    // Historical invoices may contain only subCustomerName, without subCustomerId.
+    const linkedParentId = subCustomerParentId(party);
+    const belongsToParent = party.isSubCustomer && Boolean(linkedParentId) &&
+      invoiceParentCustomerId(inv) === linkedParentId;
+    const sameWalkInName = belongsToParent &&
+      normalizeSubCustomerName(getInvoiceSubCustomerName(inv)) === normalizeSubCustomerName(party.name);
     const isTarget = party.isSubCustomer
-      ? (
-          inv.subCustomerId === party.id ||
-          (inv.subCustomerName && inv.subCustomerName.trim().toLowerCase() === party.name.trim().toLowerCase()) ||
-          (inv.customCustomerText && inv.customCustomerText.toLowerCase().includes(party.name.toLowerCase()))
-        )
+      ? (belongsToParent && (inv.subCustomerId === party.id || sameWalkInName))
       : (isMainCustMatch && matchesSubCust(inv.subCustomerId, inv.subCustomerName, inv.customCustomerText));
 
     if (isTarget) {

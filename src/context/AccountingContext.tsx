@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createUnifiedDataLayer } from '../sync-next/boot';
 import { secureLoginEnabled } from '../services/secureAuth';
 import { getBinaryAttachment } from '../utils/fileStorage';
+import {registeredSubCustomer} from '../utils/subCustomerIdentity';
 import { uploadCentralAttachment } from '../services/centralAttachmentApi';
 import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
@@ -5565,6 +5566,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addParty = (partyData: Omit<Party, 'id' | 'balance' | 'code'> & { initialBalance?: number; code?: string }) => {
     // منع تكرار إنشاء زبون نقدي أو عميل عام بأي حال من الأحوال
     const trimmedName = (partyData.name || '').trim();
+    if (partyData.isSubCustomer && partyData.parentPartyId) {
+      const existingWalkIn = registeredSubCustomer(parties, partyData.parentPartyId, trimmedName);
+      if (existingWalkIn) return existingWalkIn;
+    }
     const isGenericCash = trimmedName === 'زبون نقدي' || trimmedName === 'عميل نقدي' || trimmedName === 'عميل كاشير نقدي' || trimmedName === 'زبون عام';
     if (isGenericCash) {
       const existing = parties.find(p => (p.name || '').trim() === trimmedName);

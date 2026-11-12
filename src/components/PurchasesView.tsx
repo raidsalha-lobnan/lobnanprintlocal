@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
+import { claimMasterForm } from '../utils/masterFormNavigation';
 import { PurchaseInvoice, PurchaseReturn, PaymentMethod, Party, PaymentVoucher } from '../types';
 import {
   Truck,
@@ -416,6 +417,12 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     setSupplierToEdit(null);
     setShowSupplierModal(true);
   };
+
+  React.useEffect(() => {
+    const request = claimMasterForm('supplier');
+    if (!request) return;
+    handleOpenAddSupplier();
+  }, []);
 
   const handleEditSupplier = (supplier: Party) => {
     setSupplierToEdit(supplier);

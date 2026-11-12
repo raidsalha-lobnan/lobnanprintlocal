@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DateInput } from '../../components/common/DateInput';
 import { useAccounting } from '../../context/AccountingContext';
+import { finishMasterForm } from '../../utils/masterFormNavigation';
 import { Party } from '../../types';
 import { generateSequentialPartyCode } from '../../utils/partyUtils';
 import { Building2, X, Lock, Phone, Mail, MapPin, User, FileText, DollarSign, Check, AlertCircle } from 'lucide-react';
@@ -91,7 +92,7 @@ export const SupplierModal: React.FC<SupplierModalProps> = ({
         notes: notes.trim()
       });
     } else {
-      addParty({
+      const createdSupplier = addParty({
         type: 'supplier',
         name: name.trim(),
         phone: phone.trim(),
@@ -106,6 +107,7 @@ export const SupplierModal: React.FC<SupplierModalProps> = ({
         openingBalanceDate,
         notes: notes.trim()
       });
+      finishMasterForm('supplier', createdSupplier.id);
     }
 
     onClose();

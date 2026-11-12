@@ -4,6 +4,7 @@ import type {
   SalesReturn, PrintJobOrder, JournalEntry, DebtClearingRecord
 } from '../types';
 import { generateAccountStatement } from './statementGenerator';
+import { indexedSubCustomers, normalizeSubCustomerName } from './subCustomerIdentity';
 import { isCashCustomerParty } from './partyUtils';
 
 export type CustomerPeriodMode = 'all' | 'day' | 'range';
@@ -77,14 +78,14 @@ export function customerPeriodRows(
   source: CustomerReportSource, filter: CustomerPeriodFilter
 ): CustomerPeriodRow[] {
   const bounds = customerDateBounds(filter);
-  const query = filter.query.trim().toLocaleLowerCase('ar');
-  const subCustomers = source.parties.filter(p => p.isSubCustomer);
-  return source.parties
+  const query = normalizeSubCustomerName(filter.query);
+  const subCustomers = indexedSubCustomers(source.parties, source.invoices);
+  return [...source.parties.filter(p => !p.isSubCustomer), ...subCustomers]
     .filter(p => p.type === 'customer' || p.type === 'both')
     .filter(p => filter.list === 'sub' ? !!p.isSubCustomer : !p.isSubCustomer)
     .filter(p => !query || [
       p.code, p.name, p.phone, p.contactPerson, p.city
-    ].some(part => String(part || '').toLocaleLowerCase('ar').includes(query)))
+    ].some(part => normalizeSubCustomerName(String(part || '')).includes(query)))
     .sort(orderCustomerCodes)
     .map(party => {
       const statement = generateAccountStatement({

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
+import { claimMasterForm, finishMasterForm } from '../utils/masterFormNavigation';
 import { Employee, SalaryType, EmployeeDepartment, PaymentMethod, PayrollSheet } from '../types';
 import { posSound } from '../utils/audio';
 import { EmployeeAdjustmentsView } from './EmployeeAdjustmentsView';
@@ -190,6 +191,13 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
     setShowAddEditModal(true);
   };
 
+  React.useEffect(() => {
+    const request = claimMasterForm('employee');
+    if (!request) return;
+    handleOpenAdd();
+    if (request.initialName) setFormName(request.initialName);
+  }, []);
+
   // Open modal for editing employee
   const handleOpenEdit = (emp: Employee) => {
     setEditingEmployee(emp);
@@ -276,7 +284,8 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
     if (editingEmployee) {
       updateEmployee(editingEmployee.id, empData);
     } else {
-      addEmployee(empData);
+      const createdEmployee = addEmployee(empData);
+      finishMasterForm('employee', createdEmployee.id);
     }
 
     posSound.playSuccessBeep();

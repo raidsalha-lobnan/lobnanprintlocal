@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAccounting } from '../context/AccountingContext';
+import { claimMasterForm, finishMasterForm } from '../utils/masterFormNavigation';
 import { InventoryItem, ItemCategory, AdditionalBarcode, BarcodeFormat, CustomerSpecialPrice } from '../types';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import ManageCategoriesModal from "./ManageCategoriesModal";
@@ -431,6 +432,13 @@ export const InventoryView: React.FC = () => {
     setShowAddModal(true);
   };
 
+  React.useEffect(() => {
+    const request = claimMasterForm('item');
+    if (!request) return;
+    handleOpenAdd();
+    if (request.initialName) setFormName(request.initialName);
+  }, []);
+
   const handleCategoryChange = (newCat: ItemCategory) => {
     if (editingItem) return; // Existing category IDs are immutable outside audited migration.
     setFormCategory(newCat);
@@ -634,7 +642,7 @@ export const InventoryView: React.FC = () => {
         isFavorite: formIsFavorite
       });
     } else {
-      addInventoryItem({
+      const createdItem = addInventoryItem({
         code: trimmedCode,
         // This screen's SKU field is read-only and always program-generated.
         // Preserve that provenance even when another device has already
@@ -658,6 +666,7 @@ export const InventoryView: React.FC = () => {
         isFavorite: formIsFavorite,
         isRawMaterial: formCategory === 'print_raw'
       });
+      finishMasterForm('item', createdItem.id);
     }
     setShowAddModal(false);
   };
