@@ -113,6 +113,12 @@ export function formatInvoiceCustomerDisplay(
 
   // في حال توفر مصفوفة العملاء: فحص ربط العميل الفرعي بالرئيسي
   if (parties && parties.length > 0) {
+    // Main parties are identified by immutable ID, never by a denormalized invoice name.
+    // A rename is reflected in all invoice screens without changing historical invoice records.
+    if (inv.customerId) {
+      const currentMain = parties.find(p => p.id === inv.customerId);
+      if (currentMain && !currentMain.isSubCustomer) mainName = currentMain.name.trim();
+    }
     if (inv.subCustomerId) {
       const subParty = parties.find(p => p.id === inv.subCustomerId);
       if (subParty) {

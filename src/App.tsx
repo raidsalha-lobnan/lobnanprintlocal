@@ -48,6 +48,7 @@ import { LoginView } from './components/LoginView';
 const MainLayout: React.FC = () => {
   const {
     activeTab,
+    hasUnsyncedChanges,
     settings,
     setActiveTab,
     hasPermission,
@@ -100,33 +101,43 @@ const MainLayout: React.FC = () => {
   }, [settings?.appTitle]);
 
 
-  // Auto App Code Version Checker & Reload Trigger
-  // Ensures browsers automatically pull new code updates from server without manual force-refresh
+  // Code updates require loading the new JS bundle; data changes are already live.
+  // Auto-reload only at a safe navigation point, never over an unsaved POS form.
+  const safeAutoUpgradeRef = React.useRef({activeTab, hasUnsyncedChanges, isPrintModalActive});
+  safeAutoUpgradeRef.current = {activeTab, hasUnsyncedChanges, isPrintModalActive};
   React.useEffect(() => {
     let currentServerVersion: string | null = null;
+    let pendingVersion: string | null = null;
+    let checking = false;
     const checkVersion = async () => {
+      if (checking) return;
+      checking = true;
       try {
-        const res = await fetch('/api/app-version').catch(() => null);
-        if (!res || !res.ok) return;
-        const ct = res.headers.get('content-type') || '';
-        if (!ct.includes('application/json')) return;
-        const text = await res.text().catch(() => '');
-        if (!text || !text.trim().startsWith('{')) return;
-        const data = JSON.parse(text);
-        if (data && data.version) {
-          if (currentServerVersion === null) {
-            currentServerVersion = data.version;
-          } else if (currentServerVersion !== data.version) {
-            console.log('New application code build detected. Reloading browser automatically...');
+        const res = await fetch('/api/app-version', {cache: 'no-store'});
+        if (!res.ok || !res.headers.get('content-type')?.includes('application/json')) return;
+        const data = await res.json();
+        const next = typeof data.version === 'string' ? data.version.trim() : '';
+        if (!next) return;
+        if (currentServerVersion === null) currentServerVersion = next;
+        else if (currentServerVersion !== next) pendingVersion = next;
+        if (pendingVersion) {
+          const s = safeAutoUpgradeRef.current;
+          const el = document.activeElement as HTMLElement | null;
+          const editing = !!el?.matches('input,textarea,select,[contenteditable="true"]');
+          const safeTab = s.activeTab === 'home' || s.activeTab === 'dashboard';
+          if (!s.hasUnsyncedChanges && !s.isPrintModalActive && !editing && safeTab) {
             window.location.reload();
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        // An unavailable version endpoint never interrupts offline work.
+      } finally { checking = false; }
     };
-
-    checkVersion();
-    const interval = setInterval(checkVersion, 60000); // Check every 60 seconds
-    return () => clearInterval(interval);
+    const onVisibility = () => { if (document.visibilityState === 'visible') void checkVersion(); };
+    void checkVersion();
+    const timer = setInterval(() => { void checkVersion(); }, 15000);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisibility); };
   }, []);
 
   // Enforce screen permissions

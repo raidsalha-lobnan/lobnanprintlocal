@@ -1276,6 +1276,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             // Once authoritative initialization succeeds, an empty server collection
             // is meaningful: do not display an old localStorage list as cloud truth.
             const canonical = (await repo.getLocalDb().bootstrapStatus()) === 'initialized';
+            if (unmounted || refresh !== latestRepositoryRefresh) return;
             if (Array.isArray(grouped.invoices) && (canonical || grouped.invoices.length > 0)) setInvoices(prev => unchanged(prev, grouped.invoices) ? prev : grouped.invoices);
             if (Array.isArray(grouped.parties) && (canonical || grouped.parties.length > 0)) setParties(prev => unchanged(prev, grouped.parties) ? prev : grouped.parties);
             if (Array.isArray(grouped.inventory) && (canonical || grouped.inventory.length > 0)) setInventory(prev => unchanged(prev, grouped.inventory) ? prev : grouped.inventory);
@@ -1289,11 +1290,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(grouped.employees) && (canonical || grouped.employees.length > 0)) setEmployees(prev => unchanged(prev, grouped.employees) ? prev : grouped.employees);
             if (Array.isArray(grouped.roles) && (canonical || grouped.roles.length > 0)) setRoles(prev => unchanged(prev, grouped.roles) ? prev : grouped.roles);
             if (Array.isArray(grouped.users) && (canonical || grouped.users.length > 0)) setUsers(prev => unchanged(prev, grouped.users) ? prev : grouped.users);
+            if (Array.isArray(grouped.expenses) && (canonical || grouped.expenses.length > 0)) setExpenses(prev => unchanged(prev, grouped.expenses) ? prev : grouped.expenses);
+            if (Array.isArray(grouped.purchaseReturns) && (canonical || grouped.purchaseReturns.length > 0)) setPurchaseReturns(prev => unchanged(prev, grouped.purchaseReturns) ? prev : grouped.purchaseReturns);
+            if (Array.isArray(grouped.salesReturns) && (canonical || grouped.salesReturns.length > 0)) setSalesReturns(prev => unchanged(prev, grouped.salesReturns) ? prev : grouped.salesReturns);
+            if (Array.isArray(grouped.employeeAdvances) && (canonical || grouped.employeeAdvances.length > 0)) setEmployeeAdvances(prev => unchanged(prev, grouped.employeeAdvances) ? prev : grouped.employeeAdvances);
+            if (Array.isArray(grouped.employeeDeductions) && (canonical || grouped.employeeDeductions.length > 0)) setEmployeeDeductions(prev => unchanged(prev, grouped.employeeDeductions) ? prev : grouped.employeeDeductions);
+            if (Array.isArray(grouped.employeeIncentives) && (canonical || grouped.employeeIncentives.length > 0)) setEmployeeIncentives(prev => unchanged(prev, grouped.employeeIncentives) ? prev : grouped.employeeIncentives);
+            if (Array.isArray(grouped.payrollSheets) && (canonical || grouped.payrollSheets.length > 0)) setPayrollSheets(prev => unchanged(prev, grouped.payrollSheets) ? prev : grouped.payrollSheets);
+            if (Array.isArray(grouped.debtClearings) && (canonical || grouped.debtClearings.length > 0)) setDebtClearings(prev => unchanged(prev, grouped.debtClearings) ? prev : grouped.debtClearings);
+            if (Array.isArray(grouped.warehouseOperations) && (canonical || grouped.warehouseOperations.length > 0)) setWarehouseOperations(prev => unchanged(prev, grouped.warehouseOperations) ? prev : grouped.warehouseOperations);
             if (Array.isArray(grouped.companies) && (canonical || grouped.companies.length > 0)) setCompanies(grouped.companies);
             if (Array.isArray(grouped.branches) && (canonical || grouped.branches.length > 0)) setBranches(grouped.branches);
             if (Array.isArray(grouped.warehouses) && (canonical || grouped.warehouses.length > 0)) setWarehouses(grouped.warehouses);
             const savedSettings = selectWorkspaceSettings(await repo.all('settings'));
-            if (savedSettings?.value && !unmounted) {
+            if (savedSettings?.value && !unmounted && refresh === latestRepositoryRefresh) {
               // The PostgreSQL record is authoritative across every device.
               // Retain one recoverable device-only copy of any older letterhead,
               // but never auto-upload obsolete localStorage values.
@@ -1485,34 +1495,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
         });
 
-        // Hydration is read-only: only canonical IndexedDB records may populate
-        // the UI. A different legacy localStorage snapshot is NEVER auto-uploaded.
-        const hydrateFromRepo = async () => {
-          const definitions: Array<{ entity: EntityName; set: (items: any[]) => void }> = [
-            { entity: 'invoices', set: items => setInvoices(items as Invoice[]) },
-            { entity: 'parties', set: items => setParties(items as Party[]) },
-            { entity: 'inventory', set: items => setInventory(items as InventoryItem[]) },
-            { entity: 'vouchers', set: items => setVouchers(items as PaymentVoucher[]) },
-            { entity: 'purchases', set: items => setPurchases(items as PurchaseInvoice[]) },
-            { entity: 'journalEntries', set: items => setJournalEntries(items as JournalEntry[]) },
-            { entity: 'stockMovements', set: items => setStockMovements(items as StockMovement[]) },
-            { entity: 'treasuries', set: items => setTreasuries(items as Treasury[]) },
-            { entity: 'accounts', set: items => setAccounts(items as Account[]) },
-            { entity: 'expenses', set: items => setExpenses(items as ExpenseItem[]) },
-            { entity: 'salesReturns', set: items => setSalesReturns(items as SalesReturn[]) },
-            { entity: 'purchaseReturns', set: items => setPurchaseReturns(items as PurchaseReturn[]) },
-          ];
-          for (const { entity, set } of definitions) {
-            const rows = await layer.repository.all(entity);
-            // Do not erase old data on an uninitialized device. The reconciliation
-            // workflow must explicitly decide what to do with an empty repository.
-            if (rows.length > 0 && !unmounted) {
-              const items = rows.map(r => r.value).filter(Boolean);
-              set(items);
-            }
-          }
-        };
-        await hydrateFromRepo();
+        // Initial canonical hydration completed above; never race it with another snapshot.
+
       } catch (e) {
         console.warn('Unified data layer init notice:', e);
       }
@@ -6160,67 +6144,32 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (isCashCustomerParty(parties.find(p => p.id === id) || parties.find(p => p.code === id))) {
       throw new Error('العميل النقدي CUST-0001 ثابت ولا يمكن تعديل بياناته.');
     }
-    let finalMergedParty: Party | null = null;
-    let targetId = id;
-
-    setParties(prev => {
-      // Resolve by immutable ID first. An entered public code is accepted only
-      // if it maps to exactly one record; names are never lookup keys.
-      const exact = prev.find(p => p.id === id);
-      const codeMatches = exact ? [] : prev.filter(p => p.code && p.code.toLowerCase() === id.toLowerCase());
-      const existing = exact || (codeMatches.length === 1 ? codeMatches[0] : undefined);
-      if (!existing) {
-        console.warn(`updateParty: Target party ${id} not found in parties list. Ignored.`);
-        return prev;
-      }
-      targetId = existing.id;
-
-      const { code: _ignored, ...allowedUpdates } = updated;
-      const merged: Party = { ...existing, ...allowedUpdates, code: existing.code };
-
-      // If existing party exists, preserve existing balance unless explicitly updated.balance is passed or openingBalance is modified
-      if (updated.balance !== undefined) {
-        merged.balance = updated.balance;
-      } else if (updated.openingBalance !== undefined) {
-        const isCredit = merged.openingBalanceType === 'credit' || (!merged.openingBalanceType && merged.type === 'supplier');
-        const nextOpeningVal = isCredit ? -Math.abs(merged.openingBalance) : Math.abs(merged.openingBalance);
-        
-        const oldIsCredit = existing.openingBalanceType === 'credit' || (!existing.openingBalanceType && existing.type === 'supplier');
-        const oldOpeningVal = oldIsCredit ? -Math.abs(existing.openingBalance || 0) : Math.abs(existing.openingBalance || 0);
-        
-        // Current balance adjusts by the difference in opening balance
-        const diff = nextOpeningVal - oldOpeningVal;
-        merged.balance = Number(((existing.balance || 0) + diff).toFixed(2));
-      } else {
-        merged.balance = existing.balance;
-      }
-
-      // Cash customers strictly never carry special prices
-      if (isCashCustomerParty(merged)) {
-        delete merged.specialPrices;
-      }
-
-      finalMergedParty = merged;
-
-      const nextParties = prev.map(p => (p.id === targetId ? merged : p));
-
-      // 2. Persist to LocalStorage immediately with the updated array
-      try {
-        localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(nextParties));
-        localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
-        const hashes = JSON.parse(localStorage.getItem('accounting_synced_hashes') || '{}');
-        delete hashes[`parties_${targetId}`];
-        safeSetSyncedHashes(hashes);
-      } catch (e) {}
-
-      // 3. Direct cloud update and multi-device hub push
-      // Updated party is queued once by pushToServerSync below.
-      broadcastEntityChange('parties', nextParties);
-      pushToServerSync('parties', merged);
-
-      return nextParties;
-    });
-
+    if (!unifiedRepoRef.current) throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
+    const exact = parties.find(p => p.id === id);
+    const matches = exact ? [] : parties.filter(p => p.code && p.code.toLowerCase() === id.toLowerCase());
+    const existing = exact || (matches.length === 1 ? matches[0] : undefined);
+    if (!existing) throw new Error('PARTY_NOT_FOUND_BY_STABLE_ID: ' + id);
+    const targetId = existing.id;
+    const { code: _ignored, ...allowedUpdates } = updated;
+    const finalMergedParty: Party = {...existing,...allowedUpdates,code:existing.code};
+    if (updated.balance !== undefined) finalMergedParty.balance=updated.balance;
+    else if (updated.openingBalance !== undefined) {
+      const signed = (p:Party) => (p.openingBalanceType === 'credit' || (!p.openingBalanceType && p.type === 'supplier'))
+        ? -Math.abs(p.openingBalance||0) : Math.abs(p.openingBalance||0);
+      finalMergedParty.balance=Number(((existing.balance||0)+signed(finalMergedParty)-signed(existing)).toFixed(2));
+    } else finalMergedParty.balance=existing.balance;
+    if (isCashCustomerParty(finalMergedParty)) delete finalMergedParty.specialPrices;
+    // Keep React updater pure, and commit exactly once outside it (StrictMode-safe).
+    setParties(prev => prev.map(p => p.id === targetId ? finalMergedParty : p));
+    try {
+      localStorage.setItem(STORAGE_KEY+'_parties',JSON.stringify(parties.map(p=>p.id===targetId?finalMergedParty:p)));
+      localStorage.setItem(STORAGE_KEY+'_has_unsynced','true');
+      const hashes=JSON.parse(localStorage.getItem('accounting_synced_hashes')||'{}');
+      delete hashes['parties_'+targetId];
+      safeSetSyncedHashes(hashes);
+    } catch {}
+    const merged = finalMergedParty;
+    pushToServerSync('parties', merged);
     setHasUnsyncedChanges(true);
     setPendingSyncCount(prev => prev + 1);
 

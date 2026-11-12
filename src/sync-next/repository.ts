@@ -163,15 +163,15 @@ export class UnifiedRepository {
     const supported: EntityName[] = [
       'invoices', 'parties', 'inventory', 'vouchers', 'printOrders',
       'purchases', 'purchaseReturns', 'salesReturns', 'accounts',
-      'treasuries', 'employees', 'journalEntries', 'expenses',
+      'treasuries', 'treasuryTransactions', 'employees',
+      'employeeAdvances', 'employeeDeductions', 'employeeIncentives',
+      'payrollSheets', 'debtClearings', 'journalEntries', 'expenses',
       'stockMovements', 'warehouseOperations', 'dailyEntrySheets',
       'companies', 'branches', 'warehouses', 'roles', 'users', 'settings'
     ];
-    const result: Record<string, any[]> = {};
-    for (const ent of supported) {
-      const list = await this.local.listVisible(ent);
-      result[ent] = list.map(r => r.value).filter(Boolean);
-    }
-    return result;
+    const collections = await Promise.all(supported.map(entity => this.local.listVisible(entity)));
+    return Object.fromEntries(supported.map((entity,index) => [
+      entity, collections[index].map(record => record.value).filter(Boolean)
+    ]));
   }
 }
