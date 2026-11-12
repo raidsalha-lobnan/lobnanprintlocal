@@ -39,6 +39,17 @@ export class GoogleDriveAuthorization {
     }catch{return false;}
   }
   mailReady(){return !!(this.env.RESEND_API_KEY&&this.env.GOOGLE_DRIVE_LINK_FROM);}
+  missingOAuthSettings(){
+    const required=['GOOGLE_OAUTH_CLIENT_ID','GOOGLE_OAUTH_CLIENT_SECRET','GOOGLE_OAUTH_REDIRECT_URI'];
+    const missing=required.filter(key=>!this.env[key]);
+    let keyValid=false;
+    try{keyValid=Buffer.from(this.env.GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY||'','base64').length===32;}catch{}
+    if(!keyValid)missing.push('GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY');
+    return missing;
+  }
+  missingMailSettings(){
+    return ['RESEND_API_KEY','GOOGLE_DRIVE_LINK_FROM'].filter(key=>!this.env[key]);
+  }
   async prepare(){
     await this.pool.query(`CREATE TABLE IF NOT EXISTS sync_google_drive_connections(
       workspace TEXT PRIMARY KEY, email TEXT NOT NULL, encrypted_refresh_token TEXT NOT NULL,
@@ -56,7 +67,8 @@ export class GoogleDriveAuthorization {
       'SELECT email,connected_at FROM sync_google_drive_connections WHERE workspace=$1 LIMIT 1',
       [this.workspace]);
     return {connected:result.rows.length===1,email:result.rows[0]?.email||null,
-      connectedAt:result.rows[0]?.connected_at||null,oauthReady:this.ready(),mailReady:this.mailReady()};
+      connectedAt:result.rows[0]?.connected_at||null,oauthReady:this.ready(),mailReady:this.mailReady(),
+      missingOAuthSettings:this.missingOAuthSettings(),missingMailSettings:this.missingMailSettings()};
   }
   async refreshToken(){
     const result=await this.pool.query(
