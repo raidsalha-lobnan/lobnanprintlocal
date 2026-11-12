@@ -4,7 +4,7 @@ import {fetchWithSyncDeadline,deadlineForSyncPath} from '../sync-next/requestDea
 
 test('stalled transport is aborted and becomes a retryable timeout',async()=>{
   let aborted=false;
-  const stalled:typeof fetch=async(_url,init)=>new Promise((_resolve,reject)=>{
+  const stalled:typeof fetch=async(_url,init)=>new Promise<Response>((_resolve,reject)=>{
     init?.signal?.addEventListener('abort',()=>{
       aborted=true;reject(new Error('native abort'));
     },{once:true});
@@ -29,7 +29,7 @@ test('normal response is returned unchanged',async()=>{
 
 test('caller cancellation is not falsely reported as network timeout',async()=>{
   const caller=new AbortController();
-  const fetcher:typeof fetch=async(_url,init)=>new Promise((_resolve,reject)=>{
+  const fetcher:typeof fetch=async(_url,init)=>new Promise<Response>((_resolve,reject)=>{
     init?.signal?.addEventListener('abort',()=>reject(new Error('cancelled')), {once:true});
   });
   const promise=fetchWithSyncDeadline('https://api.test',{signal:caller.signal},1000,fetcher);
