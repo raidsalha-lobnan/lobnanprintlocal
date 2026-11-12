@@ -30,11 +30,18 @@ export function stablePosJournalId(
   return checkedId('je-pos-'+type+'-'+source.length+'-'+source);
 }
 
+export function stablePosStockMovementFromSale(movement: {sourceInvoiceId?:string;referenceNumber?:string;itemId:string}):string {
+  // The invoice UUID survives TEMP-to-official display number changes.
+  return stablePosStockMovementId(
+    movement.sourceInvoiceId || movement.referenceNumber || '',movement.itemId
+  );
+}
+
 export function stablePosStockMovementId(
-  invoiceReferenceNumber:string,
+  immutableInvoiceId:string,
   itemId:string
 ):string {
-  const reference=validPart(invoiceReferenceNumber,'REFERENCE');
+  const reference=validPart(immutableInvoiceId,'INVOICE_ID');
   const item=validPart(itemId,'ITEM_ID');
   return checkedId('sm-pos-'+reference.length+'-'+reference+'-'+item.length+'-'+item);
 }

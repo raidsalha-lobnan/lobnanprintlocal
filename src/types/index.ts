@@ -166,6 +166,8 @@ export interface StockMovement {
   totalValue?: number;
   referenceType: 'purchase' | 'pos_invoice' | 'print_order' | 'adjustment' | 'return' | 'opening' | 'manual' | 'receipt' | 'issue' | 'transfer' | 'audit' | 'settlement' | 'damaged' | 'stock_modify';
   referenceNumber?: string;
+  /** Immutable invoice UUID; not a TEMP/INV display number. */
+  sourceInvoiceId?: string;
   documentNumber?: string; // رقم المستند الرسمي (REC-..., ISS-..., TRF-..., AUD-..., ADJ-..., DMG-..., RET-..., MOD-...)
   userId?: string;        // المستخدم منفذ الحركة
   userName?: string;      // اسم المستخدم
