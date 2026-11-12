@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {stablePosJournalId,stablePosStockMovementId} from './posPostingIdentity';
+import {stablePosJournalId,stablePosStockMovementId,stablePosStockMovementFromSale} from './posPostingIdentity';
 
 test('retries and repeated React updater evaluations cannot invent new sale journal IDs',()=>{
  const invoice='inv-pos-25b86a4d-1234-41c4-91cf-bca2aa431912';
@@ -22,6 +22,15 @@ test('one movement identity per invoice and item, independent of execution order
  assert.notEqual(one,stablePosStockMovementId(inv,itemB));
  assert.notEqual(one,stablePosStockMovementId('TEMP-inv-pos-20261113-bbb',itemA));
  assert.ok(one.length<=180);
+});
+
+test('stock movement keeps the same ID when TEMP becomes official INV number',()=>{
+ const invoice='inv-pos-immutable-a1';
+ const item='PRI-uuid-1';
+ const before=stablePosStockMovementFromSale({sourceInvoiceId:invoice,referenceNumber:'TEMP-'+invoice,itemId:item});
+ const after=stablePosStockMovementFromSale({sourceInvoiceId:invoice,referenceNumber:'INV-0123',itemId:item});
+ assert.equal(before,after);
+ assert.notEqual(after,stablePosStockMovementFromSale({sourceInvoiceId:'other-invoice',referenceNumber:'INV-0123',itemId:item}));
 });
 
 test('length-prefixed components prevent delimiter collision',()=>{

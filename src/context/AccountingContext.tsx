@@ -5,7 +5,7 @@ import { createUnifiedDataLayer } from '../sync-next/boot';
 import { secureLoginEnabled } from '../services/secureAuth';
 import { getBinaryAttachment } from '../utils/fileStorage';
 import {registeredSubCustomer,findSubCustomerForSale,normalizeSubCustomerName} from '../utils/subCustomerIdentity';
-import {stablePosJournalId,stablePosStockMovementId} from '../utils/posPostingIdentity';
+import {stablePosJournalId,stablePosStockMovementFromSale} from '../utils/posPostingIdentity';
 import { uploadCentralAttachment } from '../services/centralAttachmentApi';
 import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
@@ -5344,8 +5344,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const addStockMovement = (movement: Omit<StockMovement, 'id'>) => {
     const id = movement.type === 'out_sale' && movement.referenceType === 'pos_invoice' &&
-      movement.referenceNumber && movement.itemId
-      ? stablePosStockMovementId(movement.referenceNumber, movement.itemId)
+      (movement.sourceInvoiceId || movement.referenceNumber) && movement.itemId
+      ? stablePosStockMovementFromSale(movement)
       : 'sm-' + crypto.randomUUID();
     const newMovement: StockMovement = {
       ...movement,
@@ -6761,6 +6761,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             unitPrice: invItem.purchasePrice,
             totalValue: Number((totalSoldQuantity * invItem.purchasePrice).toFixed(2)),
             referenceType: 'pos_invoice',
+            sourceInvoiceId: invId,
             referenceNumber: invoiceNumber,
             reason: `مبيعات كاشير (${customerName || 'عميل نقدي'})`,
             performedBy: extraOptions?.representative || 'كاشير'
@@ -7504,6 +7505,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               unitPrice: invItem.purchasePrice,
               totalValue: sold.quantity * invItem.purchasePrice,
               referenceType: 'pos_invoice',
+              sourceInvoiceId: inv.id,
               referenceNumber: inv.invoiceNumber,
               reason: `اعتماد تسليم فاتورة كاشير (${inv.customerName})`,
               performedBy: inv.representative || 'كاشير'
