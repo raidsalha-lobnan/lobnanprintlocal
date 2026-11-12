@@ -40,6 +40,7 @@ export interface SyncState {
   running: boolean;
   pending: number;
   conflict: number;
+  archived?: number; // Locally quarantined, NOT server acknowledged.
   lastSuccessAt: number | null;
   lastError: string | null;
   isLeader: boolean;
@@ -49,6 +50,7 @@ export class SyncCoordinator {
   private started = false;
   private busy = false;
   private requested = false;
+  private queueMaintenance = false;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -61,6 +63,7 @@ export class SyncCoordinator {
     running: false,
     pending: 0,
     conflict: 0,
+    archived: 0,
     lastSuccessAt: null,
     lastError: null,
     isLeader: false
@@ -254,8 +257,26 @@ export class SyncCoordinator {
     this.report({ isLeader: false });
   }
 
+  /** Archive only while this browser is the inactive network leader.
+   * Never remove a command while a push may still be in flight.
+   */
+  async withPausedQueueMaintenance<T>(action:()=>Promise<T>):Promise<T>{
+    if(!this.started||!this.state.isLeader)
+      throw new Error('QUEUE_MAINTENANCE_REQUIRES_SYNC_LEADER_TAB');
+    if(this.queueMaintenance)throw new Error('QUEUE_MAINTENANCE_ALREADY_ACTIVE');
+    this.queueMaintenance=true;
+    try{
+      // Halt NEW network work, then allow an in-flight push to reach its ACK
+      // before touching the outbox. If it changed, the backup fingerprint
+      // check below will reject archival rather than hide a committed write.
+      for(let i=0;i<100&&this.busy;i++)await sleep(75);
+      if(this.busy)throw new Error('SYNC_IN_PROGRESS_RETRY_AFTER_IDLE');
+      return await action();
+    }finally{this.queueMaintenance=false;this.requestSync();}
+  }
+
   requestSync() {
-    if (!this.started || !this.cloudAllowed()) return;
+    if (!this.started || !this.cloudAllowed() || this.queueMaintenance) return;
 
     if (!this.state.isLeader) {
       // Non-leader tab requests the active leader tab to drain outbox
@@ -280,7 +301,7 @@ export class SyncCoordinator {
   }
 
   private async drain() {
-    if (this.busy || !this.online() || !this.cloudAllowed()) return;
+    if (this.busy || this.queueMaintenance || !this.online() || !this.cloudAllowed()) return;
 
     this.busy = true;
     this.report({ running: true });
@@ -327,7 +348,12 @@ export class SyncCoordinator {
   private async refreshCounts() {
     const commands = await this.local.pending();
 
+    // Existing test stubs and legacy sync clients might not expose the new
+    // archive API. It is informational, never a prerequisite for sending.
+    const archives=typeof this.local.listQuarantinedArchives==='function'
+      ? await this.local.listQuarantinedArchives() : [];
     this.report({
+      archived:archives.reduce((n,x)=>n+x.counts.quarantined,0),
       // Separate queued transport work from conflicts/rejections. Mixing them
       // made the dashboard's waiting count and success banners misleading.
       pending: commands.filter(c => c.status === 'pending').length,
@@ -382,8 +408,10 @@ export class SyncCoordinator {
     const index=new Map(snapshot.records.map(r=>[recordKey(r.entity,r.id),r]));
     // Verify every harmless bystander in a rejected historical bulk snapshot
     // against authenticated PostgreSQL. Preserve the original queued command.
-    await this.local.recordVerifiedRejectedBulkBystanders(unresolved,snapshot.records);
+    try{await this.local.recordVerifiedRejectedBulkBystanders(unresolved,snapshot.records);}
+    catch(error){this.report({lastError:'BULK_BYSTANDER_PROOF_UNAVAILABLE: '+String(error)});}
     for(const cmd of unresolved){
+      try{
       if(!this.started)return;
       // Different program users share a browser's IndexedDB database, but
       // only the original actor may reconcile or resend their own outbox.
@@ -432,6 +460,11 @@ export class SyncCoordinator {
           value:plan.authoritative.value}]);
       }else if(plan.kind==='rebase' && cmd.status==='conflict'){
         await this.local.rebaseContactChange(cmd.id,plan.authoritative,plan.merged);
+      }
+      }catch(error){
+        // Only this old conflict needs extra review. Never stop unrelated sync.
+        this.report({lastError:'ISOLATED_CONFLICT_REVIEW_FAILED: '+cmd.id+': '+String(error)});
+        continue;
       }
     }
   }
@@ -526,7 +559,9 @@ export class SyncCoordinator {
         );
 
         this.report({ lastError: String(error) });
-        return;
+        // Only this failed record is delayed. Other records are independent.
+        keys.forEach(k=>blocked.add(k));
+        continue;
       }
     }
   }

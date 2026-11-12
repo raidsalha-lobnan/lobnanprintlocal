@@ -48,7 +48,7 @@ export const OfflineIndicator: React.FC = () => {
           className="fixed bottom-4 left-4 z-[200] flex items-center gap-2 rounded-xl bg-emerald-600 px-3.5 py-2.5 text-xs font-bold text-white shadow-xl animate-fade-in border border-emerald-400/40"
         >
           <Wifi className="w-4 h-4 text-emerald-100 shrink-0" />
-          <span>{syncCoordinatorState.pending===0 && syncCoordinatorState.conflict===0 && syncCoordinatorState.lastSuccessAt
+          <span>{syncCoordinatorState.pending===0 && syncCoordinatorState.conflict===0 && !syncCoordinatorState.archived && syncCoordinatorState.lastSuccessAt
             ? 'تمت استعادة الاتصال وتأكيد مزامنة العمليات الحالية.'
             : 'استُعيد الاتصال ويجري فحص العمليات المعلقة والمتعارضة؛ لا تُعد المحاولة ناجحة حتى يؤكد الخادم.'}</span>
           <CheckCircle2 className="w-4 h-4 text-emerald-200" />
