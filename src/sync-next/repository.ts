@@ -1,5 +1,6 @@
 import { LocalSyncDb } from './localDb';
 import {compareQueueWithAuthoritativeRecords} from './queueDiagnostics';
+import {compareDeviceQueueWithPostgresV2} from './deviceQueueReviewV2';
 import { SyncCoordinator } from './coordinator';
 
 import {
@@ -141,6 +142,20 @@ export class UnifiedRepository {
       throw new Error('AUTHORITATIVE_POSTGRES_SNAPSHOT_UNAVAILABLE');
     const snapshot=await remote.fetchAuthoritativeBootstrap();
     return compareQueueWithAuthoritativeRecords(commands,snapshot.records);
+  }
+
+  /** Read-only reconciliation: compare the actual browser outbox payload to
+   * an authenticated PostgreSQL snapshot, without posting or clearing anything.
+   */
+  async inspectDeviceQueueV2ReadOnly() {
+    const queue=await this.local.pending();
+    const remote=(this.sync as any).remote;
+    if(!remote||typeof remote.fetchAuthoritativeBootstrap!=='function')
+      throw new Error('AUTHORITATIVE_POSTGRES_SNAPSHOT_UNAVAILABLE');
+    const snapshot=await remote.fetchAuthoritativeBootstrap();
+    if(!Array.isArray(snapshot.records))
+      throw new Error('INVALID_AUTHORITATIVE_SNAPSHOT');
+    return compareDeviceQueueWithPostgresV2(queue,snapshot.records);
   }
 
   getCoordinator() {
