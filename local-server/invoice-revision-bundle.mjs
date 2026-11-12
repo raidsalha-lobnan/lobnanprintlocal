@@ -28,7 +28,7 @@ const journal=(id,invoice,group,kind,from,to,amountMinor,description,now)=>{
 export function buildVerifiedInvoiceRevisionBundle({
  invoice,proposed,invoiceVersion,plan,
  partyRecords,inventoryRecords,treasuryRecords=[],registeredWarehouseCount=0,
- singleWarehouseId=null,commandId,now
+  singleWarehouseId=null,singleWarehouseName=null,commandId,now
 }){
  if(!commandId||!now||!invoice?.id||!Number.isSafeInteger(invoiceVersion)||invoiceVersion<1)
   throw new Error('REVISION_MISSING_IDENTIFIERS_OR_VERSION');
@@ -118,8 +118,8 @@ export function buildVerifiedInvoiceRevisionBundle({
    itemId,inventoryValue:item.value,
    invoiceWarehouse:invoice.warehouse,nextWarehouse:proposed.warehouse,
    originalQuantity:oldQty,newQuantity:newQty,
-   registeredWarehouseCount
-  });
+    registeredWarehouseCount,singleWarehouseName
+   });
   const current=stock.previousTotal,next=stock.nextTotal;
   const globalDelta=stock.aggregateDelta;
   const stocks=stock.warehouseStocks;
@@ -167,7 +167,13 @@ export function buildVerifiedInvoiceRevisionBundle({
        ?'Single registered warehouse: legacy warehouse cache disagreed with stockQuantity'
        :'Legacy aggregate quantity disagreed with the separate warehouse balances',
       priorAggregate:stock.originalAggregate,
-      priorWarehouseCache:stock.previousWarehouseCache,
+       priorWarehouseCache:stock.previousWarehouseCache,
+       ...(stock.priorWarehouseCaches?{
+        priorWarehouseCaches:stock.priorWarehouseCaches,
+        canonicalWarehouseName:singleWarehouseName,
+        legacyAliasReconciliation:true,
+        noSyntheticOpeningStock:true
+       }:{}),
       authoritativeQuantityBefore:stock.previousTotal,
       authoritativeQuantityAfter:stock.nextTotal,
       stockMovementDelta:globalDelta,
