@@ -6,6 +6,7 @@ import {
 } from './types';
 import {composeLocalSettingsDraft,type SettingsFieldPatch,type VerifiedSettingsReceipt} from './settingsPatch';
 import {getCurrentSessionActorId,secureLoginEnabled} from '../services/secureAuth';
+import {isProtectedRejectedBulkPartySnapshot,isVerifiedRejectedBulkBystander,rejectedBulkBystanderKey} from './rejectedBulkBystanders';
 
 const DB_VERSION = 2;
 const RECORDS = 'records';
@@ -224,8 +225,17 @@ export class LocalSyncDb {
         );
         // A newer edit must NEVER bury an unresolved edit of this record.
         // Independent records can continue syncing normally.
-        if (matching.some(op => op.status !== 'pending')) {
-          throw new Error(`RECORD_HAS_UNRESOLVED_CONFLICT: ${key}`);
+        // Only a per-party, server-proven no-op within an old rejected bulk
+        // snapshot may be bypassed. Every other conflict stays protected.
+        for(const op of matching.filter(entry=>entry.status!=='pending')){
+          if(!isProtectedRejectedBulkPartySnapshot(op))
+            throw new Error(`RECORD_HAS_UNRESOLVED_CONFLICT: ${key}`);
+          const proof=await request(tx.objectStore(RECEIPTS).get(
+            rejectedBulkBystanderKey(op.id,c.id))) as any;
+          if(proof?.resolution!=='SERVER_VERIFIED_BULK_PARTY_BYSTANDER'||
+            proof.originalCommandId!==op.id||proof.recordId!==c.id||
+            proof.entity!==c.entity)
+            throw new Error(`RECORD_HAS_UNRESOLVED_CONFLICT: ${key}`);
         }
         const pendingForRecord = matching.filter(op => op.status === 'pending');
         // Repeated identical updates while still pending should not generate extra cloud writes.
@@ -283,6 +293,59 @@ export class LocalSyncDb {
         a.createdAt - b.createdAt ||
         a.id.localeCompare(b.id)
     );
+  }
+
+  /** Record server-proven no-op entries in a rejected legacy bulk party snapshot.
+   * Never acknowledge, delete, or resend the original financial-sensitive bulk command.
+   * Future independent edits of these party IDs may proceed, while genuinely
+   * divergent entries remain blocked and visible for manual reconciliation.
+   */
+  async recordVerifiedRejectedBulkBystanders(commands:SyncCommand[], rows:StoredRecord[]):Promise<number>{
+    const candidates=commands.filter(isProtectedRejectedBulkPartySnapshot);
+    if(!candidates.length)return 0;
+    const trusted=new Map(rows.map(row=>[recordKey(row.entity,row.id),row]));
+    const db=await this.getDb();
+    const tx=db.transaction(RECEIPTS,'readwrite');
+    const done=completed(tx);
+    const store=tx.objectStore(RECEIPTS);
+    let verified=0;
+    try{
+      for(const cmd of candidates){
+        for(const change of cmd.changes){
+          const row=trusted.get(recordKey(change.entity,change.id))||null;
+          if(!isVerifiedRejectedBulkBystander(cmd,change.id,row))continue;
+          const id=rejectedBulkBystanderKey(cmd.id,change.id);
+          if(await request(store.get(id)))continue;
+          store.put({id,resolution:'SERVER_VERIFIED_BULK_PARTY_BYSTANDER',
+            originalCommandId:cmd.id,entity:change.entity,recordId:change.id,
+            verifiedServerVersion:row!.version,verifiedAt:new Date().toISOString()});
+          verified++;
+        }
+      }
+      await done;
+      return verified;
+    }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
+  }
+
+  async confirmedBystanderKeys(cmd:SyncCommand):Promise<Set<string>> {
+    const keys=new Set<string>();
+    if(!isProtectedRejectedBulkPartySnapshot(cmd))return keys;
+    const db=await this.getDb();
+    const tx=db.transaction(RECEIPTS,'readonly');
+    const done=completed(tx);
+    try{
+      const store=tx.objectStore(RECEIPTS);
+      for(const change of cmd.changes){
+        const proof=await request(store.get(rejectedBulkBystanderKey(cmd.id,change.id))) as any;
+        if(proof?.resolution==='SERVER_VERIFIED_BULK_PARTY_BYSTANDER' &&
+          proof.originalCommandId===cmd.id && proof.recordId===change.id &&
+          proof.entity===change.entity){
+          keys.add(recordKey(change.entity,change.id));
+        }
+      }
+      await done;
+      return keys;
+    }catch(error){await done.catch(()=>{});throw error;}
   }
 
   async cursor(): Promise<ServerCursor | null> {

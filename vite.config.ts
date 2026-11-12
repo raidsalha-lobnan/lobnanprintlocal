@@ -573,7 +573,10 @@ export default defineConfig(() => {
   return {
     define: {
       'import.meta.env.VITE_SYNC_BACKEND': JSON.stringify('local-postgres'),
-      'import.meta.env.VITE_SYNC_LOGIN_MODE': JSON.stringify('users')
+      'import.meta.env.VITE_SYNC_LOGIN_MODE': JSON.stringify('users'),
+      // Stamp the JS bundle with its deployment revision. The running browser
+      // can then detect that it is older even on the FIRST server-version poll.
+      'import.meta.env.VITE_CLIENT_BUILD_SHA': JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA || '')
     },
     server: {
       hmr: false,
