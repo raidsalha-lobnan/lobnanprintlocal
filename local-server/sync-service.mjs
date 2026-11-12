@@ -4,6 +4,7 @@ import {telegramRelevantChanges} from './telegram-delivery.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
 import {assertStableEntitySerial,allocateAutomaticEntityCode} from './entity-identity.mjs';
 import {validateInvoiceCounterparty} from './invoice-counterparty.mjs';
+import {assertAppendOnlyAccountingEvidence} from './append-only-financial-evidence.mjs';
 import {normalizeSingleWarehouseInventory} from './single-warehouse-inventory.mjs';
 import {preserveWorkspaceSettingsCredentials} from './workspace-settings-public.mjs';
 import {APPROVED_CATALOG_MIGRATION_ID,preserveApprovedCatalogSettings} from './approved-settings-guard.mjs';
@@ -76,6 +77,12 @@ export class SyncService {
         let val=isFieldPatch
           ? applySettingsFieldPatch(old?.value,change.value,actual,change.expectedVersion)
           : change.value;
+        // Journal entries and stock movements are permanent accounting
+        // evidence. New corrections must append new records, never rewrite a
+        // previously committed record (including an old client resubmission).
+        assertAppendOnlyAccountingEvidence(
+          change.entity,old?.value,val,change.id
+        );
         if(change.entity==='settings' && val){
           if(!['global','workspace-settings'].includes(change.id))
             throw new InputError('INVALID_WORKSPACE_SETTINGS_ID',422);
