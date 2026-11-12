@@ -35,6 +35,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { isCashCustomerParty } from '../utils/partyUtils';
+import { indexedSubCustomers, isInvoiceOnlySubCustomer, registeredSubCustomer, subCustomerParentId } from '../utils/subCustomerIdentity';
 import { CustomerSpecialPricesModal } from './pos/CustomerSpecialPricesModal';
 import { BalanceReconciliationModal } from './BalanceReconciliationModal';
 import { posSound } from '../utils/audio';
@@ -399,12 +400,14 @@ export const PartiesView: React.FC = () => {
   const sectionTotals = customerPeriodTotals(rows);
   const allMainCustomers = parties.filter(p => !p.isSubCustomer &&
     (p.type==='customer'||p.type==='both'));
-  const allSubCustomers = parties.filter(p => p.isSubCustomer &&
-    (p.type==='customer'||p.type==='both'));
+  // The heading and report must count the same effective customer identities,
+  // including invoice-only historical walk-in customers.
+  const allSubCustomers = useMemo(() => indexedSubCustomers(parties, invoices).filter(p =>
+    p.type === 'customer' || p.type === 'both'), [parties, invoices]);
   const money = (value:number):string =>
     Number(value||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   const deleteLocked = (party:Party):boolean =>
-    isCashCustomerParty(party) ||
+    isInvoiceOnlySubCustomer(party) || isCashCustomerParty(party) ||
     invoices.some(inv => inv.customerId===party.id || inv.subCustomerId===party.id ||
       (inv as typeof inv & {counterpartyId?:string}).counterpartyId===party.id) ||
     vouchers.some(v => v.partyId===party.id) ||
@@ -412,6 +415,44 @@ export const PartiesView: React.FC = () => {
     salesReturns.some(r => r.customerId===party.id) ||
     printOrders.some(po => po.customerId===party.id) ||
     debtClearings.some(dc => dc.customerId===party.id || dc.supplierId===party.id);
+
+  // Do not issue a voucher, edit, or delete against a synthetic history-only ID.
+  // Master creation allocates the actual SUB serial through the server on sync.
+  const registerHistoricalSubCustomer = (inferred: Party): void => {
+    if (!isInvoiceOnlySubCustomer(inferred)) return;
+    const parentId = subCustomerParentId(inferred);
+    const parent = parties.find(p => p.id === parentId && !p.isSubCustomer &&
+      (p.type === 'customer' || p.type === 'both'));
+    if (!parent) {
+      setToastMsg({ text: 'لا يمكن تسجيل الزبون الفرعي: العميل الرئيسي غير موجود.', type: 'error' });
+      return;
+    }
+    if (registeredSubCustomer(parties, parent.id, inferred.name)) {
+      setToastMsg({ text: 'هذا الزبون الفرعي مسجل بالفعل؛ حدّث الصفحة بعد المزامنة.', type: 'success' });
+      return;
+    }
+    try {
+      addParty({
+        type: 'customer',
+        name: inferred.name,
+        phone: inferred.phone || '',
+        isSubCustomer: true,
+        parentPartyId: parent.id,
+        openingBalance: 0,
+        initialBalance: 0
+      });
+      setToastMsg({
+        text: 'تم إرسال تسجيل الزبون الفرعي. الرقم النهائي يعتمد بعد المزامنة، ولم تتغير الفواتير أو القيود.',
+        type: 'success'
+      });
+    } catch (error) {
+      setToastMsg({
+        text: 'تعذر تسجيل الزبون الفرعي: ' + (error instanceof Error ? error.message : 'خطأ غير معروف'),
+        type: 'error'
+      });
+    }
+  };
+
   const printRegister = () => {
     if (invalidPeriod) {
       setToastMsg({text:'تاريخ بداية الفترة يجب ألا يكون بعد تاريخ نهايتها.',type:'error'});
@@ -581,7 +622,7 @@ export const PartiesView: React.FC = () => {
                   <tr key={party.id} className={cash?'bg-blue-50/90 hover:bg-blue-100/70':
                     index%2===0?'bg-white hover:bg-blue-50/50':'bg-slate-50/80 hover:bg-blue-50/50'}>
                     <td className="px-2 py-2 text-center whitespace-nowrap font-mono text-blue-800 font-black">
-                      {party.code||'—'}{cash&&<Lock className="inline w-3 h-3 text-amber-700 mr-1" />}
+                      {isInvoiceOnlySubCustomer(party) ? 'غير مرقم' : (party.code || '—')}{cash&&<Lock className="inline w-3 h-3 text-amber-700 mr-1" />}
                     </td>
                     <td className="px-2 py-2 font-bold text-slate-900" title={party.name}>
                       <span className="block w-full truncate whitespace-nowrap">{party.name}</span>
@@ -605,10 +646,15 @@ export const PartiesView: React.FC = () => {
                         <button type="button" onClick={()=>setSelectedPartyForStatement(party)}
                           className="bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-md px-2 py-1 text-blue-800 font-bold"
                           title="فتح كشف الحساب التفصيلي">كشف حساب</button>
-                        <button type="button" onClick={()=>{setVoucherModalParty({...party,balance:currentBalance});setVoucherType('receipt');setVoucherAmount(Math.abs(currentBalance));}}
-                          className="p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md" title="سند قبض">
+                        {isInvoiceOnlySubCustomer(party) && (
+                          <button type="button" onClick={() => registerHistoricalSubCustomer(party)}
+                            className="px-2 py-1 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 font-bold hover:bg-emerald-100"
+                            title="تسجيل الزبون الفرعي في دليل العملاء والحصول على الرقم الحقيقي">تسجيل وترقيم</button>
+                        )}
+                        <button type="button" disabled={isInvoiceOnlySubCustomer(party)} onClick={()=>{setVoucherModalParty({...party,balance:currentBalance});setVoucherType('receipt');setVoucherAmount(Math.abs(currentBalance));}}
+                          className="p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-30 disabled:cursor-not-allowed rounded-md" title="سند قبض">
                           <Receipt className="w-3.5 h-3.5" /></button>
-                        {!cash&&<button type="button" onClick={()=>handleOpenEditModal(party)}
+                        {!cash&&!isInvoiceOnlySubCustomer(party)&&<button type="button" onClick={()=>handleOpenEditModal(party)}
                           className="p-1.5 text-blue-700 hover:bg-blue-50 rounded-md" title="تعديل بيانات العميل">
                           <Edit2 className="w-3.5 h-3.5" /></button>}
                         <button type="button" disabled={locked}
