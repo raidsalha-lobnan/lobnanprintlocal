@@ -42,6 +42,8 @@ test('credit sale with delivery, inventory, journals and transient customer is o
   assert.equal(posting.inventoryChanges.length,1);
   assert.equal(posting.partyChanges.length,1);
   assert.equal(posting.partyChanges[0].value?.balance,55);
+  assert.equal(invoice.subCustomerId,posting.partyChanges[0].id);
+  assert.equal(posting.partyChanges.filter(p=>p.id===invoice.subCustomerId).length,1);
   assert.equal(posting.partyChanges[0].value?.code,'SUB-0001');
   assert.equal((posting.stockMovements[0].value as any).sourceInvoiceId,invoice.id);
   assert.equal((posting.inventoryChanges[0].value as any).stockQuantity,18);
