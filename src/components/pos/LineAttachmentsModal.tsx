@@ -22,18 +22,7 @@ import {
 import { LineAttachment } from '../../types';
 import { saveBinaryAttachment, getBinaryAttachment, downloadBlobFile } from '../../utils/fileStorage';
 import { resizeAndCompressImage } from '../../utils/imageCompress';
-import {
-  uploadFileToGoogleDrive,
-  getProgramDriveStatus,
-  downloadProgramDriveAttachment,
-  deleteFileFromGoogleDrive,
-  updateDriveFileName,
-  getSavedSharedDriveEmails,
-  saveSharedDriveEmail,
-  removeSharedDriveEmail,
-  shareDriveFolderWithEmail,
-  getDriveFolderUrl
-} from '../../services/googleDriveService';
+import {centralAttachmentStatus, uploadCentralAttachment, downloadCentralAttachment, isCentralAttachmentId} from '../../services/centralAttachmentApi';
 import { useAccounting } from '../../context/AccountingContext';
 
 interface LineAttachmentsModalProps {
@@ -51,13 +40,14 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   attachments,
   onSaveAttachments
 }) => {
-  const { users, currentUser } = useAccounting();
+  const { currentUser } = useAccounting();
   const [items, setItems] = useState<LineAttachment[]>(attachments || []);
   const [linkInput, setLinkInput] = useState('');
   const [linkNameInput, setLinkNameInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<Record<string, { name: string; progress: number }>>({});
   const [isDriveConnected, setIsDriveConnected] = useState<boolean>(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
   const [isConnectingDrive, setIsConnectingDrive] = useState(false);
   
   // File edit state
@@ -65,23 +55,13 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   const [editingAttName, setEditingAttName] = useState('');
   const [isSavingName, setIsSavingName] = useState(false);
 
-  // Sharing Management state
-  const [showSharePanel, setShowSharePanel] = useState(false);
-  const [sharedEmails, setSharedEmails] = useState<string[]>([]);
-  const [newShareEmail, setNewShareEmail] = useState('');
-  const [isSharingEmail, setIsSharingEmail] = useState(false);
-  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
-  const [driveFolderUrl, setDriveFolderUrl] = useState<string>('https://drive.google.com/drive');
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync state when opened and restore previews for items lacking data
   useEffect(() => {
     const initialList = attachments || [];
     setItems(initialList);
-    void getProgramDriveStatus().then(state => setIsDriveConnected(state.configured)).catch(() => setIsDriveConnected(false));
-    setSharedEmails(getSavedSharedDriveEmails());
-    // Private Drive folders are accessed only through the authenticated program.
+    if (isOpen) void centralAttachmentStatus().then(setIsDriveConnected).catch(() => setIsDriveConnected(false));
 
     // Restore any image data from IndexedDB if not in memory
     initialList.forEach(async (att) => {
@@ -106,95 +86,95 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   const handleConnectDrive = async () => {
     setIsConnectingDrive(true);
     try {
-      const state = await getProgramDriveStatus();
-      setIsDriveConnected(state.configured);
-      if(!state.configured)throw new Error('خدمة Google Drive لم تُربط بعد بصلاحية الخادم');
-    } catch (err) {
-      console.warn('Private Drive service not configured:', err);
-      setShareFeedback('تعذر الاتصال بمخزن المرفقات؛ سيبقى الملف محفوظًا على هذا الجهاز فقط حتى نجاح رفعه.');
+      const ready = await centralAttachmentStatus();
+      setIsDriveConnected(ready);
+      setCloudError(ready ? null : 'خادم المرفقات غير جاهز');
+    } catch {
+      setIsDriveConnected(false);
+      setCloudError('تعذر الاتصال بخادم المرفقات. تحقق من الإنترنت وتسجيل الدخول.');
     } finally {
       setIsConnectingDrive(false);
     }
   };
 
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-
-    const fileList = Array.from(files);
-
-    for (const file of fileList) {
-      const attId = 'att-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
-      
-      // 1. Save locally to IndexedDB as high-capacity raw binary Blob (100% lossless)
-      await saveBinaryAttachment(attId, file, file.name, file.type);
-
-      // 2. Generate lightweight thumbnail / dataURL for all images
-      let previewDataUrl: string | undefined = undefined;
-      if (file.type.startsWith('image/')) {
-        try {
-          previewDataUrl = await resizeAndCompressImage(file, 800, 800, 0.75);
-        } catch {
-          previewDataUrl = await new Promise((res) => {
-            const reader = new FileReader();
-            reader.onload = (e) => res(e.target?.result as string);
-            reader.onerror = () => res(undefined);
-            reader.readAsDataURL(file);
-          });
-        }
-      }
-
-      const newAttachment: LineAttachment = {
-        id: attId,
-        name: file.name,
-        size: file.size,
-        type: file.type || 'application/octet-stream',
-        data: previewDataUrl,
-        localBlobId: attId,
-        storageType: 'local',
-        uploadedAt: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
-        uploadedBy: currentUser?.fullName || currentUser?.username || 'مستخدم النظام',
-        uploadedByUserId: currentUser?.id,
-        isOriginal: true
-      };
-
-      setItems(prev => [...prev, newAttachment]);
-
-      // 3. Background upload to Google Drive if connected or requested
-      if (navigator.onLine) {
-        setUploadingFiles(prev => ({ ...prev, [attId]: { name: file.name, progress: 10 } }));
-        try {
-          const driveRes = await uploadFileToGoogleDrive(file, file.name, (prog) => {
-            setUploadingFiles(prev => ({ ...prev, [attId]: { name: file.name, progress: prog } }));
-          });
-
-          setItems(prev => prev.map(item => {
-            if (item.id === attId) {
-              return {
-                ...item,
-                driveFileId: driveRes.fileId,
-                driveWebViewLink: undefined,
-                driveDownloadLink: undefined,
-                data: undefined,
-                storageType: 'drive'
-              };
-            }
-            return item;
-          }));
-        } catch (err) {
-          console.warn('Drive upload failed; original retained locally for recovery:', err);
-          setShareFeedback('تعذر رفع '+file.name+' إلى Drive. الملف محفوظ مؤقتًا على هذا الجهاز ولا يظهر للأجهزة الأخرى حتى نجاح الرفع.');
-        } finally {
-          setUploadingFiles(prev => {
-            const next = { ...prev };
-            delete next[attId];
-            return next;
-          });
-        }
-      }
+  // Pending local originals remain on the originating device until a verified receipt
+  // is returned by the central server. Retrying never marks a file as synced early.
+  const retryAttachmentUpload = async (att: LineAttachment) => {
+    if (att.driveFileId || !att.localBlobId) return;
+    const stored = await getBinaryAttachment(att.localBlobId);
+    if (!stored?.blob) {
+      setCloudError('الملف المحلي غير موجود على هذا الجهاز. يرجى إرفاق الأصل مجددًا.');
+      return;
+    }
+    setUploadingFiles(prev => ({...prev, [att.id]: {name: att.name, progress: 10}}));
+    try {
+      const file = new File([stored.blob], att.name, {type: att.type || stored.blob.type || 'application/octet-stream'});
+      const receipt = await uploadCentralAttachment(file);
+      setItems(prev => prev.map(item => item.id === att.id
+        ? {...item, driveFileId: receipt.fileId, storageType: 'drive', data: undefined}
+        : item));
+      setCloudError(null);
+      setIsDriveConnected(true);
+    } catch {
+      setCloudError('لم يكتمل رفع المرفق. بقي الأصل على هذا الجهاز، ويمكن إعادة المحاولة.');
+    } finally {
+      setUploadingFiles(prev => {
+        const next = {...prev}; delete next[att.id]; return next;
+      });
     }
   };
 
+  const handleFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    for (const file of Array.from(files)) {
+      const attId = 'att-' + crypto.randomUUID();
+      setUploadingFiles(prev => ({...prev, [attId]: {name: file.name, progress: 10}}));
+      try {
+        // Offline retention is lossless, but it is NOT a cloud upload receipt.
+        await saveBinaryAttachment(attId, file, file.name, file.type);
+        const attachment: LineAttachment = {
+          id: attId, name: file.name, size: file.size,
+          type: file.type || 'application/octet-stream',
+          localBlobId: attId, storageType: 'local',
+          uploadedAt: new Date().toLocaleTimeString('ar-SA'),
+          uploadedBy: currentUser?.fullName || currentUser?.username || '',
+          uploadedByUserId: currentUser?.id, isOriginal: true
+        };
+        setItems(prev => [...prev, attachment]);
+        if (!navigator.onLine) {
+          setCloudError('لا يوجد اتصال. المرفق محفوظ على هذا الجهاز فقط، ولم يُرفع بعد.');
+          continue;
+        }
+        try {
+          const receipt = await uploadCentralAttachment(file);
+          setItems(prev => prev.map(item => item.id === attId
+            ? {...item, driveFileId: receipt.fileId, storageType: 'drive'} : item));
+          setIsDriveConnected(true);
+          setCloudError(null);
+        } catch {
+          setCloudError('تعذر رفع أحد المرفقات. بقي على هذا الجهاز فقط؛ أعد المحاولة قبل الاعتماد عليه من جهاز آخر.');
+        }
+      } catch {
+        setCloudError('تعذر حفظ المرفق. لم تتم إضافته إلى الفاتورة.');
+      } finally {
+        setUploadingFiles(prev => {
+          const next = {...prev}; delete next[attId]; return next;
+        });
+      }
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleDownloadAttachment = async (att: LineAttachment) => {
+    // Server-managed files must be available from any authorized device.
+    if (isCentralAttachmentId(att.driveFileId)) {
+      try {
+        await downloadCentralAttachment(att.driveFileId!, att.name);
+      } catch {
+        setCloudError('تعذر تنزيل المرفق من الخادم؛ يرجى التحقق من الاتصال والصلاحيات.');
+      }
+      return;
+    }
     if (att.localBlobId) {
       const stored = await getBinaryAttachment(att.localBlobId);
       if (stored?.blob) {
@@ -202,31 +182,17 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
         return;
       }
     }
-
-    if (att.driveFileId) {
-      try {
-        const blob=await downloadProgramDriveAttachment(att.driveFileId);
-        downloadBlobFile(blob,att.name);
-      } catch(error) {
-        console.warn('Private Drive attachment download failed:',error);
-        setShareFeedback('تعذر تنزيل الملف من الخادم. تحقق من الاتصال وصلاحيات حسابك.');
-      }
+    if (att.driveDownloadLink || att.driveWebViewLink) {
+      window.open(att.driveDownloadLink || att.driveWebViewLink, '_blank', 'noopener,noreferrer');
       return;
     }
-    if (att.driveWebViewLink || att.driveDownloadLink) {
-      // Legacy externally supplied links are not private server-managed files.
-      window.open(att.driveDownloadLink || att.driveWebViewLink, '_blank','noopener,noreferrer');
-      return;
-    }
-
     if (att.data) {
       const a = document.createElement('a');
-      a.href = att.data;
-      a.download = att.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      a.href = att.data; a.download = att.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      return;
     }
+    setCloudError('الأصل غير متوفر على هذا الجهاز. يجب رفعه من الجهاز الذي أضافه.');
   };
 
   const handleAddExternalLink = () => {
@@ -257,16 +223,8 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
       return;
     }
     const cleanName = editingAttName.trim();
-    const target = items.find(a => a.id === id);
+    // Central file identifiers are immutable; renaming is invoice metadata only.
     setIsSavingName(true);
-
-    if (target?.driveFileId) {
-      try {
-        await updateDriveFileName(target.driveFileId, cleanName);
-      } catch (err) {
-        console.warn('Google Drive rename sync note:', err);
-      }
-    }
 
     setItems(prev =>
       prev.map(a =>
@@ -286,49 +244,19 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
 
   const handleDelete = async (id: string) => {
     const target = items.find(att => att.id === id);
-    const fileName = target?.name || 'المرفق';
-    const confirmed = window.confirm(`هل أنت متأكد من حذف المرفق "${fileName}"؟ سيتم حذفه من هذا البند ومن Google Drive.`);
-    if (!confirmed) return;
-
-    if (target?.driveFileId) {
-      try {
-        await deleteFileFromGoogleDrive(target.driveFileId);
-      } catch (err) {
-        console.warn('Could not delete file from Google Drive:', err);
-      }
-    }
+    if (!window.confirm('إزالة المرفق من هذا البند؟ لن تُحذف النسخة المشتركة من السحابة.')) return;
+    // Cloud blobs are immutable and may be referenced by other devices/invoices.
+    // Removing metadata must not delete a shared Drive object.
     setItems(prev => prev.filter(att => att.id !== id));
   };
 
-  const handleShareWithEmail = async (emailToShare: string) => {
-    const clean = emailToShare.trim().toLowerCase();
-    if (!clean) return;
-    setIsSharingEmail(true);
-    setShareFeedback(null);
-    try {
-      const res = await shareDriveFolderWithEmail(clean, 'writer');
-      saveSharedDriveEmail(clean);
-      setSharedEmails(getSavedSharedDriveEmails());
-      setShareFeedback(res.message || `تم تفعيل صلاحية الوصول والتعديل والحذف للإيميل: ${clean}`);
-      setNewShareEmail('');
-    } catch (err: any) {
-      setShareFeedback(`حدث خطأ أثناء المشاركة: ${err?.message || err}`);
-    } finally {
-      setIsSharingEmail(false);
-    }
-  };
-
-  const handleRemoveSharedEmail = (email: string) => {
-    if (window.confirm(`هل أنت متأكد من إلغاء تفعيل مشاركة المجلد مع (${email})؟`)) {
-      removeSharedDriveEmail(email);
-      setSharedEmails(getSavedSharedDriveEmails());
-    }
-  };
-
   const handleSaveAndClose = () => {
-    if(Object.keys(uploadingFiles).length>0){
-      setShareFeedback('يرجى إكمال رفع الملفات قبل الحفظ حتى لا تضيع مراجع المرفقات.');
+    if (Object.keys(uploadingFiles).length) {
+      setCloudError('جارٍ رفع المرفقات، لم يكتمل تأكيد السحابة بعد.');
       return;
+    }
+    if (items.some(att => att.storageType === 'local' && !att.driveFileId)) {
+      if (!window.confirm('توجد مرفقات لم تُرفع إلى السحابة؛ لن تتوفر من الأجهزة الأخرى حتى إعادة المحاولة. هل تريد الاحتفاظ بها محليًا؟')) return;
     }
     onSaveAttachments(items);
     onClose();
@@ -391,56 +319,17 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
           </button>
         </div>
 
-        {/* Cloud & Quality Status Bar */}
-        <div className="bg-slate-800 text-white px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs border-b border-slate-700">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="inline-flex items-center gap-1 text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              جودة أصلية 100% بدون أي ضغط
-            </span>
-            <span className="text-slate-400 hidden sm:inline">|</span>
-            <span className="text-slate-300 flex items-center gap-1 text-[11px]">
-              <HardDrive className="w-3.5 h-3.5 text-blue-400" />
-              تخزين عالي السعة
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowSharePanel(!showSharePanel)}
-              className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer flex items-center gap-1.5 ${
-                showSharePanel
-                  ? 'bg-amber-400 text-amber-950 border-amber-300 shadow-xs'
-                  : 'bg-slate-700 hover:bg-slate-600 text-amber-300 border-slate-600'
-              }`}
-              title="إدارة صلاحيات مشاركة مجلد الدرايف مع مستخدمي النظام"
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>صلاحيات مستخدمي البرنامج</span>
-            </button>
-
-            {isDriveConnected ? (
-              <span className="text-xs bg-emerald-700 text-white px-2 py-1 rounded">Drive خاص ومتصل</span>
-            ) : (
-              <button
-                type="button"
-                onClick={handleConnectDrive}
-                disabled={isConnectingDrive}
-                className="text-[11px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-colors flex items-center gap-1"
-              >
-                {isConnectingDrive ? <Loader2 className="w-3 h-3 animate-spin" /> : 'تنشيط الربط السحابي'}
-              </button>
-            )}
-          </div>
+        {/* Unified cloud storage status: no individual Google accounts are needed. */}
+        <div className="bg-slate-800 text-white px-4 py-2.5 flex items-center justify-between gap-3 text-xs">
+          <span className={isDriveConnected ? 'text-emerald-300' : 'text-amber-300'}>
+            {isDriveConnected ? 'المرفقات متصلة بالخادم المركزي المشفّر' : 'خادم المرفقات غير متاح؛ تحقق من الاتصال'}
+          </span>
+          <button type="button" disabled={isConnectingDrive} onClick={handleConnectDrive}
+            className="rounded-lg bg-blue-700 px-3 py-1.5 text-white disabled:opacity-50">
+            {isConnectingDrive ? 'جارٍ الفحص' : 'فحص الاتصال'}
+          </button>
         </div>
-
-        {showSharePanel && (
-          <div className="bg-blue-50 border-b border-blue-200 p-3 text-xs text-blue-950">
-            المرفقات خاصة بالبرنامج. كل مستخدم يملك جلسة دخول صالحة يمكنه فتحها من داخل البرنامج؛
-            لا حاجة لمشاركة حسابات Google أو منح روابط عامة للملفات.
-          </div>
-        )}
+        {cloudError && <div role="alert" className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-950">{cloudError}</div>}
 
         {/* Content Body */}
         <div className="p-5 space-y-4 max-h-[65vh] overflow-y-auto bg-slate-50/50">
@@ -644,11 +533,18 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
                             {att.uploadedAt && <span>{att.uploadedAt}</span>}
                             {att.uploadedBy && <span className="text-slate-500 font-medium">بواسطة: {att.uploadedBy}</span>}
                             {att.isModified && <span className="text-amber-600 font-bold">(مُعدّل)</span>}
-                            {att.driveFileId && (
-                              <span className="text-blue-600 font-bold flex items-center gap-0.5">
-                                <Cloud className="w-2.5 h-2.5" /> Drive
+                            {att.driveFileId ? (
+                              <span className="text-emerald-700 font-bold flex items-center gap-0.5">
+                                <Cloud className="w-2.5 h-2.5" /> محفوظ سحابيًا
                               </span>
-                            )}
+                            ) : att.storageType === 'local' ? (
+                              <button type="button" disabled={!!uploadingFiles[att.id]}
+                                onClick={() => void retryAttachmentUpload(att)}
+                                className="font-bold text-amber-700 underline disabled:opacity-50"
+                                title="الملف محفوظ على هذا الجهاز فقط">
+                                {uploadingFiles[att.id] ? 'جارٍ إعادة الرفع...' : 'محلي فقط - أعد الرفع'}
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       </div>

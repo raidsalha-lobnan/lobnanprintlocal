@@ -17,7 +17,7 @@ import {
 import { posSound } from '../../utils/audio';
 import { getBinaryAttachment, downloadBlobFile, saveBinaryAttachment } from '../../utils/fileStorage';
 import { resizeAndCompressImage } from '../../utils/imageCompress';
-import { uploadFileToGoogleDrive, downloadProgramDriveAttachment } from '../../services/googleDriveService';
+import {uploadCentralAttachment, downloadCentralAttachment, isCentralAttachmentId} from '../../services/centralAttachmentApi';
 
 interface WorkshopAttachmentModalProps {
   isOpen: boolean;
@@ -28,6 +28,7 @@ interface WorkshopAttachmentModalProps {
   currentUserName: string;
   onAddAttachment: (itemIndex: number, attachment: LineAttachment) => void;
   onRemoveAttachment: (itemIndex: number, attachmentId: string) => { success: boolean; message?: string };
+  onUpdateAttachment: (itemIndex: number, attachmentId: string, attachment: LineAttachment) => void;
 }
 
 export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = ({
@@ -38,11 +39,13 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
   itemIndex,
   currentUserName,
   onAddAttachment,
-  onRemoveAttachment
+  onRemoveAttachment,
+  onUpdateAttachment
 }) => {
   const [selectedPreview, setSelectedPreview] = useState<LineAttachment | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [retryingAttachmentId, setRetryingAttachmentId] = useState<string | null>(null);
 
   if (!isOpen || !item) return null;
 
@@ -64,10 +67,9 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
     }
 
     // Drive files are never public; fetch through the program's authenticated API.
-    if(att.driveFileId) {
+    if(att.driveFileId && isCentralAttachmentId(att.driveFileId)) {
       try {
-        const blob=await downloadProgramDriveAttachment(att.driveFileId);
-        downloadBlobFile(blob,att.name);
+        await downloadCentralAttachment(att.driveFileId, att.name);
       }catch(error){
         setFeedbackMsg({type:'error',text:'تعذر تنزيل المرفق من مخزن Drive الخاص بالبرنامج.'});
       }
@@ -137,7 +139,7 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
     // On failure retain the original local Blob and show an explicit warning.
     if(navigator.onLine){
       try{
-        const receipt=await uploadFileToGoogleDrive(file,file.name);
+        const receipt=await uploadCentralAttachment(file);
         newAtt.driveFileId=receipt.fileId;
         newAtt.driveWebViewLink=undefined;
         newAtt.driveDownloadLink=undefined;
@@ -161,6 +163,29 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
     // Reset input
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  const retryPendingAttachment = async (att: LineAttachment) => {
+    if (att.driveFileId || !att.localBlobId || retryingAttachmentId) return;
+    setRetryingAttachmentId(att.id);
+    try {
+      const local = await getBinaryAttachment(att.localBlobId);
+      if (!local?.blob) throw new Error('LOCAL_ORIGINAL_NOT_ON_THIS_DEVICE');
+      const file = new File([local.blob], att.name, {type: att.type || 'application/octet-stream'});
+      const receipt = await uploadCentralAttachment(file);
+      const uploaded: LineAttachment = {
+        ...att, driveFileId: receipt.fileId,
+        driveWebViewLink: undefined, driveDownloadLink: undefined,
+        data: undefined, storageType: 'drive'
+      };
+      onUpdateAttachment(itemIndex, att.id, uploaded);
+      setSelectedPreview(uploaded);
+      setFeedbackMsg({type: 'success', text: 'تم رفع المرفق وتوثيقه على الخادم المشفّر.'});
+    } catch {
+      setFeedbackMsg({type: 'error', text: 'تعذر رفع هذا المرفق. الأصل باقٍ على الجهاز الذي أضافه.'});
+    } finally {
+      setRetryingAttachmentId(null);
     }
   };
 
@@ -331,6 +356,13 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
                                 <span className="text-slate-500 truncate">بواسطة: {att.uploadedByUserName || att.uploadedBy || 'المستخدم'}</span>
                                 <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                                   <button type="button" onClick={() => handleDownload(att)} className="p-1 text-blue-600 hover:bg-blue-100 rounded" title="تنزيل الملف"><Download className="w-3.5 h-3.5" /></button>
+                                  {att.storageType === 'local' && !att.driveFileId && (
+                                    <button type="button" disabled={retryingAttachmentId !== null}
+                                      onClick={() => void retryPendingAttachment(att)}
+                                      className="rounded bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900 disabled:opacity-50">
+                                      {retryingAttachmentId === att.id ? 'جارٍ الرفع...' : 'محلي فقط - أعد الرفع'}
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -373,6 +405,13 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
                                 <span className="text-emerald-700 font-semibold truncate">تم الإرفاق بواسطة: {att.uploadedByUserName || att.uploadedBy || 'المستخدم'}</span>
                                 <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                                   <button type="button" onClick={() => handleDownload(att)} className="p-1 text-blue-600 hover:bg-blue-100 rounded" title="تنزيل الملف"><Download className="w-3.5 h-3.5" /></button>
+                                  {att.storageType === 'local' && !att.driveFileId && (
+                                    <button type="button" disabled={retryingAttachmentId !== null}
+                                      onClick={() => void retryPendingAttachment(att)}
+                                      className="rounded bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900 disabled:opacity-50">
+                                      {retryingAttachmentId === att.id ? 'جارٍ الرفع...' : 'محلي فقط - أعد الرفع'}
+                                    </button>
+                                  )}
                                   <button type="button" onClick={() => handleDelete(att)} className="p-1 text-rose-500 hover:bg-rose-100 rounded" title="حذف النسخة المعدلة"><Trash2 className="w-3.5 h-3.5" /></button>
                                 </div>
                               </div>

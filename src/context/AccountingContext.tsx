@@ -3,6 +3,8 @@ import { onlineInvoicePostingService } from '../services/onlineInvoicePostingSer
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createUnifiedDataLayer } from '../sync-next/boot';
 import { secureLoginEnabled } from '../services/secureAuth';
+import { getBinaryAttachment } from '../utils/fileStorage';
+import { uploadCentralAttachment } from '../services/centralAttachmentApi';
 import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
 import {selectWorkspaceSettings,applyWorkspaceSettings,mergeWorkspaceSettingsDraft} from '../utils/workspaceSettingsSync';
@@ -115,7 +117,6 @@ import { generateSequentialSku } from '../utils/barcodeGenerator';
 import { generateSequentialPartyCode, formatInvoiceCustomerDisplay, isCashCustomerParty } from '../utils/partyUtils';
 import { isInvoiceAccountingEligible, computeInvoicePaymentStatus } from '../utils/invoiceStatusUtils';
 import { calculatePartyTrueBalance } from '../utils/statementGenerator';
-import { deleteFileFromGoogleDrive } from '../services/googleDriveService';
 import {
   getCachedSyncToken,
   requestGoogleDriveToken,
@@ -417,6 +418,7 @@ interface AccountingContextType {
   getInvoiceDeleteAuditLogs: (invoiceId?: string) => Promise<AuditLogEntry[]>;
   addInvoiceTechnicalNote: (invoiceId: string, text: string) => void;
   addInvoiceItemAttachment: (invoiceId: string, itemIndexOrId: string | number, attachment: LineAttachment) => void;
+  updateInvoiceItemAttachment: (invoiceId: string, itemIndexOrId: string | number, attachmentId: string, attachment: LineAttachment) => void;
   removeInvoiceItemAttachment: (invoiceId: string, itemIndexOrId: string | number, attachmentId: string) => { success: boolean; message?: string };
   startInvoicePrinting: (invoiceId: string) => void;
   finishInvoicePrinting: (invoiceId: string) => void;
@@ -8329,6 +8331,82 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
   };
 
+  const updateInvoiceItemAttachment = (
+    invoiceId: string, itemIndexOrId: string | number,
+    attachmentId: string, attachment: LineAttachment
+  ) => {
+    setInvoices(prev => prev.map(inv => {
+      if (inv.id !== invoiceId) return inv;
+      const updatedItems = inv.items.map((item, idx) => {
+        const matches = typeof itemIndexOrId === 'number'
+          ? idx === itemIndexOrId
+          : item.itemId === itemIndexOrId || String(idx) === String(itemIndexOrId);
+        if (!matches) return item;
+        return {
+          ...item,
+          attachments: (item.attachments || []).map(current =>
+            current.id === attachmentId ? {...attachment, id: attachmentId} : current)
+        };
+      });
+      return {...inv, items: updatedItems};
+    }));
+  };
+
+  // One durable, program-wide retry path for offline invoice/workshop originals.
+  // The binary stays in this device's IndexedDB until the central API confirms
+  // cloud upload; only the nonfinancial file reference is updated afterwards.
+  const attachmentUploadInFlightRef = React.useRef(new Set<string>());
+  const attachmentRetryAfterRef = React.useRef(new Map<string, number>());
+  const attachmentSweepInFlightRef = React.useRef(false);
+  useEffect(() => {
+    if (!isOnline || !secureLoginEnabled() || !currentUser?.id) return;
+    const uploadPending = async () => {
+      if (attachmentSweepInFlightRef.current) return;
+      attachmentSweepInFlightRef.current = true;
+      try {
+      for (const invoice of invoices) {
+        if (!Array.isArray(invoice.items)) continue;
+        for (let itemIndex = 0; itemIndex < invoice.items.length; itemIndex++) {
+          const attachments = invoice.items[itemIndex]?.attachments || [];
+          for (const attachment of attachments) {
+            if (attachment.storageType !== 'local' || attachment.driveFileId || !attachment.localBlobId)
+              continue;
+            if (attachmentUploadInFlightRef.current.has(attachment.id) ||
+                Date.now() < (attachmentRetryAfterRef.current.get(attachment.id) || 0))
+              continue;
+            // Files from another computer cannot be uploaded by this device.
+            const stored = await getBinaryAttachment(attachment.localBlobId);
+            if (!stored?.blob) continue;
+            attachmentUploadInFlightRef.current.add(attachment.id);
+            try {
+              const file = new File([stored.blob], attachment.name, {
+                type: attachment.type || stored.blob.type || 'application/octet-stream'
+              });
+              const receipt = await uploadCentralAttachment(file);
+              updateInvoiceItemAttachment(invoice.id, itemIndex, attachment.id, {
+                ...attachment, driveFileId: receipt.fileId, storageType: 'drive',
+                data: undefined
+              });
+              attachmentRetryAfterRef.current.delete(attachment.id);
+            } catch {
+              // Never claim a failed upload is shared. Retry after a quiet interval
+              // on the next change/connection event without blocking other sync.
+              attachmentRetryAfterRef.current.set(attachment.id, Date.now() + 60000);
+            } finally {
+              attachmentUploadInFlightRef.current.delete(attachment.id);
+            }
+          }
+        }
+      }
+      } finally {
+        attachmentSweepInFlightRef.current = false;
+      }
+    };
+    void uploadPending();
+    const retryTimer = window.setInterval(() => void uploadPending(), 60000);
+    return () => window.clearInterval(retryTimer);
+  }, [isOnline, currentUser?.id, invoices]);
+
   const removeInvoiceItemAttachment = (
     invoiceId: string,
     itemIndexOrId: string | number,
@@ -8340,12 +8418,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const updatedItems = inv.items.map((item, idx) => {
         const matches = typeof itemIndexOrId === 'number' ? idx === itemIndexOrId : (item.itemId === itemIndexOrId || String(idx) === String(itemIndexOrId));
         if (!matches) return item;
-        const targetAttachment = item.attachments?.find(a => a.id === attachmentId);
-        if (targetAttachment?.driveFileId) {
-          deleteFileFromGoogleDrive(targetAttachment.driveFileId).catch(err => {
-            console.warn('Drive deletion note:', err);
-          });
-        }
+        // Only unlink invoice metadata. Encrypted cloud originals may still be
+        // referenced by other devices or historic invoices; never delete here.
         return {
           ...item,
           attachments: (item.attachments || []).filter(a => a.id !== attachmentId)
@@ -10850,6 +10924,7 @@ return (
         getInvoiceDeleteAuditLogs,
         addInvoiceTechnicalNote,
         addInvoiceItemAttachment,
+        updateInvoiceItemAttachment,
         removeInvoiceItemAttachment,
         startInvoicePrinting,
         finishInvoicePrinting,

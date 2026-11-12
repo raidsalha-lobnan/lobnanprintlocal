@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import {secureLoginEnabled} from '../services/secureAuth';
 import {sendAdminDirectoryAction} from '../services/adminDirectoryApi';
 import { useAccounting } from '../context/AccountingContext';
-import { shareDriveFolderWithEmail, getSavedDriveToken } from '../services/googleDriveService';
 import { SystemUser, Role, PermissionKey, PERMISSION_DEFINITIONS, PermissionDefinition, AllowedPriceTierScope } from '../types';
 import {
   Users,
@@ -199,7 +198,6 @@ export const UsersPermissionsView: React.FC = () => {
   };
 
   // Save User
-  const [isSharingDrive, setIsSharingDrive] = useState(false);
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -242,20 +240,8 @@ export const UsersPermissionsView: React.FC = () => {
       return;
     }
 
-    let driveNotice = '';
-    if (userForm.shareDriveAttachments && userForm.email) {
-      setIsSharingDrive(true);
-      try {
-        const driveRes = await shareDriveFolderWithEmail(userForm.email, 'writer');
-        if (driveRes?.message) {
-          driveNotice = driveRes.message;
-        }
-      } catch (err) {
-        console.error('Drive share error:', err);
-      } finally {
-        setIsSharingDrive(false);
-      }
-    }
+    // File access comes from the program role, never a per-user Google account.
+    const driveNotice = '';
 
     const assignedRole = roles.find(r => r.id === userForm.roleId);
     const finalAllowedBranches = userForm.allBranchesAllowed ? ['*'] : userForm.allowedBranchIds;
@@ -1188,23 +1174,8 @@ export const UsersPermissionsView: React.FC = () => {
                     </p>
                   </div>
 
-                  {/* Google Drive Sharing */}
-                  <div className="bg-indigo-50/80 p-3.5 rounded-xl border border-indigo-200 flex items-start gap-2.5">
-                    <input
-                      type="checkbox"
-                      id="shareDrive"
-                      checked={userForm.shareDriveAttachments}
-                      onChange={(e) => setUserForm({ ...userForm, shareDriveAttachments: e.target.checked })}
-                      className="mt-1 w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
-                    />
-                    <div className="flex-1">
-                      <label htmlFor="shareDrive" className="text-xs font-black text-indigo-950 block cursor-pointer">
-                        مشاركة مجلد مرفقات Google Drive مع هذا المستخدم (صلاحية رفع وتحميل الملفات)
-                      </label>
-                      <p className="text-[10.5px] text-indigo-800 mt-1 leading-relaxed">
-                        عند تفعيل هذا الخيار، سيتم منح الإيميل المدخل (<strong>{userForm.email || 'يرجى إدخال البريد الإلكتروني أعلاه'}</strong>) صلاحية كاملة (محرر ومشارك Writer) لرفع وتحميل وإدارة جميع المرفقات والتصاميم داخل مجلد Google Drive المشترك.
-                      </p>
-                    </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-950">
+                    مساحة المرفقات واحدة لجميع الأجهزة. الوصول إلى الملفات حسب صلاحيات المستخدم داخل البرنامج، دون مشاركة بريد Google Drive.
                   </div>
 
                   {/* إمكانية التعديل على السعر يدوياً */}
@@ -1267,10 +1238,10 @@ export const UsersPermissionsView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSharingDrive}
+                  disabled={false}
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSharingDrive ? 'جاري المشاركة...' : 'حفظ المستخدم'}
+                  {false ? 'جاري المشاركة...' : 'حفظ المستخدم'}
                 </button>
               </div>
             </form>

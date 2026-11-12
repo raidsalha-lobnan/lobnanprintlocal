@@ -213,7 +213,8 @@ const srv=http.createServer(async(req,res)=>{
     if(url.pathname==='/api/v1/attachments/upload' && req.method==='POST'){
       if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
       if(!access?.can('view')||
-         !['view_invoices','view_print_orders','view_pos'].some(key=>access.can(key)))
+         !['view_invoices','view_print_orders','view_pos'].some(key=>access.can(key))||
+         !['add','edit'].some(key=>access.can(key)))
         throw new InputError('ATTACHMENT_PERMISSION_DENIED',403);
       if(!driveStorage.configured())throw new InputError('DRIVE_OAUTH_NOT_CONFIGURED',503);
       const filename=safeName(url.searchParams.get('name'));

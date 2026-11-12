@@ -50,7 +50,7 @@ export async function saveBinaryAttachment(id: string, file: File | Blob, name: 
     });
   } catch (err) {
     console.error('Failed to save binary file to IndexedDB:', err);
-    return id;
+    throw err;
   }
 }
 

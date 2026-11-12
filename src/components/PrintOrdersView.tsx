@@ -105,6 +105,7 @@ export const PrintOrdersView: React.FC = () => {
     updateInvoice,
     addInvoiceTechnicalNote,
     addInvoiceItemAttachment,
+    updateInvoiceItemAttachment,
     removeInvoiceItemAttachment,
     startInvoicePrinting,
     finishInvoicePrinting,
@@ -1014,12 +1015,27 @@ export const PrintOrdersView: React.FC = () => {
           item={activeAttachmentTarget.item}
           itemIndex={activeAttachmentTarget.itemIndex}
           currentUserName={currentUser?.fullName || currentUser?.username || 'فني الورشة'}
-          onAddAttachment={(itemIdx, attachment) =>
-            addInvoiceItemAttachment(activeAttachmentTarget.invoice.id, itemIdx, attachment)
-          }
-          onRemoveAttachment={(itemIdx, attachmentId) =>
-            removeInvoiceItemAttachment(activeAttachmentTarget.invoice.id, itemIdx, attachmentId)
-          }
+          onAddAttachment={(itemIdx, attachment) => {
+            addInvoiceItemAttachment(activeAttachmentTarget.invoice.id, itemIdx, attachment);
+            setActiveAttachmentTarget(prev => prev ? ({
+              ...prev, item: {...prev.item, attachments: [...(prev.item.attachments || []), attachment]}
+            }) : prev);
+          }}
+          onUpdateAttachment={(itemIdx, attachmentId, attachment) => {
+            updateInvoiceItemAttachment(activeAttachmentTarget.invoice.id, itemIdx, attachmentId, attachment);
+            setActiveAttachmentTarget(prev => prev ? ({
+              ...prev, item: {...prev.item, attachments: (prev.item.attachments || [])
+                .map(value => value.id === attachmentId ? attachment : value)}
+            }) : prev);
+          }}
+          onRemoveAttachment={(itemIdx, attachmentId) => {
+            const result = removeInvoiceItemAttachment(activeAttachmentTarget.invoice.id, itemIdx, attachmentId);
+            if (result.success) setActiveAttachmentTarget(prev => prev ? ({
+              ...prev, item: {...prev.item, attachments: (prev.item.attachments || [])
+                .filter(value => value.id !== attachmentId)}
+            }) : prev);
+            return result;
+          }}
         />
       )}
 
