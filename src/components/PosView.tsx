@@ -2740,7 +2740,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
     // Auto-register an occasional / walk-in customer AFTER the invoice has a
     // durable save receipt. A failed posting must not create orphan party records.
     // Older name-only invoices are grouped read-only using the same identity key.
-    if (posTargetType === 'customer' && selectedCustomerId) {
+    // Atomic POS already created/linked this sub-customer in the invoice bundle.
+    // Never run the legacy independent registration again after a successful sale.
+    if (posTargetType === 'customer' && selectedCustomerId && !savedInvoice.subCustomerId) {
       const parent = parties.find(p => p.id === selectedCustomerId && !p.isSubCustomer);
       const walkInName = cleanSubCustomerName(subCustomerName || customCustomerText);
       if (parent && walkInName && !registeredSubCustomer(parties, parent.id, walkInName)) {

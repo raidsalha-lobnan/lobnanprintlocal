@@ -948,7 +948,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       const createdInvoice = postRes.invoice;
       // A walk-in sub-customer is recorded under the permanent main customer
       // only after this invoice has been durably accepted.
-      if (partyTypeMode === 'customer' && selectedCustomerId && subCustName) {
+      // An atomically linked sub-customer must not be created a second time.
+      if (partyTypeMode === 'customer' && selectedCustomerId && subCustName && !createdInvoice.subCustomerId) {
         const parent = parties.find(p => p.id === selectedCustomerId && !p.isSubCustomer);
         const walkInName = cleanSubCustomerName(subCustName);
         if (parent && walkInName && !registeredSubCustomer(parties, parent.id, walkInName)) {
