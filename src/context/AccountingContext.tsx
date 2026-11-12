@@ -9,6 +9,8 @@ import {stablePosJournalId,stablePosStockMovementFromSale} from '../utils/posPos
 import { uploadCentralAttachment } from '../services/centralAttachmentApi';
 import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
+import {buildNewAtomicPosSale} from '../sync-next/atomicPosSaleBuilder';
+import {enqueueAtomicInvoicePosting} from '../sync-next/accountingBundle';
 import {selectWorkspaceSettings,applyWorkspaceSettings,mergeWorkspaceSettingsDraft} from '../utils/workspaceSettingsSync';
 import {createWorkspaceSettingsPatch} from '../sync-next/settingsPatch';
 import { LocalHttpSyncTransport, getLocalSyncConfig } from '../sync-next/httpTransport';
@@ -7228,6 +7230,70 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
       }
     }
+    // Secure POS sale: exactly one locally durable command for all effects.
+    // React state follows the repository; never send separate side effects.
+    if (secureLoginEnabled() && !extraOptions?.editingInvoiceId) {
+      try {
+        const repo=unifiedRepoRef.current;
+        if(!repo) throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
+        const pendingKey='lobnan_pending_atomic_pos_attempt';
+        // A retry reuses its immutable invoice ID AND original timestamp.
+        // Changed forms never silently reuse an earlier financial command.
+        const raw=JSON.stringify({customerId,customerName,paymentMethod,notes,
+          options:extraOptions,items:items.map(x=>({id:x.item?.id,quantity:x.quantity,
+            unitPrice:x.unitPrice,discount:x.discount,length:x.length,width:x.width,
+            count:x.count,hasDimensions:x.hasDimensions,notes:x.notes,
+            description:x.description}))});
+        const bytes=new TextEncoder().encode(raw);
+        const signature=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)))
+          .map(x=>x.toString(16).padStart(2,'0')).join('');
+        let pending:{invoiceId:string;commandId:string;createdAt:string;signature:string}|null=null;
+        try {pending=JSON.parse(localStorage.getItem(pendingKey)||'null');}catch{}
+        if(pending&&pending.signature!==signature){
+          const queued=await repo.getLocalDb().pending();
+          if(queued.some(x=>x.id===pending?.commandId))
+            throw new Error('POS_PREVIOUS_SALE_STILL_PENDING_CONFIRM_BEFORE_NEW_ATTEMPT');
+          pending=null;
+          localStorage.removeItem(pendingKey);
+        }
+        // If a prior attempt was already queued or acknowledged, reuse its
+        // locally visible result. Never rebuild mutable party balances twice.
+        if(pending?.signature===signature && pending.invoiceId){
+          const existing=(await repo.all('invoices')).find(x=>x.id===pending?.invoiceId);
+          if(existing?.value){
+            localStorage.removeItem(pendingKey);
+            return {success:true,invoice:existing.value as unknown as Invoice,
+              isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
+          }
+          const unresolved=(await repo.getLocalDb().pending())
+            .some(x=>x.id===pending?.commandId);
+          if(unresolved)
+            throw new Error('POS_PREVIOUS_ATOMIC_SAVE_PENDING_REVIEW_REQUIRED');
+        }
+        const invoiceId=pending?.invoiceId?.startsWith('inv-pos-')
+          ?pending.invoiceId:'inv-pos-'+crypto.randomUUID();
+        const commandId=pending?.commandId||crypto.randomUUID();
+        const createdAt=pending?.createdAt||new Date().toISOString();
+        const [stock,partiesSnapshot]=await Promise.all([
+          repo.all('inventory'),repo.all('parties')
+        ]);
+        const {posting,invoice}=buildNewAtomicPosSale({
+          invoiceId,commandId,createdAt,items,customerId,customerName,paymentMethod,notes,
+          options:extraOptions,vatRate:Number(settings.vatRate||0),
+          inventory:stock,parties:partiesSnapshot
+        });
+        if(!pending)localStorage.setItem(pendingKey,JSON.stringify({invoiceId,commandId,createdAt,signature}));
+        await enqueueAtomicInvoicePosting(repo,posting);
+        // This is LOCAL persistence. Cloud acceptance arrives by normal sync ACK.
+        // The repository subscriber updates all visible accounting entities.
+        localStorage.removeItem(pendingKey);
+        return {success:true,invoice,isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
+      }catch(error){
+        return {success:false,error:String(error),
+          isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
+      }
+    }
+    // Unsecured legacy path only; secure posted revisions use their own API.
     // Legacy behavior: fail closed for financial edits until revision protocol
     // is enabled; do not re-run postings for an existing official invoice.
     try {

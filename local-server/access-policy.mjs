@@ -1,5 +1,7 @@
 import {fingerprint,InputError} from './sync-domain.mjs';
 import {officialInvoiceAmendment} from './invoice-amendments.mjs';
+import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
+import {authoritativeAtomicSaleEffect} from './atomic-pos-ledger-scope.mjs';
 /**
  * Server-enforced permissions for the single-workspace transitional API.
  * Fail closed: UI-only permissions and user-selected company/branch are not trusted.
@@ -179,6 +181,15 @@ export async function authorizeCommand(pool,workspace,access,command){
     if(previous.fingerprint!==fingerprint(command))throw denied('IDEMPOTENCY_KEY_REUSED');
     return;
   }
+  // A POS-only user may persist the *derived evidence* of a fully validated
+  // posted sale, but cannot create arbitrary standalone journals or movements.
+  const atomicSale=!!command.atomicInvoiceId &&
+    validateAtomicInvoicePosting(command)===true;
+  const atomicInvoice=atomicSale?command.changes.find(c=>
+    c.entity==='invoices'&&c.id===command.atomicInvoiceId)?.value:null;
+  const isPosOperator=atomicSale&&access.can('view')&&access.can('view_pos')&&
+    access.can('add')&&!!atomicInvoice&&
+    access.canRead('invoices',atomicInvoice,command.atomicInvoiceId);
   for(const change of command.changes){
     if(!change || typeof change.id!=='string'||!change.id ||
        typeof change.entity!=='string')throw denied();
@@ -194,8 +205,18 @@ export async function authorizeCommand(pool,workspace,access,command){
         entity:'invoices',id:change.id,
         reason:'Posted financial fields cannot be updated through ordinary sync'
       });
+    let restrictedPosEffect=isPosOperator&&previous===null&&
+      ['journalEntries','stockMovements'].includes(change.entity)&&
+      change.value!==null;
+    if(isPosOperator&&['parties','inventory'].includes(change.entity)){
+      // This pure check rejects metadata edits, wrong debtor IDs and any
+      // quantity/debt delta not justified by the validated invoice bundle.
+      authoritativeAtomicSaleEffect(command,change,previous);
+      restrictedPosEffect=true;
+    }
     if(!access.canChange(change.entity,change.value,previous)&&
-       !authorizedAtomicOpeningStock(access,command,change,previous))
+       !authorizedAtomicOpeningStock(access,command,change,previous)&&
+       !restrictedPosEffect)
       throw denied('ENTITY_PERMISSION_DENIED',{
         entity:change.entity,id:change.id,
         operation:previous===null?'add':'edit',
