@@ -290,7 +290,10 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     partyRecords:partyRecords.map(r=>({...r,version:Number(r.version)})),
     inventoryRecords:inventoryRecords.map(r=>({...r,version:Number(r.version)})),
     treasuryRecords:treasuryRecords.map(r=>({...r,version:Number(r.version)})),
-    registeredWarehouseCount,singleWarehouseId,
+     registeredWarehouseCount,singleWarehouseId,
+     singleWarehouseName:registeredWarehouseCount===1?
+      String(registeredWarehouses[0].value?.name||''):null,
+
     commandId:request.commandId,now:new Date().toISOString()
    });
   }catch(error){throw new InputError('INVOICE_REVISION_UNVERIFIED_ACCOUNTING_STATE',409,{reason:String(error.message)})}

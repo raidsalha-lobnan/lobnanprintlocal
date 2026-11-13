@@ -26,7 +26,7 @@ export function resolveStockWarehouseKey(stocks,label){
  */
 export function computeInvoiceStockRevision({
  itemId,inventoryValue,invoiceWarehouse,nextWarehouse,
- originalQuantity,newQuantity,registeredWarehouseCount
+  originalQuantity,newQuantity,registeredWarehouseCount,singleWarehouseName=null
 }){
  const oldQty=qty(originalQuantity,itemId+'.original');
  const newQty=qty(newQuantity,itemId+'.proposed');
@@ -37,8 +37,29 @@ export function computeInvoiceStockRevision({
  const singleWarehouse=registeredWarehouseCount===1;
  if(singleWarehouse){
   const entries=hasMap?Object.entries(map):[];
-  if(entries.length>1)
-   throw new Error('REVISION_SINGLE_WAREHOUSE_HAS_AMBIGUOUS_LEGACY_KEYS:'+itemId);
+   if(entries.length>1){
+    // Historically duplicated presentation caches are not stock movements.
+    // A single registered warehouse must use stockQuantity as authority.
+    // Only the documented two aliases of the *registered* warehouse qualify.
+    const names=new Set(['المخزن الرئيسي','المستودع الرئيسي']);
+    const official=String(singleWarehouseName||'').trim();
+    const aliases=new Set(entries.map(([key])=>String(key).trim()));
+    if(!names.has(official)||aliases.size!==2||
+       ![...aliases].every(key=>names.has(key))||!aliases.has(official))
+      throw new Error('REVISION_SINGLE_WAREHOUSE_HAS_AMBIGUOUS_LEGACY_KEYS:'+itemId);
+    const cache={};
+    for(const [key,value] of entries)
+      cache[key]=qty(value,itemId+'.'+key,{allowNegative:true});
+    const next=round(originalAggregate+aggregateDelta);
+    return {
+      previousTotal:originalAggregate,nextTotal:next,aggregateDelta,
+      originalAggregate,normalized:true,legacyAliasReconciliation:true,
+      priorWarehouseCaches:cache,previousWarehouseCache:cache[official],
+      warehouseStocks:{[official]:next},
+      oldWarehouseKey:official,newWarehouseKey:official,
+      transferred:false,singleWarehouse:true
+    };
+   }
   const existingKey=entries[0]?.[0];
   const recorded=existingKey===undefined?undefined:
    qty(entries[0][1],itemId+'.'+existingKey,{allowNegative:true});
