@@ -1390,3 +1390,16 @@ td.empty-row-shaded {
 .inventory-one-row-table tbody td:last-child {
   min-width: 170px;
 }
+
+/* Prevent financial-statement titles and stamp captions from separating at page breaks. */
+@media print {
+  .statement-document-heading,
+  .report-table tbody > tr.statement-invoice-title {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+  .statement-stamp-only {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}

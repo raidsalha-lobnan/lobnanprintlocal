@@ -44,7 +44,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
     <>
       <PrintHeader />
       <div className="border-b-2 border-slate-900 pb-2">
-        <div className="text-center font-bold text-base mb-1.5 mt-2 text-slate-900 leading-relaxed">
+        <div className="statement-document-heading text-center font-bold text-base mb-1.5 mt-2 text-slate-900 leading-relaxed">
           {isCustomer ? 'كشف حساب عميل تفصيلي:' : 'كشف حساب مورد تفصيلي:'}{' '}
           <span className={isCustomer ? 'text-blue-900' : 'text-rose-900'}>{clientDisplayName}</span>
           <div className="text-xs text-slate-600 mt-0.5 font-semibold">
@@ -55,7 +55,8 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
       </div>
       <div className="space-y-3">
               
-              {/* Summary Cards: Breakdown of Withdrawals, Receipts, Disbursements */}
+              {/* Summary cards are not displayed on the detailed customer statement. */}
+              {!isCustomer && (
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 <div className="bg-slate-50 p-2 rounded-lg border border-slate-200">
                   <span className="text-[10px] text-slate-500 font-semibold block">رصيد أول المدة / سابق:</span>
@@ -108,6 +109,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                   </span>
                 </div>
               </div>
+              )}
 
               {/* Detailed Transactions Table - Optimized Font 12 & A4 Width */}
               <div className="border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-[440px] print:min-h-0 flex flex-col justify-between bg-white print:block print:overflow-visible print:border-none print:shadow-none">
@@ -221,7 +223,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                         <React.Fragment key={`${row.id || 'party-row'}-${idx}`}>
                           <tr
                             className={row.type === 'invoice'
-                              ? 'bg-[#e7eff9] print:bg-[#e7eff9] font-semibold'
+                              ? 'statement-invoice-title bg-[#e7eff9] print:bg-[#e7eff9] font-semibold'
                               : 'bg-white print:bg-white'}
                           >
                             <td className="text-center text-slate-400 font-sans align-middle border-l border-slate-300">{idx + 1}</td>
@@ -546,7 +548,28 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                 </div>
               </div>
 
-              {/* Official Signatures Section */}
+              {/* Customer financial statement: only the stamp and signature */}
+              {isCustomer ? (
+              <div className="statement-stamp-only pt-3 mt-3 border-t border-slate-300 text-center" dir="rtl">
+                <div className="min-h-[4.2cm] flex items-center justify-center relative">
+                  {settings.stampUrl ? (
+                    <div className="relative flex items-center justify-center">
+                      <OfficialStamp size="3.5cm" />
+                      {settings.signatureUrl && (
+                        <img src={settings.signatureUrl} alt="Signature" className="absolute bottom-1 max-h-12 max-w-[120px] object-contain mix-blend-multiply opacity-85 pointer-events-none" />
+                      )}
+                    </div>
+                  ) : settings.signatureUrl ? (
+                    <img src={settings.signatureUrl} alt="Signature" className="max-h-16 max-w-[140px] object-contain mix-blend-multiply opacity-90" />
+                  ) : (
+                    <div className="border-b border-dashed border-slate-400 w-36 mx-auto mt-10"></div>
+                  )}
+                </div>
+                <span className="block mt-2 text-[11px] text-slate-500 font-bold">الختم والتوقيع</span>
+              </div>
+              ) : (
+                <>
+{/* Official Signatures Section */}
               <div className="pt-4 border-t border-slate-300 grid grid-cols-3 gap-4 text-center text-[10px] mt-4">
                 {/* Right Column */}
                 <div className="space-y-4 flex flex-col items-center justify-end">
@@ -592,6 +615,9 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                   <span className="text-[11px] text-slate-400 block font-mono mt-2">الختم والتوقيع المعتمد</span>
                 </div>
               </div>
+              </>
+              )}
+
             </div>
     </>
   );
