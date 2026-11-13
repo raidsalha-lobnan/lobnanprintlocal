@@ -5159,7 +5159,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
                       {posLayoutConfig.tableColumns.showQuantity && (
                         <td className="p-0 border-l border-b border-slate-300 text-center">
                           {isLineSqMeter && line.hasDimensions ? (
-                            <div className="relative flex flex-col items-center">
+                            <div className="flex items-center justify-center">
                               <input
                                 id={`dim-quantity-input-${line.id}`}
                                 ref={isActive ? quantityInputRef : undefined}
@@ -5185,11 +5185,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
                                   }
                                 }}
                                 className="w-full px-1 py-1.5 text-center bg-transparent border-0 rounded-none focus:outline-none font-mono text-xs font-black text-blue-900"
-                                title={`حساب الأبعاد: ${line.length} × ${line.width} × ${line.count || 1} = ${line.quantity} م²`}
                               />
-                              <span className="text-[9px] text-blue-700 font-mono font-bold scale-90 whitespace-nowrap -mt-1 mb-0.5">
-                                {line.length}×{line.width}×{line.count || 1}
-                              </span>
                             </div>
                           ) : (
                             <input
