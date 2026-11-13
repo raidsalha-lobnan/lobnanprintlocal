@@ -674,14 +674,14 @@ export const AccountStatementModal: React.FC = () => {
                       <th className="w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400">م</th>
                       <th className="w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
                       <th className="border-l border-slate-600 print:border-slate-400">البيان والشرح والتفاصيل الكاملة</th>
-                      <th className="w-28 min-w-28 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
-                        {isCustomer ? 'مدين (عليه)' : 'مدين (المسدد)'}
+                      <th className="w-[66px] min-w-[66px] text-center bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
+                        مدين
                       </th>
-                      <th className="w-28 min-w-28 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
-                        {isCustomer ? 'دائن (له)' : 'دائن (التوريدات)'}
+                      <th className="w-[66px] min-w-[66px] text-center bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
+                        دائن
                       </th>
-                      <th className="w-32 min-w-32 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">
-                        الرصيد التراكمي
+                      <th className="w-[78px] min-w-[78px] text-center bg-slate-700 print:bg-slate-300 whitespace-nowrap">
+                        رصيد
                       </th>
                     </tr>
                   </thead>
@@ -777,9 +777,9 @@ export const AccountStatementModal: React.FC = () => {
                         return (
                         <React.Fragment key={`${row.id || 'party-row'}-${idx}`}>
                           <tr
-                            className={`hover:bg-slate-50/90 transition-colors ${
-                              idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
-                            }`}
+                            className={row.type === 'invoice'
+                              ? 'bg-[#e7eff9] print:bg-[#e7eff9] font-semibold'
+                              : 'bg-white print:bg-white'}
                           >
                             <td className="text-center text-slate-400 font-sans align-middle border-l border-slate-300">{idx + 1}</td>
                             <td className="text-slate-700 whitespace-nowrap text-center align-middle font-mono border-l border-slate-300">{formatDateDisplay(row.date)}</td>
@@ -897,14 +897,14 @@ export const AccountStatementModal: React.FC = () => {
                             <td className="text-left font-bold text-emerald-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
                               {row.credit > 0 ? row.credit.toFixed(2) : '-'}
                             </td>
-                            <td className="text-left font-black text-slate-900 bg-slate-50/70 font-mono align-middle whitespace-nowrap">
+                            <td className="text-left font-black text-slate-900 bg-transparent font-mono align-middle whitespace-nowrap">
                               {row.runningBalance.toFixed(2)}
                             </td>
                           </tr>
 
                           {/* تفاصيل الفاتورة: جدول الأصناف ممتد بالكامل تحت أعمدة مدين ودائن ورصيد */}
                           {showItemDetails && row.items && row.items.length > 0 && (
-                            <tr className="bg-slate-50/60 print:bg-transparent print-allow-break">
+                            <tr className="bg-white print:bg-white print-allow-break">
                               <td colSpan={6} className="p-0 border-b border-slate-300 print-allow-break report-subtable-cell">
                                 <div className="w-full bg-white print:border-none print:rounded-none print:overflow-visible print:shadow-none print:block">
                                   <table className="w-full text-right report-sub-table border-collapse">
@@ -978,6 +978,15 @@ export const AccountStatementModal: React.FC = () => {
                                       </tfoot>
                                     )}
                                   </table>
+
+                                  {row.type === 'invoice' && (
+                                    <div className="flex items-center justify-end gap-3 border-t border-slate-300 bg-white px-2 py-1 text-[11px] font-bold text-slate-900">
+                                      <span>إجمالي الفاتورة:</span>
+                                      <span className="font-mono text-slate-950" dir="ltr">
+                                        {(row.totalAmount ?? row.items.reduce((total, item) => total + item.total, 0)).toFixed(2)}
+                                      </span>
+                                    </div>
+                                  )}
 
                                   {/* كشف تفصيلي بالصور: شريط المصغرات التفصيلي بالصور تحت جدول الفاتورة مباشرة */}
                                   {showImageThumbnailsInStatement && row.items && row.items.some(it => 
