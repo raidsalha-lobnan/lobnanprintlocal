@@ -34,6 +34,9 @@ export interface SyncCommand {
   baseRecords?: (StoredRecord | null)[];
   createdAt: number;
   attempts: number;
+  /** One-time recovery of known server-fixed atomic POS errors; persisted locally. */
+  autoRecoveryAttempts?: number;
+  autoRecoveryOriginalError?: string;
   retryAt: number;
   status: 'pending' | 'conflict' | 'rejected';
   error?: string;

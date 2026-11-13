@@ -116,6 +116,10 @@ export class LocalHttpSyncTransport implements SyncTransport {
     }
     return data as T;
   }
+  async supportsAtomicPosRebase():Promise<boolean>{
+    const state=await this.request<{ok?:boolean;features?:{atomicPosRebaseV1?:boolean}}>('health');
+    return state.ok===true && state.features?.atomicPosRebaseV1===true;
+  }
   async checkSettingsReceipts(proofs:SettingsReceiptProof[]):Promise<VerifiedSettingsReceipt[]> {
     if(!proofs.length)return [];
     const result=await this.request<{receipts:VerifiedSettingsReceipt[]}>(

@@ -8,6 +8,7 @@ import {composeLocalSettingsDraft,type SettingsFieldPatch,type VerifiedSettingsR
 import {getCurrentSessionActorId,secureLoginEnabled} from '../services/secureAuth';
 import {isProtectedRejectedBulkPartySnapshot,isVerifiedRejectedBulkBystander,rejectedBulkBystanderKey} from './rejectedBulkBystanders';
 import {planBlockedCommandQuarantine} from './blockedQueueQuarantine';
+import {canIndependentSaleBypassKey,isNewAtomicPosSale} from './atomicRecoveryPolicy';
 
 const DB_VERSION = 2;
 const RECORDS = 'records';
@@ -216,6 +217,12 @@ export class LocalSyncDb {
         return earlier;
       }
 
+      // Other independent atomic sales may share existing SQL stock/debtor rows.
+      // Never reinterpret an older invoice as a dependency on this NEW invoice.
+      const incomingAtomic={atomicInvoiceId,changes:safeChanges};
+      const newInvoiceRow=atomicInvoiceId && isNewAtomicPosSale(incomingAtomic)
+        ? await request(tx.objectStore(RECORDS).get(recordKey("invoices",atomicInvoiceId))) : null;
+      const safelyNewAtomic=isNewAtomicPosSale(incomingAtomic) && !newInvoiceRow;
       const versions = new Map<string, number>();
       const bases = new Map<string, StoredRecord | null>();
       for (const c of safeChanges) {
@@ -224,11 +231,14 @@ export class LocalSyncDb {
         const matching = queued.filter(
           op => op.changes.some(change => recordKey(change.entity, change.id) === key)
         );
+        const independent=(op:SyncCommand)=>safelyNewAtomic &&
+          canIndependentSaleBypassKey(op,incomingAtomic,c.entity,c.id,row?.version??0);
         // A newer edit must NEVER bury an unresolved edit of this record.
         // Independent records can continue syncing normally.
         // Only a per-party, server-proven no-op within an old rejected bulk
         // snapshot may be bypassed. Every other conflict stays protected.
         for(const op of matching.filter(entry=>entry.status!=='pending')){
+          if(independent(op))continue;
           if(!isProtectedRejectedBulkPartySnapshot(op))
             throw new Error(`RECORD_HAS_UNRESOLVED_CONFLICT: ${key}`);
           const proof=await request(tx.objectStore(RECEIPTS).get(
@@ -238,7 +248,7 @@ export class LocalSyncDb {
             proof.entity!==c.entity)
             throw new Error(`RECORD_HAS_UNRESOLVED_CONFLICT: ${key}`);
         }
-        const pendingForRecord = matching.filter(op => op.status === 'pending');
+        const pendingForRecord = matching.filter(op => op.status === 'pending' && !independent(op));
         // Repeated identical updates while still pending should not generate extra cloud writes.
         const mostRecent = pendingForRecord[pendingForRecord.length - 1];
         if (mostRecent && safeChanges.length === 1 && mostRecent.changes.length === 1 &&
@@ -1006,6 +1016,28 @@ export class LocalSyncDb {
     // The ids that resemble test probes may already have legitimate references.
     // Neither this helper nor a startup effect may silently dismiss them.
     throw new Error('Probe conflicts must be inspected against cloud and local snapshots before archival.');
+  }
+
+  /** One authorized and server-capability-verified attempt of an unchanged
+   * formerly rejected NEW POS bundle. The original id/payload stay durable.
+   * A later rejection retains autoRecoveryAttempts=1 and stays quarantined.
+   */
+  async scheduleVerifiedAtomicRecovery(commandId:string,originalError:string):Promise<boolean>{
+    const db=await this.getDb();
+    const tx=db.transaction(OUTBOX,'readwrite');
+    const done=completed(tx);
+    try{
+      const store=tx.objectStore(OUTBOX);
+      const command=await request(store.get(commandId)) as SyncCommand|undefined;
+      if(!command||command.status!=='rejected'||command.error!==originalError||
+         (command.autoRecoveryAttempts??0)>0||!isNewAtomicPosSale(command)){
+        await done;return false;
+      }
+      store.put({...command,status:'pending',retryAt:0,
+        autoRecoveryAttempts:1,autoRecoveryOriginalError:originalError,
+        error:'ATOMIC_POS_AUTOMATIC_RECOVERY_RETRY'});
+      await done;this.changed(false);return true;
+    }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
   }
 
   async retryCommand(commandId: string): Promise<void> {

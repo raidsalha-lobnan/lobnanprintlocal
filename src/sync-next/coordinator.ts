@@ -3,6 +3,7 @@ import {planConflictResolution,planAtomicCommandAlreadyConfirmed} from './confli
 import {recordKey,type StoredRecord} from './types';
 import {getCurrentSessionActorId,getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
 import {isSafeAutoCodeRetryCandidate} from './catalogAutoRecovery';
+import {canIndependentSaleBypassKey,isRecoverableRejectedAtomicSale} from './atomicRecoveryPolicy';
 import {mayProcessForCurrentActor} from './actorAffinity';
 import {fingerprintSyncCommand,type SettingsReceiptProof,type VerifiedSettingsReceipt} from './settingsPatch';
 
@@ -29,6 +30,8 @@ export interface SyncTransport {
 
   fetchAuthoritativeBootstrap?():Promise<{records:StoredRecord[];cursor:ServerCursor}>;
   checkSettingsReceipts?(proofs:SettingsReceiptProof[]):Promise<VerifiedSettingsReceipt[]>;
+  /** True only when the authenticated SQL server advertises the tested rebase. */
+  supportsAtomicPosRebase?():Promise<boolean>;
 
   watchLatest(
     onChanged: () => void,
@@ -185,7 +188,7 @@ export class SyncCoordinator {
           this.report({ isLeader: true });
           this.timer = setInterval(
             () => this.requestSync(),
-            120000
+            30000
           );
           this.unsubscribe = this.remote.watchLatest(
             () => this.requestSync(),
@@ -206,7 +209,7 @@ export class SyncCoordinator {
       this.report({ isLeader: true });
       this.timer = setInterval(
         () => this.requestSync(),
-        120000
+        30000
       );
       this.unsubscribe = this.remote.watchLatest(
         () => this.requestSync(),
@@ -406,6 +409,7 @@ export class SyncCoordinator {
     if(!unresolved.length||!this.remote.fetchAuthoritativeBootstrap)return;
     const snapshot=await this.remote.fetchAuthoritativeBootstrap();
     const index=new Map(snapshot.records.map(r=>[recordKey(r.entity,r.id),r]));
+    let supportsRepairedAtomicPos:boolean|null=null;
     // Verify every harmless bystander in a rejected historical bulk snapshot
     // against authenticated PostgreSQL. Preserve the original queued command.
     try{await this.local.recordVerifiedRejectedBulkBystanders(unresolved,snapshot.records);}
@@ -429,6 +433,25 @@ export class SyncCoordinator {
           if(settled)this.emitApplied(confirmed.map(r=>({
             entity:r.entity,id:r.id,version:r.version,value:r.value
           })));
+        } else if(isRecoverableRejectedAtomicSale(cmd,
+            index.has(recordKey('invoices',cmd.atomicInvoiceId||'')))){
+          // Never retry if another local operation depends on the SAME
+          // invoice/journal/movement. Shared existing stock and debtor rows
+          // are independent under the server-authoritative atomic rebase.
+          const trulyDependent=queued.some(other=>other.id!==cmd.id &&
+            other.changes.some(c=>cmd.changes.some(original=>
+              recordKey(c.entity,c.id)===recordKey(original.entity,original.id) &&
+              !canIndependentSaleBypassKey(cmd,other,c.entity,c.id,
+                index.get(recordKey(c.entity,c.id))?.version??0))));
+          if(!trulyDependent){
+            if(supportsRepairedAtomicPos===null){
+              try{supportsRepairedAtomicPos=await this.remote.supportsAtomicPosRebase?.()===true;}
+              catch{supportsRepairedAtomicPos=false;}
+            }
+            if(supportsRepairedAtomicPos &&
+               await this.local.scheduleVerifiedAtomicRecovery(cmd.id,String(cmd.error||'')))
+              this.requested=true;
+          }
         }
         continue;
       }
@@ -472,7 +495,15 @@ export class SyncCoordinator {
   private async pushPending() {
     const commands = await this.local.pending();
 
-    const blocked = new Set<string>();
+    const blocked = new Map<string,SyncCommand[]>();
+    const block=(cmd:SyncCommand,keys:string[])=>{
+      for(const key of keys)blocked.set(key,[...(blocked.get(key)||[]),cmd]);
+    };
+    const hasBlockingDependency=(cmd:SyncCommand)=>cmd.changes.some(change=>{
+      const key=recordKey(change.entity,change.id);
+      return (blocked.get(key)||[]).some(previous=>
+        !canIndependentSaleBypassKey(previous,cmd,change.entity,change.id,change.expectedVersion));
+    });
     for (const cmd of commands) {
       if (!this.started || !this.online()) return;
       const keys = cmd.changes.map(c => `${c.entity}\u001f${c.id}`);
@@ -481,23 +512,23 @@ export class SyncCoordinator {
         // Never send user A's cached operation under user B's bearer token.
         // Keep it on disk unchanged until the original user signs in.
         const proven=await this.local.confirmedBystanderKeys(cmd);
-        keys.filter(k=>!proven.has(k)).forEach(k=>blocked.add(k));
+        block(cmd,keys.filter(k=>!proven.has(k)));
         this.report({lastError:'OUTBOX_WAITING_FOR_ORIGINAL_USER_SESSION'});
         continue;
       }
       if (cmd.status !== 'pending') {
         if (cmd.error?.startsWith('Superseded by')) continue;
         const proven=await this.local.confirmedBystanderKeys(cmd);
-        keys.filter(k=>!proven.has(k)).forEach(k=>blocked.add(k));
+        block(cmd,keys.filter(k=>!proven.has(k)));
         this.report({ lastError: `Review required: ${cmd.status}: ${cmd.id}` });
         continue;
       }
-      if (keys.some(k => blocked.has(k))) continue;
+      if (hasBlockingDependency(cmd)) continue;
       const refreshedSession=secureLoginEnabled() &&
         cmd.error?.includes('SESSION_LOGIN_REQUIRED') &&
         !!getCurrentSessionToken();
       if (cmd.retryAt > Date.now() && !refreshedSession) {
-        keys.forEach(k => blocked.add(k));
+        block(cmd,keys);
         continue;
       }
 
@@ -522,7 +553,7 @@ export class SyncCoordinator {
           // Re-read the authoritative snapshot in a fresh pass, then either
           // auto-confirm/rebase safely or retain the conflict for review.
           this.requested=true;
-          keys.forEach(k => blocked.add(k));
+          block(cmd,keys);
           continue;
         }
 
@@ -537,7 +568,7 @@ export class SyncCoordinator {
           );
 
           this.report({ lastError: String(error) });
-          keys.forEach(k => blocked.add(k));
+          block(cmd,keys);
           continue;
         }
 
@@ -560,7 +591,7 @@ export class SyncCoordinator {
 
         this.report({ lastError: String(error) });
         // Only this failed record is delayed. Other records are independent.
-        keys.forEach(k=>blocked.add(k));
+        block(cmd,keys);
         continue;
       }
     }
