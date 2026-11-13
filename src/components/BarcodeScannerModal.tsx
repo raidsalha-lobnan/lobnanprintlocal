@@ -3,6 +3,7 @@ import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { InventoryItem } from '../types';
 import { posSound } from '../utils/audio';
 import { matchItemByBarcode } from '../utils/barcodeGenerator';
+import { BarcodeCameraSession, stopBarcodeVideoStream } from '../utils/barcodeCameraLifecycle';
 import {
   Camera,
   X,
@@ -68,28 +69,60 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const lastScanTimestampRef = useRef<number>(0);
   const lastBarcodeRef = useRef<string>('');
   const isProcessingRef = useRef<boolean>(false);
+  const cameraSessionRef = useRef(new BarcodeCameraSession());
+  const cameraStartPromiseRef = useRef<Promise<void>>(Promise.resolve());
+  const cameraStopPromiseRef = useRef<Promise<void>>(Promise.resolve());
+  const isOpenRef = useRef(isOpen);
+  const closingRef = useRef(false);
+  const selectedCameraIdRef = useRef(selectedCameraId);
+  const processBarcodeRef = useRef<(code:string)=>void>(()=>{});
+  // Updated synchronously without restarting a live webcam on parent re-renders.
+  isOpenRef.current = isOpen;
+  selectedCameraIdRef.current = selectedCameraId;
   const scannerContainerId = 'app-barcode-scanner-viewport';
 
   // Sample items for quick test buttons in the modal
   const sampleItems = (inventory || []).slice(0, 5);
 
-  // Stop Camera Scanner
-  const stopScanner = useCallback(async () => {
-    if (html5QrCodeRef.current) {
-      try {
-        if (html5QrCodeRef.current.isScanning) {
-          await html5QrCodeRef.current.stop();
-        }
-        await html5QrCodeRef.current.clear();
-      } catch (err) {
-        console.warn('Error stopping scanner:', err);
-      }
-      html5QrCodeRef.current = null;
+  // A paused decoder still holds the physical MediaStream. Always stop
+  // the tracks, even if html5-qrcode throws during stop() or clear().
+  const releaseCamera = useCallback(async (scanner: Html5Qrcode) => {
+    const video = document.getElementById(scannerContainerId)?.querySelector('video');
+    const stream = video && typeof MediaStream !== 'undefined' &&
+      video.srcObject instanceof MediaStream ? video.srcObject : null;
+    try {
+      if (scanner.isScanning) await scanner.stop();
+    } catch (err) {
+      console.warn('Barcode camera stop failed, releasing media tracks:', err);
+    } finally {
+      stopBarcodeVideoStream(stream);
+      if (video && video.srcObject === stream) video.srcObject = null;
+      try { await scanner.clear(); }
+      catch (err) { console.warn('Barcode camera clear failed:', err); }
     }
+  }, []);
+
+  // Invalidate any unfinished getCameras()/start() before releasing the camera.
+  const stopScanner = useCallback(async () => {
+    cameraSessionRef.current.invalidate();
+    const scanner = html5QrCodeRef.current;
+    html5QrCodeRef.current = null;
     setIsScanning(false);
     setIsPaused(false);
     setTorchOn(false);
-  }, []);
+    setTorchSupported(false);
+    // Serialize releases so a rapid close -> reopen cannot reuse a busy camera.
+    const release = cameraStopPromiseRef.current.catch(() => {})
+      .then(async () => { if (scanner) await releaseCamera(scanner); });
+    cameraStopPromiseRef.current = release;
+    await release;
+  }, [releaseCamera]);
+
+  const handleClose = useCallback(() => {
+    closingRef.current = true;
+    void stopScanner();
+    onClose();
+  }, [onClose, stopScanner]);
 
   const processBarcode = useCallback((barcodeText: string) => {
     const cleanCode = barcodeText.trim();
@@ -133,10 +166,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       }
 
       if (autoClose) {
-        stopScanner().finally(() => {
-          onClose();
-          isProcessingRef.current = false;
-        });
+        handleClose(); // Hide immediately; stop physical camera tracks.
       } else {
         isProcessingRef.current = false;
       }
@@ -165,10 +195,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       }
 
       if (autoClose) {
-        stopScanner().finally(() => {
-          onClose();
-          isProcessingRef.current = false;
-        });
+        handleClose(); // Hide immediately; stop physical camera tracks.
       } else {
         isProcessingRef.current = false;
       }
@@ -186,18 +213,36 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       }
 
       if (autoClose) {
-        stopScanner().finally(() => {
-          onClose();
-          isProcessingRef.current = false;
-        });
+        handleClose(); // Hide immediately; stop physical camera tracks.
       } else {
         isProcessingRef.current = false;
       }
     }
-  }, [inventory, soundEnabled, mode, autoClose, onScanItem, onScanBarcode, onScanSuccess, onClose, stopScanner]);
+  }, [inventory, soundEnabled, mode, autoClose, onScanItem, onScanBarcode, onScanSuccess, handleClose]);
+  processBarcodeRef.current = processBarcode;
 
-  // Start Camera Scanner
+  // Start serially. A previous asynchronous start must finish releasing its
+  // webcam before a new open/change-camera attempt can begin.
   const startScanner = useCallback(async (cameraId?: string) => {
+    const generation = cameraSessionRef.current.begin();
+    const previousStart = cameraStartPromiseRef.current;
+    const isCurrent = () => cameraSessionRef.current.isCurrent(generation) &&
+      isOpenRef.current && !closingRef.current;
+    const startup = (async () => {
+      await previousStart.catch(() => {});
+      await cameraStopPromiseRef.current.catch(() => {});
+      if (!isCurrent()) return;
+      let createdScanner: Html5Qrcode | null = null;
+      const releaseCreatedScanner = async () => {
+        const scanner = createdScanner;
+        createdScanner = null;
+        if (!scanner) return;
+        if (html5QrCodeRef.current === scanner) html5QrCodeRef.current = null;
+        await releaseCamera(scanner);
+      };
+      const onDecoded = (decodedText: string) => {
+        if (isCurrent()) processBarcodeRef.current(decodedText);
+      };
     setCameraError(null);
     setIsPaused(false);
     isProcessingRef.current = false;
@@ -213,15 +258,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
 
     try {
-      if (html5QrCodeRef.current) {
-        try {
-          if (html5QrCodeRef.current.isScanning) {
-            await html5QrCodeRef.current.stop();
-          }
-        } catch {
-          // ignore
-        }
-      }
+      const previousScanner = html5QrCodeRef.current;
+      html5QrCodeRef.current = null;
+      if (previousScanner) await releaseCamera(previousScanner);
+      if (!isCurrent()) return;
 
       const qrScanner = new Html5Qrcode(scannerContainerId, {
         formatsToSupport: [
@@ -243,7 +283,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         }
       });
 
+      createdScanner = qrScanner;
       html5QrCodeRef.current = qrScanner;
+      if (!isCurrent()) {
+        html5QrCodeRef.current = null;
+        await releaseCamera(qrScanner);
+        return;
+      }
 
       // Get available cameras if not loaded
       try {
@@ -253,18 +299,20 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             id: d.id,
             label: d.label || (d.id ? `كاميرا ${d.id.slice(0, 5)}` : `كاميرا ${index + 1}`)
           })));
-          if (!selectedCameraId) {
+          if (!selectedCameraIdRef.current) {
+            selectedCameraIdRef.current = devices[devices.length - 1].id;
             setSelectedCameraId(devices[devices.length - 1].id); // prefer rear camera
           }
         }
       } catch {
         // Continue with default facing mode
       }
+      if (!isCurrent()) { await releaseCreatedScanner(); return; }
 
       // Re-verify container is still in DOM after async camera query
       const checkEl = document.getElementById(scannerContainerId);
       if (!checkEl || !checkEl.isConnected) {
-        try { await qrScanner.clear(); } catch {}
+        await releaseCreatedScanner();
         return;
       }
 
@@ -279,11 +327,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           await qrScanner.start(
             { deviceId: { exact: cameraId } },
             scanConfig,
-            (decodedText) => processBarcode(decodedText),
+            onDecoded,
             () => {}
           );
           started = true;
+          if (!isCurrent()) { await releaseCreatedScanner(); return; }
         } catch (e) {
+          if (!isCurrent()) { await releaseCreatedScanner(); return; }
           console.warn('Selected cameraId failed, trying fallback:', e);
         }
       }
@@ -294,32 +344,38 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           await qrScanner.start(
             { facingMode: 'environment' },
             scanConfig,
-            (decodedText) => processBarcode(decodedText),
+            onDecoded,
             () => {}
           );
           started = true;
+          if (!isCurrent()) { await releaseCreatedScanner(); return; }
         } catch (envErr) {
+          if (!isCurrent()) { await releaseCreatedScanner(); return; }
           console.warn('Environment facingMode failed, trying user camera:', envErr);
           try {
             // 2. Try user camera (for laptops / webcams)
             await qrScanner.start(
               { facingMode: 'user' },
               scanConfig,
-              (decodedText) => processBarcode(decodedText),
+              onDecoded,
               () => {}
             );
             started = true;
+            if (!isCurrent()) { await releaseCreatedScanner(); return; }
           } catch (userErr) {
+            if (!isCurrent()) { await releaseCreatedScanner(); return; }
             // 3. Try device ID from enumerated cameras
             const devices = await Html5Qrcode.getCameras().catch(() => []);
+            if (!isCurrent()) { await releaseCreatedScanner(); return; }
             if (devices && devices.length > 0) {
               await qrScanner.start(
                 devices[0].id,
                 scanConfig,
-                (decodedText) => processBarcode(decodedText),
+                onDecoded,
                 () => {}
               );
               started = true;
+              if (!isCurrent()) { await releaseCreatedScanner(); return; }
             } else {
               throw userErr || envErr || new Error('تعذر تشغيل كاميرا المسح الضوئي');
             }
@@ -327,6 +383,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         }
       }
 
+      if (!isCurrent()) { await releaseCreatedScanner(); return; }
       setIsScanning(true);
       setIsPaused(false);
 
@@ -340,6 +397,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         setTorchSupported(false);
       }
     } catch (err: unknown) {
+      await releaseCreatedScanner();
+      if (!isCurrent()) return;
       const errMsg = err instanceof Error ? err.message : String(err);
       if (errMsg.includes('clientWidth') || errMsg.includes('not found')) {
         console.warn('Scanner container DOM not ready or unmounted during startup.');
@@ -356,7 +415,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         setCameraError('تعذر تشغيل كاميرا المسح الضوئي: ' + errMsg);
       }
     }
-  }, [processBarcode, selectedCameraId]);
+    })();
+    cameraStartPromiseRef.current = startup;
+    await startup;
+  }, [releaseCamera]);
 
   // Resume Scanning
   const resumeScanner = useCallback(async () => {
@@ -408,6 +470,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      closingRef.current = false;
       // Delay slightly for container element to mount in DOM
       const timer = setTimeout(() => {
         startScanner().catch((err) => {
@@ -416,10 +479,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       }, 150);
       return () => {
         clearTimeout(timer);
-        stopScanner();
+        closingRef.current = true;
+        void stopScanner();
       };
     } else {
-      stopScanner();
+      closingRef.current = true;
+      void stopScanner();
     }
   }, [isOpen, startScanner, stopScanner]);
 
@@ -506,7 +571,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
             {/* Close Button */}
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
@@ -607,7 +672,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shrink-0 cursor-pointer shadow-xs transition-colors"
                   >
                     اعتماد وإغلاق
@@ -744,7 +809,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               : 'بمجرد قراءة الباركود، تُغلق الشاشة تلقائياً ويتم الانتقال لتعديل كمية الصنف، ثم Enter للرجوع للباركود'}
           </span>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded font-semibold transition-colors cursor-pointer text-xs"
           >
             {mode === 'input' && capturedCode ? 'تم الاعتماد وإغلاق' : 'إغلاق'}
