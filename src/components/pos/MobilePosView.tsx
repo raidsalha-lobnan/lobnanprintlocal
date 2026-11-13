@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
-import {requestMasterForm, peekMasterResult, consumeMasterResult} from '../../utils/masterFormNavigation';
+import {peekMasterResult, consumeMasterResult} from '../../utils/masterFormNavigation';
+import {QuickAddPartyModal} from './QuickAddPartyModal';
 import {indexedSubCustomers, registeredSubCustomer, cleanSubCustomerName, isInvoiceOnlySubCustomer, subCustomerParentId} from '../../utils/subCustomerIdentity';
 import { onlineInvoicePostingService } from '../../services/onlineInvoicePostingService';
 import {
@@ -253,6 +254,10 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   }, [parties, invoices, selectedCustomerId]);
 
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
+  const [quickPartyDialog, setQuickPartyDialog] = useState<{
+    initialType: 'customer' | 'supplier' | 'employee';
+    initialName: string;
+  } | null>(null);
   const [customerSearch, setCustomerSearch] = useState('');
 
 
@@ -2437,7 +2442,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                   type="button"
                   onClick={() => {
                     setShowCustomerPicker(false);
-                    requestMasterForm({kind:partyTypeMode === 'supplier' ? 'supplier' : partyTypeMode === 'employee' ? 'employee' : 'party',source:'pos',initialName:customerSearch.trim()});
+                    setQuickPartyDialog({initialType: partyTypeMode, initialName: customerSearch.trim()});
                   }}
                   className="bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1 shrink-0"
                 >
@@ -2534,7 +2539,23 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       )}
 
       {/* ========================================================================= */}
-      {/* Mobile customer creation uses the same master-data form as desktop. */}
+      <QuickAddPartyModal
+        isOpen={Boolean(quickPartyDialog)}
+        initialType={quickPartyDialog?.initialType || 'customer'}
+        lockType
+        initialName={quickPartyDialog?.initialName}
+        onClose={() => setQuickPartyDialog(null)}
+        onSuccess={party => {
+          if (!quickPartyDialog) return;
+          setPartyTypeMode(quickPartyDialog.initialType);
+          setSelectedCustomerId(party.id);
+          setCustomerNameInput(party.name);
+          setSelectedSubCustomerId('');
+          setCustomSubCustomerName('');
+          setCustomerSearch('');
+          setShowCustomerPicker(false);
+        }}
+      />
 
       {/* Camera Barcode Scanner Modal */}
       <BarcodeScannerModal

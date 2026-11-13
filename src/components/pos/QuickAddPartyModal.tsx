@@ -15,13 +15,19 @@ import {
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Party } from '../../types';
+import {registeredSubCustomer} from '../../utils/subCustomerIdentity';
 
 interface QuickAddPartyModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialType?: 'customer' | 'supplier' | 'employee';
   partyToEdit?: Party | null;
-  onSuccess: (party: { id: string; name: string; code: string }) => void;
+  initialName?: string;
+  initialPhone?: string;
+  isSubCustomer?: boolean;
+  parentPartyId?: string;
+  lockType?: boolean;
+  onSuccess: (party: { id: string; name: string; code: string; phone?: string }) => void;
 }
 
 export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
@@ -29,6 +35,11 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
   onClose,
   initialType = 'customer',
   partyToEdit = null,
+  initialName = '',
+  initialPhone = '',
+  isSubCustomer = false,
+  parentPartyId,
+  lockType = false,
   onSuccess
 }) => {
   const { parties, addParty, updateParty, addEmployee } = useAccounting();
@@ -56,7 +67,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       if (partyToEdit) {
-        setTargetType((partyToEdit.type as any) || initialType);
+        setTargetType(partyToEdit.type === 'supplier' ? 'supplier' : 'customer');
         setName(partyToEdit.name || '');
         setPhone(partyToEdit.phone || '');
         setCity(partyToEdit.city || '');
@@ -71,8 +82,8 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
         setErrorMessage(null);
       } else {
         setTargetType(initialType);
-        setName('');
-        setPhone('');
+        setName(initialName);
+        setPhone(initialPhone);
         setCity('');
         setAddress('');
         setContactPerson('');
@@ -88,7 +99,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
         setErrorMessage(null);
       }
     }
-  }, [isOpen, initialType, partyToEdit]);
+  }, [isOpen, initialType, partyToEdit, initialName, initialPhone, isSubCustomer, parentPartyId]);
 
   if (!isOpen) return null;
 
@@ -113,10 +124,17 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
       return;
     }
 
+    if (isSubCustomer && (!parentPartyId || !parties.some(p =>
+      p.id === parentPartyId && !p.isSubCustomer && (p.type === 'customer' || p.type === 'both')))) {
+      setErrorMessage('يجب اختيار عميل رئيسي صحيح قبل إضافة الزبون الفرعي.');
+      return;
+    }
+
     if (partyToEdit) {
+      try {
       updateParty(partyToEdit.id, {
         name: trimmedName,
-        type: targetType as any,
+        type: partyToEdit.type,
         phone: phone.trim(),
         city: city.trim(),
         address: address.trim(),
@@ -126,21 +144,27 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
         creditLimit: Number(creditLimit) || 0,
         notes: notes.trim()
       });
-      onSuccess({ id: partyToEdit.id, name: trimmedName, code: partyToEdit.code });
+      onSuccess({ id: partyToEdit.id, name: trimmedName, code: partyToEdit.code, phone: phone.trim() });
       onClose();
+      } catch (err: any) {
+        setErrorMessage(err?.message || 'تعذر تعديل بيانات العميل.');
+      }
       return;
     }
 
     // Check if customer already exists with this exact name
-    const existingParty = parties.find(
-      p => p.name.trim().toLowerCase() === trimmedName.toLowerCase() && !p.isSubCustomer
-    );
+    const existingParty = isSubCustomer
+      ? registeredSubCustomer(parties, parentPartyId || '', trimmedName)
+      : parties.find(p => p.name.trim().toLowerCase() === trimmedName.toLowerCase() &&
+          !p.isSubCustomer && (targetType === 'customer'
+            ? (p.type === 'customer' || p.type === 'both')
+            : (p.type === 'supplier' || p.type === 'both')));
     if (existingParty && targetType !== 'employee') {
       const confirmUseExisting = window.confirm(
         `يوجد بالفعل ${existingParty.type === 'customer' ? 'عميل' : 'طرف'} مسجل باسم "${existingParty.name}" (كود: ${existingParty.code}).\nهل تريد اختياره مباشرة في الفاتورة؟`
       );
       if (confirmUseExisting) {
-        onSuccess({ id: existingParty.id, name: existingParty.name, code: existingParty.code });
+        onSuccess({ id: existingParty.id, name: existingParty.name, code: existingParty.code, phone: existingParty.phone });
         onClose();
         return;
       } else {
@@ -153,21 +177,23 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
       if (targetType === 'customer' || targetType === 'supplier') {
         const created = addParty({
           name: trimmedName,
-          type: targetType,
+          type: isSubCustomer ? 'customer' : targetType,
+          isSubCustomer: isSubCustomer || undefined,
+          parentPartyId: isSubCustomer ? parentPartyId : undefined,
           phone: phone.trim() || undefined,
           city: city.trim() || undefined,
           address: address.trim() || undefined,
           contactPerson: contactPerson.trim() || undefined,
           taxNumber: taxNumber.trim() || undefined,
           commercialRegister: commercialRegister.trim() || undefined,
-          creditLimit: Number(creditLimit) || 0,
-          openingBalance: Number(openingBalance) || 0,
+          creditLimit: isSubCustomer ? 0 : Number(creditLimit) || 0,
+          openingBalance: isSubCustomer ? 0 : Number(openingBalance) || 0,
           openingBalanceType: openingBalanceType,
           openingBalanceDate: new Date().toISOString().split('T')[0],
           notes: notes.trim() || undefined
         });
 
-        onSuccess({ id: created.id, name: created.name, code: created.code });
+        onSuccess({ id: created.id, name: created.name, code: created.code, phone: created.phone });
         onClose();
       } else if (targetType === 'employee') {
         const createdEmp = addEmployee({
@@ -181,7 +207,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
           hireDate: new Date().toISOString().split('T')[0]
         });
 
-        onSuccess({ id: createdEmp.id, name: createdEmp.name, code: createdEmp.id });
+        onSuccess({ id: createdEmp.id, name: createdEmp.name, code: createdEmp.code || createdEmp.id, phone: createdEmp.phone });
         onClose();
       }
     } catch (err: any) {
@@ -226,7 +252,8 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
           </button>
         </div>
 
-        {/* Type Selector Tabs */}
+        {/* Do not change an existing party's classification or a sub-customer's parent. */}
+        {!partyToEdit && !isSubCustomer && !lockType && (
         <div className="bg-slate-100 p-2 flex items-center gap-1.5 border-b border-slate-200 text-xs font-bold">
           <button
             type="button"
@@ -268,6 +295,12 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
           </button>
         </div>
 
+        )}
+        {isSubCustomer && (
+          <p className="px-4 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 border-b border-emerald-100">
+            زبون فرعي تابع للعميل الرئيسي: {parties.find(p => p.id === parentPartyId)?.name || 'غير محدد'}
+          </p>
+        )}
         {/* Error Notification */}
         {errorMessage && (
           <div className="mx-4 mt-3 p-2.5 bg-rose-50 border border-rose-300 text-rose-800 text-xs rounded-xl flex items-center gap-2">
@@ -368,7 +401,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
           {targetType !== 'employee' ? (
             <>
               {/* Financial Fields: Opening Balance & Credit Limit */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+              <div className={`p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5 ${isSubCustomer ? 'hidden' : ''}`}>
                 <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
                   <Wallet className="w-3.5 h-3.5 text-emerald-600" />
                   <span>البيانات المالية والأرصدة الافتتاحية (اختياري)</span>
