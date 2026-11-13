@@ -34,6 +34,7 @@ import { Party } from '../types';
 import { generateAccountStatement, generateEmployeeStatement, StatementRow } from '../utils/statementGenerator';
 import { tafqeetArabic } from '../utils/tafqeet';
 import { PrintHeader } from './common/PrintHeader';
+import { UnifiedPartyStatementDocument } from './UnifiedPartyStatementDocument';
 import { OfficialStamp } from './common/OfficialStamp';
 import { ReportSignatures } from './common/ReportSignatures';
 import { AutocompleteCombobox, ComboboxOption } from './common/AutocompleteCombobox';
@@ -78,6 +79,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
     purchases,
     purchaseReturns,
     vouchers,
+    printOrders,
     parties,
     inventory,
     employees,
@@ -267,7 +269,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
 
   const customerStatementData = useMemo(() => {
     const cust = parties.find(p => p.id === selectedCustomerId);
-    if (!cust) return { party: null, rows: [], totalDebit: 0, totalCredit: 0, balance: 0, openingBalance: 0, fromDate, toDate };
+    if (!cust) return { party: null, statement: null, rows: [], totalDebit: 0, totalCredit: 0, balance: 0, openingBalance: 0, fromDate, toDate };
 
     const statement = generateAccountStatement({
       party: cust,
@@ -276,8 +278,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       purchaseReturns,
       salesReturns,
       vouchers,
+      printOrders,
       journalEntries,
-      debtClearings: (window as any).__debtClearings || [],
+      debtClearings,
       fromDate,
       toDate,
       subCustomerId: selectedSubCustomerId,
@@ -286,6 +289,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
 
     return {
       party: cust,
+      statement,
       rows: statement.rows,
       totalDebit: statement.totalDebit,
       totalCredit: statement.totalCredit,
@@ -294,7 +298,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       fromDate,
       toDate
     };
-  }, [parties, selectedCustomerId, selectedSubCustomerId, subCustomersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, journalEntries, fromDate, toDate]);
+  }, [parties, selectedCustomerId, selectedSubCustomerId, subCustomersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, printOrders, journalEntries, debtClearings, fromDate, toDate]);
 
   // -----------------------------------------------------------------------------------
   // REPORT 2: Customer Items Aggregated (كشف حساب الأصناف للعميل مع تجميع الأصناف المتشابهة)
@@ -396,7 +400,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
   // -------------------------------------------------------------
   const supplierStatementData = useMemo(() => {
     const supp = parties.find(p => p.id === selectedSupplierId);
-    if (!supp) return { party: null, rows: [], totalDebit: 0, totalCredit: 0, balance: 0, openingBalance: 0, fromDate, toDate };
+    if (!supp) return { party: null, statement: null, rows: [], totalDebit: 0, totalCredit: 0, balance: 0, openingBalance: 0, fromDate, toDate };
 
     const statement = generateAccountStatement({
       party: supp,
@@ -405,8 +409,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       purchaseReturns,
       salesReturns,
       vouchers,
+      printOrders,
       journalEntries,
-      debtClearings: (window as any).__debtClearings || [],
+      debtClearings,
       fromDate,
       toDate,
       subCustomerId: selectedSubSupplierId,
@@ -415,6 +420,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
 
     return {
       party: supp,
+      statement,
       rows: statement.rows,
       totalDebit: statement.totalDebit,
       totalCredit: statement.totalCredit,
@@ -423,7 +429,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       fromDate,
       toDate
     };
-  }, [parties, selectedSupplierId, selectedSubSupplierId, subSuppliersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, journalEntries, fromDate, toDate]);
+  }, [parties, selectedSupplierId, selectedSubSupplierId, subSuppliersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, printOrders, journalEntries, debtClearings, fromDate, toDate]);
 
   // -----------------------------------------------------------------------------------
   // REPORT 4: Supplier Items Aggregated (كشف حساب الأصناف للمورد مع تجميع الأصناف المتشابهة)
@@ -1249,413 +1255,19 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* ========================================================================= */}
       {activeReport === 'customer_statement' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-6 space-y-3 print:p-0 print:border-0 print:shadow-none report-a4-container">
-          {/* 1. ترويسة كشف الحساب حسب إعدادات البرنامج المعتمدة */}
-          <PrintHeader />
-          <div className="text-center font-bold text-base sm:text-lg mb-2 mt-3 text-slate-900 leading-relaxed border-b-2 border-slate-900 pb-2">
-            كشف حساب عميل تفصيلي:{' '}
-            <span className="text-blue-900">
-              {customerStatementData.party?.name === 'زبون نقدي' && selectedSubCustObj ? selectedSubCustObj.name : (customerStatementData.party?.name || 'غير محدد')}
-            </span>
-            <div className="text-xs sm:text-sm text-slate-600 mt-1 font-semibold">
-              من تاريخ: <span className="font-mono">{fromDate || 'بداية التعامل'}</span>{' '}
-              إلى تاريخ: <span className="font-mono">{toDate || 'تاريخ اليوم'}</span>
-            </div>
-          </div>
-
-
-
-          {/* 3. جدول الحركات المالي المفصل */}
-          <div className="overflow-x-auto border border-slate-400 rounded-md shadow-2xs min-h-[440px] print:min-h-0 flex flex-col justify-between bg-white print:block print:overflow-visible print:border-none print:shadow-none">
-            <table className="w-full text-right report-table border-collapse h-full">
-              <thead className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
-                <tr>
-                  <th className="w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400">م</th>
-                  <th className="w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
-                  <th className="border-l border-slate-600 print:border-slate-400">البيان والشرح والتفاصيل الكاملة</th>
-                  <th className="w-28 min-w-28 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">مدين (عليه)</th>
-                  <th className="w-28 min-w-28 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">دائن (له)</th>
-                  <th className="w-32 min-w-32 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">الرصيد التراكمي</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 font-mono">
-                {customerStatementData.rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400 font-sans font-bold">
-                      لا توجد حركات مالية مسجلة للعميل خلال الفترة المحددة
-                    </td>
-                  </tr>
-                ) : (
-                  customerStatementData.rows.map((row: StatementRow, idx: number) => {
-                    const typeLabel = row.typeLabel || (
-                      row.type === 'invoice' ? 'فاتورة مبيعات' :
-                      row.type === 'receipt' ? 'سند قبض' :
-                      row.type === 'payment' ? 'سند صرف' :
-                      row.type === 'sales_return' ? 'مردودات مبيعات' :
-                      row.type === 'clearance' ? 'مقاصة ديون' :
-                      row.type === 'opening' ? 'رصيد سابق' : 'حركة مالية'
-                    );
-
-                    let note = '';
-                    if (row.type === 'invoice') {
-                      if (row.invoiceNotes) {
-                        note = row.invoiceNotes;
-                        if (row.subCustomerName) note += ` [الزبون الفرعي: ${row.subCustomerName}]`;
-                      } else if (row.subCustomerName) {
-                        note = `[الزبون الفرعي: ${row.subCustomerName}]`;
-                      } else if (row.description) {
-                        const cleaned = row.description
-                          .replace(/^فاتورة مبيعات\s*(\([^)]*\))?\s*(-\s*)?/, '')
-                          .replace(/-\s*إجمالي\s*[\d,.]+/gi, '')
-                          .replace(/إجمالي\s*[\d,.]+/gi, '')
-                          .replace(/-\s*total\s*[\d,.]+/gi, '')
-                          .trim();
-                        note = cleaned;
-                      }
-                    } else if (row.type === 'receipt') {
-                      const rawNote = row.voucherNotes || row.description || '';
-                      note = rawNote.replace(/^سند قبض\s*(نقدية|شيك|تحويل)?\s*(-\s*)?/, '');
-                    } else if (row.type === 'payment') {
-                      const rawNote = row.voucherNotes || row.description || '';
-                      note = rawNote.replace(/^سند صرف\s*(نقدية|شيك|تحويل)?\s*(-\s*)?/, '');
-                    } else if (row.type === 'sales_return') {
-                      const rawNote = row.invoiceNotes || row.voucherNotes || row.description || '';
-                      note = rawNote.replace(/^مردودات مبيعات\s*(-\s*)?/, '');
-                    } else {
-                      note = row.description || '';
-                    }
-                    const trimmedNote = note.trim();
-
-                    const hasReceiptExtraDetails = row.type === 'receipt' && Boolean(
-                      row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
-                      (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
-                    );
-
-                    const hasPaymentExtraDetails = row.type === 'payment' && Boolean(
-                      row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
-                      (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
-                    );
-
-                    return (
-                    <React.Fragment key={`${row.id || 'cust-stmt'}-${idx}`}>
-                    <tr
-                      className={`hover:bg-slate-50/80 transition-colors ${
-                        row.type === 'opening'
-                          ? 'bg-slate-100/90 font-bold'
-                          : idx % 2 === 1
-                          ? 'bg-slate-50/40'
-                          : 'bg-white'
-                      }`}
-                    >
-                      <td className="text-center text-slate-500 font-sans align-middle border-l border-slate-300">
-                        {idx + 1}
-                      </td>
-                      <td className="font-mono text-slate-700 text-center align-middle whitespace-nowrap border-l border-slate-300">
-                        {row.date}
-                      </td>
-                      <td className="align-middle font-sans border-l border-slate-300">
-                        {/* سطر نوع العملية - رقم الحركة - الملاحظة */}
-                        <div className="font-bold text-slate-900 leading-tight flex flex-wrap items-center gap-1.5">
-                          <span className="text-slate-900 font-bold">{typeLabel}</span>
-                          {row.referenceNumber && row.referenceNumber !== 'OPENING' && (
-                            <>
-                              <span className="text-slate-400 font-normal">-</span>
-                              <span className="font-mono font-bold text-slate-800">{row.referenceNumber}</span>
-                            </>
-                          )}
-                          {trimmedNote && (
-                            <>
-                              <span className="text-slate-400 font-normal">-</span>
-                              <span className="text-slate-700 font-medium">{trimmedNote}</span>
-                            </>
-                          )}
-                        </div>
-
-                        {/* تفاصيل إضافية لسند القبض بدون تكرار السند أو رقمه أو مبلغه */}
-                        {hasReceiptExtraDetails && (
-                          <div className="mt-1 p-1 bg-blue-50/60 border border-blue-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                            {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
-                              <div>
-                                <span className="text-slate-500">طريقة القبض: </span>
-                                <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
-                              </div>
-                            )}
-                            {row.chequeNumber && (
-                              <div>
-                                <span className="text-slate-500">رقم الشيك: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
-                              </div>
-                            )}
-                            {row.chequeBank && (
-                              <div>
-                                <span className="text-slate-500">البنك المسحوب عليه: </span>
-                                <span className="font-bold text-slate-800">{row.chequeBank}</span>
-                              </div>
-                            )}
-                            {row.chequeDueDate && (
-                              <div>
-                                <span className="text-slate-500">تاريخ الاستحقاق: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
-                              </div>
-                            )}
-                            {row.transferReference && (
-                              <div>
-                                <span className="text-slate-500">رقم الحوالة: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* تفاصيل المقاصة */}
-                        {row.type === 'clearance' && (row.counterPartyName || row.reason) && (
-                          <div className="mt-1 p-1 bg-teal-50/60 border border-teal-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-2">
-                            {row.counterPartyName && (
-                              <div>
-                                <span className="text-teal-900 font-bold">الطرف المقابل: </span>
-                                <span className="font-medium text-slate-800">{row.counterPartyName}</span>
-                              </div>
-                            )}
-                            {row.reason && (
-                              <div>
-                                <span className="text-teal-900 font-bold">السبب: </span>
-                                <span className="text-slate-700">{row.reason}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* تفاصيل إضافية لسند الصرف بدون تكرار السند أو رقمه أو مبلغه */}
-                        {hasPaymentExtraDetails && (
-                          <div className="mt-1 p-1 bg-amber-50/60 border border-amber-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                            {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
-                              <div>
-                                <span className="text-slate-500">طريقة الصرف: </span>
-                                <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
-                              </div>
-                            )}
-                            {row.chequeNumber && (
-                              <div>
-                                <span className="text-slate-500">رقم الشيك: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
-                              </div>
-                            )}
-                            {row.chequeBank && (
-                              <div>
-                                <span className="text-slate-500">البنك: </span>
-                                <span className="font-bold text-slate-800">{row.chequeBank}</span>
-                              </div>
-                            )}
-                            {row.chequeDueDate && (
-                              <div>
-                                <span className="text-slate-500">تاريخ الاستحقاق: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
-                              </div>
-                            )}
-                            {row.transferReference && (
-                              <div>
-                                <span className="text-slate-500">رقم الحوالة: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td className="text-left font-bold text-rose-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
-                        {row.debit > 0 ? row.debit.toFixed(2) : '-'}
-                      </td>
-                      <td className="text-left font-bold text-emerald-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
-                        {row.credit > 0 ? row.credit.toFixed(2) : '-'}
-                      </td>
-                      <td className="text-left font-black text-slate-900 bg-slate-50/70 font-mono align-middle whitespace-nowrap">
-                        {row.runningBalance.toFixed(2)}
-                      </td>
-                    </tr>
-
-                    {/* تفاصيل بنود الفاتورة المفصلة بالكامل ممتدة تحت كافة الأعمدة */}
-                    {row.type === 'invoice' && row.items && row.items.length > 0 && showStatementItemDetails && (
-                      <tr className="bg-slate-50/60 print:bg-transparent print-allow-break">
-                        <td colSpan={6} className="p-0 border-b border-slate-300 print-allow-break report-subtable-cell">
-                          <div className="w-full bg-slate-50/80 print:border-none print:rounded-none print:overflow-visible print:shadow-none print:block">
-                            <table className="w-full text-right report-sub-table border-collapse">
-                              <thead className="bg-slate-200 text-slate-800 font-bold border-b border-slate-300">
-                                <tr>
-                                  <th className="text-center w-8 min-w-8 border-l border-slate-200">م</th>
-                                  <th className="border-l border-slate-200">الصنف والبيان</th>
-                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
-                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">العرض</th>
-                                  <th className="text-center w-10 min-w-10 border-l border-slate-200">العدد</th>
-                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">الكمية</th>
-                                  <th className="text-left w-16 min-w-16 border-l border-slate-200">السعر</th>
-                                  <th className="text-left w-20 min-w-20">الإجمالي</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-200/80 bg-white">
-                                {row.items.map((it, itemIdx) => (
-                                  <tr key={`cust-subit-${it.itemId || itemIdx}-${itemIdx}`} className="hover:bg-blue-50/30">
-                                    <td className="text-center font-mono font-bold text-slate-700 border-l border-slate-200 py-1 text-xs">{itemIdx + 1}</td>
-                                    <td className="font-bold text-slate-900 border-l border-slate-200">
-                                      <div>
-                                        <span>{it.itemName}</span>
-                                        {(it.notes || it.description) && (it.notes !== it.itemName) && (
-                                          <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
-                                        )}
-                                        
-                                      </div>
-                                    </td>
-                                    <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
-                                    <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.width != null && it.width !== 0 ? it.width : '-'}</td>
-                                    <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{it.count || 1}</td>
-                                    <td className="text-center font-mono font-bold text-blue-900 border-l border-slate-200">
-                                      {it.quantity}
-                                    </td>
-                                    <td className="text-left font-mono text-slate-800 border-l border-slate-200">
-                                      {it.unitPrice.toFixed(2)}
-                                    </td>
-                                    <td className="text-left font-mono font-bold text-slate-900">
-                                      {it.total.toFixed(2)}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                              {Boolean((row.discountAmount && row.discountAmount > 0) || (row.taxAmount && row.taxAmount > 0)) && (
-                                <tfoot className="bg-slate-100 border-t border-slate-300 font-bold">
-                                  <tr>
-                                    <td colSpan={8} className="py-1 px-2 text-left font-mono font-bold text-slate-800">
-                                      <div className="flex items-center justify-end gap-3">
-                                        {row.discountAmount && row.discountAmount > 0 ? (
-                                          <span className="text-rose-700 font-bold">خصم الفاتورة: -{row.discountAmount.toFixed(2)}</span>
-                                        ) : null}
-                                        {row.taxAmount && row.taxAmount > 0 ? (
-                                          <span className="text-slate-600 font-bold">ضريبة: +{row.taxAmount.toFixed(2)}</span>
-                                        ) : null}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                </tfoot>
-                              )}
-                            </table>
-
-                            {/* كشف تفصيلي بالصور: شريط المصغرات التفصيلي بالصور تحت جدول الفاتورة مباشرة */}
-                            {showStatementImageThumbnails && row.items && row.items.some(it => 
-                              it.imageThumbnail || (it.attachments && it.attachments.some(a => a.data || a.type?.startsWith('image/')))
-                            ) && (
-                              <div className="bg-slate-50/70 p-2.5 border-t border-slate-300">
-                                <div className="text-[11px] font-bold text-slate-700 mb-2 flex items-center justify-between select-none">
-                                  <div className="flex items-center gap-1.5 text-purple-900 font-bold">
-                                    <ImageIcon className="w-3.5 h-3.5 text-purple-600" />
-                                    <span>مصغرات صور الأصناف المرفقة بالفاتورة:</span>
-                                  </div>
-                                  <span className="text-[9.5px] text-slate-400 font-normal print:hidden">
-                                    (انقر على أي صورة لتكبيرها والمعاينة)
-                                  </span>
-                                </div>
-                                <div className="grid grid-cols-7 gap-2.5 w-full print:grid-cols-7">
-                                  {row.items.flatMap((it, itemIdx) => {
-                                           const thumbs = parseThumbnails(it.imageThumbnail);
-                                           const attImgs = (it.attachments || [])
-                                             .filter(a => a.data || a.type?.startsWith('image/'))
-                                             .map(a => a.data || '');
-                                           const allImgs = Array.from(new Set([...thumbs, ...attImgs].filter(Boolean)));
-                                           return allImgs.map(imgStr => ({
-                                             imgStr,
-                                             itemName: it.itemName,
-                                             itemCode: it.itemCode,
-                                             itemSeq: itemIdx + 1
-                                           }));
-                                         }).map((imgObj, idx) => (
-                                           <div
-                                             key={idx}
-                                             onClick={() => setPreviewModalImage({ url: imgObj.imgStr, name: imgObj.itemName })}
-                                             className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group"
-                                              title={`معاينة وتكبير صورة "${imgObj.itemName}" (بند #${imgObj.itemSeq})`}
-                                           >
-                                             <div className="relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5">
-                                               <span className="absolute top-0.5 right-0.5 bg-slate-900/80 text-white text-[8px] font-mono font-black px-1 rounded-xs z-10 print:bg-slate-800">
-                                                 #{imgObj.itemSeq}
-                                               </span>
-                                               <img
-                                                 src={imgObj.imgStr}
-                                                 alt={imgObj.itemName}
-                                                 className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-200"
-                                                 onError={(e) => {
-                                                   e.currentTarget.style.display = 'none';
-                                                 }}
-                                               />
-                                               <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center print:hidden">
-                                                 <Eye className="w-4 h-4 text-white" />
-                                               </div>
-                                             </div>
-                                             <div className="text-[8px] sm:text-[8.5px] text-slate-900 font-bold text-center leading-none truncate w-full mt-1 group-hover:text-purple-700 px-0.5" title={`بند #${imgObj.itemSeq}: ${imgObj.itemName}`}>
-                                               #{imgObj.itemSeq} {imgObj.itemName}
-                                             </div>
-                                           </div>
-                                         ))}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
-                          );
-                        }))}
-              </tbody>
-              <tfoot className="bg-slate-100 font-bold border-t border-slate-300 text-slate-900">
-                <tr>
-                  <td colSpan={3} className="text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
-                  <td className="text-left font-mono text-rose-800 font-black whitespace-nowrap">
-                    {customerStatementData.totalDebit.toFixed(2)}
-                  </td>
-                  <td className="text-left font-mono text-emerald-800 font-black whitespace-nowrap">
-                    {customerStatementData.totalCredit.toFixed(2)}
-                  </td>
-                  <td className="text-left font-mono text-slate-900 font-black bg-slate-200/80 whitespace-nowrap">
-                    {customerStatementData.balance.toFixed(2)} {settings.currency}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          {/* 4. ملخص نهاية الكشف بعد الجدول بتنسيق رسمي ومضغوط سطر واحد للبنرات الأربعة */}
-          <div className="mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300">
-            <div className="grid grid-cols-4 gap-1.5 text-[10px]">
-              <div className="bg-white border border-slate-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
-                <span className="font-bold text-slate-700 text-[9.5px] whitespace-nowrap">رصيد سابق:</span>
-                <div className="font-black font-mono text-slate-900 text-[11px] flex items-center gap-1 whitespace-nowrap">
-                  <span>{customerStatementData.openingBalance.toFixed(2)}</span>
-                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
-                </div>
-              </div>
-              <div className="bg-white border border-rose-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
-                <span className="font-bold text-rose-900 text-[9.5px] whitespace-nowrap">إجمالي مدين:</span>
-                <div className="font-black font-mono text-rose-700 text-[11px] flex items-center gap-1 whitespace-nowrap">
-                  <span>{customerStatementData.totalDebit.toFixed(2)}</span>
-                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
-                </div>
-              </div>
-              <div className="bg-white border border-emerald-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
-                <span className="font-bold text-emerald-900 text-[9.5px] whitespace-nowrap">إجمالي دائن:</span>
-                <div className="font-black font-mono text-emerald-700 text-[11px] flex items-center gap-1 whitespace-nowrap">
-                  <span>{customerStatementData.totalCredit.toFixed(2)}</span>
-                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
-                </div>
-              </div>
-              <div className={`bg-white border rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs ${customerStatementData.balance > 0 ? 'border-amber-400 bg-amber-50/20' : customerStatementData.balance < 0 ? 'border-blue-400 bg-blue-50/20' : 'border-slate-300'}`}>
-                <span className="font-bold text-slate-900 text-[9.5px] whitespace-nowrap">
-                  الإجمالي:
-                </span>
-                <div className={`font-black font-mono text-[11px] flex items-center gap-1 whitespace-nowrap ${customerStatementData.balance > 0 ? 'text-amber-700' : customerStatementData.balance < 0 ? 'text-blue-700' : 'text-slate-800'}`}>
-                  <span>{Math.abs(customerStatementData.balance).toFixed(2)}</span>
-                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
-                  <span className="text-[9px] font-sans font-bold">
-                    ({customerStatementData.balance > 0 ? 'مدين' : customerStatementData.balance < 0 ? 'دائن' : 'متزن'})
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
+          {customerStatementData.statement ? (
+            <UnifiedPartyStatementDocument
+              partyStatement={customerStatementData.statement}
+              isCustomer={true}
+              settings={settings}
+              clientDisplayName={customerStatementData.party?.name === 'زبون نقدي' && selectedSubCustObj ? selectedSubCustObj.name : (customerStatementData.party?.name || 'غير محدد')}
+              fromDate={fromDate}
+              toDate={toDate}
+              showItemDetails={showStatementItemDetails}
+              showImageThumbnailsInStatement={showStatementImageThumbnails}
+              setPreviewModalImage={setPreviewModalImage}
+            />
+          ) : <div className="text-center text-slate-500 p-8">اختر عميلاً لعرض كشف حسابه</div>}
         </div>
       )}
 
@@ -1760,350 +1372,19 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* ========================================================================= */}
       {activeReport === 'supplier_statement' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-6 space-y-3 print:p-0 print:border-0 print:shadow-none report-a4-container">
-          {/* 1. ترويسة كشف الحساب المعتمدة */}
-          <PrintHeader />
-          <div className="text-center font-bold text-base sm:text-lg mb-2 mt-3 text-slate-900 leading-relaxed border-b-2 border-slate-900 pb-2">
-            كشف حساب مورد تفصيلي:{' '}
-            <span className="text-amber-900">
-              {supplierStatementData.party?.name === 'مورد نقدي' && selectedSubSuppObj ? selectedSubSuppObj.name : (supplierStatementData.party?.name || 'غير محدد')}
-            </span>
-            <div className="text-xs sm:text-sm text-slate-600 mt-1 font-semibold">
-              من تاريخ: <span className="font-mono">{fromDate || 'بداية التعامل'}</span>{' '}
-              إلى تاريخ: <span className="font-mono">{toDate || 'تاريخ اليوم'}</span>
-            </div>
-          </div>
-
-
-
-          {/* 3. جدول الحركات المالي المفصل للمورد */}
-          <div className="overflow-x-auto border border-slate-400 rounded-md shadow-2xs min-h-[440px] print:min-h-0 flex flex-col justify-between bg-white print:block print:overflow-visible print:border-none print:shadow-none">
-            <table className="w-full text-right report-table border-collapse h-full">
-              <thead className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
-                <tr>
-                  <th className="w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400">م</th>
-                  <th className="w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
-                  <th className="border-l border-slate-600 print:border-slate-400">البيان والشرح والتفاصيل الكاملة</th>
-                  <th className="w-28 min-w-28 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">مدين (سداد له)</th>
-                  <th className="w-28 min-w-28 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">دائن (توريد منه)</th>
-                  <th className="w-32 min-w-32 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">الرصيد المستحق</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 font-mono">
-                {supplierStatementData.rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400 font-bold text-[10px]">
-                      لا توجد حركات مالية مسجلة للمورد خلال الفترة المحددة
-                    </td>
-                  </tr>
-                ) : (
-                  supplierStatementData.rows.map((row: StatementRow, idx: number) => {
-                    const typeLabel = row.typeLabel || (
-                      row.type === 'purchase' ? 'فاتورة مشتريات' :
-                      row.type === 'payment' ? 'سند صرف' :
-                      row.type === 'receipt' ? 'سند قبض' :
-                      row.type === 'purchase_return' ? 'مردودات مشتريات' :
-                      row.type === 'clearance' ? 'مقاصة ديون' :
-                      row.type === 'opening' ? 'رصيد سابق' : 'حركة مالية'
-                    );
-
-                    let note = '';
-                    if (row.type === 'purchase') {
-                      if (row.invoiceNotes) {
-                        note = row.invoiceNotes;
-                      } else if (row.description) {
-                        const cleaned = row.description
-                          .replace(/^فاتورة مشتريات\s*(\([^)]*\))?\s*(-\s*)?/, '')
-                          .replace(/-\s*إجمالي\s*[\d,.]+/gi, '')
-                          .replace(/إجمالي\s*[\d,.]+/gi, '')
-                          .trim();
-                        note = cleaned;
-                      }
-                    } else if (row.type === 'payment') {
-                      const rawNote = row.voucherNotes || row.description || '';
-                      note = rawNote.replace(/^سند صرف\s*(نقدية|شيك|تحويل)?\s*(-\s*)?/, '');
-                    } else if (row.type === 'receipt') {
-                      const rawNote = row.voucherNotes || row.description || '';
-                      note = rawNote.replace(/^سند قبض\s*(نقدية|شيك|تحويل)?\s*(-\s*)?/, '');
-                    } else if (row.type === 'purchase_return') {
-                      const rawNote = row.invoiceNotes || row.voucherNotes || row.description || '';
-                      note = rawNote.replace(/^مردودات مشتريات\s*(-\s*)?/, '');
-                    } else {
-                      note = row.description || '';
-                    }
-                    const trimmedNote = note.trim();
-
-                    const hasPaymentExtraDetails = row.type === 'payment' && Boolean(
-                      row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
-                      (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
-                    );
-
-                    const hasReceiptExtraDetails = row.type === 'receipt' && Boolean(
-                      row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
-                      (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
-                    );
-
-                    return (
-                    <React.Fragment key={`${row.id || 'supp-stmt'}-${idx}`}>
-                    <tr
-                      className={`hover:bg-slate-50/80 transition-colors ${
-                        row.type === 'opening'
-                          ? 'bg-slate-100/90 font-bold'
-                          : idx % 2 === 1
-                          ? 'bg-slate-50/40'
-                          : 'bg-white'
-                      }`}
-                    >
-                      <td className="py-1 px-1 text-center text-slate-500 font-mono text-[9px] align-middle border-l border-slate-300">
-                        {idx + 1}
-                      </td>
-                      <td className="py-1 px-1.5 font-mono text-slate-700 text-center align-middle whitespace-nowrap text-[9.5px] border-l border-slate-300">
-                        {row.date}
-                      </td>
-                      <td className="py-1 px-2 align-middle border-l border-slate-300">
-                        {/* سطر نوع العملية - رقم الحركة - الملاحظة */}
-                        <div className="font-bold text-slate-900 text-[10px] leading-tight flex flex-wrap items-center gap-1">
-                          <span className="text-slate-900 font-bold">{typeLabel}</span>
-                          {row.referenceNumber && row.referenceNumber !== 'OPENING' && (
-                            <>
-                              <span className="text-slate-400 font-normal">-</span>
-                              <span className="font-mono font-bold text-slate-800">{row.referenceNumber}</span>
-                            </>
-                          )}
-                          {trimmedNote && (
-                            <>
-                              <span className="text-slate-400 font-normal">-</span>
-                              <span className="text-slate-700 font-medium">{trimmedNote}</span>
-                            </>
-                          )}
-                        </div>
-
-                        {/* تفاصيل إضافية لسند الصرف للمورد بدون تكرار السند أو رقمه أو المبلغ */}
-                        {hasPaymentExtraDetails && (
-                          <div className="mt-1 p-1 bg-emerald-50/60 border border-emerald-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                            {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
-                              <div>
-                                <span className="text-slate-500">طريقة السداد: </span>
-                                <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
-                              </div>
-                            )}
-                            {row.chequeNumber && (
-                              <div>
-                                <span className="text-slate-500">رقم الشيك: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
-                              </div>
-                            )}
-                            {row.chequeBank && (
-                              <div>
-                                <span className="text-slate-500">البنك: </span>
-                                <span className="font-bold text-slate-800">{row.chequeBank}</span>
-                              </div>
-                            )}
-                            {row.chequeDueDate && (
-                              <div>
-                                <span className="text-slate-500">تاريخ الاستحقاق: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
-                              </div>
-                            )}
-                            {row.transferReference && (
-                              <div>
-                                <span className="text-slate-500">رقم الحوالة: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* تفاصيل إضافية لسند القبض من المورد (إن وجد) */}
-                        {hasReceiptExtraDetails && (
-                          <div className="mt-1 p-1 bg-blue-50/60 border border-blue-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                            {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
-                              <div>
-                                <span className="text-slate-500">طريقة القبض: </span>
-                                <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
-                              </div>
-                            )}
-                            {row.chequeNumber && (
-                              <div>
-                                <span className="text-slate-500">رقم الشيك: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
-                              </div>
-                            )}
-                            {row.chequeBank && (
-                              <div>
-                                <span className="text-slate-500">البنك: </span>
-                                <span className="font-bold text-slate-800">{row.chequeBank}</span>
-                              </div>
-                            )}
-                            {row.chequeDueDate && (
-                              <div>
-                                <span className="text-slate-500">تاريخ الاستحقاق: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
-                              </div>
-                            )}
-                            {row.transferReference && (
-                              <div>
-                                <span className="text-slate-500">رقم الحوالة: </span>
-                                <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* تفاصيل المقاصة للمورد */}
-                        {row.type === 'clearance' && (row.counterPartyName || row.reason) && (
-                          <div className="mt-1 p-1 bg-teal-50/60 border border-teal-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-2">
-                            {row.counterPartyName && (
-                              <div>
-                                <span className="text-teal-900 font-bold">الطرف المقابل: </span>
-                                <span className="font-medium text-slate-800">{row.counterPartyName}</span>
-                              </div>
-                            )}
-                            {row.reason && (
-                              <div>
-                                <span className="text-teal-900 font-bold">السبب: </span>
-                                <span className="text-slate-700">{row.reason}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td className="text-left font-bold text-emerald-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
-                        {row.debit > 0 ? row.debit.toFixed(2) : '-'}
-                      </td>
-                      <td className="text-left font-bold text-rose-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
-                        {row.credit > 0 ? row.credit.toFixed(2) : '-'}
-                      </td>
-                      <td className="text-left font-black text-slate-900 bg-slate-50/70 font-mono align-middle whitespace-nowrap">
-                        {row.runningBalance.toFixed(2)}
-                      </td>
-                    </tr>
-
-                    {/* تفاصيل بنود فاتورة المشتريات ممتدة تحت كافة الأعمدة */}
-                    {row.type === 'purchase' && row.items && row.items.length > 0 && showStatementItemDetails && (
-                      <tr className="bg-slate-50/60 print:bg-transparent print-allow-break">
-                        <td colSpan={6} className="p-0 border-b border-slate-300 print-allow-break report-subtable-cell">
-                          <div className="w-full bg-slate-50/80 print:border-none print:rounded-none print:overflow-visible print:shadow-none print:block">
-                            <table className="w-full text-right report-sub-table border-collapse">
-                              <thead className="bg-slate-200 text-slate-800 font-bold border-b border-slate-300">
-                                <tr>
-                                  <th className="text-center w-8 min-w-8 border-l border-slate-200">م</th>
-                                  <th className="border-l border-slate-200">الصنف والبيان</th>
-                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
-                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">العرض</th>
-                                  <th className="text-center w-10 min-w-10 border-l border-slate-200">العدد</th>
-                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">الكمية</th>
-                                  <th className="text-left w-16 min-w-16 border-l border-slate-200">السعر</th>
-                                  <th className="text-left w-20 min-w-20">الإجمالي</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-200/80 bg-white">
-                                {row.items.map((it, itemIdx) => (
-                                  <tr key={`supp-subit-${it.itemId || itemIdx}-${itemIdx}`} className="hover:bg-amber-50/30">
-                                    <td className="text-center font-mono font-bold text-slate-700 border-l border-slate-200 py-1 text-xs">{itemIdx + 1}</td>
-                                    <td className="font-bold text-slate-900 border-l border-slate-200">
-                                      <div>
-                                        <span>{it.itemName}</span>
-                                        {(it.notes || it.description) && (it.notes !== it.itemName) && (
-                                          <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
-                                        )}
-                                        
-                                      </div>
-                                    </td>
-                                    <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
-                                    <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.width != null && it.width !== 0 ? it.width : '-'}</td>
-                                    <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{it.count || 1}</td>
-                                    <td className="text-center font-mono font-bold text-amber-900 border-l border-slate-200">
-                                      {it.quantity}
-                                    </td>
-                                    <td className="text-left font-mono text-slate-800 border-l border-slate-200">
-                                      {it.unitPrice.toFixed(2)}
-                                    </td>
-                                    <td className="text-left font-mono font-bold text-slate-900">
-                                      {it.total.toFixed(2)}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                              {Boolean((row.discountAmount && row.discountAmount > 0) || (row.taxAmount && row.taxAmount > 0)) && (
-                                <tfoot className="bg-slate-100 border-t border-slate-300 font-bold">
-                                  <tr>
-                                    <td colSpan={8} className="py-1 px-2 text-left font-mono font-bold text-slate-800">
-                                      <div className="flex items-center justify-end gap-3">
-                                        {row.discountAmount && row.discountAmount > 0 ? (
-                                          <span className="text-rose-700 font-bold">خصم الفاتورة: -{row.discountAmount.toFixed(2)}</span>
-                                        ) : null}
-                                        {row.taxAmount && row.taxAmount > 0 ? (
-                                          <span className="text-slate-600 font-bold">ضريبة: +{row.taxAmount.toFixed(2)}</span>
-                                        ) : null}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                </tfoot>
-                              )}
-                            </table>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                    </React.Fragment>
-                  );
-                }))}
-              </tbody>
-              <tfoot className="bg-slate-100 font-bold border-t border-slate-300 text-slate-900">
-                <tr>
-                  <td colSpan={3} className="text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
-                  <td className="text-left font-mono text-emerald-800 font-black whitespace-nowrap">
-                    {supplierStatementData.totalDebit.toFixed(2)}
-                  </td>
-                  <td className="text-left font-mono text-rose-800 font-black whitespace-nowrap">
-                    {supplierStatementData.totalCredit.toFixed(2)}
-                  </td>
-                  <td className="text-left font-mono text-slate-900 font-black bg-slate-200/80 whitespace-nowrap">
-                    {supplierStatementData.balance.toFixed(2)} {settings.currency}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          {/* 4. ملخص نهاية الكشف بعد الجدول بتنسيق رسمي ومضغوط سطر واحد للبنرات الأربعة */}
-          <div className="mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300">
-            <div className="grid grid-cols-4 gap-1.5 text-[10px]">
-              <div className="bg-white border border-slate-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
-                <span className="font-bold text-slate-700 text-[9.5px] whitespace-nowrap">رصيد سابق:</span>
-                <div className="font-black font-mono text-slate-900 text-[11px] flex items-center gap-1 whitespace-nowrap">
-                  <span>{supplierStatementData.openingBalance.toFixed(2)}</span>
-                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
-                </div>
-              </div>
-              <div className="bg-white border border-emerald-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
-                <span className="font-bold text-emerald-900 text-[9.5px] whitespace-nowrap">إجمالي مدين:</span>
-                <div className="font-black font-mono text-emerald-700 text-[11px] flex items-center gap-1 whitespace-nowrap">
-                  <span>{supplierStatementData.totalDebit.toFixed(2)}</span>
-                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
-                </div>
-              </div>
-              <div className="bg-white border border-rose-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
-                <span className="font-bold text-rose-900 text-[9.5px] whitespace-nowrap">إجمالي دائن:</span>
-                <div className="font-black font-mono text-rose-700 text-[11px] flex items-center gap-1 whitespace-nowrap">
-                  <span>{supplierStatementData.totalCredit.toFixed(2)}</span>
-                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
-                </div>
-              </div>
-              <div className={`bg-white border rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs ${supplierStatementData.balance > 0 ? 'border-rose-400 bg-rose-50/20' : supplierStatementData.balance < 0 ? 'border-emerald-400 bg-emerald-50/20' : 'border-slate-300'}`}>
-                <span className="font-bold text-slate-900 text-[9.5px] whitespace-nowrap">
-                  الإجمالي:
-                </span>
-                <div className={`font-black font-mono text-[11px] flex items-center gap-1 whitespace-nowrap ${supplierStatementData.balance > 0 ? 'text-rose-700' : supplierStatementData.balance < 0 ? 'text-emerald-700' : 'text-slate-800'}`}>
-                  <span>{Math.abs(supplierStatementData.balance).toFixed(2)}</span>
-                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
-                  <span className="text-[9px] font-sans font-bold">
-                    ({supplierStatementData.balance > 0 ? 'دائن' : supplierStatementData.balance < 0 ? 'مدين' : 'متزن'})
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
+          {supplierStatementData.statement ? (
+            <UnifiedPartyStatementDocument
+              partyStatement={supplierStatementData.statement}
+              isCustomer={false}
+              settings={settings}
+              clientDisplayName={supplierStatementData.party?.name === 'زبون نقدي' && selectedSubSuppObj ? selectedSubSuppObj.name : (supplierStatementData.party?.name || 'غير محدد')}
+              fromDate={fromDate}
+              toDate={toDate}
+              showItemDetails={showStatementItemDetails}
+              showImageThumbnailsInStatement={showStatementImageThumbnails}
+              setPreviewModalImage={setPreviewModalImage}
+            />
+          ) : <div className="text-center text-slate-500 p-8">اختر مورداً لعرض كشف حسابه</div>}
         </div>
       )}
 
