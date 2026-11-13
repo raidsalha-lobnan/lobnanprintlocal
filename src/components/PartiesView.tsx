@@ -459,7 +459,7 @@ export const PartiesView: React.FC = () => {
       return;
     }
     printCustomerPeriodRegister(reportSource,dateFilter,
-      settings.businessName || 'مطبعة ومكتبة لبنان',settings.currency||'₪');
+      settings.businessName || 'مطبعة ومكتبة لبنان',settings.currency||'₪',settings);
   };
   const summaryCards = [
     {key:'closing',label:'إجمالي رصيد آخر الفترة',amount:mainTotals.closing,

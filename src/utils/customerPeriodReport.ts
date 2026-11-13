@@ -1,4 +1,6 @@
 import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
+import { renderBusinessReportHeader } from './reportBusinessHeader';
+import type { BusinessSettings } from '../types';
 import type {
   Party, Invoice, PaymentVoucher, PurchaseInvoice, PurchaseReturn,
   SalesReturn, PrintJobOrder, JournalEntry, DebtClearingRecord
@@ -141,7 +143,7 @@ const number = (n: number): string =>
 
 export function printCustomerPeriodRegister(
   source: CustomerReportSource, filter: CustomerPeriodFilter,
-  businessName: string, currencySymbol: string
+  businessName: string, currencySymbol: string, settings?: BusinessSettings
 ): void {
   const bounds = customerDateBounds(filter);
   // Both lists are printed in distinct sections, with only main accounts
@@ -187,33 +189,37 @@ export function printCustomerPeriodRegister(
     '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">',
     '<title>كشف حركة وأرصدة العملاء</title><style>',
     REPORT_TYPOGRAPHY_CSS,
-    '@page{size:A4 landscape;margin:9mm}',
+    '@page{size:A4 portrait;margin:9mm 8mm 11mm}',
     '*{box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}',
-    'body{font-family:Tahoma,Arial,sans-serif;color:#152b47;margin:0;font-size:11px}',
-    'header{border-bottom:2px solid #153b66;padding:7px 0 12px;text-align:center}',
-    'h1{font-size:19px;margin:6px} h2{font-size:13px;background:#eaf1fa;border-right:3px solid #24619c;padding:8px;margin:16px 0 8px}',
+    'html{background:#e9eef5}body{font:9pt/1.27 Tahoma,Arial,sans-serif;color:#142947;margin:0 auto;max-width:210mm;background:white;padding:8mm}',
+    '.business-letterhead{margin-bottom:2mm;width:100%}.business-letterhead img{display:block;width:100%;height:25mm;object-fit:contain;object-position:center}',
+    '.business-standard{display:flex;direction:rtl;align-items:center;gap:3mm;min-height:23mm;margin-bottom:2mm;border-bottom:1px solid #2b608d;padding-bottom:1mm}',
+    '.business-logo{height:20mm;width:20mm;object-fit:contain}.business-identity{display:flex;flex-direction:column;min-width:0;flex:1}',
+    '.business-identity strong{font-size:13.5pt;color:#103e6b}.business-identity small{font-size:7.5pt;color:#435a72}',
+    '.business-contact{display:flex;flex-direction:column;gap:1mm;max-width:42%;font-size:7pt;color:#253d5a}',
+    'h1{font-size:15pt;margin:2mm 0;text-align:center;color:#123e67} h2{font-size:9pt;background:#eef4fb;border-right:2px solid #225781;padding:1.5mm 2mm;margin:4mm 0 1.5mm;break-after:avoid}',
     'h2 small{font-size:10px;color:#53657c;margin:0 12px}',
-    '.metadata{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:9px}',
-    'table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:10px}',
+    '.criteria{display:flex;flex-wrap:wrap;gap:1mm 4mm;padding:1mm 0 2mm;border-bottom:1px solid #1b5284;font-size:8pt}',
+    'table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:7.25pt;direction:rtl}',
     'thead{display:table-header-group}',
-    'th,td{border:1px solid #bbc9d9;padding:5px 4px;text-align:right;vertical-align:middle}',
-    'th{background:#d9e7f6!important;color:#1b3a60;font-weight:800}',
+    'th,td{border:1px solid #a9bdcf;padding:1.05mm .55mm;text-align:center;vertical-align:middle;overflow-wrap:anywhere;line-height:1.22}',
+    'th{background:#eef4fb!important;color:#16436c;font-weight:700;font-size:7pt}',
     'tbody tr:nth-child(even) td{background:#f1f6fc!important}',
     'tbody tr.cash td{background:#ecf5ff!important;font-weight:700}',
-    '.code{direction:ltr;text-align:center;font-weight:700;white-space:nowrap}',
-    '.customer{font-weight:700}.customer small{display:block;color:#677991;font-weight:400}',
-    '.num{direction:ltr;text-align:left;font-variant-numeric:tabular-nums;white-space:nowrap}',
-    'tr.total td{background:#183e6f!important;color:white!important;font-weight:800}',
-    '.notes{background:#f4f7fb;border:1px solid #ced8e3;padding:8px;margin:13px 0}',
-    '.summary{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}',
-    '.summary span{border:1px solid #c5d4e3;background:#f2f7fc;padding:6px 10px;white-space:nowrap}',
+    '.code{direction:ltr;text-align:center;font-weight:700;white-space:nowrap;font-size:7pt}',
+    '.customer{text-align:right;font-weight:700}.customer small{display:block;color:#677991;font-weight:400;font-size:6.6pt}',
+    '.num{direction:ltr;text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:7pt}',
+    'tr.total td{background:#e2ecf7!important;color:#123c64;font-weight:800}',
+    '.notes{border-top:1px solid #aac0d5;padding:2mm 0;margin-top:3mm;font-size:7.2pt;color:#455d76}',
+    '.summary{display:flex;gap:2mm;flex-wrap:wrap;margin:3mm 0}',
+    '.summary span{border:1px solid #adbed1;background:#eef4fb;padding:1.5mm 2mm;font-size:8pt}',
     '.actions{margin:0 0 12px}.actions button{cursor:pointer;border:0;padding:8px 14px;background:#155ca4;color:#fff;border-radius:6px}',
     'section{page-break-inside:auto}tr{break-inside:avoid;page-break-inside:avoid}',
-    '@media print{.actions{display:none}}',
+    '@media print{html,body{background:white!important;max-width:none;margin:0;padding:0}.actions{display:none!important}}',
     '</style></head><body>',
     '<div class="actions"><button onclick="window.print()">طباعة / حفظ PDF</button></div>',
-    '<header><strong>' + esc(businessName) + '</strong><h1>كشف حركة وأرصدة العملاء</h1>',
-    '<div class="metadata"><span>الفترة: ' + esc(bounds.label) + '</span>' +
+    '<header>' + (settings ? renderBusinessReportHeader(settings) : '<div class="business-standard"><div class="business-identity"><strong>' + esc(businessName) + '</strong></div></div>') + '<h1>كشف حركة وأرصدة العملاء</h1>',
+    '<div class="criteria"><span><b>الفترة:</b> ' + esc(bounds.label) + '</span>' +
       '<span>البحث: ' + esc(filter.query || 'كل العملاء') + '</span>' +
       '<span>تاريخ إعداد الكشف: ' + esc(printed) + '</span></div></header>',
     '<div class="summary"><span>الرصيد الختامي للرئيسيين: ' +
