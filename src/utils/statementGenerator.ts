@@ -51,6 +51,9 @@ export interface StatementRow {
   discountAmount?: number;
   taxAmount?: number;
   totalAmount?: number;
+  paidAmount?: number;
+  remainingAmount?: number;
+  currencySymbol?: string;
   paymentMethod?: string;
   paymentMethodLabel?: string;
   chequeNumber?: string;
@@ -133,6 +136,9 @@ export function generateAccountStatement(params: {
     discountTotal?: number;
     taxAmount?: number;
     totalAmount?: number;
+    paidAmount?: number;
+    remainingAmount?: number;
+    currencySymbol?: string;
     paymentMethod?: string;
     paymentMethodLabel?: string;
     chequeNumber?: string;
@@ -256,6 +262,9 @@ export function generateAccountStatement(params: {
         discountTotal: inv.discountTotal || 0,
         taxAmount: inv.taxAmount || 0,
         totalAmount: inv.totalAmount,
+        paidAmount: inv.paidAmount || 0,
+        remainingAmount: inv.remainingAmount ?? (Number(inv.totalAmount || 0) - Number(inv.paidAmount || 0)),
+        currencySymbol: inv.currencySymbol,
         subCustomerName: inv.subCustomerName || inv.customCustomerText,
         items: itemsDetail,
         debit: inv.baseTotalAmount || inv.totalAmount,
@@ -665,6 +674,9 @@ export function generateAccountStatement(params: {
       discountAmount: tx.discountTotal,
       taxAmount: tx.taxAmount,
       totalAmount: tx.totalAmount,
+      paidAmount: tx.paidAmount,
+      remainingAmount: tx.remainingAmount,
+      currencySymbol: tx.currencySymbol,
       paymentMethod: tx.paymentMethod,
       paymentMethodLabel: tx.paymentMethodLabel,
       chequeNumber: tx.chequeNumber,

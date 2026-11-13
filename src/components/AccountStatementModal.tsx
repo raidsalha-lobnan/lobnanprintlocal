@@ -980,11 +980,22 @@ export const AccountStatementModal: React.FC = () => {
                                   </table>
 
                                   {row.type === 'invoice' && (
-                                    <div className="flex items-center justify-end gap-3 border-t border-slate-300 bg-white px-2 py-1 text-[11px] font-bold text-slate-900">
-                                      <span>إجمالي الفاتورة:</span>
-                                      <span className="font-mono text-slate-950" dir="ltr">
-                                        {(row.totalAmount ?? row.items.reduce((total, item) => total + item.total, 0)).toFixed(2)}
-                                      </span>
+                                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-900" dir="rtl">
+                                      {([
+                                        ['قبل الخصم', row.subtotal ?? row.items.reduce((total, item) => total + item.total, 0)],
+                                        ['الخصم', row.discountTotal ?? 0],
+                                        ['الضريبة', row.taxAmount ?? 0],
+                                        ['الإجمالي', row.totalAmount ?? row.items.reduce((total, item) => total + item.total, 0)],
+                                        ['المدفوع', row.paidAmount ?? 0],
+                                        ['المتبقي', row.remainingAmount ?? ((row.totalAmount ?? row.items.reduce((total, item) => total + item.total, 0)) - (row.paidAmount ?? 0))],
+                                      ] as [string, number][]).map(([label, amount]) => (
+                                        <span key={label} className="inline-flex items-center gap-1 whitespace-nowrap">
+                                          <span className="text-slate-600">{label}:</span>
+                                          <b className="font-mono tabular-nums text-slate-950" dir="ltr">
+                                            {amount.toFixed(2)} {row.currencySymbol || settings.currency}
+                                          </b>
+                                        </span>
+                                      ))}
                                     </div>
                                   )}
 
