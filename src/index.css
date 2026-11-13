@@ -1403,3 +1403,22 @@ td.empty-row-shaded {
     page-break-inside: avoid !important;
   }
 }
+
+/* Dark blue invoice heading; keep every datum readable on screen and in print. */
+.report-table tbody > tr.statement-invoice-title,
+.report-table tbody > tr.statement-invoice-title > td {
+  background-color: #315779 !important;
+  color: #ffffff !important;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+.report-table tbody > tr.statement-invoice-title > td,
+.report-table tbody > tr.statement-invoice-title > td :is(div, span, b, strong, small) {
+  color: #ffffff !important;
+}
+@media print {
+  .statement-stamp-only {
+    direction: ltr !important;
+    justify-content: flex-start !important;
+  }
+}
