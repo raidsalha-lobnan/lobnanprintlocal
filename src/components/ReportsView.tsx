@@ -39,6 +39,7 @@ import { OfficialStamp } from './common/OfficialStamp';
 import { ReportSignatures } from './common/ReportSignatures';
 import { AutocompleteCombobox, ComboboxOption } from './common/AutocompleteCombobox';
 import { formatInvoiceCustomerDisplay } from '../utils/partyUtils';
+import { isConfirmedSalesInvoice } from '../utils/invoiceConfirmation';
 
 const parseThumbnails = (val?: string): string[] => {
   if (!val) return [];
@@ -894,8 +895,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
   const totalEquity = eqCapital + eqRetained + netProfit;
 
   // VAT calculations
-  const totalSalesTaxable = invoices.reduce((acc, inv) => acc + (inv.subtotal - inv.discountTotal), 0);
-  const totalOutputVat = invoices.reduce((acc, inv) => acc + inv.taxAmount, 0);
+  // A local TEMP sale has not posted in PostgreSQL; never include it in tax reports.
+  const confirmedSalesForTax = invoices.filter(isConfirmedSalesInvoice);
+  const totalSalesTaxable = confirmedSalesForTax.reduce((acc, inv) => acc + (inv.subtotal - inv.discountTotal), 0);
+  const totalOutputVat = confirmedSalesForTax.reduce((acc, inv) => acc + inv.taxAmount, 0);
   const totalPurchasesTaxable = purchases.reduce((acc, p) => acc + p.subtotal, 0);
   const totalInputVat = purchases.reduce((acc, p) => acc + p.taxAmount, 0);
   const netVatPayable = totalOutputVat - totalInputVat;

@@ -35,6 +35,7 @@ import { printDetailedSalesInvoiceRegister } from '../utils/printDetailedSalesIn
 import { approvedCatalogCategories } from '../utils/approvedCatalogOptions';
 import { salesReportPeriod } from '../utils/salesReportPeriod';
 import { salesReportCustomerName } from '../utils/salesReportCustomer';
+import { separateInvoiceConfirmation } from '../utils/invoiceConfirmation';
 
 type InvoiceDateFilterMode = 'all' | 'single' | 'range';
 
@@ -67,6 +68,7 @@ export const InvoicesView: React.FC = () => {
     settings,
     setActiveTab,
     setEditingPosInvoiceId,
+    openConflictModal,
     deleteInvoice
   } = useAccounting();
 
@@ -81,7 +83,10 @@ export const InvoicesView: React.FC = () => {
   const [isDeletedInvoicesOpen, setIsDeletedInvoicesOpen] = useState<boolean>(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState<boolean>(false);
 
-  const filteredInvoices = invoices
+  // Never count a locally queued TEMP document as an officially numbered sale.
+  // It remains visible below in a separate, non-printable recovery section.
+  const {confirmed: confirmedInvoices, awaitingConfirmation} = separateInvoiceConfirmation(invoices);
+  const filteredInvoices = confirmedInvoices
     .filter(inv => {
       const matchType = filterType === 'all' || inv.type === filterType;
       const invoiceDate = toInvoiceDateKey(inv.date);
@@ -297,13 +302,58 @@ export const InvoicesView: React.FC = () => {
 
         <div className="mr-auto flex shrink-0 flex-wrap items-center gap-2 border-r border-slate-200 pr-2 text-[11px]">
           <span className="whitespace-nowrap font-semibold text-slate-600" role="status">
-            {filteredInvoices.length} / {invoices.length} فاتورة
+            {filteredInvoices.length} / {confirmedInvoices.length} فاتورة معتمدة
           </span>
           <span className="whitespace-nowrap font-bold tabular-nums text-slate-900" title="إجمالي الفواتير المعروضة">
             {totalInvoiced.toLocaleString('ar-SA')} {settings.currency}
           </span>
         </div>
       </section>
+
+      {/* Locally durable sales are not official PostgreSQL invoices yet.
+          Keep them accessible for recovery, but NEVER in official totals or prints. */}
+      {awaitingConfirmation.length > 0 && (
+        <section
+          data-testid="sales-awaiting-postgres-confirmation"
+          dir="rtl"
+          className="rounded-xl border border-amber-300 bg-amber-50/70 px-3 py-2.5 space-y-2 print:hidden"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-amber-700 shrink-0" />
+              <strong className="text-xs text-amber-950">
+                {awaitingConfirmation.length} فاتورة محفوظة محليًا ولم تتسلم رقمًا رسميًا بعد
+              </strong>
+            </div>
+            <button
+              type="button"
+              onClick={openConflictModal}
+              className="text-xs font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-700"
+            >
+              متابعة حالة المزامنة
+            </button>
+          </div>
+          <p className="text-xs text-amber-900">
+            يحاول البرنامج مزامنتها تلقائيًا. هذه الفواتير غير مدرجة في الإجمالي أو كشف الفواتير الرسمي؛ لا تُعد إدخالها ولا تحذف بيانات المتصفح.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {awaitingConfirmation.map(invoice => (
+              <div
+                key={invoice.id}
+                title={invoice.invoiceNumber}
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-amber-200 bg-white px-2 py-1.5 text-xs"
+              >
+                <span className="font-semibold text-amber-900">بانتظار اعتماد PostgreSQL</span>
+                <span className="font-mono text-slate-500" dir="ltr">
+                  {invoice.invoiceNumber.length > 28 ? invoice.invoiceNumber.slice(0, 24) + '…' : invoice.invoiceNumber}
+                </span>
+                <span className="text-slate-700">{formatInvoiceCustomerDisplay(invoice, parties)}</span>
+                <span className="font-semibold tabular-nums">{invoice.totalAmount.toLocaleString('ar-SA')} {invoice.currencySymbol || settings.currency}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Invoices Table - Single line per invoice */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">

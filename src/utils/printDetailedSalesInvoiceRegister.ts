@@ -2,6 +2,7 @@ import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 import { renderBusinessReportHeader } from './reportBusinessHeader';
 import type { BusinessSettings, Invoice, Treasury } from '../types';
 import { formatDateDisplay } from './dateUtils';
+import { isConfirmedSalesInvoice } from './invoiceConfirmation';
 
 export interface DetailedSalesReportOptions {
   companyName: string;
@@ -376,14 +377,16 @@ export function buildDetailedSalesReportHtml(invoices: Invoice[], options: Detai
 export function printDetailedSalesInvoiceRegister(
   invoices:Invoice[],options:DetailedSalesReportOptions,
 ):boolean {
-  if(!invoices.length)return false;
+  // Printing must use official PostgreSQL-approved documents, never TEMP drafts.
+  const confirmedInvoices=invoices.filter(isConfirmedSalesInvoice);
+  if(!confirmedInvoices.length)return false;
   const popup=window.open('','_blank');
   if(!popup){
     window.alert('تعذّر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.');
     return false;
   }
   popup.document.open();
-  popup.document.write(buildDetailedSalesReportHtml(invoices,options));
+  popup.document.write(buildDetailedSalesReportHtml(confirmedInvoices,options));
   popup.document.close();
   return true;
 }

@@ -8,6 +8,7 @@ import type {
 import { generateAccountStatement } from './statementGenerator';
 import { indexedSubCustomers, normalizeSubCustomerName } from './subCustomerIdentity';
 import { isCashCustomerParty } from './partyUtils';
+import { isConfirmedSalesInvoice } from './invoiceConfirmation';
 
 export type CustomerPeriodMode = 'all' | 'day' | 'range';
 export type CustomerListKind = 'main' | 'sub';
@@ -81,7 +82,8 @@ export function customerPeriodRows(
 ): CustomerPeriodRow[] {
   const bounds = customerDateBounds(filter);
   const query = normalizeSubCustomerName(filter.query);
-  const subCustomers = indexedSubCustomers(source.parties, source.invoices);
+  const confirmedInvoices = source.invoices.filter(isConfirmedSalesInvoice);
+  const subCustomers = indexedSubCustomers(source.parties, confirmedInvoices);
   return [...source.parties.filter(p => !p.isSubCustomer), ...subCustomers]
     .filter(p => p.type === 'customer' || p.type === 'both')
     .filter(p => filter.list === 'sub' ? !!p.isSubCustomer : !p.isSubCustomer)
@@ -93,7 +95,7 @@ export function customerPeriodRows(
       const statement = generateAccountStatement({
         party, fromDate: bounds.from, toDate: bounds.to,
         subCustomerId: party.isSubCustomer ? party.id : undefined,
-        subCustomers, invoices: source.invoices, vouchers: source.vouchers,
+        subCustomers, invoices: confirmedInvoices, vouchers: source.vouchers,
         purchases: source.purchases, purchaseReturns: source.purchaseReturns,
         salesReturns: source.salesReturns, printOrders: source.printOrders,
         journalEntries: source.journalEntries, debtClearings: source.debtClearings

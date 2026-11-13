@@ -21,8 +21,8 @@ class PgFake{
   else if(sql.startsWith('SELECT next_sequence FROM sync_workspaces')){const w=s.workspaces.get(p[0]);if(w)rows.push(w);}
   else if(sql.startsWith('SELECT fingerprint,receipt')){const v=s.commands.get(key(p[0],p[1]));if(v)rows.push(v);}
   else if(sql.startsWith('SELECT record_id AS id FROM sync_records') && sql.includes("entity='warehouses'")){
-   // This isolated fixture has no warehouse records; production normalizes
-   // warehouse IDs only when exactly one warehouse exists.
+   // Isolated tests explicitly enable one registered warehouse when needed.
+   if(s.registeredWarehouseId)rows.push({id:s.registeredWarehouseId});
   }
   else if(sql.startsWith("SELECT value->>'code' AS code FROM sync_records")){
    for(const row of s.records.values()){
@@ -89,6 +89,33 @@ test('commit and retry of full atomic sale never doubles invoice or entries',asy
  assert.equal(snapshot.find(x=>x.entity==='inventory').value.stockQuantity,8);
  assert.equal(await svc.head('lobnan_main'),2);
 });
+test('unverified historical warehouse maps do not reject otherwise valid atomic sale',async()=>{
+ const db=new PgFake();
+ const svc=new SyncService(db);
+ const opaqueWarehouseMap={historicalA:12,historicalB:5};
+ await svc.push('lobnan_main',{id:'seed-legacy-stock',workspaceId:'lobnan_main',changes:[
+  r('parties','customer',{id:'customer',code:'CUST-0002',type:'customer',balance:0}),
+  r('inventory','sku',{id:'sku',code:'PRI-0001',name:'Paper',purchasePrice:2,
+   stockQuantity:10,warehouseStocks:opaqueWarehouseMap,
+   warehouseStock:{legacyWh:900}})]});
+ db.state.registeredWarehouseId='wh-1';
+ const cmd=make('legacy-warehouse-posted');
+ const receipt=await svc.push('lobnan_main',cmd);
+ const assigned=receipt.changes.find(x=>x.entity==='invoices').value;
+ assert.match(assigned.invoiceNumber,/^INV-\d+$/);
+ const inventory=receipt.changes.find(x=>x.entity==='inventory').value;
+ assert.equal(inventory.stockQuantity,8);
+ assert.equal(inventory.warehouseStock['wh-1'],8);
+ assert.equal(inventory.warehouseStock.legacyWh,900);
+ assert.deepEqual(inventory.warehouseStocks,opaqueWarehouseMap);
+ assert.equal(inventory.warehouseCacheReconciliationRequired,true);
+ assert.equal(inventory.inventoryBalanceReconciliations.length,1);
+ const dup=await svc.push('lobnan_main',cmd);
+ assert.deepEqual(dup,receipt);
+ assert.equal((await svc.bootstrap('lobnan_main')).records.filter(x=>x.entity==='invoices').length,1);
+ assert.equal((await svc.bootstrap('lobnan_main')).records.filter(x=>x.entity==='journalEntries').length,2);
+});
+
 test('two new atomic invoices rebase stale stock and debtor versions without duplicates',async()=>{
  const db=new PgFake(),svc=new SyncService(db);
  await svc.push('lobnan_main',{id:'seed-concurrent',workspaceId:'lobnan_main',changes:[

@@ -17,6 +17,7 @@ import {
 import { isInvoiceAccountingEligible } from './invoiceStatusUtils';
 import {invoiceParentCustomerId, getInvoiceSubCustomerName, normalizeSubCustomerName, subCustomerParentId} from './subCustomerIdentity';
 import { isDimensionalInvoiceItem } from './invoiceDimensions';
+import { isConfirmedSalesInvoice } from './invoiceConfirmation';
 
 export interface StatementItemDetail {
   itemId?: string;
@@ -207,6 +208,8 @@ export function generateAccountStatement(params: {
 
   // 2. Sales Invoices (for Customers)
   invoices.forEach(inv => {
+    // A TEMP invoice is a locally durable draft, NOT an official receivable.
+    if (!isConfirmedSalesInvoice(inv)) return;
     // Only (بيع - جاهز للتسليم - تم التسليم) enter accounting and statement
     if (!isInvoiceAccountingEligible(inv.workflowStatus)) {
       return;
@@ -1018,6 +1021,7 @@ export function generateEmployeeStatement(params: {
 
   // 6. Sales Invoices (فواتير المبيعات المرتبطة برقم أو اسم الموظف)
   invoices.forEach(inv => {
+    if (!isConfirmedSalesInvoice(inv)) return;
     if (!isInvoiceAccountingEligible(inv.workflowStatus)) return;
 
     // A sale to an employee is identified by the permanent employee ID,

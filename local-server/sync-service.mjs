@@ -154,7 +154,8 @@ export class SyncService {
         if(change.entity==='inventory'&&singleWarehouseId){
           val=normalizeSingleWarehouseInventory({
             previous:old?.value,next:val,warehouseId:singleWarehouseId,
-            commandId:command.id,now:new Date().toISOString()
+            commandId:command.id,now:new Date().toISOString(),
+            atomicSale:!!command.atomicInvoiceId && change.expectedVersion>0
           });
         }
         // The workspace row is locked above. Resolve only explicitly automatic

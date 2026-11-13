@@ -10,7 +10,7 @@ const number=v=>{
 const oneMapKey=value=>value&&typeof value==='object'&&
  !Array.isArray(value)?Object.keys(value):[];
 export function normalizeSingleWarehouseInventory({
- previous,next,warehouseId,commandId,now
+ previous,next,warehouseId,commandId,now,atomicSale=false
 }){
  if(!next||typeof next!=='object'||!warehouseId)return next;
  const hasStock=next.stockQuantity!==undefined&&next.stockQuantity!==null;
@@ -23,8 +23,31 @@ export function normalizeSingleWarehouseInventory({
     number(original)===nextStock)return next;
  const legacyKeys=oneMapKey(next.warehouseStocks);
  const registeredKeys=oneMapKey(next.warehouseStock);
- if(legacyKeys.length>1||registeredKeys.some(key=>key!==warehouseId))
-  throw new Error('SINGLE_WAREHOUSE_UNVERIFIED_LEGACY_KEYS');
+ if(legacyKeys.length>1||registeredKeys.some(key=>key!==warehouseId)){
+  if(!atomicSale)throw new Error('SINGLE_WAREHOUSE_UNVERIFIED_LEGACY_KEYS');
+  // A posted sale must not get trapped by unrelated historical warehouse
+  // labels. Do not merge, delete, add or infer stock from these opaque maps.
+  // The authoritative stockQuantity is already computed from the locked SQL
+  // snapshot; only the registered warehouse mirror can be refreshed.
+  const previousRegistered=oneMapKey(next.warehouseStock).length
+    ?next.warehouseStock:{};
+  const firstReview=!previous?.warehouseCacheReconciliationRequired;
+  return {
+   ...next,stockQuantity:nextStock,
+   warehouseStock:{...previousRegistered,[warehouseId]:nextStock},
+   warehouseCacheReconciliationRequired:true,
+   ...(firstReview?{inventoryBalanceReconciliations:[
+    ...(Array.isArray(next.inventoryBalanceReconciliations)?next.inventoryBalanceReconciliations:[]),
+    {id:'legacy-warehouse-review-'+commandId+'-'+next.id,
+     date:now,source:'sync-postgresql',
+     reason:'Historical warehouse cache keys need independent review',
+     registeredWarehouseId:warehouseId,
+     unverifiedLegacyKeys:legacyKeys,unverifiedRegisteredKeys:registeredKeys.filter(k=>k!==warehouseId),
+     stockMovementDelta:number(nextStock-number(original??0)),
+     noSyntheticOpeningStock:true,noHistoricalCacheMerge:true}
+   ]}:{})
+  };
+ }
  const oldCache=legacyKeys.length?number(next.warehouseStocks[legacyKeys[0]]):null;
  const oldRegisteredCache=registeredKeys.length?
   number(next.warehouseStock[warehouseId]):null;

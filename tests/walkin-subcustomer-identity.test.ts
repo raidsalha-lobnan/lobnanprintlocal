@@ -47,7 +47,7 @@ test('legacy invoice names appear as one searchable walk-in account per parent, 
 
 test('same walk-in name under different parents never crosses customer accounts', () => {
   const parties=[parent('cash','CUST-0001'),parent('other','CUST-0002')];
-  const invoices=[invoice('INV-A','cash','مؤمن الدرفيل',120),invoice('INV-B','other','مؤمن الدرفيل',600)];
+  const invoices=[invoice('INV-0200','cash','مؤمن الدرفيل',120),invoice('INV-0201','other','مؤمن الدرفيل',600)];
   const groups=indexedSubCustomers(parties,invoices);
   assert.equal(groups.length,2);
   assert.notEqual(groups[0].id,groups[1].id);

@@ -8,7 +8,9 @@ const tableMarker='      {/* Invoices Table - Single line per invoice */}';
 const start=view.indexOf(marker);
 const end=view.indexOf(tableMarker);
 assert.ok(start>=0 && end>start,'Sale invoice register toolbar boundaries must exist');
-const toolbar=view.slice(start,end);
+// The unconfirmed local-invoice panel is a separate section, not a second toolbar.
+const toolbarEnd=view.indexOf('      </section>',start)+'      </section>'.length;
+const toolbar=view.slice(start,toolbarEnd);
 const table=view.slice(end);
 
 test('remove screenshot cascade banner and non-operational 100% posting claim',()=>{
@@ -41,7 +43,8 @@ test('filter and date state continue to filter existing invoice list, not invoic
   assert.match(toolbar,/value=\{singleDate\}/);
   assert.match(toolbar,/value=\{dateFrom\}/);
   assert.match(toolbar,/value=\{dateTo\}/);
-  assert.match(view,/const filteredInvoices = invoices/);
+  assert.match(view,/const filteredInvoices = confirmedInvoices/);
+  assert.match(view,/separateInvoiceConfirmation\(invoices\)/);
   assert.match(view,/const totalInvoiced = filteredInvoices\.reduce/);
 });
 
