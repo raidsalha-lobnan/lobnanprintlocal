@@ -268,12 +268,8 @@ export const ReceiptVouchersView: React.FC = () => {
                         )}
                       </td>
                       <td className="p-3 text-slate-700">
-                        <div className="flex items-center gap-1.5 bg-blue-50/70 border border-blue-200/70 rounded-lg px-2 py-1 text-xs text-blue-950 font-medium max-w-[280px]">
-                          <FileText className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                          <span className="font-bold text-blue-900 shrink-0 text-[11px]">ملاحظة مرتبطة بالسند:</span>
-                          <span className="truncate" title={v.description || 'سداد دفعة'}>
-                            {v.description || 'سداد دفعة من الحساب'}
-                          </span>
+                        <div className="whitespace-pre-wrap break-words text-xs leading-relaxed">
+                          {v.description || 'سداد دفعة من الحساب'}
                         </div>
                       </td>
                       <td className="p-3">{getMethodBadge(v.paymentMethod)}</td>
