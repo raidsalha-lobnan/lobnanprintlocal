@@ -26,6 +26,7 @@ interface QuickAddPartyModalProps {
   initialPhone?: string;
   isSubCustomer?: boolean;
   parentPartyId?: string;
+  lockType?: boolean;
   onSuccess: (party: { id: string; name: string; code: string; phone?: string }) => void;
 }
 
@@ -38,6 +39,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
   initialPhone = '',
   isSubCustomer = false,
   parentPartyId,
+  lockType = false,
   onSuccess
 }) => {
   const { parties, addParty, updateParty, addEmployee } = useAccounting();
@@ -251,7 +253,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
         </div>
 
         {/* Do not change an existing party's classification or a sub-customer's parent. */}
-        {!partyToEdit && !isSubCustomer && (
+        {!partyToEdit && !isSubCustomer && !lockType && (
         <div className="bg-slate-100 p-2 flex items-center gap-1.5 border-b border-slate-200 text-xs font-bold">
           <button
             type="button"

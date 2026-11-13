@@ -40,3 +40,9 @@ test('cashier shortcuts cannot clear or post invoices behind creation dialogs', 
   assert.match(desktop, /if \(partyDialog \|\| isQuickAddOpen \|\| isDraftQueueOpen\)/);
   assert.match(desktop, /e\.key\.toLowerCase\(\) === 's'/);
 });
+
+test('cashier locks entity classification while creating a master record', () => {
+  assert.match(desktop, /initialType=\{partyDialog\?\.initialType \|\| 'customer'\}\s+lockType/);
+  assert.match(mobile, /initialType=\{quickPartyDialog\?\.initialType \|\| 'customer'\}\s+lockType/);
+  assert.match(partyModal, /!partyToEdit && !isSubCustomer && !lockType/);
+});

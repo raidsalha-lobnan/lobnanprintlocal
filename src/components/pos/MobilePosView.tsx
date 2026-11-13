@@ -2542,6 +2542,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       <QuickAddPartyModal
         isOpen={Boolean(quickPartyDialog)}
         initialType={quickPartyDialog?.initialType || 'customer'}
+        lockType
         initialName={quickPartyDialog?.initialName}
         onClose={() => setQuickPartyDialog(null)}
         onSuccess={party => {

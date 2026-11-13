@@ -6200,6 +6200,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
       <QuickAddPartyModal
         isOpen={Boolean(partyDialog)}
         initialType={partyDialog?.initialType || 'customer'}
+        lockType
         initialName={partyDialog?.initialName}
         initialPhone={partyDialog?.initialPhone}
         isSubCustomer={partyDialog?.isSubCustomer}
