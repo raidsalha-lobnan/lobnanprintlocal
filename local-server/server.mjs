@@ -15,6 +15,7 @@ import {stripPrivateFields} from './legacy-snapshot.mjs';
 import {classifyApprovedCatalogError} from './approved-settings-guard.mjs';
 import {settingsVisibleToUser} from './workspace-settings-public.mjs';
 import {findVerifiedSettingsReceipts} from './settings-field-patch.mjs';
+import {findVerifiedAtomicPosReceipts} from './atomic-pos-receipts.mjs';
 import {createAccessVerifier} from './access-verifier.mjs';
 import {adminDirectoryCommand} from './admin-directory.mjs';
 import {auditLegacyInvoicesReadOnly} from './legacy-invoice-reconciliation.mjs';
@@ -308,6 +309,20 @@ const srv=http.createServer(async(req,res)=>{
       // fingerprint. Read-only: never reapply a posting or expose record values.
       const input=await parseBody(req,12000);
       const receipts=await findVerifiedSettingsReceipts(pool,workspace,user.id,input?.proofs);
+      return json(res,200,{receipts},cors);
+    }
+    if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/pos/receipts/check'){
+      if(!access?.can('view')||!access.can('view_pos'))
+        throw new InputError('POS_RECEIPT_PERMISSION_DENIED',403);
+      const input=await parseBody(req,12000);
+      const verified=await findVerifiedAtomicPosReceipts(pool,workspace,user.id,input?.proofs);
+      // Only receipt for this actor, exact original fingerprint, and authorized invoice.
+      const receipts=verified.filter(r=>{
+        const invoice=r.changes.find(c=>c.entity==='invoices');
+        return access.canRead('invoices',invoice?.value,invoice?.id);
+      }).map(r=>({commandId:r.commandId,changes:r.changes.map(c=>({
+        ...c,value:stripPrivateFields(c.entity==='users'?stripUserSecrets(c.value):c.value)
+      }))}));
       return json(res,200,{receipts},cors);
     }
     if(req.method==='POST' && url.pathname==='/api/v1/push'){

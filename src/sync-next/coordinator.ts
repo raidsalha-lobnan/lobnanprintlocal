@@ -3,7 +3,8 @@ import {planConflictResolution,planAtomicCommandAlreadyConfirmed} from './confli
 import {recordKey,type StoredRecord} from './types';
 import {getCurrentSessionActorId,getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
 import {isSafeAutoCodeRetryCandidate} from './catalogAutoRecovery';
-import {canIndependentSaleBypassKey,isRecoverableRejectedAtomicSale} from './atomicRecoveryPolicy';
+import {canIndependentSaleBypassKey,isRecoverableRejectedAtomicSale,isNewAtomicPosSale} from './atomicRecoveryPolicy';
+import {matchesCommittedAtomicPosReceipt} from './atomicReceiptProof';
 import {mayProcessForCurrentActor} from './actorAffinity';
 import {fingerprintSyncCommand,type SettingsReceiptProof,type VerifiedSettingsReceipt} from './settingsPatch';
 
@@ -30,6 +31,7 @@ export interface SyncTransport {
 
   fetchAuthoritativeBootstrap?():Promise<{records:StoredRecord[];cursor:ServerCursor}>;
   checkSettingsReceipts?(proofs:SettingsReceiptProof[]):Promise<VerifiedSettingsReceipt[]>;
+  checkAtomicPosReceipts?(proofs:SettingsReceiptProof[]):Promise<Array<{commandId:string;changes:AppliedChange[]}>>;
   /** True only when the authenticated SQL server advertises the tested rebase. */
   supportsAtomicPosRebase?():Promise<boolean>;
 
@@ -321,6 +323,7 @@ export class SyncCoordinator {
         // ordinary offline edit tries to write against an obsolete version.
         if(this.remote.fetchAuthoritativeBootstrap) await this.pullAllPages();
         await this.confirmCommittedSettingsReceipts();
+        await this.confirmCommittedAtomicPosReceipts();
         await this.reconcileConflicts();
         await this.pushPending();
         await this.pullAllPages();
@@ -395,6 +398,41 @@ export class SyncCoordinator {
       // A receipt-check outage must never discard the queue or prevent sync of
       // unrelated financial records.
       this.report({lastError:'SETTINGS_RECEIPT_CHECK_FAILED: '+String(error)});
+    }
+  }
+
+  /** Close stale POS conflicts only after the logged-in original actor has
+   * cryptographically proven the exact command's committed PostgreSQL receipt.
+   * This also covers cases where the local event cursor outran a lost ACK.
+   */
+  private async confirmCommittedAtomicPosReceipts():Promise<void>{
+    if(!this.remote.checkAtomicPosReceipts)return;
+    const outstanding=(await this.local.pending()).filter(cmd=>
+      isNewAtomicPosSale(cmd) && mayProcessForCurrentActor(
+        cmd,getCurrentSessionActorId(),secureLoginEnabled()
+      )
+    );
+    if(!outstanding.length)return;
+    try{
+      for(let i=0;i<outstanding.length;i+=8){
+        const group=outstanding.slice(i,i+8);
+        const proofs=await Promise.all(group.map(async cmd=>({
+          id:cmd.id,fingerprint:await fingerprintSyncCommand(cmd)
+        })));
+        const verified=await this.remote.checkAtomicPosReceipts(proofs);
+        for(const receipt of verified){
+          const original=group.find(cmd=>cmd.id===receipt.commandId);
+          if(!original || !matchesCommittedAtomicPosReceipt(original,receipt))
+            throw new Error('INVALID_VERIFIED_ATOMIC_POS_RECEIPT');
+          // A verified receipt is stronger evidence than comparing old stock
+          // snapshots: the server may have recalculated stock and party totals.
+          await this.local.ack(receipt.commandId,receipt.changes,original);
+          this.emitApplied(receipt.changes);
+        }
+      }
+    }catch(error){
+      // A receipt-check outage never blocks independent pending writes.
+      this.report({lastError:'ATOMIC_POS_RECEIPT_CHECK_FAILED: '+String(error)});
     }
   }
 

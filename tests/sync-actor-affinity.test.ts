@@ -31,7 +31,8 @@ test('outbox persists creator before sync, and coordinator filters both retry an
  const coord=readFileSync(new URL('../src/sync-next/coordinator.ts',import.meta.url),'utf8');
  assert.match(local,/actorId:getCurrentSessionActorId\(\)/);
  const appearances=(coord.match(/mayProcessForCurrentActor\(/g)||[]).length;
- assert.equal(appearances,2);
+ // Push, legacy conflict recovery and cryptographically verified receipt recovery.
+ assert.equal(appearances,3);
 });
 
 test('old cross-user rejection clearly identifies the owner rather than an accounting duplicate',()=>{

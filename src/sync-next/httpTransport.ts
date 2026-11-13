@@ -128,6 +128,14 @@ export class LocalHttpSyncTransport implements SyncTransport {
     );
     return Array.isArray(result.receipts)?result.receipts:[];
   }
+  async checkAtomicPosReceipts(proofs:SettingsReceiptProof[]):Promise<CommitReceipt[]> {
+    if(!proofs.length)return [];
+    const result=await this.request<{receipts:CommitReceipt[]}>(
+      'pos/receipts/check?workspace='+encodeURIComponent(this.workspaceId),
+      {method:'POST',body:JSON.stringify({proofs})}
+    );
+    return Array.isArray(result.receipts)?result.receipts:[];
+  }
   async push(cmd:SyncCommand):Promise<CommitReceipt> {
     return this.request('push?workspace='+encodeURIComponent(this.workspaceId),{method:'POST',body:JSON.stringify(cmd)});
   }

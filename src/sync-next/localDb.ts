@@ -508,7 +508,8 @@ export class LocalSyncDb {
 
   async ack(
     commandId: string,
-    changes: AppliedChange[]
+    changes: AppliedChange[],
+    verifiedOriginal?: SyncCommand
   ): Promise<void> {
     const db = await this.getDb();
 
@@ -520,6 +521,14 @@ export class LocalSyncDb {
 
     try {
       const records = tx.objectStore(RECORDS);
+      if(verifiedOriginal){
+        const saved=await request(tx.objectStore(OUTBOX).get(commandId)) as SyncCommand|undefined;
+        if(!saved || saved.id!==verifiedOriginal.id ||
+           saved.actorId!==verifiedOriginal.actorId ||
+           saved.atomicInvoiceId!==verifiedOriginal.atomicInvoiceId ||
+           JSON.stringify(saved.changes)!==JSON.stringify(verifiedOriginal.changes))
+          throw new Error('VERIFIED_ATOMIC_RECEIPT_OUTBOX_CHANGED');
+      }
 
       for (const c of changes) {
         const key = recordKey(c.entity, c.id);
