@@ -62,7 +62,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                   <span className="text-xs font-black font-mono text-slate-800">
                     {formatNumber(partyStatement.openingBalance, 2)} {settings.currency}
                   </span>
-                  <span className="text-[9.5px] text-slate-400 block mt-0.5">قبل تاريخ {fromDate || 'البدء'}</span>
                 </div>
 
                 <div className="bg-emerald-50/70 p-2 rounded-lg border border-emerald-200/80">
@@ -71,9 +70,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                   </span>
                   <span className="text-xs font-black font-mono text-emerald-800">
                     {formatNumber(isCustomer ? partyStatement.totalWithdrawals : partyStatement.totalCredit, 2)} {settings.currency}
-                  </span>
-                  <span className="text-[9.5px] text-emerald-600 block mt-0.5">
-                    {isCustomer ? 'فواتير المبيعات وأوامر التشغيل' : 'فواتير توريد الخامات'}
                   </span>
                 </div>
 
@@ -84,9 +80,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                   <span className="text-xs font-black font-mono text-blue-800">
                     {formatNumber(isCustomer ? partyStatement.totalReceipts : partyStatement.totalDebit, 2)} {settings.currency}
                   </span>
-                  <span className="text-[9.5px] text-blue-600 block mt-0.5">
-                    {isCustomer ? 'سندات القبض والدفعات والمقاصة' : 'سندات الصرف والسداد والمقاصة'}
-                  </span>
                 </div>
 
                 <div className="bg-amber-50/70 p-2 rounded-lg border border-amber-200/80">
@@ -95,9 +88,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                   </span>
                   <span className="text-xs font-black font-mono text-amber-800">
                     {formatNumber(isCustomer ? partyStatement.totalDisbursements : 0, 2)} {settings.currency}
-                  </span>
-                  <span className="text-[9.5px] text-amber-600 block mt-0.5">
-                    {isCustomer ? 'سندات صرف أو استردادات' : 'مرتجع مشتريات'}
                   </span>
                 </div>
 
@@ -115,9 +105,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                   </span>
                   <span className="text-xs font-black font-mono">
                     {formatNumber(Math.abs(partyStatement.closingBalance), 2)} {settings.currency}
-                  </span>
-                  <span className="text-[9.5px] font-bold block mt-0.5">
-                    {partyStatement.closingBalance > 0 ? (isCustomer ? 'مطلوب سداده (مدين)' : 'التزام علينا (دائن)') : partyStatement.closingBalance < 0 ? (isCustomer ? 'مبلغ فائض (دائن)' : 'رصيد لصالحنا (مدين)') : 'تمت التسوية'}
                   </span>
                 </div>
               </div>
@@ -367,7 +354,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                     <thead>
                                       <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
                                         <th className="text-center w-8 min-w-8 border-l border-slate-200">م</th>
-                                        <th className="text-center w-12 min-w-12 border-l border-slate-200">صورة</th>
                                         <th className="border-l border-slate-200">الصنف والبيان</th>
                                         <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
                                         <th className="text-center w-12 min-w-12 border-l border-slate-200">العرض</th>
@@ -381,22 +367,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                       {row.items.map((it, iIdx) => (
                                         <tr key={iIdx} className="hover:bg-slate-50">
                                           <td className="text-center font-mono font-bold text-slate-700 border-l border-slate-200 py-1">{iIdx + 1}</td>
-                                          <td className="text-center border-l border-slate-200 py-1">
-                                            {it.imageThumbnail ? (
-                                              <div className="flex items-center justify-center gap-1 flex-wrap max-w-[120px] mx-auto">
-                                                {parseThumbnails(it.imageThumbnail).map((imgStr, imgIdx) => (
-                                                  <img
-                                                    key={imgIdx}
-                                                    src={imgStr}
-                                                    alt={it.itemName}
-                                                    className="w-10 h-10 rounded-md object-contain bg-white border border-slate-200"
-                                                  />
-                                                ))}
-                                              </div>
-                                            ) : (
-                                              <span className="text-slate-300 font-mono">-</span>
-                                            )}
-                                          </td>
                                           <td className="font-bold text-slate-900 border-l border-slate-200">
                                             <div>
                                               <span>{it.itemName}</span>
@@ -420,7 +390,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                     {Boolean((row.discountTotal && row.discountTotal > 0) || (row.taxAmount && row.taxAmount > 0)) && (
                                       <tfoot className="bg-slate-50 border-t border-slate-300 font-bold">
                                         <tr>
-                                          <td colSpan={9} className="py-1 px-1.5 text-left font-mono">
+                                          <td colSpan={8} className="py-1 px-1.5 text-left font-mono">
                                             <div className="flex items-center justify-end gap-3 text-slate-800">
                                               {row.discountTotal !== undefined && row.discountTotal > 0 && (
                                                 <span className="text-rose-600 font-bold">خصم الفاتورة: -{row.discountTotal.toFixed(2)}</span>
@@ -459,16 +429,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                   {showImageThumbnailsInStatement && row.items && row.items.some(it => 
                                     it.imageThumbnail || (it.attachments && it.attachments.some(a => a.data || a.type?.startsWith('image/')))
                                   ) && (
-                                    <div className="bg-slate-50/70 p-2.5 border-t border-slate-200">
-                                      <div className="text-[11px] font-bold text-slate-700 mb-2 flex items-center justify-between select-none">
-                                        <div className="flex items-center gap-1.5 text-purple-900 font-bold">
-                                          <ImageIcon className="w-3.5 h-3.5 text-purple-600" />
-                                          <span>مصغرات صور الأصناف المرفقة بالفاتورة:</span>
-                                        </div>
-                                        <span className="text-[9.5px] text-slate-400 font-normal print:hidden">
-                                          (انقر على أي صورة لتكبيرها والمعاينة)
-                                        </span>
-                                      </div>
+                                    <div className="bg-white p-2 border-t border-slate-200">
                                       <div className="grid grid-cols-7 gap-2.5 w-full print:grid-cols-7">
                                         {row.items.flatMap((it, itemIdx) => {
                                            const thumbs = parseThumbnails(it.imageThumbnail);
@@ -501,12 +462,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                                    e.currentTarget.style.display = 'none';
                                                  }}
                                                />
-                                               <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center print:hidden">
-                                                 <Eye className="w-4 h-4 text-white" />
-                                               </div>
-                                             </div>
-                                             <div className="text-[8px] sm:text-[8.5px] text-slate-900 font-bold text-center leading-none truncate w-full mt-1 group-hover:text-purple-700 px-0.5" title={`بند #${imgObj.itemSeq}: ${imgObj.itemName}`}>
-                                               #{imgObj.itemSeq} {imgObj.itemName}
                                              </div>
                                            </div>
                                          ))}
