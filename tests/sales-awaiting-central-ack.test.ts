@@ -4,8 +4,9 @@ import {readFileSync} from 'node:fs';
 import type {Invoice} from '../src/types';
 import {isConfirmedSalesInvoice,separateInvoiceConfirmation} from '../src/utils/invoiceConfirmation';
 
-const sample = (invoiceNumber:string, totalAmount:number, isOfficial?:boolean):Invoice =>
-  ({id:'id-'+invoiceNumber,invoiceNumber,totalAmount,...(isOfficial===undefined?{}:{isOfficial})} as Invoice);
+const sample = (invoiceNumber:string, totalAmount:number, isOfficial?:boolean, isAccountingPosted?:boolean):Invoice =>
+  ({id:'id-'+invoiceNumber,invoiceNumber,totalAmount,...(isOfficial===undefined?{}:{isOfficial}),
+    ...(isAccountingPosted===undefined?{}:{isAccountingPosted})} as Invoice);
 
 test('unconfirmed TEMP sales are never considered official, even if locally marked posted',()=>{
   assert.equal(isConfirmedSalesInvoice(sample('INV-0268',701)),true);
@@ -14,6 +15,17 @@ test('unconfirmed TEMP sales are never considered official, even if locally mark
   assert.equal(isConfirmedSalesInvoice(sample('TEMP-inv-pos-cc8c1d52-954d-4006-aa5c-0112f2e5c645',55)),false);
   assert.equal(isConfirmedSalesInvoice(sample('INV-0270',20,false)),false);
   assert.equal(isConfirmedSalesInvoice(sample('INV-0270',20,true)),true);
+  for(const [number,amount] of [
+    ['INV-0026',10],['INV-0028',450],['INV-0031',120],
+    ['INV-0035',155],['INV-0055',58]
+  ] as const){
+    assert.equal(isConfirmedSalesInvoice(sample(number,amount,false,true)),true,
+      'legacy PostgreSQL posted invoice must not be displayed as pending');
+  }
+  assert.equal(isConfirmedSalesInvoice(sample('INV-0444',20,false,false)),false);
+  assert.equal(isConfirmedSalesInvoice(sample('INV-0269',209,true,true)),true);
+  assert.equal(isConfirmedSalesInvoice(sample('INV-0270',55,true,true)),true);
+  assert.equal(isConfirmedSalesInvoice(sample('INV-0271',68,true,true)),true);
 });
 
 test('official sales totals and counts exclude local drafts without losing or mutating them',()=>{
