@@ -17,6 +17,23 @@ export function isDimensionalInvoiceItem(item: {
   return isSquareMeterUnit(item.unit, item.unitCalculationType as any);
 }
 
+/**
+ * A measurement-only column must be blanked when the invoice line has no
+ * usable length/width, even if a legacy line retained count=1 or an area unit.
+ * This affects printing only; quantity and monetary values remain unchanged.
+ */
+export function hasVisibleInvoiceDimensions(item: {
+  hasDimensions?: boolean;
+  unit?: string;
+  unitCalculationType?: string;
+  length?: number;
+  width?: number;
+  count?: number;
+}): boolean {
+  return isDimensionalInvoiceItem(item) &&
+    (Number(item.length || 0) > 0 || Number(item.width || 0) > 0);
+}
+
 export function displayDimension(value: number | undefined, isDimensional: boolean): string {
   return isDimensional && value != null && Number(value) > 0 ? String(value) : '-';
 }

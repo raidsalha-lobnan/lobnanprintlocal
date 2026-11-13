@@ -28,6 +28,8 @@ export interface StatementItemDetail {
   length?: number;
   width?: number;
   count?: number;
+  hasDimensions?: boolean;
+  unitCalculationType?: string;
   discount?: number;
   unit?: string;
   notes?: string;
@@ -239,6 +241,8 @@ export function generateAccountStatement(params: {
           length: it.length,
           width: it.width,
           count: it.count || 1,
+          hasDimensions: itAny.hasDimensions,
+          unitCalculationType: itAny.unitCalculationType,
           discount: it.discount || 0,
           unit: it.unit,
           notes: itAny.notes || it.description,
