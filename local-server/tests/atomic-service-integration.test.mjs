@@ -32,6 +32,9 @@ class PgFake{
     }else if(row.entity===p[1])rows.push({code:row.value?.code});
    }
   }
+  else if(sql.startsWith("SELECT value FROM sync_records WHERE workspace=$1 AND entity='inventory'")){
+   const v=s.records.get(key(p[0],'inventory',p[1]));if(v)rows.push({value:v.value});
+  }
   else if(sql.startsWith('SELECT version,value FROM sync_records')){const v=s.records.get(key(p[0],p[1],p[2]));if(v)rows.push(v);}
   else if(sql.startsWith('SELECT record_id FROM sync_records')){
    const values=Array.from(s.records.values());
@@ -67,7 +70,7 @@ const make=(id='atomic-1')=>({id:'cmd-'+id,workspaceId:'lobnan_main',atomicInvoi
   lines:[{accountCode:'5101',debit:4,credit:0},{accountCode:'1301',debit:0,credit:4}]}),
  r('stockMovements','movement-'+id,{id:'movement-'+id,referenceType:'pos_invoice',
   referenceNumber:'TEMP-'+id,sourceInvoiceId:id,itemId:'sku',quantity:2,
-  totalValue:4,type:'out_sale',balanceBefore:10,balanceAfter:8}),
+  totalValue:4,unitPrice:2,type:'out_sale',balanceBefore:10,balanceAfter:8}),
  r('parties','customer',{id:'customer',code:'CUST-0002',type:'customer',balance:8},1),
  r('inventory','sku',{id:'sku',code:'PRI-0001',stockQuantity:8},1)
 ]});
@@ -75,7 +78,7 @@ test('commit and retry of full atomic sale never doubles invoice or entries',asy
  const db=new PgFake(),svc=new SyncService(db);
  await svc.push('lobnan_main',{id:'seed',workspaceId:'lobnan_main',changes:[
   r('parties','customer',{id:'customer',code:'CUST-0002',type:'customer',balance:0}),
-  r('inventory','sku',{id:'sku',code:'PRI-0001',stockQuantity:10})]});
+  r('inventory','sku',{id:'sku',code:'PRI-0001',purchasePrice:2,stockQuantity:10})]});
  const cmd=make();const a=await svc.push('lobnan_main',cmd);
  const b=await svc.push('lobnan_main',cmd);
  assert.deepEqual(a,b);
@@ -86,11 +89,32 @@ test('commit and retry of full atomic sale never doubles invoice or entries',asy
  assert.equal(snapshot.find(x=>x.entity==='inventory').value.stockQuantity,8);
  assert.equal(await svc.head('lobnan_main'),2);
 });
+test('two new atomic invoices rebase stale stock and debtor versions without duplicates',async()=>{
+ const db=new PgFake(),svc=new SyncService(db);
+ await svc.push('lobnan_main',{id:'seed-concurrent',workspaceId:'lobnan_main',changes:[
+  r('parties','customer',{id:'customer',code:'CUST-0002',type:'customer',balance:0}),
+  r('inventory','sku',{id:'sku',code:'PRI-0001',name:'Paper',purchasePrice:2,stockQuantity:10})]});
+ const first=make('first'), second=make('second');
+ const firstReceipt=await svc.push('lobnan_main',first);
+ const secondReceipt=await svc.push('lobnan_main',second);
+ assert.equal(firstReceipt.changes.find(x=>x.entity==='stockMovements').value.balanceBefore,10);
+ const secondMovement=secondReceipt.changes.find(x=>x.entity==='stockMovements').value;
+ assert.equal(secondMovement.balanceBefore,8);
+ assert.equal(secondMovement.balanceAfter,6);
+ assert.equal(secondReceipt.changes.find(x=>x.entity==='inventory').value.stockQuantity,6);
+ assert.equal(secondReceipt.changes.find(x=>x.entity==='parties').value.balance,16);
+ const replay=await svc.push('lobnan_main',second);
+ assert.deepEqual(replay,secondReceipt);
+ assert.equal((await svc.bootstrap('lobnan_main')).records.filter(x=>x.entity==='invoices').length,2);
+ assert.equal((await svc.bootstrap('lobnan_main')).records.filter(x=>x.entity==='journalEntries').length,4);
+ assert.equal(await svc.head('lobnan_main'),3);
+});
+
 test('version conflict rolls back invoice and all linked financial effects',async()=>{
  const db=new PgFake(),svc=new SyncService(db);
  await svc.push('lobnan_main',{id:'seed',workspaceId:'lobnan_main',changes:[
   r('parties','customer',{id:'customer',code:'CUST-0002',type:'customer',balance:0}),
-  r('inventory','sku',{id:'sku',code:'PRI-0001',stockQuantity:10})]});
+  r('inventory','sku',{id:'sku',code:'PRI-0001',purchasePrice:2,stockQuantity:10})]});
  const cmd=make('rollback-invoice');
  cmd.changes.find(c=>c.entity==='inventory').expectedVersion=0;
  await assert.rejects(svc.push('lobnan_main',cmd),/VERSION_CONFLICT/);

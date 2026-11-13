@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {authorizeCommand} from '../access-policy.mjs';
-import {authoritativeAtomicSaleEffect} from '../atomic-pos-ledger-scope.mjs';
+import {authoritativeAtomicSaleEffect,authoritativeAtomicStockMovement} from '../atomic-pos-ledger-scope.mjs';
 
 const invoiceId='inv-pos-guarded';
 const invoice={id:invoiceId,invoiceNumber:'TEMP-'+invoiceId,
@@ -59,15 +59,21 @@ test('POS-only cashier cannot post arbitrary standalone journal entries',async()
   /ENTITY_PERMISSION_DENIED/);
 });
 
-test('atomic POS cannot smuggle a customer name, credit limit or inventory cost change',async()=>{
+test('stale or tampered metadata cannot change authoritative customer or item data',async()=>{
  const cmd=bundle();
- cmd.changes.find(c=>c.entity==='parties').value.creditLimit=1000000;
- await assert.rejects(authorizeCommand(fakePool,'lobnan_main',posUser,cmd),
-  /ATOMIC_POS_DEBTOR_METADATA_CHANGE_FORBIDDEN/);
- const next=bundle();
- next.changes.find(c=>c.entity==='inventory').value.purchasePrice=0;
- await assert.rejects(authorizeCommand(fakePool,'lobnan_main',posUser,next),
-  /ATOMIC_POS_STOCK_METADATA_CHANGE_FORBIDDEN/);
+ const party=cmd.changes.find(c=>c.entity==='parties');
+ const item=cmd.changes.find(c=>c.entity==='inventory');
+ party.value.creditLimit=1000000;
+ item.value.purchasePrice=0;
+ item.value.name='Different cached name';
+ await authorizeCommand(fakePool,'lobnan_main',posUser,cmd);
+ const actualParty=authoritativeAtomicSaleEffect(cmd,party,oldParty);
+ const actualItem=authoritativeAtomicSaleEffect(cmd,item,oldItem);
+ assert.equal(actualParty.creditLimit,250);
+ assert.equal(actualParty.balance,35);
+ assert.equal(actualItem.purchasePrice,4);
+ assert.equal(actualItem.name,'Paper');
+ assert.equal(actualItem.stockQuantity,8);
 });
 
 test('atomic POS refuses stale purchase cost before accepting sale evidence',()=>{
@@ -76,6 +82,33 @@ test('atomic POS refuses stale purchase cost before accepting sale evidence',()=
  assert.throws(()=>authoritativeAtomicSaleEffect(cmd,item,{...oldItem,purchasePrice:5}),
   /ATOMIC_POS_COST_CHANGED_REFRESH_SALE/);
 });
+test('stale negative stock and changed item names are rebased to server quantity and metadata',()=>{
+ const cmd=bundle();
+ const stock=cmd.changes.find(c=>c.entity==='inventory');
+ const movement=cmd.changes.find(c=>c.entity==='stockMovements');
+ const before={...oldItem,stockQuantity:-4,name:'Renamed by another device'};
+ const adjusted=authoritativeAtomicSaleEffect(cmd,stock,before);
+ const evidence=authoritativeAtomicStockMovement(cmd,movement,before);
+ assert.equal(adjusted.stockQuantity,-6);
+ assert.equal(adjusted.name,'Renamed by another device');
+ assert.equal(evidence.balanceBefore,-4);
+ assert.equal(evidence.balanceAfter,-6);
+ assert.equal(evidence.quantity,2);
+ assert.equal(evidence.itemName,'Renamed by another device');
+ assert.equal(cmd.changes.find(c=>c.entity==='stockMovements').value.balanceBefore,10);
+});
+
+test('posted sale rebases debtor balance but rejects changed stock cost',()=>{
+ const cmd=bundle();
+ const party=cmd.changes.find(c=>c.entity==='parties');
+ const ledger=authoritativeAtomicSaleEffect(cmd,party,{...oldParty,balance:75});
+ assert.equal(ledger.balance,95);
+ assert.equal(ledger.creditLimit,250);
+ const movement=cmd.changes.find(c=>c.entity==='stockMovements');
+ assert.throws(()=>authoritativeAtomicStockMovement(cmd,movement,{...oldItem,purchasePrice:5}),
+  /ATOMIC_POS_COST_CHANGED_REFRESH_SALE/);
+});
+
 test('atomic financial quantity and balance changes retain unrelated identity fields',()=>{
  const cmd=bundle();
  const inv=authoritativeAtomicSaleEffect(cmd,cmd.changes.find(c=>c.entity==='inventory'),oldItem);

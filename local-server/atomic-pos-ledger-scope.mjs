@@ -1,14 +1,6 @@
 import {InputError} from './sync-domain.mjs';
 const fail=(msg,code=422)=>{throw new InputError(msg,code);};
 const rounded=(v,scale=100)=>Math.round(v*scale)/scale;
-const allowedExcept=(proposal,authoritative,ignored)=>{
-  for(const [key,value] of Object.entries(proposal||{})){
-    if(ignored.includes(key)||value===undefined||!(key in authoritative))continue;
-    if(JSON.stringify(value)!==JSON.stringify(authoritative[key]))
-      return false;
-  }
-  return true;
-};
 /**
  * A POS bundle may adjust only stock quantities and debtor balances.
  * Other metadata remains PostgreSQL-authoritative, even if the client
@@ -31,12 +23,12 @@ export function authoritativeAtomicSaleEffect(command,change,oldValue){
     const cost=Number(oldValue.purchasePrice||0);
     if(!Number.isFinite(cost)||Math.abs(cost-Number(movement.unitPrice||0))>0.000001)
       fail('ATOMIC_POS_COST_CHANGED_REFRESH_SALE',409);
-    const newQty=rounded(Number(oldValue.stockQuantity||0)-qty,1000000);
-    if(!Number.isFinite(newQty) ||
-       Math.abs(Number(change.value?.stockQuantity)-newQty)>0.00001)
-      fail('ATOMIC_POS_STOCK_DELTA_INCONSISTENT',409);
-    if(!allowedExcept(change.value,oldValue,['stockQuantity','lastMovementDate']))
-      fail('ATOMIC_POS_STOCK_METADATA_CHANGE_FORBIDDEN');
+    const before=Number(oldValue.stockQuantity??0);
+    if(!Number.isFinite(before))fail('ATOMIC_POS_SERVER_STOCK_BALANCE_INVALID',409);
+    const newQty=rounded(before-qty,1000000);
+    if(!Number.isFinite(newQty))fail('ATOMIC_POS_SERVER_STOCK_BALANCE_INVALID',409);
+    // Only authoritative PostgreSQL metadata is persisted; browser item snapshots
+    // may have changed while an offline invoice was waiting for sync.
     return {...oldValue,stockQuantity:newQty,
       ...(invoice.date?{lastMovementDate:invoice.date}:{})};
   }
@@ -55,12 +47,44 @@ export function authoritativeAtomicSaleEffect(command,change,oldValue){
     oldValue.isSubCustomer!==true ||
     (oldValue.parentPartyId||oldValue.parentCustomerId)!==invoice.customerId))
     fail('ATOMIC_POS_SUBCUSTOMER_PARENT_MISMATCH');
-  const oldBalance=Number(oldValue.balance||0);
+  const oldBalance=Number(oldValue.balance??0);
+  if(!Number.isFinite(oldBalance))fail('ATOMIC_POS_SERVER_DEBT_BALANCE_INVALID',409);
   const newBalance=rounded(oldBalance+due);
-  if(!Number.isFinite(newBalance) ||
-     Math.abs(Number(change.value?.balance)-newBalance)>0.01)
-    fail('ATOMIC_POS_DEBTOR_DELTA_INCONSISTENT',409);
-  if(!allowedExcept(change.value,oldValue,['balance']))
-    fail('ATOMIC_POS_DEBTOR_METADATA_CHANGE_FORBIDDEN');
+  if(!Number.isFinite(newBalance))fail('ATOMIC_POS_SERVER_DEBT_BALANCE_INVALID',409);
+  // An older device may have cached an obsolete customer balance or metadata.
+  // Never persist these proposed fields; only add the proven receivable to the
+  // authoritative balance within the same transaction as the invoice.
   return {...oldValue,balance:newBalance};
+}
+
+/** Evidence must describe the stock balance at the actual PostgreSQL commit,
+ * not the outdated value cached when the customer opened the invoice.
+ * Rebase inside the locked SQL transaction, without changing the original
+ * signed command/fingerprint or posting a second movement.
+ */
+export function authoritativeAtomicStockMovement(command,change,authoritativeItem){
+  if(!command?.atomicInvoiceId || change?.entity!=='stockMovements')
+    return change.value;
+  const movement=change.value;
+  if(!authoritativeItem || !movement ||
+     movement.sourceInvoiceId!==command.atomicInvoiceId ||
+     movement.referenceType!=='pos_invoice' || movement.type!=='out_sale')
+    fail('ATOMIC_POS_STOCK_MOVEMENT_AUTHORITY_INVALID',409);
+  const before=Number(authoritativeItem.stockQuantity??0);
+  const qty=Number(movement.quantity);
+  const cost=Number(authoritativeItem.purchasePrice??0);
+  if(!Number.isFinite(before)||!Number.isFinite(qty)||qty<=0)
+    fail('ATOMIC_POS_SERVER_STOCK_BALANCE_INVALID',409);
+  if(!Number.isFinite(cost)||Math.abs(cost-Number(movement.unitPrice))>0.000001)
+    fail('ATOMIC_POS_COST_CHANGED_REFRESH_SALE',409);
+  const after=rounded(before-qty,1000000);
+  if(!Number.isFinite(after))fail('ATOMIC_POS_SERVER_STOCK_BALANCE_INVALID',409);
+  const sourceIsService=['services','copy_scan'].includes(String(movement.category||''));
+  const actualIsService=['services','copy_scan'].includes(String(authoritativeItem.category||''));
+  if(sourceIsService!==actualIsService)
+    fail('ATOMIC_POS_STOCK_CLASSIFICATION_CHANGED_REFRESH_SALE',409);
+  return {...movement,balanceBefore:before,balanceAfter:after,
+    ...(authoritativeItem.code!=null?{itemCode:authoritativeItem.code}:{}),
+    ...(authoritativeItem.name!=null?{itemName:authoritativeItem.name}:{}),
+    ...(authoritativeItem.category!=null?{category:authoritativeItem.category}:{})};
 }

@@ -2,7 +2,7 @@ import {InputError, fingerprint, makeNumber, makeCursor, validateCommand} from '
 import {preserveOfficialInvoiceFields} from './invoice-amendments.mjs';
 import {telegramRelevantChanges} from './telegram-delivery.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
-import {authoritativeAtomicSaleEffect} from './atomic-pos-ledger-scope.mjs';
+import {authoritativeAtomicSaleEffect,authoritativeAtomicStockMovement} from './atomic-pos-ledger-scope.mjs';
 import {assertStableEntitySerial,allocateAutomaticEntityCode} from './entity-identity.mjs';
 import {validateInvoiceCounterparty} from './invoice-counterparty.mjs';
 import {assertAppendOnlyAccountingEvidence} from './append-only-financial-evidence.mjs';
@@ -73,13 +73,29 @@ export class SyncService {
         const previous=await client.query('SELECT version,value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',[workspace,change.entity,change.id]);
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
         const isFieldPatch=change.entity==='settings'&&isSettingsFieldPatch(change.value);
-        if(actual!==change.expectedVersion && !isFieldPatch)
+        // A NEW atomic invoice may be based on an older version of an
+        // existing stock item or debtor. Rebase only these two derived effects
+        // against the current PostgreSQL record, in this locked transaction.
+        // New records, old/same invoice IDs and other financial writes remain strict.
+        const atomicRebase=!!command.atomicInvoiceId &&
+          ['inventory','parties'].includes(change.entity) &&
+          Number.isSafeInteger(change.expectedVersion) &&
+          change.expectedVersion>=1 && actual>=change.expectedVersion;
+        if(actual!==change.expectedVersion && !isFieldPatch && !atomicRebase)
           throw new InputError('VERSION_CONFLICT',409,{entity:change.entity,id:change.id,expectedVersion:change.expectedVersion,actualVersion:actual});
         let val=isFieldPatch
           ? applySettingsFieldPatch(old?.value,change.value,actual,change.expectedVersion)
           : change.value;
         if(command.atomicInvoiceId && ['parties','inventory'].includes(change.entity))
           val=authoritativeAtomicSaleEffect(command,change,old?.value||null);
+        if(command.atomicInvoiceId && change.entity==='stockMovements'){
+          const itemId=String(change.value?.itemId||'');
+          if(!itemId)throw new InputError('ATOMIC_POS_STOCK_ITEM_REQUIRED',422);
+          const stock=await client.query(
+            "SELECT value FROM sync_records WHERE workspace=$1 AND entity='inventory' AND record_id=$2",
+            [workspace,itemId]);
+          val=authoritativeAtomicStockMovement(command,change,stock.rows[0]?.value||null);
+        }
         // Journal entries and stock movements are permanent accounting
         // evidence. New corrections must append new records, never rewrite a
         // previously committed record (including an old client resubmission).
