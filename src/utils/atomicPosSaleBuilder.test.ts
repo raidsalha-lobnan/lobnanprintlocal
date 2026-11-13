@@ -53,6 +53,33 @@ test('credit sale with delivery, inventory, journals and transient customer is o
   assert.equal(validateAtomicInvoicePosting(command(posting)),true);
 });
 
+test('a NEW POS invoice accepts an already negative stock balance and posts all evidence atomically',()=>{
+  const stock=item('PRI-00001',150,90,-1);
+  const {posting,invoice}=builder({
+    items:[{item:stock,quantity:1}],
+    inventory:[snapshot('inventory',stock)],
+    options:{subCustomerName:'',paidAmount:0}
+  });
+  assert.equal(invoice.invoiceNumber,'TEMP-inv-pos-unique-123');
+  assert.equal(invoice.isAccountingPosted,true);
+  assert.equal(posting.stockMovements.length,1);
+  const movement=posting.stockMovements[0].value as any;
+  assert.equal(movement.balanceBefore,-1);
+  assert.equal(movement.balanceAfter,-2);
+  assert.equal((posting.inventoryChanges[0].value as any).stockQuantity,-2);
+  assert.equal(validateAtomicInvoicePosting(command(posting)),true);
+});
+
+test('a non-numeric prior stock still fails safely before a financial command is queued',()=>{
+  const stock=item('invalid-stock',150,90,20);
+  stock.stockQuantity='not-a-balance';
+  assert.throws(()=>builder({
+    items:[{item:stock,quantity:1}],
+    inventory:[snapshot('inventory',stock)],
+    options:{subCustomerName:'',paidAmount:0}
+  }),/POS_INVALID_PREVIOUS_STOCK/);
+});
+
 test('retry keeps exact financial command bytes and official number stays temporary until receipt',()=>{
   const a=builder(),b=builder();
   assert.deepEqual(a,b);

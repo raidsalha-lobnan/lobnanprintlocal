@@ -212,7 +212,9 @@ export function buildNewAtomicPosSale(input:Inputs):{posting:AtomicInvoicePostin
     if(baseTotal<=0)throw new Error('POS_ZERO_VALUE_POSTING_REQUIRES_MANUAL_REVIEW');
     const time=now.slice(11,19);
     for(const [itemId,{item,qty}] of sold){
-      const previous=nonnegative(Number(item.stockQuantity||0),'PREVIOUS_STOCK');
+      // Stock may already be negative: this workspace explicitly allows sales below zero.
+      // Validate the previous balance as a finite number, not as a nonnegative quantity.
+      const previous=safe(Number(item.stockQuantity??0),'PREVIOUS_STOCK');
       const after=Number((previous-qty).toFixed(6)); // Negative inventory is allowed.
       const cost=money(qty*Number(item.purchasePrice||0),'LINE_COST');
       const id=stablePosStockMovementFromSale({sourceInvoiceId:invoiceId,referenceNumber:invoice.invoiceNumber,itemId});
