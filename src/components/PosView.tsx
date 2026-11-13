@@ -16,6 +16,8 @@ import { DraftInvoicesQueueModal } from './pos/DraftInvoicesQueueModal';
 import { SheetInvoiceRow } from '../services/liveSheetService';
 import { onlineInvoicePostingService } from '../services/onlineInvoicePostingService';
 import { ItemSearchModal } from './pos/ItemSearchModal';
+import { QuickAddPartyModal } from './pos/QuickAddPartyModal';
+import { QuickAddItemModal } from './pos/QuickAddItemModal';
 import { ItemAutocompleteInput } from './pos/ItemAutocompleteInput';
 import { PosCustomerSearchInput } from './pos/PosCustomerSearchInput';
 import { AutocompleteCombobox, ComboboxOption } from './common/AutocompleteCombobox';
@@ -105,7 +107,7 @@ import { PosButtonCustomizerModal } from './pos/PosButtonCustomizerModal';
 import { PosLayoutDesignerDrawer } from './pos/PosLayoutDesignerDrawer';
 import { PosBottomPaymentConsole } from './pos/PosBottomPaymentConsole';
 import { SubCustomerField } from './pos/SubCustomerField';
-import { requestMasterForm, peekMasterResult, consumeMasterResult } from '../utils/masterFormNavigation';
+import { peekMasterResult, consumeMasterResult } from '../utils/masterFormNavigation';
 import { cleanSubCustomerName, registeredSubCustomer, isInvoiceOnlySubCustomer } from '../utils/subCustomerIdentity';
 import { PosInlineBarcodeScanner } from './pos/PosInlineBarcodeScanner';
 import { CustomerSpecialPricesModal } from './pos/CustomerSpecialPricesModal';
@@ -981,6 +983,17 @@ const getInitialPosDraft = (): PosFullDraftData => {
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [quickAddInitialName, setQuickAddInitialName] = useState<string>('');
+  const [quickAddTargetLineId, setQuickAddTargetLineId] = useState<string | null>(null);
+  // Keep all POS entry points in the same screen: party, subcustomer,
+  // supplier and employee share a modal instead of navigating away.
+  const [partyDialog, setPartyDialog] = useState<{
+    initialType: 'customer' | 'supplier' | 'employee';
+    initialName?: string;
+    initialPhone?: string;
+    isSubCustomer?: boolean;
+    parentPartyId?: string;
+    partyToEdit?: Party | null;
+  } | null>(null);
   const [isPriceEditOpen, setIsPriceEditOpen] = useState(false);
   const [isCustomerLedgerOpen, setIsCustomerLedgerOpen] = useState(false);
   const [isRequisitionOpen, setIsRequisitionOpen] = useState(false);
@@ -3478,6 +3491,12 @@ const getInitialPosDraft = (): PosFullDraftData => {
   // Keyboard Shortcuts (Ctrl+S, Alt+C, F2, F9, F10 and custom button shortcuts)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // While editing master data in a POS dialog, shortcut keys must never
+      // save, clear, or replace the invoice running underneath the dialog.
+      if (partyDialog || isQuickAddOpen || isDraftQueueOpen) {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') e.preventDefault();
+        return;
+      }
       // Allow F5 to refresh page naturally, do not block or hijack it
       if (e.key === 'F5' || e.code === 'F5') {
         return;
@@ -3538,7 +3557,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     };
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [posButtons, handleSaveInvoice, handleHoldInvoice, handleExecuteButtonAction, handleAddNewRow, handleQuickPayCash, customerName, selectedCustomerId]);
+  }, [posButtons, handleSaveInvoice, handleHoldInvoice, handleExecuteButtonAction, handleAddNewRow, handleQuickPayCash, customerName, selectedCustomerId, partyDialog, isQuickAddOpen, isDraftQueueOpen]);
 
   const isPhone = useIsMobile(768);
   const [forceDesktopMode, setForceDesktopMode] = useState<boolean>(() => {
@@ -3755,7 +3774,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
               {/* زر مسودات فواتير OneDrive / Excel - يفتح الشاشة المخصصة الكاملة */}
               <button
                 type="button"
-                onClick={() => setActiveTab('excel_drafts')}
+                onClick={() => setIsDraftQueueOpen(true)}
                 className="h-8 px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-600 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
                 title="فتح الشاشة المخصصة لإدارة واستيراد مسودات الفواتير من Excel و OneDrive وتعديلها واعتمادها بالتتابع"
               >
@@ -4208,13 +4227,13 @@ const getInitialPosDraft = (): PosFullDraftData => {
                   }
                 }}
                 onQuickAdd={async name => {
-                  requestMasterForm({kind: posTargetType === 'supplier' ? 'supplier' : posTargetType === 'employee' ? 'employee' : 'party', source: 'pos', initialName: name});
+                  setPartyDialog({initialType: posTargetType, initialName: name});
                 }}
               />
             </div>
             <button
               type="button"
-              onClick={() => requestMasterForm({kind: posTargetType === 'supplier' ? 'supplier' : posTargetType === 'employee' ? 'employee' : 'party', source: 'pos'})}
+              onClick={() => setPartyDialog({initialType: posTargetType})}
               className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm shrink-0 cursor-pointer transition-colors"
               title={
                 posTargetType === 'customer'
@@ -4244,11 +4263,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
                 >
                   <Search className="w-[16.2437px] h-[19.2437px] pl-[3px] ml-[6px]" />
                 </button>
-                {currentCustomer && (
+                {currentCustomer && !isCashCustomerParty(currentCustomer) && (
                   <button
                     type="button"
                     onClick={() => {
-                      requestMasterForm({kind: 'party', source: 'pos', editId: currentCustomer.id});
+                      setPartyDialog({initialType: currentCustomer.type === 'supplier' ? 'supplier' : 'customer', partyToEdit: currentCustomer});
                     }}
                     title="تعديل بيانات العميل الحالي"
                     className="p-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-700 rounded-lg cursor-pointer shrink-0 transition-colors"
@@ -4307,14 +4326,14 @@ const getInitialPosDraft = (): PosFullDraftData => {
                 }}
                 onQuickAddSub={(name, phone) => {
                   if (selectedCustomerId) {
-                    requestMasterForm({kind: 'party', source: 'pos', isSubCustomer: true, parentPartyId: selectedCustomerId, initialName: name});
+                    setPartyDialog({initialType: 'customer', isSubCustomer: true, parentPartyId: selectedCustomerId, initialName: name, initialPhone: phone});
                   }
                 }}
               />
               <button
                 type="button"
                 onClick={() => {
-                  requestMasterForm({kind: 'party', source: 'pos', isSubCustomer: true, parentPartyId: selectedCustomerId, initialName: subCustomerName || customCustomerText});
+                  if (selectedCustomerId) setPartyDialog({initialType: 'customer', isSubCustomer: true, parentPartyId: selectedCustomerId, initialName: subCustomerName || customCustomerText, initialPhone: subCustomerPhone});
                 }}
                 className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm shrink-0 cursor-pointer transition-colors"
                 title="فتح شاشة إضافة عميل جديد"
@@ -4926,7 +4945,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
                                   }, 80);
                                 }}
                                 onQuickAdd={nameQuery => {
-                                  requestMasterForm({kind: 'item', source: 'pos', initialName: nameQuery});
+                                  setQuickAddInitialName(nameQuery);
+                                  setQuickAddTargetLineId(line.id);
+                                  setIsQuickAddOpen(true);
                                 }}
                                 onOpenSearchModal={() => setIsItemSearchOpen(true)}
                               />
@@ -6029,7 +6050,19 @@ const getInitialPosDraft = (): PosFullDraftData => {
         }}
       />
 
-      {/* Stock items are created only with the full Inventory master form. */}
+      <QuickAddItemModal
+        isOpen={isQuickAddOpen}
+        initialName={quickAddInitialName}
+        onClose={() => setIsQuickAddOpen(false)}
+        onItemCreatedAndAdd={item => {
+          if (quickAddTargetLineId && tableLines.some(l => l.id === quickAddTargetLineId)) {
+            handleSelectItemForLine(quickAddTargetLineId, item);
+          } else {
+            handleAddItemToTable(item);
+          }
+          setQuickAddTargetLineId(null);
+        }}
+      />
 
       <PriceEditModal
         isOpen={isPriceEditOpen}
@@ -6164,7 +6197,44 @@ const getInitialPosDraft = (): PosFullDraftData => {
       />
 
       {/* Quick Add / Edit Party Modal (شاشة إضافة أو تعديل عميل / مورد / موظف) */}
-      {/* Parties are created only with their full master-data form. */}
+      <QuickAddPartyModal
+        isOpen={Boolean(partyDialog)}
+        initialType={partyDialog?.initialType || 'customer'}
+        initialName={partyDialog?.initialName}
+        initialPhone={partyDialog?.initialPhone}
+        isSubCustomer={partyDialog?.isSubCustomer}
+        parentPartyId={partyDialog?.parentPartyId}
+        partyToEdit={partyDialog?.partyToEdit || null}
+        onClose={() => setPartyDialog(null)}
+        onSuccess={party => {
+          if (!partyDialog) return;
+          if (partyDialog.isSubCustomer) {
+            if (partyDialog.parentPartyId !== selectedCustomerId) return;
+            setSubCustomerId(party.id);
+            setSubCustomerName(party.name);
+            setSubCustomerPhone(party.phone || '');
+            setCustomCustomerText(party.name);
+            return;
+          }
+          setPosTargetType(partyDialog.initialType);
+          setSelectedCustomerId(party.id);
+          setCustomerName(party.name);
+          setCustomerCode(party.code);
+          if (!partyDialog.partyToEdit) {
+            setSubCustomerId('');
+            setSubCustomerName('');
+            setSubCustomerPhone('');
+            setCustomCustomerText('');
+          }
+          if (partyDialog.initialType === 'customer') {
+            const selectedParty = parties.find(p => p.id === party.id);
+            setTableLines(prev => applyCustomerPricingToLines(
+              selectedParty ? {...selectedParty, name: party.name} :
+                ({id: party.id, name: party.name, code: party.code, type: 'customer'} as Party), prev
+            ));
+          }
+        }}
+      />
 
       {/* Item Line Attachments Modal */}
       {activeLineForAttachments && (
