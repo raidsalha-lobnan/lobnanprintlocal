@@ -163,6 +163,36 @@ caption {
   border-bottom: none !important;
 }
 
+/* One compact horizontal invoice totals row in the printed customer statement. */
+.report-table .invoice-financial-strip {
+  display: grid !important;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  align-items: center;
+  direction: rtl;
+  gap: 2px !important;
+  white-space: nowrap !important;
+  width: 100%;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.report-table .invoice-financial-strip > span {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 2px !important;
+  min-width: 0;
+  white-space: nowrap !important;
+}
+
+.report-table .invoice-financial-strip,
+.report-table .invoice-financial-strip span,
+.report-table .invoice-financial-strip b {
+  font-size: 7.4pt !important;
+  line-height: 1.2 !important;
+  letter-spacing: -0.15px;
+}
+
 .report-sub-table td div,
 .report-sub-table td span,
 .report-sub-table th div,

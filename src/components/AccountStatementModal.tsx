@@ -980,7 +980,7 @@ export const AccountStatementModal: React.FC = () => {
                                   </table>
 
                                   {row.type === 'invoice' && (
-                                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-900" dir="rtl">
+                                    <div className="invoice-financial-strip grid grid-cols-6 items-center gap-x-1 border-t border-slate-300 bg-white px-1 py-1 font-bold text-slate-900" dir="rtl">
                                       {([
                                         ['قبل الخصم', row.subtotal ?? row.items.reduce((total, item) => total + item.total, 0)],
                                         ['الخصم', row.discountTotal ?? 0],
