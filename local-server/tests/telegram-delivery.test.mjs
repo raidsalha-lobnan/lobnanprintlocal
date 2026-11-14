@@ -80,3 +80,29 @@ test('every subscribed chat receives its own delivery with no duplicates',async(
  assert.equal(await f.worker.drainOnce(),0);
  assert.deepEqual(targets,['123','456']);
 });
+
+test('Telegram delivery sends a concise committed invoice with invoice, item and payment notes',async()=>{
+ const texts=[];
+ const f=fixture(['123'],async(_url,options)=>{
+  texts.push(JSON.parse(options.body).text);
+  return {ok:true,status:200,json:async()=>({ok:true})};
+ });
+ f.recipients[0].changes=[{entity:'invoices',id:'invoice-1',version:1,value:{
+  invoiceNumber:'INV-0344',date:'2026-11-12',customerName:'مؤسسة 4TDK',
+  notes:'الطباعة على الوجهين',
+  items:[{itemName:'مطبوعات جلدية',quantity:4,unitPrice:120,total:480,
+   hasDimensions:true,length:1,width:1,count:4,unit:'م²',
+   notes:'ملاحظة الصنف المخصص'},
+   {itemName:'خدمة توصيل',quantity:1,unitPrice:15,total:15,hasDimensions:false}],
+  totalAmount:495,paidAmount:0,remainingAmount:495,
+  paymentMethod:'credit',paymentNotes:'تسديد آخر الشهر',currencySymbol:'₪'
+ }}];
+ assert.equal(await f.worker.drainOnce(),1);
+ assert.equal(texts.length,1);
+ for(const part of ['INV-0344','الطباعة على الوجهين','ملاحظة الصنف المخصص',
+  'تسديد آخر الشهر','آجل | المتبقي: 495 ₪'])
+  assert.ok(texts[0].includes(part),'Expected '+part);
+ assert.equal(texts[0].includes('الخصم: 0'),false);
+ assert.equal(texts[0].includes('لا يوجد دفع'),false);
+ assert.equal(f.recipients[0].delivered,true);
+});
