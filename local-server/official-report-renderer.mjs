@@ -39,6 +39,10 @@ async function settingsAndRecords(pool,workspace,access){
   let settings={};
   for(const record of r.rows){
    const {entity,record_id:id,value}=record;
+   // sync_records retains JSON null tombstones for deleted print orders and
+   // inventory. They are audit history, not live accounting entities. Never
+   // pass them into the official ReportsView component as null array elements.
+   if(value===null||typeof value!=='object'||Array.isArray(value))continue;
    if(entity==='settings'){
     if(['global','workspace-settings'].includes(id))settings=settingsVisibleToUser(value,access);
     continue;

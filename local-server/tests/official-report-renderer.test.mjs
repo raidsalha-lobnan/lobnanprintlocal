@@ -4,6 +4,9 @@ import fs from 'node:fs';
 import {generateOfficialReportPdf} from '../official-report-renderer.mjs';
 const chrome='C:/Program Files/Google/Chrome/Application/chrome.exe';
 const fixtureRows=[
+ // Deleted legacy print orders remain as JSON null tombstones in the real database.
+ {entity:'printOrders',record_id:'deleted-order-1',value:null},
+ {entity:'inventory',record_id:'deleted-item-1',value:null},
  {entity:'settings',record_id:'global',value:{businessName:'Preview Only',currency:'ILS'}},
  {entity:'parties',record_id:'customer-1',value:{
   id:'customer-1',code:'CUST-0002',name:'Test Customer',type:'customer',balance:0,openingBalance:0

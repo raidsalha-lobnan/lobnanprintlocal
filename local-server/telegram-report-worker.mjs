@@ -19,7 +19,14 @@ const PERIODS={
 };
 const isPartyKind=(category)=>!!CATEGORIES[category]?.entity;
 const safeText=v=>String(v??'').trim().slice(0,90);
-const safeError=e=>String(e?.message||e||'ERROR').replace(/[^A-Z0-9_]/g,'_').slice(0,90);
+export function safeReportErrorCode(error){
+ const message=String(error?.message||error||'ERROR');
+ if(/^[A-Z0-9_]{3,90}$/.test(message))return message;
+ if(error instanceof TypeError)return 'REPORT_TEMPLATE_DATA_ERROR';
+ if(error instanceof RangeError)return 'REPORT_TEMPLATE_RANGE_ERROR';
+ return 'REPORT_GENERATION_FAILED';
+}
+const safeError=safeReportErrorCode;
 const iso=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),
  String(d.getDate()).padStart(2,'0')].join('-');
 export function reportPeriod(key,now=new Date()){
@@ -78,9 +85,14 @@ export class TelegramServerReportWorker {
      if(config){
       const message='تعذّر تجهيز الكشف بعد محاولتين. لم يُرسل ملف غير مكتمل. رمز الخطأ: '+code+
        '\nيمكنك إعادة الطلب من /menu أو مراسلة المسؤول.';
-      if(item.progress_message_id)
-       await this.gateway.progressStatus(payload.chatId,item.progress_message_id,message,config).catch(()=>{});
-      await this.send(config,payload.chatId,message,null).catch(()=>{});
+      let notified=false;
+      if(item.progress_message_id){
+       try{
+        await this.gateway.progressStatus(payload.chatId,item.progress_message_id,message,config);
+        notified=true;
+       }catch{/* A failed status edit is followed by one ordinary message. */}
+      }
+      if(!notified)await this.send(config,payload.chatId,message,null).catch(()=>{});
      }
     }
    }

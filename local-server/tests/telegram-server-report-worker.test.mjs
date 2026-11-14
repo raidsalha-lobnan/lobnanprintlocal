@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {reportPeriod,TelegramServerReportWorker} from '../telegram-report-worker.mjs';
+import {reportPeriod,TelegramServerReportWorker,safeReportErrorCode} from '../telegram-report-worker.mjs';
 
 test('Report periods use calendar boundaries and no stale user setting',()=>{
  const date=new Date(2026,10,14,16);
@@ -92,4 +92,34 @@ test('Authenticated Telegram report command renders original PDF and sends it on
  assert.ok(calls.checkpoints>=2);
  assert.ok(calls.messages.some(message=>message.includes('جاري إعداد')));
  assert.ok(calls.messages.some(message=>message.includes('تم إرسال')));
+});
+
+test('Report failures expose a useful safe code rather than unreadable underscores',()=>{
+ assert.equal(safeReportErrorCode(new TypeError("Cannot read properties of null (reading 'customerId')")),
+  'REPORT_TEMPLATE_DATA_ERROR');
+ assert.equal(safeReportErrorCode(new Error('OFFICIAL_REPORT_PDF_INVALID')),
+  'OFFICIAL_REPORT_PDF_INVALID');
+ assert.equal(safeReportErrorCode(new Error('Sensitive freeform details')), 'REPORT_GENERATION_FAILED');
+});
+test('Terminal report failure updates existing progress only once rather than sending duplicate messages',async()=>{
+ let ordinary=0,edited=0;
+ const gateway={
+  progressStatus:async()=>{edited++;return {ok:true}},
+  sendText:async()=>{ordinary++;return {ok:true}}
+ };
+ const pool={query:async sql=>{
+  if(sql.includes('WITH next'))return {rows:[{
+   update_id:101,payload:{chatId:'1234',processor:'server'},
+   attempts:2,progress_message_id:45,document_delivered_at:null
+  }]};
+  if(sql.includes('UPDATE sync_telegram_inbox'))return {rowCount:1,rows:[]};
+  if(sql.includes("value->'telegramConfig'"))
+   return {rows:[{cfg:{enabled:true,botToken:'unit-test-token'}}]};
+  throw Error('UNEXPECTED_SQL');
+ }};
+ const worker=new TelegramServerReportWorker(pool,'lobnan_main',gateway);
+ worker.handle=async()=>{throw new TypeError("Cannot read properties of null (reading 'customerId')")};
+ assert.equal(await worker.pollOnce(),1);
+ assert.equal(edited,1);
+ assert.equal(ordinary,0);
 });
