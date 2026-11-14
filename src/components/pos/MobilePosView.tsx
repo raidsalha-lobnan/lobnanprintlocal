@@ -134,14 +134,14 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
   // Bank treasury selection for card/bank payment
   const bankTreasuries = useMemo(() => (treasuries || []).filter(t =>
-    t.status !== 'inactive' && t.type !== 'cash_box' &&
+    t.status !== 'inactive' && t.type !== 'cash_box' && t.accountCode !== 'CASH-1101' &&
     /^CASH-\d{4,}$/.test(t.accountCode || '')), [treasuries]);
   const [selectedBankTreasuryCode, setSelectedBankTreasuryCode] = useState<string>('');
 
-  // Noncash treasury is an explicit selection, never silently first bank.
+  // Show the first actual noncash treasury until the user selects another.
   useEffect(() => {
-    if (selectedBankTreasuryCode && !bankTreasuries.some(t => t.accountCode === selectedBankTreasuryCode))
-      setSelectedBankTreasuryCode('');
+    if (!bankTreasuries.some(t => t.accountCode === selectedBankTreasuryCode))
+      setSelectedBankTreasuryCode(bankTreasuries[0]?.accountCode||'');
   }, [bankTreasuries, selectedBankTreasuryCode]);
 
   // Cash treasury selection for cash payment
@@ -1894,28 +1894,18 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                     <Building2 className="w-3.5 h-3.5 text-blue-600" />
                     <span>الصندوق أو الحساب البنكي المسجل:</span>
                   </label>
-                  {bankTreasuries.length > 0 ? (
-                    <select
-                      value={selectedBankTreasuryCode}
-                      onChange={(e) => setSelectedBankTreasuryCode(e.target.value)}
-                      className="w-full bg-white border border-blue-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="">اختر الصندوق غير النقدي</option>
-                      {bankTreasuries.map(b => (
-                        <option key={b.accountCode || b.id} value={b.accountCode}>
-                          {b.name} ({b.accountCode})
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <select
-                      value={selectedBankTreasuryCode}
-                      onChange={(e) => setSelectedBankTreasuryCode(e.target.value)}
-                      className="w-full bg-white border border-blue-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="">حساب بنكي رئيسي (1102)</option>
-                    </select>
-                  )}
+                  <select
+                    value={selectedBankTreasuryCode}
+                    disabled={bankTreasuries.length===0}
+                    onChange={(e) => setSelectedBankTreasuryCode(e.target.value)}
+                    className="w-full bg-white border border-blue-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500"
+                  >
+                    {bankTreasuries.map(b => (
+                      <option key={b.accountCode || b.id} value={b.accountCode}>
+                        {b.name} ({b.accountCode})
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             )}

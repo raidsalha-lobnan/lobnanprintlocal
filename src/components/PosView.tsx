@@ -961,10 +961,12 @@ const getInitialPosDraft = (): PosFullDraftData => {
   useEffect(() => {
     if (treasuries && treasuries.length > 0) {
       if (cashTreasuryCode !== 'CASH-1101') setCashTreasuryCode('CASH-1101');
-      if (bankTreasuryCode && !treasuries.some(t => t.accountCode === bankTreasuryCode && t.type !== 'cash_box' && t.status !== 'inactive'))
-        setBankTreasuryCode('');
+      const nonCash=treasuries.filter(t=>t.type!=='cash_box'&&t.status!=='inactive'&&
+        t.accountCode!=='CASH-1101'&&/^CASH-\d{4,}$/.test(t.accountCode||''));
+      if (!nonCash.some(t => t.accountCode === bankTreasuryCode))
+        setBankTreasuryCode(nonCash[0]?.accountCode||'');
     }
-  }, [treasuries]);
+  }, [treasuries, bankTreasuryCode, cashTreasuryCode]);
 
   // Handle invoice exchange rate updates
   const handleExchangeRateChange = (newRate: number) => {

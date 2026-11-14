@@ -164,7 +164,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
   }, [effectiveTreasuries]);
 
   const bankTreasuryOptions = React.useMemo(() => {
-    return effectiveTreasuries.filter(t => t.type !== 'cash_box' &&
+    return effectiveTreasuries.filter(t => t.type !== 'cash_box' && t.accountCode !== 'CASH-1101' &&
       /^CASH-\d{4,}$/.test(t.accountCode || '') && t.status !== 'inactive');
   }, [effectiveTreasuries]);
 
@@ -564,7 +564,8 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
           {/* الصندوق / الحساب البنكي */}
           <div className="flex-1 min-w-[90px] flex items-center gap-1">
             <select
-              value={selectedBankTreasuryObj?.id || bankTreasuryCode}
+              value={selectedBankTreasuryObj?.id || bankTreasuryOptions[0]?.id || ''}
+              disabled={bankTreasuryOptions.length===0}
               onChange={e => {
                 const selectedId = e.target.value;
                 const found = effectiveTreasuries.find(t => t.id === selectedId || t.accountCode === selectedId);
@@ -573,8 +574,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
               className="w-full bg-white text-slate-900 font-bold px-1.5 py-0.5 rounded text-[11px] border border-slate-300 cursor-pointer shadow-2xs truncate"
               title="الحساب البنكي أو نقطة البيع / الشبكة"
             >
-              <option value="">اختر الصندوق غير النقدي</option>
-                {bankTreasuryOptions.map(t => (
+              {bankTreasuryOptions.map(t => (
                 <option key={t.id} value={t.id}>
                   {t.name}
                 </option>

@@ -294,15 +294,19 @@ const bootstrap=async()=>{
   const cashBox=el('cashTreasury'),bankBox=el('bankTreasury');
   // The server resolves cash to the authorized default cash-box at commit.
   cashBox.value='';
-  bankBox.replaceChildren(new Option('اختر الصندوق',''));
-  const nonCashOptions=state.treasuries.filter(t=>t.type!=='cash_box');
+  bankBox.replaceChildren();
+  // Display only real active noncash treasuries. Never list CASH-1101.
+  const nonCashOptions=state.treasuries.filter(t=>t.type!=='cash_box'&&
+    t.status==='active'&&t.accountCode!=='CASH-1101'&&
+    /^CASH-\d{4,}$/.test(t.accountCode||''));
   for(const t of nonCashOptions)bankBox.appendChild(new Option(t.name,t.accountCode));
-  try{
-   const previousBank=localStorage.getItem('telegram_pos_last_bank')||'';
-   if(previousBank&&nonCashOptions.some(t=>t.accountCode===previousBank))
-    bankBox.value=previousBank;
-  }catch{}
-
+  let previousBank='';
+  try{previousBank=localStorage.getItem('telegram_pos_last_bank')||'';}catch{}
+  if(nonCashOptions.length){
+    const selected=nonCashOptions.find(t=>t.accountCode===previousBank)||nonCashOptions[0];
+    bankBox.value=selected.accountCode;
+  }
+  bankBox.disabled=nonCashOptions.length===0;
   el('userBadge').textContent='🔒 '+(result.displayName||'مستخدم معتمد')+' • مرتبط دائمًا';
   show('cashier');msg('حساب تلجرام مرتبط بحساب البرنامج. لا يلزم إعادة الربط عند انتهاء الرمز المؤقت.','success');
   const draftToResume=(result.drafts||[]).find(x=>x.status==='draft');
@@ -328,7 +332,9 @@ const bootstrap=async()=>{
    el('cashPaid').value=restoredCash>0?String(restoredCash):'';
    el('bankPaid').value=restoredBank>0?String(restoredBank):'';
    el('cashTreasury').value='';
-   el('bankTreasury').value=b.bankTreasuryCode||(restoredBank>0?b.treasuryCode:'')||'';
+   const draftBank=b.bankTreasuryCode||(restoredBank>0?b.treasuryCode:'')||'';
+   if(draftBank&&Array.from(el('bankTreasury').options).some(o=>o.value===draftBank))
+    el('bankTreasury').value=draftBank;
    state.lines=[];
    for(const l of b.items||[]){
     const r=await api('search',{query:l.itemId});
