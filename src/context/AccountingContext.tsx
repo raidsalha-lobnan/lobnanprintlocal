@@ -1854,31 +1854,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // matching email substring or create a privileged user from a Google session.
 
   // Debt Clearings (المقاصة بين عميل ومورد)
+  // The fictional clearing clr-1 was retired from PostgreSQL and the sync feed.
+  // Do not seed it on fresh devices or reload it from an old localStorage cache.
   const [debtClearings, setDebtClearings] = useState<DebtClearingRecord[]>(() => {
-    return safeLoadArray(`${STORAGE_KEY}_debt_clearings`, [
-      {
-        id: 'clr-1',
-        clearingNumber: 'CLR-2026-001',
-        date: new Date(Date.now() - 86400000 * 3).toISOString().split('T')[0],
-        customerId: 'p-cust-1',
-        customerName: 'مكتبة النجاح الأكاديمية',
-        supplierId: 'p-supp-1',
-        supplierName: 'شركة الأهرام لتوريد الورق والكرتون',
-        amount: 1500,
-        currency: 'ILS',
-        reason: 'مقاصة مقابل توريد خامات ورق وسداد مطبوعات مدرسية سابقة',
-        notes: 'تمت التسوية بموجب اتفاق مالي بين الطرفين لتخفيض الذمم المتبادلة دون مساس بالصناديق النقدية',
-        createdBy: 'المدير المالي',
-        createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-        customerOldBalance: 4200,
-        customerNewBalance: 2700,
-        supplierOldBalance: -3800,
-        supplierNewBalance: -2300,
-        journalEntryId: 'entry-clr-sample-1'
-      }
-    ]);
+    const stored = safeLoadArray<DebtClearingRecord>(`${STORAGE_KEY}_debt_clearings`, []);
+    const clean = stored.filter(record => record.id !== 'clr-1');
+    if (clean.length !== stored.length) {
+      try { localStorage.setItem(`${STORAGE_KEY}_debt_clearings`, JSON.stringify(clean)); } catch {}
+    }
+    return clean;
   });
-
   // Expenses & Operating Costs (المصروفات والمصاريف التشغيلية)
   const [expenses, setExpenses] = useState<ExpenseItem[]>(() => {
     return safeLoadArray(`${STORAGE_KEY}_expenses`, initialExpenses);
@@ -4653,7 +4638,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return { success: false, message: 'مبلغ المقاصة يجب أن يكون أكبر من الصفر' };
     }
 
-    const clrNum = `CLR-${new Date().getFullYear()}-${(debtClearings.length + 1).toString().padStart(3, '0')}`;
+    const currentYear = new Date().getFullYear();
+    // 2026-001 belonged to the retired fictional record; never reuse its number.
+    const lastClearingSequence = debtClearings.reduce((max, row) => {
+      const match = /^CLR-(\d{4})-(\d+)$/.exec(row.clearingNumber || '');
+      return match && Number(match[1]) === currentYear
+        ? Math.max(max, Number(match[2])) : max;
+    }, currentYear === 2026 ? 1 : 0);
+    const clrNum = `CLR-${currentYear}-${(lastClearingSequence + 1).toString().padStart(3, '0')}`;
     const jId = `entry-clr-${Date.now()}`;
     const custOld = customer.balance;
     const custNew = Number((custOld - clearingData.amount).toFixed(2));

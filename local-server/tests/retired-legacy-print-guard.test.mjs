@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {forbidRetiredLegacyPrintResurrection as check} from '../retired-legacy-print-guard.mjs';
 
 const retiredIds=new Set(['journalEntries:je-old-1','printOrders:job-old-1','journalEntries:source:inv-demo-missing','debtClearings:clr-1']);
@@ -44,9 +45,23 @@ test('new fake journal IDs cannot resurrect a retired sale source',async()=>{
 });
 test('retired experimental clearing cannot reappear but new genuine debt clearing stays available',async()=>{
  await assert.rejects(()=>check(client,'lobnan_main',{
-  entity:'debtClearings',id:'clr-1',value:{id:'clr-1',clearingNumber:'CLR-2026-001'}
+  entity:'debtClearings',id:'clr-1',value:{id:'clr-1',clearingNumber:'CLR-2026-999'}
  }),/RETIRED_LEGACY_PRINT_RECORD_CANNOT_RESURRECT/);
  await assert.doesNotReject(()=>check(client,'lobnan_main',{
   entity:'debtClearings',id:'clr-new-authorized',value:{id:'clr-new-authorized',clearingNumber:'CLR-2026-002'}
  }));
+});
+
+test('old fictional clearing number cannot be reused under a fresh document ID',async()=>{
+ await assert.rejects(()=>check(client,'lobnan_main',{
+  entity:'debtClearings',id:'clr-fake-new',value:{id:'clr-fake-new',clearingNumber:'CLR-2026-001'}
+ }),/RETIRED_FAKE_CLEARING_NUMBER_RESERVED/);
+});
+test('frontend never seeds or reloads the fake clearing and reserves its old number',()=>{
+ const src=readFileSync(new URL('../../src/context/AccountingContext.tsx',import.meta.url),'utf8');
+ assert.doesNotMatch(src,/entry-clr-sample-1/);
+ assert.doesNotMatch(src,/customerId: 'p-cust-1'/);
+ assert.ok(src.includes("const clean = stored.filter(record => record.id !== 'clr-1');"));
+ assert.ok(src.includes('currentYear === 2026 ? 1 : 0'));
+ assert.ok(src.includes('lastClearingSequence + 1'));
 });
