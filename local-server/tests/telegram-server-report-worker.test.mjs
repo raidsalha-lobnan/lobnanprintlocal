@@ -37,3 +37,59 @@ test('Mismatch between private chat and signed sender is rejected',async()=>{
  assert.equal(sent.length,1);
  assert.match(sent[0].text,/صلاحية/);
 });
+
+test('Authenticated Telegram report command renders original PDF and sends it once with a durable delivery checkpoint',
+ {skip:process.platform!=='win32'},async()=>{
+ const calls={messages:[],documents:[],checkpoints:0};
+ const gateway={
+  sendText:async(_token,params)=>{
+   calls.messages.push(params.text);
+   return {ok:true,messageId:1001};
+  },
+  progressStatus:async()=>({ok:true}),
+  telegramRequest:async(_token,method,form)=>{
+   assert.equal(method,'sendDocument');
+   const document=form.get('document');
+   const bytes=Buffer.from(await document.arrayBuffer());
+   assert.equal(bytes.toString('ascii',0,5),'%PDF-');
+   calls.documents.push(bytes.length);
+   return {ok:true,messageId:1002};
+  }
+ };
+ const party={id:'customer-1',code:'CUST-0002',name:'Test Customer',
+  type:'customer',balance:0,openingBalance:0};
+ const profile={id:'admin-1',name:'Admin',status:'active',roleId:'role-admin'};
+ const pool={
+  query:async(sql,args)=>{
+   if(sql.includes("value->'telegramConfig'"))return {rows:[{cfg:{enabled:true,botToken:'private-test-bot-token'}}]};
+   if(sql.includes('FROM sync_telegram_pos_links'))return {rows:[{app_user_id:'admin-1',profile}]};
+   if(sql.includes("entity='roles'"))return {rows:[{value:{id:'role-admin',code:'SYS_ADMIN',permissions:{}}}]};
+   if(sql.includes('FROM sync_telegram_report_sessions'))return {rows:[{category:'customer_statement',party_id:'customer-1'}]};
+   if(sql.startsWith('UPDATE sync_telegram_inbox')){
+    calls.checkpoints++;
+    return {rowCount:1,rows:[]};
+   }
+   throw Error('UNEXPECTED_QUERY:'+sql);
+  },
+  connect:async()=>({
+   query:async(sql)=>{
+    if(sql.startsWith('BEGIN')||sql.startsWith('COMMIT')||sql.startsWith('ROLLBACK'))return {rows:[]};
+    if(sql.startsWith('SELECT entity,record_id,value'))
+     return {rows:[{entity:'settings',record_id:'global',
+      value:{businessName:'Test Company',currency:'ILS'}},
+      {entity:'parties',record_id:'customer-1',value:party}]};
+    throw Error('UNEXPECTED_SNAPSHOT_QUERY:'+sql);
+   },release:()=>{}
+  })
+ };
+ const worker=new TelegramServerReportWorker(pool,'lobnan_main',gateway,'admin-1');
+ await worker.handle({
+  type:'callback',chatId:'1234',telegramUserId:'1234',
+  data:'period_this_month_customer_statement_customer-1'
+ },{update_id:121,progress_message_id:null,document_delivered_at:null});
+ assert.equal(calls.documents.length,1);
+ assert.ok(calls.documents[0]>2000);
+ assert.ok(calls.checkpoints>=2);
+ assert.ok(calls.messages.some(message=>message.includes('جاري إعداد')));
+ assert.ok(calls.messages.some(message=>message.includes('تم إرسال')));
+});
