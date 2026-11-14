@@ -15,7 +15,7 @@ const todayLocal=()=>{
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state={people:[],partyType:'customer',customers:[],suppliers:[],employees:[],expenseAccounts:[],
   subCustomers:[],treasuries:[],vatRate:0,lines:[],draftId:crypto.randomUUID(),
-  busy:false,saved:false,lastReceipt:null,quickDone:false,kind:'sale',
+  busy:false,saved:false,lastReceipt:null,quickDone:false,kind:'sale',subOpen:false,
   canPrint:false,canPurchases:false,canExpenses:false};
 let searchTimer=0,searchEpoch=0;
 const msg=(text,kind='')=>{
@@ -44,19 +44,39 @@ const persistUi=()=>{
  localStorage.setItem('telegram_pos_last_cash',el('cashTreasury').value);
  localStorage.setItem('telegram_pos_last_bank',el('bankTreasury').value);}catch{}
 };
-const customerOptions=filter=>{
- const selected=el('customer').value||state.people.find(x=>x.code==='CUST-0001')?.id||'';
- const q=(filter||'').trim().toLowerCase();
- const people=state.people.filter(p=>!q||String(p.name||'').toLowerCase().includes(q)||
-  String(p.code||'').toLowerCase().includes(q));
- const sel=el('customer');sel.replaceChildren();
- for(const p of people){
-  const opt=document.createElement('option');opt.value=p.id;
-  opt.textContent=p.name+' — '+p.code;sel.appendChild(opt);
+// A single searchable party field. The hidden select retains the original ID
+// for formBody, drafts and all accounting links; never save unselected text.
+const syncPartyText=()=>{
+ const person=state.people.find(p=>p.id===el('customer').value);
+ el('customerSearch').value=person?.name||'';
+};
+const hidePartyResults=()=>{el('partyResults').classList.add('hidden');el('customerSearch').setAttribute('aria-expanded','false');};
+const selectParty=(id)=>{
+ const person=state.people.find(p=>p.id===id);
+ if(!person)return;
+ el('customer').value=person.id;
+ syncPartyText();hidePartyResults();renderSubCustomers();persistUi();
+};
+const renderPartyMatches=(filter='')=>{
+ const q=String(filter||'').trim().toLowerCase();
+ const people=state.people.filter(p=>!q||String(p.name||'').toLowerCase().includes(q)||String(p.code||'').toLowerCase().includes(q)).slice(0,70);
+ const list=el('partyResults');list.replaceChildren();
+ for(const person of people){
+  const b=document.createElement('button');b.type='button';b.className='party-option';b.setAttribute('role','option');
+  b.innerHTML='<span>'+escapeHtml(person.name)+'</span><small>'+escapeHtml(person.code||'')+'</small>';
+  b.addEventListener("click",()=>selectParty(person.id));list.appendChild(b);
  }
- if(people.some(x=>x.id===selected))sel.value=selected;
- // Filtering can replace the selected main party without firing a change event.
- if(sel.value!==selected)renderSubCustomers();
+ if(!people.length){const empty=document.createElement('div');empty.className='party-no-match';empty.textContent='لا توجد نتائج مطابقة';list.appendChild(empty);}
+ list.classList.remove('hidden');el('customerSearch').setAttribute('aria-expanded','true');
+};
+const customerOptions=(_filter='')=>{
+ const sel=el('customer');
+ const chosen=sel.value;
+ sel.replaceChildren(new Option('',''));
+ for(const person of state.people)sel.appendChild(new Option(person.name,person.id));
+ const fallback=state.partyType==="customer"?state.people.find(p=>p.code==="CUST-0001")?.id:"";
+ sel.value=state.people.some(p=>p.id===chosen)?chosen:(fallback||"");
+ syncPartyText();hidePartyResults();
 };
 const customer=()=>state.people.find(x=>x.id===el('customer').value);
 const renderSubCustomers=(wanted='',newName='')=>{
@@ -68,7 +88,7 @@ const renderSubCustomers=(wanted='',newName='')=>{
  select.appendChild(new Option('＋ إدخال اسم عميل فرعي جديد','__new__'));
  select.value=children.some(s=>s.id===wanted)?wanted:
   wanted==='__new__'||(newName&&!children.some(s=>s.id===wanted))?'__new__':'';
- const creating=select.value==='__new__';
+ const creating=state.subOpen&&select.value==='__new__';
  el('subCustomerNewPanel').classList.toggle('hidden',!creating);
  el('subCustomerNewName').value=creating?newName:'';
 };
@@ -105,7 +125,8 @@ const renderLines=()=>{
   panel.innerHTML=
    '<div class="line-head"><div class="line-name-wrap"><strong class="line-title">'+escapeHtml(line.name)+'</strong> <span class="line-subtitle">'+escapeHtml(line.code)+'</span>'+
    '<label class="line-dimension-inline" title="استخدام الأبعاد لهذا الصنف"><input data-prop="hasDimensions" data-index="'+index+'" type="checkbox" '+(line.hasDimensions?'checked':'')+'/> أبعاد</label></div>'+
-   '<button type="button" class="line-remove" data-remove="'+index+'" aria-label="حذف الصنف">🗑</button></div>'+
+   '<div class="line-tools"><button type="button" class="line-remove" data-remove="'+index+'" aria-label="حذف الصنف">🗑</button>'+
+   (index===state.lines.length-1?'<button type="button" class="line-add" data-add-line="true" aria-label="إضافة بند بعد الأخير">+</button>':'')+'</div></div>'+
    '<input class="line-notes" data-index="'+index+'" data-prop="notes" type="text" maxlength="300" aria-label="ملاحظات هذا الصنف" placeholder="📝 ملاحظة الصنف (اختياري)" value="'+escapeHtml(line.notes||'')+'"/>'+
    '<div class="line-columns">'+
    (line.hasDimensions?field('الطول','length',line.length||1,'min=".001" step=".001"'):dash('الطول'))+
@@ -119,6 +140,16 @@ const renderLines=()=>{
  });
  totals();
 };
+const closeItemPicker=()=>{
+ el('itemPicker').classList.add('hidden');
+ el('itemSearch').value='';el('results').replaceChildren();
+ clearTimeout(searchTimer);searchEpoch++;
+};
+const openItemPicker=()=>{
+ if(state.lines.length>=25){msg('الحد الأقصى 25 بندًا للفاتورة','error');return;}
+ el('itemPicker').classList.remove('hidden');
+ el('itemSearch').focus();
+};
 const addItem=item=>{
  if(state.lines.length>=25){msg('الحد الأقصى 25 بندًا في الفاتورة الواحدة','error');return;}
  clearTimeout(searchTimer);
@@ -128,7 +159,7 @@ const addItem=item=>{
   unitCalculationType:item.unitCalculationType||'unit',quantity:1,
   hasDimensions:/(م²|م2|m²|m2|sqm|متر مربع)/i.test(String(item.unit||'')),
   length:1,width:1,count:1,notes:''});
- el('itemSearch').value='';el('results').replaceChildren();
+ closeItemPicker();
  renderLines();
  msg('تمت إضافة الصنف '+item.name+'. يمكنك إضافة صنف آخر إلى الفاتورة نفسها.','success');
 };
@@ -164,7 +195,7 @@ const formBody=()=>{
   throw Error('الشراء أو المصروف على عميل/موظف يتطلب السداد الكامل؛ اختر موردًا لتسجيل ذمة آجلة.');
  if(state.kind==='expense'&&!el('expenseAccount').value)
   throw Error('اختر حساب المصروف المعتمد.');
- const subChoice=state.partyType==='customer'&&['sale','print'].includes(state.kind)?el('subCustomer').value:'';
+ const subChoice=state.subOpen&&state.partyType==='customer'&&['sale','print'].includes(state.kind)?el('subCustomer').value:'';
  const sub=state.subCustomers.find(x=>x.id===subChoice&&x.parentPartyId===person.id);
  if(subChoice&&subChoice!=='__new__'&&!sub)throw Error('العميل الفرعي لا يتبع العميل الرئيسي');
  const newSubName=subChoice==='__new__'?el('subCustomerNewName').value.trim():'';
@@ -232,6 +263,7 @@ const startNew=()=>{
  el('discount').value='0';el('paid').value='';el('notes').value='';
  el('cashPaid').value='';el('bankPaid').value='';el('paymentNotes').value='';
  el('invoiceDate').value=todayLocal();
+ state.subOpen=false;updateSubVisibility();closeItemPicker();
  renderSubCustomers();renderLines();show('cashier');msg('ابدأ بإضافة الأصناف.','success');
 };
 const initQuick=async()=>{
@@ -284,8 +316,8 @@ const bootstrap=async()=>{
   const sel=el('customer');
   const remembered=(()=>{try{return localStorage.getItem('telegram_pos_last_customer')}catch{return null}})();
   const choice=state.people.some(x=>x.id===remembered)?remembered:result.defaultCustomerId;
-  if(choice)sel.value=choice;
-  renderSubCustomers();
+   if(choice)sel.value=choice;
+   syncPartyText();renderSubCustomers();updateSubVisibility();
   const cashBox=el('cashTreasury'),bankBox=el('bankTreasury');
   // The server resolves cash to the authorized default cash-box at commit.
   cashBox.value='';
@@ -315,6 +347,9 @@ const bootstrap=async()=>{
    if(b.expenseAccountCode)el('expenseAccount').value=b.expenseAccountCode;
    if(b.expenseCategory)el('expenseCategory').value=b.expenseCategory;
    if(b.customerId)sel.value=b.customerId;
+   syncPartyText();
+   state.subOpen=!!(b.subCustomerId||b.subCustomerName);
+   updateSubVisibility();
    renderSubCustomers(b.subCustomerId|| (b.subCustomerName?'__new__':''),b.subCustomerName||'');
    el('invoiceDate').value=b.date||todayLocal();
    el('discount').value=b.overallDiscount||0;el('payment').value=b.paymentMethod||'cash';
@@ -352,6 +387,16 @@ const bootstrap=async()=>{
   }else{show('notTelegram');msg('تعذر فتح الكاشير: '+code,'error');}
  }
 };
+const updateSubVisibility=()=>{
+ const eligible=state.partyType==='customer'&&['sale','print'].includes(state.kind);
+ const open=eligible&&state.subOpen;
+ el('subCustomerToggle').classList.toggle('hidden',!eligible);
+ el('subCustomerToggle').setAttribute('aria-expanded',String(open));
+ el('subCustomerToggle').textContent=open?'فرعي −':'فرعي +';
+ el('subCustomerArea').classList.toggle('hidden',!open);
+ el('subCustomerNewPanel').classList.toggle('hidden',!open||el('subCustomer').value!=='__new__');
+ if(!open){el('subCustomer').value='';el('subCustomerNewName').value='';}
+};
 const kindLabels={sale:['🛒','مبيعات'],print:['🖨️','أمر طباعة'],
  purchase:['📦','مشتريات'],expense:['🧾','مصروفات']};
 const applyPartyType=(kind=el('partyType').value)=>{
@@ -359,14 +404,13 @@ const applyPartyType=(kind=el('partyType').value)=>{
  state.partyType=kind;el('partyType').value=kind;
  state.people=kind==='employee'?state.employees:
   kind==='supplier'?state.suppliers:state.customers;
- el('customerSearch').value='';
  customerOptions('');
  const label={customer:'العميل',supplier:'المورد',employee:'الموظف'}[kind];
  el('customerSearch').placeholder='ابحث عن '+label+' بالاسم أو الرمز...';
  el('customerSearch').setAttribute('aria-label','بحث عن '+label);
  el('customer').setAttribute('aria-label','اختيار '+label);
- el('subCustomerArea').classList.toggle('hidden',
-  kind!=='customer'||!['sale','print'].includes(state.kind));
+ if(kind!=='customer'||!['sale','print'].includes(state.kind))state.subOpen=false;
+ updateSubVisibility();
  el('subCustomerNewPanel').classList.add('hidden');
  renderSubCustomers();
  el('addCustomerButton').disabled=kind==='employee'||
@@ -440,7 +484,26 @@ el('pairButton').addEventListener('click',async()=>{
  }catch(error){msg('تعذر الربط: '+String(error.message||error),'error');}
  finally{el('pairButton').disabled=false;}
 });
-el('customerSearch').addEventListener('input',event=>customerOptions(event.target.value));
+el('customerSearch').addEventListener('focus',()=>renderPartyMatches(''));
+el('customerSearch').addEventListener('input',event=>{
+ el('customer').value='';renderSubCustomers();
+ renderPartyMatches(event.target.value);
+});
+el('customerSearch').addEventListener('keydown',event=>{
+ if(event.key==='Escape'){hidePartyResults();el('customerSearch').blur();}
+ if(event.key==='Enter'){
+  const first=el('partyResults').querySelector('.party-option');
+  if(first){event.preventDefault();first.click();}
+ }
+});
+document.addEventListener('click',event=>{
+ if(!event.target.closest('.party-picker'))hidePartyResults();
+});
+el('subCustomerToggle').addEventListener('click',()=>{
+ state.subOpen=!state.subOpen;
+ updateSubVisibility();
+ if(state.subOpen){renderSubCustomers();el('subCustomer').focus();}
+});
 el('addCustomerButton').addEventListener('click',()=>{
  el('newCustomerPanel').classList.toggle('hidden');
 });
@@ -454,17 +517,15 @@ el('createCustomerButton').addEventListener('click',async()=>{
    name,phone:el('newCustomerPhone').value.trim(),type:partyType
   }});
   state.people.push(result.customer);
-  el('customerSearch').value='';
-  customerOptions('');
-  el('customer').value=result.customer.id;
-  renderSubCustomers();
+   customerOptions('');
+  selectParty(result.customer.id);
   el('newCustomerPanel').classList.add('hidden');
   el('newCustomerName').value='';el('newCustomerPhone').value='';
   msg('تم إنشاء العميل '+result.customer.code+' واختياره.','success');
  }catch(error){msg('تعذر إضافة العميل: '+String(error.message||error),'error');}
  finally{el('createCustomerButton').disabled=false;}
 });
-el('customer').addEventListener('change',()=>{persistUi();renderSubCustomers()});
+el('customer').addEventListener('change',()=>{syncPartyText();persistUi();renderSubCustomers();});
 el('subCustomer').addEventListener('change',()=>{
  const isNew=el('subCustomer').value==='__new__';
  el('subCustomerNewPanel').classList.toggle('hidden',!isNew);
@@ -474,12 +535,16 @@ el('subCustomer').addEventListener('change',()=>{
 el('itemSearch').addEventListener('input',event=>{
  clearTimeout(searchTimer);searchTimer=setTimeout(()=>searchItems(event.target.value),180);
 });
+el('emptyItemAdd').addEventListener('click',openItemPicker);
+el('closeItemPicker').addEventListener('click',closeItemPicker);
 el('addItemButton').addEventListener('click',()=>{
  el('itemSearch').focus();
  el('itemSearch').select();
  if(el('itemSearch').value.trim())void searchItems(el('itemSearch').value);
 });
 el('items').addEventListener('click',event=>{
+ const add=event.target.closest('[data-add-line]');
+ if(add){openItemPicker();return;}
  const button=event.target.closest('[data-remove]');
  if(button){state.lines.splice(Number(button.dataset.remove),1);renderLines();}
 });

@@ -161,3 +161,113 @@ main{max-width:1100px;padding:10px 9px 65px}
 
 /* No blank footer strip after the cashier actions. */
 main{padding-bottom:14px}
+
+/* Unified compact cashier: one-line party, last-item add, one-line settlement. */
+#cashier .panel{padding:8px 9px;margin-bottom:6px}
+#cashier .one-line-party{
+ display:grid;grid-template-columns:minmax(60px,74px) minmax(0,1fr) 35px 49px;
+ gap:5px;align-items:center
+}
+#cashier .one-line-party #partyType.party-role{
+ grid-column:auto;grid-row:auto;min-width:0;width:100%;height:38px;
+ font-size:12px;padding:5px 15px 5px 3px;text-align:center
+}
+#cashier .one-line-party #addCustomerButton{
+ grid-column:auto;grid-row:auto;min-height:36px;height:38px;
+ padding:0!important;font-weight:800;font-size:19px
+}
+#cashier #subCustomerToggle{
+ grid-column:auto;grid-row:auto;min-height:36px;height:38px;
+ padding:0 2px!important;white-space:nowrap;font-size:10px;
+ color:#0b56a5;background:#e9f3ff;border:1px solid #bfd6ee
+}
+#cashier .party-picker{position:relative;min-width:0}
+#cashier #customerSearch{width:100%;min-width:0;min-height:38px}
+#cashier #customer.hidden{display:none!important}
+#cashier .party-results{
+ position:absolute;top:calc(100% + 4px);right:0;left:0;z-index:60;
+ background:#fff;border:1px solid #a9c8ed;border-radius:9px;
+ box-shadow:0 8px 22px #1942702a;max-height:220px;overflow-y:auto;
+ padding:4px
+}
+#cashier .party-results.hidden{display:none!important}
+#cashier .party-option{
+ display:flex;align-items:center;justify-content:space-between;gap:7px;
+ width:100%;padding:7px!important;min-height:34px;
+ text-align:right;background:#fff;color:#173955;border:none;
+ border-bottom:1px solid #e9eef7;border-radius:5px
+}
+#cashier .party-option span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#cashier .party-option small{font-size:10px;flex:none;direction:ltr;color:#4a6b99}
+#cashier .party-option:hover,#cashier .party-option:focus{background:#e7f3ff}
+#cashier .party-no-match{padding:10px;color:#8090a4;text-align:center;font-size:12px}
+#cashier #subCustomerArea.hidden,#cashier #subCustomerNewPanel.hidden{display:none!important}
+#cashier .party-subrow{margin-top:5px}
+#cashier #newCustomerPanel .invoice-party{
+ display:grid;grid-template-columns:72px minmax(0,1fr) 36px;gap:5px
+}
+#cashier #newCustomerPanel .invoice-party button{grid-column:auto;grid-row:auto}
+#cashier .section-note{display:block}
+#cashier .section-note textarea{
+ display:block;width:100%;min-height:38px!important;padding:7px 9px;margin:0
+}
+#cashier .panel-items{padding-top:8px!important}
+#cashier .empty-items-row{
+ display:flex;align-items:center;justify-content:space-between;gap:8px;
+ color:#74889f;font-size:11px;min-height:38px
+}
+#cashier .empty-items-row.hidden,#cashier .item-picker.hidden{display:none!important}
+#cashier #emptyItemAdd{
+ background:#e9f3ff;color:#075bbb;border:1px solid #bbd5f3;
+ min-height:33px;border-radius:8px;padding:3px 10px;font-size:12px;font-weight:700
+}
+#cashier .item-picker{
+ margin-top:7px;border:1px solid #b6d4f3;padding:7px;
+ border-radius:10px;background:#f6faff
+}
+#cashier .item-picker .item-search-row{
+ display:grid;grid-template-columns:minmax(0,1fr) 45px 33px;gap:5px
+}
+#cashier #addItemButton{font-size:11px!important;min-height:35px}
+#cashier #closeItemPicker{font-size:20px;background:#e7eef8;color:#456080;padding:0}
+#cashier .line-head{display:flex;justify-content:space-between;gap:5px}
+#cashier .line-name-wrap{flex:1;min-width:0}
+#cashier .line-tools{display:inline-flex;align-items:center;gap:3px;flex:none}
+#cashier .line-tools button{
+ min-height:28px!important;height:29px;width:30px;padding:0!important;
+ display:grid;place-items:center;font-size:16px
+}
+#cashier .line-tools .line-add{
+ background:#0c68ce;color:#fff;font-size:20px;font-weight:800;
+ border:1px solid #0e64b7;border-radius:7px
+}
+#cashier .line-tools .line-remove{
+ background:#fff8f8;color:#d24a4a;border:1px solid #e4b9b9;border-radius:7px
+}
+#cashier .line-notes{margin-top:5px!important}
+#cashier .payment-inline{
+ display:grid;
+ grid-template-columns:37px minmax(46px,.65fr) 35px minmax(46px,.65fr) minmax(92px,1.3fr);
+ gap:4px;align-items:center;direction:rtl
+}
+#cashier .payment-inline label{
+ margin:0!important;text-align:center;white-space:nowrap;
+ font-size:11px!important;font-weight:750
+}
+#cashier .payment-inline input,#cashier .payment-inline select{
+ min-width:0;width:100%;height:36px;min-height:36px;
+ padding:4px!important;font-size:11px;text-align:center
+}
+#cashier .payment-inline select{text-align:right}
+#cashier .payment-notes-row{margin-top:6px}
+#cashier .action-row{margin-top:7px}
+@media(max-width:400px){
+ #cashier .one-line-party{grid-template-columns:63px minmax(0,1fr) 31px 44px;gap:3px}
+ #cashier #subCustomerToggle{font-size:9px}
+ #cashier .payment-inline{
+  grid-template-columns:32px minmax(43px,.65fr) 32px minmax(43px,.65fr) minmax(83px,1.3fr);
+  gap:3px
+ }
+ #cashier .payment-inline label{font-size:10px!important}
+ #cashier .payment-inline input,#cashier .payment-inline select{font-size:10px;padding:3px!important}
+}
