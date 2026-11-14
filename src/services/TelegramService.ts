@@ -1,238 +1,150 @@
-import { BusinessSettings } from '../types';
+import type {BusinessSettings} from '../types';
 import {getLocalSyncConfig} from '../sync-next/httpTransport';
 import {authHeaders,getCurrentSessionToken,secureLoginEnabled} from './secureAuth';
 
-let pollingTimeout: any = null;
-let isPollingActive = false;
-
-const currentTabId = typeof window !== 'undefined'
-  ? (window.name || (window.name = `tab_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`))
-  : 'server';
-
+let pollingTimeout:ReturnType<typeof setTimeout>|null=null;
+let isPollingActive=false;
+let activeLease:{chatId:string;updateId:number;leaseToken:string}|null=null;
+const currentTabId=typeof window!=='undefined'?
+  (window.name||(window.name='tg_tab_'+Date.now()+'_'+Math.random().toString(36).slice(2,8))):'server';
 export interface TelegramInlineButton {
-  text: string;
-  callback_data?: string;
-  url?: string;
+ text:string;callback_data?:string;url?:string;
 }
-
 export interface TelegramSendMessageOptions {
-  chatId?: string;
-  parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
-  replyMarkup?: {
-    inline_keyboard?: TelegramInlineButton[][];
-    keyboard?: { text: string }[][];
-    resize_keyboard?: boolean;
-    one_time_keyboard?: boolean;
-  };
+ chatId?:string;parseMode?:'HTML'|'Markdown'|'MarkdownV2';
+ replyMarkup?:{inline_keyboard?:TelegramInlineButton[][];keyboard?:{text:string}[][];resize_keyboard?:boolean;one_time_keyboard?:boolean;};
 }
-
 export interface TelegramIncomingAction {
-  type: 'message' | 'callback';
-  text: string;
-  data?: string;
-  chatId: string;
-  callbackQueryId?: string;
-  messageId?: number;
-  fromName?: string;
-  token: string;
+ type:'message'|'callback';text:string;data?:string;chatId:string;
+ callbackQueryId?:string;messageId?:number;fromName?:string;token:string;
 }
 
-export const TelegramService = {
-  sendMessage: async (
-    text: string,
-    settings: BusinessSettings,
-    options?: TelegramSendMessageOptions
-  ): Promise<boolean> => {
-    const token = settings.telegramConfig?.botToken;
-    const targetChatId = options?.chatId || settings.telegramConfig?.defaultChatId;
+function getHeaders(url:string):Record<string,string>{
+ const config=getLocalSyncConfig();
+ return {
+  ...authHeaders(url,secureLoginEnabled()?getCurrentSessionToken():config.token),
+  'content-type':'application/json'
+ };
+}
+async function postToCentral(path:string,body:Record<string,unknown>):Promise<void>{
+ const config=getLocalSyncConfig();
+ const reply=await fetch(config.url+'/api/v1/telegram/'+path+'?workspace='+encodeURIComponent(config.workspace),{
+  method:'POST',headers:getHeaders(config.url),
+  body:JSON.stringify(body),cache:'no-store'
+ });
+ if(!reply.ok)throw new Error('TELEGRAM_SERVER_'+path.toUpperCase().replaceAll('/','_')+'_HTTP_'+reply.status);
+ const outcome=await reply.json().catch(()=>null);
+ if(!outcome?.ok)throw new Error('TELEGRAM_DELIVERY_NOT_CONFIRMED');
+}
+function authorizedLease(chatId:string){
+ if(!activeLease||String(chatId)!==activeLease.chatId)
+   throw new Error('TELEGRAM_INBOX_LEASE_REQUIRED');
+ return {...activeLease};
+}
+async function pdfToBase64(blob:Blob):Promise<string>{
+ if(blob.size<=0||blob.size>20_000_000)throw new Error('TELEGRAM_PDF_SIZE_INVALID');
+ const bytes=await blob.arrayBuffer();
+ const values=new Uint8Array(bytes);
+ if(values[0]!==37||values[1]!==80||values[2]!==68||values[3]!==70)
+   throw new Error('TELEGRAM_REPORT_NOT_PDF');
+ return new Promise<string>((resolve,reject)=>{
+  const reader=new FileReader();
+  reader.onload=()=>resolve(String(reader.result||'').split(',')[1]||'');
+  reader.onerror=()=>reject(reader.error||new Error('TELEGRAM_PDF_ENCODING_FAILED'));
+  reader.readAsDataURL(blob);
+ });
+}
 
-    if (!settings.telegramConfig?.enabled || !token || !targetChatId) {
-      return false;
-    }
-
-    try {
-      const payload: any = {
-        chat_id: targetChatId,
-        text,
-        parse_mode: options?.parseMode || 'HTML',
-      };
-
-      if (options?.replyMarkup) {
-        payload.reply_markup = options.replyMarkup;
-      }
-
-      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      return response.ok;
-    } catch (error) {
-      console.warn('Error sending Telegram message:', error);
-      return false;
-    }
-  },
-
-  answerCallbackQuery: async (callbackQueryId: string, token: string, text?: string): Promise<boolean> => {
-    if (!callbackQueryId || !token) return false;
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          callback_query_id: callbackQueryId,
-          text: text || '',
-          show_alert: false,
-        }),
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
-  },
-
-  sendDocument: async (
-    blob: Blob,
-    filename: string,
-    caption: string,
-    chatId?: string,
-    botToken?: string
-  ): Promise<boolean> => {
-    const targetChatId = chatId || '';
-    const targetToken = botToken || '';
-    if (!targetToken || !targetChatId) return false;
-
-    try {
-      const formData = new FormData();
-      formData.append('chat_id', targetChatId);
-      formData.append('document', blob, filename);
-      if (caption) formData.append('caption', caption);
-
-      const response = await fetch(`https://api.telegram.org/bot${targetToken}/sendDocument`, {
-        method: 'POST',
-        body: formData,
-      });
-      return response.ok;
-    } catch (error) {
-      console.warn('Error sending document to Telegram:', error);
-      return false;
-    }
-  },
-
-  startPolling: (
-    settings: BusinessSettings,
-    onAction: (action: TelegramIncomingAction) => void | Promise<void>
-  ) => {
-    if (!settings.telegramConfig?.enabled || !settings.telegramConfig.botToken) {
-      TelegramService.stopPolling();
-      return;
-    }
-    TelegramService.stopPolling();
-    isPollingActive = true;
-
-    const scheduleNext = (delayMs: number) => {
-      if (!isPollingActive) return;
-      pollingTimeout = setTimeout(poll, delayMs);
-    };
-    const isTabLeader = (): boolean => {
-      try {
-        const raw = localStorage.getItem('telegram_polling_leader');
-        if (!raw) return true;
-        const parsed = JSON.parse(raw);
-        return !parsed?.tabId || Date.now() - parsed.time > 15000 ||
-          parsed.tabId === currentTabId;
-      } catch {
-        return true;
-      }
-    };
-    const claimLeadership = () => {
-      try {
-        localStorage.setItem('telegram_polling_leader', JSON.stringify({
-          tabId: currentTabId, time: Date.now()
-        }));
-      } catch {}
-    };
-    let inFlight = false;
-    const poll = async () => {
-      if (!isPollingActive || inFlight) return;
-      if (!navigator.onLine || !isTabLeader()) {
-        scheduleNext(10000);
-        return;
-      }
-      inFlight = true;
-      claimLeadership();
-      try {
-        const config = getLocalSyncConfig();
-        const headers = {
-          ...authHeaders(config.url, secureLoginEnabled() ? getCurrentSessionToken() : config.token),
-          'Content-Type': 'application/json'
-        };
-        const claim = await fetch(
-          config.url + '/api/v1/telegram/inbox/claim?workspace=' +
-            encodeURIComponent(config.workspace),
-          { method: 'POST', headers, body: '{}', cache: 'no-store' }
-        );
-        if (!claim.ok) {
-          scheduleNext(claim.status === 401 ? 20000 : 10000);
-          return;
-        }
-        const response = await claim.json() as {
-          item?: {
-            updateId: number;
-            leaseToken: string;
-            action: Omit<TelegramIncomingAction, 'token'>;
-          } | null;
-        };
-        if (!response.item) {
-          scheduleNext(3500);
-          return;
-        }
-        const {updateId, leaseToken, action} = response.item;
-        const token = settings.telegramConfig?.botToken || '';
-        if (!token) {
-          scheduleNext(15000);
-          return;
-        }
-        if (action.type === 'callback' && action.callbackQueryId) {
-          await TelegramService.answerCallbackQuery(action.callbackQueryId, token);
-        }
-        await onAction({...action, token});
-        const ack = await fetch(
-          config.url + '/api/v1/telegram/inbox/ack?workspace=' +
-            encodeURIComponent(config.workspace),
-          {method: 'POST', headers, body: JSON.stringify({updateId, leaseToken}), cache: 'no-store'}
-        );
-        if (!ack.ok) {
-          console.warn('Telegram report completed but server acknowledgement needs retry');
-        }
-        scheduleNext(400);
-      } catch (error) {
-        console.warn('Telegram report queue temporarily unavailable', error);
-        scheduleNext(15000);
-      } finally {
-        inFlight = false;
-      }
-    };
-    scheduleNext(1200);
-  },
-
-  stopPolling: () => {
-    isPollingActive = false;
-    if (pollingTimeout) {
-      clearTimeout(pollingTimeout);
-      pollingTimeout = null;
-    }
-    try {
-      const raw = localStorage.getItem('telegram_polling_leader');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.tabId === currentTabId) {
-          localStorage.removeItem('telegram_polling_leader');
-        }
-      }
-    } catch {}
-  },
+export const TelegramService={
+ sendMessage:async(text:string,settings:BusinessSettings,options?:TelegramSendMessageOptions):Promise<boolean>=>{
+  if(!settings.telegramConfig?.enabled)throw new Error('TELEGRAM_DISABLED');
+  const chatId=String(options?.chatId||settings.telegramConfig?.defaultChatId||'');
+  await postToCentral('report/send-message',{
+   ...authorizedLease(chatId),text,replyMarkup:options?.replyMarkup
+  });
+  return true;
+ },
+ answerCallbackQuery:async(callbackQueryId:string,_token:string,text?:string):Promise<boolean>=>{
+  if(!callbackQueryId)return false;
+  if(!activeLease)throw new Error('TELEGRAM_CALLBACK_LEASE_REQUIRED');
+  await postToCentral('report/answer-callback',{
+   ...activeLease,callbackQueryId,text:text||''
+  });
+  return true;
+ },
+ sendDocument:async(blob:Blob,filename:string,caption:string,chatId?:string,_botToken?:string):Promise<boolean>=>{
+  const target=String(chatId||'');
+  const lease=authorizedLease(target);
+  await postToCentral('report/send-document',{
+   ...lease,filename,caption,base64:await pdfToBase64(blob)
+  });
+  return true;
+ },
+ startPolling:(settings:BusinessSettings,onAction:(action:TelegramIncomingAction)=>void|Promise<void>)=>{
+  // Secret botToken is retained ONLY on PostgreSQL. It is intentionally
+  // removed from all browser snapshots, including the administrator's.
+  if(!settings.telegramConfig?.enabled){TelegramService.stopPolling();return;}
+  TelegramService.stopPolling();isPollingActive=true;
+  const schedule=(delay:number)=>{if(isPollingActive)pollingTimeout=setTimeout(poll,delay);};
+  const tabLeader=()=>{
+   try{
+    const raw=localStorage.getItem('telegram_polling_leader');
+    if(!raw)return true;
+    const value=JSON.parse(raw);
+    return !value.tabId||Date.now()-value.time>15000||value.tabId===currentTabId;
+   }catch{return true;}
+  };
+  const claimLeadership=()=>{
+   try{localStorage.setItem('telegram_polling_leader',JSON.stringify({tabId:currentTabId,time:Date.now()}));}catch{}
+  };
+  let inFlight=false;
+  const poll=async()=>{
+   if(!isPollingActive||inFlight)return;
+   if(!navigator.onLine||!tabLeader()){schedule(10000);return;}
+   inFlight=true;claimLeadership();
+   try{
+    const config=getLocalSyncConfig();
+    const endpoint=config.url+'/api/v1/telegram/';
+    const headers=getHeaders(config.url);
+    const response=await fetch(endpoint+'inbox/claim?workspace='+encodeURIComponent(config.workspace),{
+     method:'POST',headers,body:'{}',cache:'no-store'
+    });
+    if(!response.ok){schedule(response.status===401?20000:10000);return;}
+    const payload=await response.json() as {item?:{
+      updateId:number;leaseToken:string;action:Omit<TelegramIncomingAction,'token'>
+    }|null};
+    if(!payload.item){schedule(3500);return;}
+    const {updateId,leaseToken,action}=payload.item;
+    activeLease={updateId,leaseToken,chatId:String(action.chatId)};
+    try{
+     if(action.type==='callback'&&action.callbackQueryId)
+       await TelegramService.answerCallbackQuery(action.callbackQueryId,'');
+     await onAction({...action,token:''});
+     const ack=await fetch(endpoint+'inbox/ack?workspace='+encodeURIComponent(config.workspace),{
+      method:'POST',headers,body:JSON.stringify({updateId,leaseToken}),cache:'no-store'
+     });
+     if(!ack.ok)throw new Error('TELEGRAM_INBOX_ACK_FAILED_'+ack.status);
+     schedule(400);
+    }catch(error){
+     console.warn('Telegram inbox operation failed; releasing for retry',error);
+     await fetch(endpoint+'inbox/release?workspace='+encodeURIComponent(config.workspace),{
+      method:'POST',headers,body:JSON.stringify({updateId,leaseToken}),cache:'no-store'
+     }).catch(()=>{});
+     schedule(15000);
+    }finally{activeLease=null;}
+   }catch(error){
+    console.warn('Telegram central report queue temporarily unavailable',error);
+    schedule(15000);
+   }finally{inFlight=false;}
+  };
+  schedule(1200);
+ },
+ stopPolling:()=>{
+  isPollingActive=false;
+  if(pollingTimeout){clearTimeout(pollingTimeout);pollingTimeout=null;}
+  try{
+   const raw=localStorage.getItem('telegram_polling_leader');
+   if(raw&&JSON.parse(raw)?.tabId===currentTabId)localStorage.removeItem('telegram_polling_leader');
+  }catch{}
+ }
 };

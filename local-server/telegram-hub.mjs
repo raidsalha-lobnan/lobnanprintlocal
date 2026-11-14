@@ -152,6 +152,14 @@ export class TelegramHub {
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}
   finally{client.release()}
  }
+ async releaseInbox(updateId,leaseToken){
+  if(!Number.isSafeInteger(updateId)||updateId<=0||
+    typeof leaseToken!=='string'||leaseToken.length!==36)return false;
+  const r=await this.pool.query(
+   "UPDATE sync_telegram_inbox SET claimed_until=now()+interval '20 seconds',claim_token=NULL WHERE workspace=$1 AND update_id=$2 AND claim_token=$3 AND processed_at IS NULL",
+   [this.workspace,updateId,leaseToken]);
+  return r.rowCount===1;
+ }
  async ackInbox(updateId,leaseToken){
   if(!Number.isSafeInteger(updateId)||updateId<=0||
      typeof leaseToken!=='string'||leaseToken.length!==36)return false;

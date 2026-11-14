@@ -8,6 +8,7 @@ import {SyncService} from './sync-service.mjs';
 import {revisePostedInvoice} from './invoice-revision-service.mjs';
 import {TelegramDelivery} from './telegram-delivery.mjs';
 import {TelegramHub} from './telegram-hub.mjs';
+import {TelegramReportGateway} from './telegram-report-gateway.mjs';
 import {InputError} from './sync-domain.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
@@ -77,6 +78,7 @@ const currentBackupScheduler=()=>backupScheduler||{
 };
 const telegramDelivery=new TelegramDelivery(pool,WORKSPACE);
 const telegramHub=new TelegramHub(pool,WORKSPACE);
+const telegramReportGateway=new TelegramReportGateway(pool,WORKSPACE);
 const telegramTimer=setInterval(()=>{void telegramDelivery.drainOnce().catch(e=>console.error('telegram worker',e.message));},10000);
 telegramTimer.unref?.();
 // The private PostgreSQL server is the sole Telegram update consumer;
@@ -270,6 +272,28 @@ const srv=http.createServer(async(req,res)=>{
     if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/auth/logout'){
       await userAuth.logout(bearer);
       return json(res,200,{ok:true},cors);
+    }
+    if(req.method==='POST' && url.pathname.startsWith('/api/v1/telegram/')){
+      if(!STRICT_AUTH||!access?.can('view_accounting')||!access?.can('view'))
+        throw new InputError('TELEGRAM_FINANCIAL_REPORT_PERMISSION_REQUIRED',403);
+      if(url.pathname==='/api/v1/telegram/report/send-message'){
+        const payload=await parseBody(req,24000);
+        return json(res,200,await telegramReportGateway.message(payload),cors);
+      }
+      if(url.pathname==='/api/v1/telegram/report/send-document'){
+        const payload=await parseBody(req,30_000_000);
+        return json(res,200,await telegramReportGateway.document(payload),cors);
+      }
+      if(url.pathname==='/api/v1/telegram/report/answer-callback'){
+        const payload=await parseBody(req,8000);
+        return json(res,200,await telegramReportGateway.callback(payload),cors);
+      }
+      if(url.pathname==='/api/v1/telegram/inbox/release'){
+        const payload=await parseBody(req,2048);
+        const ok=await telegramHub.releaseInbox(payload?.updateId,payload?.leaseToken);
+        if(!ok)throw new InputError('TELEGRAM_INBOX_LEASE_EXPIRED',409);
+        return json(res,200,{ok:true},cors);
+      }
     }
     if(req.method==='POST' && url.pathname==='/api/v1/telegram/inbox/claim'){
       if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);
