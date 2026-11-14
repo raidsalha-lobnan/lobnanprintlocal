@@ -91,11 +91,6 @@ const totals=()=>{
  el('grand').textContent=format(total);
  el('paidSummary').textContent=format(paid);
  el('remainingSummary').textContent=format(remaining);
- const status=el('paymentStatus');
- if(paid<=0){status.textContent='◷ آجل — لا يوجد سداد';status.style.background='#fff3d8';status.style.color='#99600b';}
- else if(paid>total+.005){status.textContent='⚠ المدفوع أكبر من الإجمالي';status.style.background='#fff0ee';status.style.color='#a22b2b';}
- else if(remaining<=.005){status.textContent='✓ مسددة بالكامل';status.style.background='#e3f7e9';status.style.color='#0b7045';}
- else{status.textContent='◐ سداد جزئي';status.style.background='#fff3d8';status.style.color='#99600b';}
  return {subtotal,discount,vat,total,cash,bank,paid,remaining};
 };
 const renderLines=()=>{
@@ -403,7 +398,6 @@ const selectKind=kind=>{
  el('purchaseMetaPanel').classList.toggle('hidden',!purchase&&!expense);
  el('expenseMetaPanel').classList.toggle('hidden',!expense);
  el('settlementPanel').classList.toggle('hidden',print);
- el('paymentStatus').classList.toggle('hidden',print);
  el('totalLabel').textContent=print?'تقديري':'إجمالي';
  el('modeNotice').classList.toggle('hidden',sale||purchase&&enabled||expense&&enabled);
  if(print)el('modeNotice').textContent=enabled

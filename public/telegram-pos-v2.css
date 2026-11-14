@@ -140,3 +140,24 @@ main{max-width:1100px;padding:10px 9px 65px}
 #cashier #discount{width:39px!important;min-width:0;flex:1;font-size:11px!important;
  min-height:28px!important;padding:2px!important}
 #cashier #paymentStatus{display:none!important}
+
+/* One compact horizontal totals line: text and amount are adjacent. */
+#cashier .summary-row{display:flex;flex-wrap:nowrap;align-items:stretch;gap:3px;
+ overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin;direction:rtl}
+#cashier .summary-field{display:inline-flex;flex:1 0 auto;align-items:center;
+ justify-content:center;flex-direction:row;column-gap:3px;white-space:nowrap;
+ min-width:max-content;line-height:1.2;padding:6px 4px;text-align:center}
+#cashier .summary-field span{font-size:clamp(9px,2.45vw,11px)!important;
+ font-weight:650;white-space:nowrap}
+#cashier .summary-field strong{display:inline-block;white-space:nowrap;direction:ltr;
+ unicode-bidi:isolate;font-variant-numeric:tabular-nums;
+ font-size:clamp(9px,2.5vw,12px)!important}
+#cashier .summary-field.total strong{font-size:clamp(10px,2.7vw,13px)!important}
+#cashier .summary-field #discount{flex:none;width:38px!important;
+ max-width:40px;min-height:24px!important;padding:2px!important;
+ font-size:clamp(9px,2.5vw,11px)!important}
+@media(max-width:380px){#cashier .summary-field{padding:5px 3px;column-gap:2px}
+ #cashier .summary-row{gap:2px}}
+
+/* No blank footer strip after the cashier actions. */
+main{padding-bottom:14px}
