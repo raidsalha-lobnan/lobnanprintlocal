@@ -13,8 +13,10 @@ const todayLocal=()=>{
  return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
 };
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state={people:[],subCustomers:[],treasuries:[],vatRate:0,lines:[],draftId:crypto.randomUUID(),
-  busy:false,saved:false,lastReceipt:null,quickDone:false,kind:'sale',canPrint:false};
+const state={people:[],customers:[],suppliers:[],employees:[],expenseAccounts:[],
+  subCustomers:[],treasuries:[],vatRate:0,lines:[],draftId:crypto.randomUUID(),
+  busy:false,saved:false,lastReceipt:null,quickDone:false,kind:'sale',
+  canPrint:false,canPurchases:false,canExpenses:false};
 let searchTimer=0,searchEpoch=0;
 const msg=(text,kind='')=>{
  const x=el('status');x.textContent=text;x.className='status '+kind;
@@ -72,7 +74,8 @@ const renderSubCustomers=(wanted='',newName='')=>{
 };
 
 const account=()=>state.treasuries.find(x=>x.accountCode===el('treasury').value);
-const lineQty=l=>l.hasDimensions?Number(((Number(l.length)||0)*(Number(l.width)||0)*(Number(l.count)||0)).toFixed(3)):(Number(l.quantity)||0);
+const lineQty=l=>l.hasDimensions?Number(((Number(l.length)||0)*
+ (l.unitCalculationType==='linear'?1:(Number(l.width)||0))*(Number(l.count)||0)).toFixed(3)):(Number(l.quantity)||0);
 const paidValue=id=>{const v=el(id).value.trim();return v===''?0:Number(v);};
 const totals=()=>{
  const subtotal=round(state.lines.reduce((sum,l)=>sum+round(lineQty(l)*Number(l.unitPrice||0)),0));
@@ -125,7 +128,8 @@ const addItem=item=>{
  clearTimeout(searchTimer);
  searchEpoch++; // Invalidate slow search replies before they can repopulate an old list.
  state.lines.push({itemId:item.id,name:item.name,code:item.code,unit:item.unit,
-  unitPrice:Number(item.sellingPrice||0),quantity:1,
+  unitPrice:Number((['purchase','expense'].includes(state.kind)?item.purchasePrice:item.sellingPrice)||0),
+  unitCalculationType:item.unitCalculationType||'unit',quantity:1,
   hasDimensions:/(م²|م2|m²|m2|sqm|متر مربع)/i.test(String(item.unit||'')),
   length:1,width:1,count:1,notes:''});
  el('itemSearch').value='';el('results').replaceChildren();
@@ -145,23 +149,27 @@ const searchItems=async query=>{
    const b=document.createElement('button');b.type='button';b.className='result';
    b.innerHTML='<span><strong>'+escapeHtml(item.name)+'</strong><small>'+
     escapeHtml(item.code)+' • الرصيد: '+escapeHtml(item.stockQuantity)+'</small></span>'+
-    '<span class="price">'+format(item.sellingPrice)+'</span>';
+    '<span class="price">'+format(['purchase','expense'].includes(state.kind)?item.purchasePrice:item.sellingPrice)+'</span>';
    b.addEventListener('click',()=>addItem(item));list.appendChild(b);
   }
  }catch(error){if(current===searchEpoch)msg('تعذر البحث: '+String(error.message||error),'error');}
 };
 const formBody=()=>{
- if(!['sale','print'].includes(state.kind))throw Error('هذا النوع لم يُفعّل ترحيله في الكاشير المصغّر؛ استخدم قسمه في البرنامج.');
+ if(!['sale','print','purchase','expense'].includes(state.kind))throw Error('نوع المستند غير معروف.');
  const person=customer();
- if(!person)throw Error('اختر العميل الرئيسي');
+ if(!person)throw Error(state.kind==='purchase'||state.kind==='expense'?'اختر المورد أو المستفيد':'اختر العميل الرئيسي');
  if(!state.lines.length)throw Error('أضف صنفًا واحدًا على الأقل');
  const {total,cash,bank,paid}=totals();
- if(state.kind==='sale'&&total<=0)throw Error('إجمالي الفاتورة يجب أن يكون أكبر من صفر');
- if(state.kind==='sale'&&(!Number.isFinite(cash)||!Number.isFinite(bank)||cash<0||bank<0))throw Error('أدخل مبالغ سداد صحيحة');
- if(state.kind==='sale'&&paid>total+.005)throw Error('المدفوع لا يمكن أن يتجاوز الإجمالي');
- if(state.kind==='sale'&&cash>0&&!el('cashTreasury').value)throw Error('اختر صندوق النقدي');
- if(state.kind==='sale'&&bank>0&&!el('bankTreasury').value)throw Error('اختر حساب البنك');
- const subChoice=el('subCustomer').value;
+ if(state.kind!=='print'&&total<=0)throw Error('إجمالي الفاتورة يجب أن يكون أكبر من صفر');
+ if(state.kind!=='print'&&(!Number.isFinite(cash)||!Number.isFinite(bank)||cash<0||bank<0))throw Error('أدخل مبالغ سداد صحيحة');
+ if(state.kind!=='print'&&paid>total+.005)throw Error('المدفوع لا يمكن أن يتجاوز الإجمالي');
+ if(state.kind!=='print'&&cash>0&&!el('cashTreasury').value)throw Error('اختر صندوق النقدي');
+ if(state.kind!=='print'&&bank>0&&!el('bankTreasury').value)throw Error('اختر حساب البنك');
+ if(state.kind==='expense'&&el('expenseCounterpartyKind').value==='employee'&&paid<total-.005)
+  throw Error('مصروف الموظف يجب أن يكون مسدّدًا بالكامل، أو اختر موردًا لتسجيله آجلًا.');
+ if(state.kind==='expense'&&!el('expenseAccount').value)
+  throw Error('اختر حساب المصروف المعتمد.');
+ const subChoice=['sale','print'].includes(state.kind)?el('subCustomer').value:'';
  const sub=state.subCustomers.find(x=>x.id===subChoice&&x.parentPartyId===person.id);
  if(subChoice&&subChoice!=='__new__'&&!sub)throw Error('العميل الفرعي لا يتبع العميل الرئيسي');
  const newSubName=subChoice==='__new__'?el('subCustomerNewName').value.trim():'';
@@ -172,6 +180,9 @@ const formBody=()=>{
  const paymentMethod=bankLeg>0?'bank_transfer':cashLeg>0?'cash':'credit';
  const body={
   documentType:state.kind,date,customerId:person.id,customerName:person.name,
+  counterpartyKind:state.kind==='expense'?el('expenseCounterpartyKind').value:'supplier',
+  supplierInvoiceNumber:el('supplierInvoiceNumber').value.trim(),
+  expenseAccountCode:el('expenseAccount').value,expenseCategory:el('expenseCategory').value,
   subCustomerId:sub?.id||'',subCustomerName:sub?.name||newSubName,
   paymentMethod,paidAmount:cashLeg+bankLeg,
   cashPaidAmount:cashLeg,bankPaidAmount:bankLeg,
@@ -258,11 +269,22 @@ const bootstrap=async()=>{
  try{
   const result=await api('bootstrap');
   el('invoiceDate').value=todayLocal();
-  state.people=result.parties||[];
+  state.customers=result.parties||[];
+  state.suppliers=result.suppliers||[];
+  state.employees=result.employees||[];
+  state.expenseAccounts=result.expenseAccounts||[];
+  state.people=state.customers;
   state.subCustomers=result.subCustomers||[];
   state.treasuries=result.treasuries||[];
   state.canPrint=result.canPrintOrders===true;
+  state.canPurchases=result.canPurchases===true;
+  state.canExpenses=result.canExpenses===true;
   state.vatRate=Number(result.vatRate||0);
+  const expenseSelect=el('expenseAccount');
+  expenseSelect.replaceChildren(new Option('اختر حساب المصروف',''));
+  for(const account of state.expenseAccounts)
+   expenseSelect.appendChild(new Option(account.code+' - '+account.name,account.code));
+  if(state.expenseAccounts.length===1)expenseSelect.value=state.expenseAccounts[0].code;
   customerOptions('');
   const sel=el('customer');
   const remembered=(()=>{try{return localStorage.getItem('telegram_pos_last_customer')}catch{return null}})();
@@ -272,7 +294,7 @@ const bootstrap=async()=>{
   const cashBox=el('cashTreasury'),bankBox=el('bankTreasury');
   cashBox.replaceChildren(new Option('اختر الصندوق',''));
   bankBox.replaceChildren(new Option('اختر البنك',''));
-  const isBank=t=>/bank|بنكي|بنك/i.test(String(t.type||'')+' '+String(t.name||''));
+  const isBank=t=>t.type!=='cash_box';
   const cashOptions=state.treasuries.filter(t=>!isBank(t));
   const bankOptions=state.treasuries.filter(t=>isBank(t));
   for(const t of cashOptions)cashBox.appendChild(new Option(t.name,t.accountCode));
@@ -289,7 +311,13 @@ const bootstrap=async()=>{
   const draftToResume=(result.drafts||[]).find(x=>x.status==='draft');
   if(draftToResume&&window.confirm('توجد مسودة سابقة. هل تريد استكمالها؟')){
    state.draftId=draftToResume.draftId;const b=draftToResume.body;
-   if(b.documentType==='print')selectKind('print');
+   if(['print','purchase','expense'].includes(b.documentType)){
+    if(b.counterpartyKind==='employee')el('expenseCounterpartyKind').value='employee';
+    selectKind(b.documentType);
+   }
+   el('supplierInvoiceNumber').value=b.supplierInvoiceNumber||'';
+   if(b.expenseAccountCode)el('expenseAccount').value=b.expenseAccountCode;
+   if(b.expenseCategory)el('expenseCategory').value=b.expenseCategory;
    if(b.customerId)sel.value=b.customerId;
    renderSubCustomers(b.subCustomerId|| (b.subCustomerName?'__new__':''),b.subCustomerName||'');
    el('invoiceDate').value=b.date||todayLocal();
@@ -326,11 +354,12 @@ const bootstrap=async()=>{
   }else{show('notTelegram');msg('تعذر فتح الكاشير: '+code,'error');}
  }
 };
-const kindLabels={sale:['🛒','مبيعات'],print:['🖨️','أمر طباعة'],purchase:['📦','مشتريات'],expense:['🧾','مصروفات']};
+const kindLabels={sale:['🛒','مبيعات'],print:['🖨️','أمر طباعة'],
+ purchase:['📦','مشتريات'],expense:['🧾','مصروفات']};
 const selectKind=kind=>{
  if(!Object.hasOwn(kindLabels,kind))return;
  if(state.kind!==kind&&state.lines.length&&
-  !window.confirm('تغيير نوع المستند لا ينقل البنود إلى قسم مالي آخر. هل تريد المتابعة؟'))return;
+  !window.confirm('تغيير نوع المستند يحتفظ بالبنود، لكنه يغيّر الحسابات والقيد. هل تريد المتابعة؟'))return;
  state.kind=kind;
  const info=kindLabels[kind];
  el('currentInvoiceType').textContent=info[1];
@@ -339,22 +368,44 @@ const selectKind=kind=>{
  el('invoiceTypeButton').setAttribute('aria-expanded','false');
  for(const button of el('invoiceTypeMenu').querySelectorAll('[data-kind]'))
   button.setAttribute('aria-current',button.dataset.kind===kind?'true':'false');
- const sale=kind==='sale',print=kind==='print',enabled=sale||(print&&state.canPrint);
- el('modeNotice').classList.toggle('hidden',sale);
- if(print)el('modeNotice').textContent=state.canPrint
-  ?'أمر الطباعة طلب عمل غير محاسبي؛ لا يسجّل سدادًا أو بيعًا أو حركة مخزون. الأسعار الظاهرة للمعاينة فقط.'
-  :'ليست لديك صلاحية إضافة أوامر الطباعة من هذا الحساب.';
- else if(!sale)el('modeNotice').textContent='هذا النوع غير مفعل للاعتماد في الكاشير المصغّر بعد. استخدم القسم المختص في البرنامج، لتجنب ترحيل العملية إلى مكان محاسبي غير صحيح.';
+ const sale=kind==='sale',print=kind==='print',purchase=kind==='purchase',expense=kind==='expense';
+ const forEmployee=expense&&el('expenseCounterpartyKind').value==='employee';
+ const enabled=sale||(print&&state.canPrint)||
+  (purchase&&state.canPurchases)||(expense&&state.canExpenses&&state.expenseAccounts.length>0);
+ state.people=sale||print?state.customers:
+  forEmployee?state.employees:state.suppliers;
+ el('customerSearch').value='';
+ customerOptions('');
+ renderSubCustomers();
+ el('purchaseMetaPanel').classList.toggle('hidden',!purchase&&!expense);
+ el('expenseMetaPanel').classList.toggle('hidden',!expense);
+ el('expenseCounterpartyPanel').classList.toggle('hidden',!expense);
+ el('subCustomerArea').classList.toggle('hidden',!sale&&!print);
  el('settlementPanel').classList.toggle('hidden',print);
  el('paymentStatus').classList.toggle('hidden',print);
  el('totalLabel').textContent=print?'تقديري':'إجمالي';
- el('partyRole').textContent=kind==='purchase'?'المورد':kind==='expense'?'المستفيد':'العميل';
- el('subCustomerArea').classList.toggle('hidden',kind!=='sale'&&kind!=='print');
+ el('partyRole').textContent=purchase?'المورد':expense?(forEmployee?'الموظف':'المورد'):'العميل';
+ el('customerSearch').placeholder=forEmployee?'ابحث عن الموظف...':
+  purchase||expense?'ابحث عن المورد...':'ابحث عن العميل...';
+ el('addCustomerButton').disabled=!enabled||forEmployee;
+ el('newCustomerPanel').classList.add('hidden');
+ el('modeNotice').classList.toggle('hidden',sale||purchase&&enabled||expense&&enabled);
+ if(print)el('modeNotice').textContent=enabled
+  ?'أمر طباعة دون أي قيد محاسبي أو حركة مخزون.'
+  :'ليست لديك صلاحية إضافة أوامر الطباعة.';
+ else if(!enabled)el('modeNotice').textContent=expense&&state.expenseAccounts.length===0
+  ?'يجب إعداد حساب مصروف مسموح به في دليل الحسابات أولًا.'
+  :'لا توجد صلاحية كافية لاعتماد هذه العملية من الحساب الحالي.';
  el('saveButton').disabled=!enabled;
  el('draftButton').disabled=!enabled;
- el('addCustomerButton').disabled=!enabled;
- el('saveButton').textContent=sale?'✓ اعتماد الفاتورة':print&&enabled?'✓ حفظ أمر الطباعة':'الاعتماد غير متاح';
+ el('saveButton').textContent=!enabled?'الاعتماد غير متاح':
+  sale?'✓ اعتماد البيع':print?'✓ حفظ أمر الطباعة':
+  purchase?'✓ اعتماد فاتورة الشراء':'✓ اعتماد فاتورة المصروف';
+ el('draftButton').textContent='▤ حفظ مسودة';
+ // Cash and bank field values are never rewritten merely by switching modes.
+ if(state.lines.length)totals();
 };
+el('expenseCounterpartyKind').addEventListener('change',()=>selectKind('expense'));
 el('invoiceTypeButton').addEventListener('click',()=>{
  const menu=el('invoiceTypeMenu');menu.classList.toggle('hidden');
  el('invoiceTypeButton').setAttribute('aria-expanded',menu.classList.contains('hidden')?'false':'true');
@@ -385,8 +436,9 @@ el('createCustomerButton').addEventListener('click',async()=>{
  if(name.length<2){msg('أدخل اسم العميل أولًا.','error');return;}
  el('createCustomerButton').disabled=true;
  try{
+  const partyType=['sale','print'].includes(state.kind)?'customer':'supplier';
   const result=await api('customer/create',{customer:{
-   name,phone:el('newCustomerPhone').value.trim()
+   name,phone:el('newCustomerPhone').value.trim(),type:partyType
   }});
   state.people.push(result.customer);
   el('customerSearch').value='';

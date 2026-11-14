@@ -56,6 +56,8 @@ export const ExpensesView: React.FC = () => {
   }, [accounts]);
 
   // Filters
+  const [selectedInvoiceId,setSelectedInvoiceId]=useState<string|null>(null);
+  const selectedInvoice=expenses.find(exp=>exp.id===selectedInvoiceId);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [fromDate, setFromDate] = useState('');
@@ -348,7 +350,9 @@ export const ExpensesView: React.FC = () => {
                     <td className="p-3 text-slate-600 text-[11px]">
                       <div className="font-medium">{exp.treasuryName}</div>
                       <span className="text-slate-400">
-                        {exp.paymentMethod === 'cash' ? 'نقداً (كاش)' : 'تحويل بنكي'}
+                        {exp.paymentMethod === 'credit' ? 'آجل' :
+                          (exp.cashPaidAmount||0)>0&&(exp.bankPaidAmount||0)>0 ? 'نقدي + بنكي' :
+                          exp.paymentMethod === 'cash' ? 'نقدي' : 'بنكي'}
                       </span>
                     </td>
                     <td className="p-3 font-mono font-bold text-amber-700 text-sm">
@@ -356,6 +360,14 @@ export const ExpensesView: React.FC = () => {
                     </td>
                     <td className="p-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
+                        {exp.documentType==='purchase_invoice'&&!!exp.items?.length&&(
+                          <button type="button"
+                            onClick={()=>setSelectedInvoiceId(exp.id)}
+                            className="p-1.5 text-emerald-700 hover:bg-emerald-50 rounded-md cursor-pointer"
+                            title="عرض فاتورة المصروف وبنودها">
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => window.print()}
                           className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
@@ -363,13 +375,14 @@ export const ExpensesView: React.FC = () => {
                         >
                           <Printer className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => handleDeleteExpense(exp.id)}
-                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                          title="حذف المصروف"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {exp.documentType!=='purchase_invoice'&&(
+                          <button
+                            onClick={() => handleDeleteExpense(exp.id)}
+                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                            title="حذف المصروف">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -379,6 +392,47 @@ export const ExpensesView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Official itemized expense-purchase invoice, as posted from Telegram. */}
+      {selectedInvoice?.documentType==='purchase_invoice'&&(
+        <div className="fixed inset-0 z-[110] bg-slate-900/60 flex items-center justify-center p-3"
+             role="dialog" aria-modal="true" aria-label="تفاصيل فاتورة المصروف">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[88vh] overflow-y-auto p-4 space-y-3" dir="rtl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black text-lg text-slate-900">فاتورة مصروف {selectedInvoice.invoiceNumber}</h3>
+                <p className="text-xs text-slate-600">{selectedInvoice.date} — {selectedInvoice.beneficiary}</p>
+              </div>
+              <button type="button" onClick={()=>setSelectedInvoiceId(null)}
+                className="rounded-lg bg-slate-100 px-3 py-1 text-sm font-bold">إغلاق</button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-lg bg-blue-50 p-3 text-xs">
+              <div>الإجمالي<strong className="block">{selectedInvoice.amount.toFixed(2)} {settings.currency}</strong></div>
+              <div>الخصم<strong className="block">{(selectedInvoice.overallDiscountAmount||0).toFixed(2)}</strong></div>
+              <div>المدفوع<strong className="block">{(selectedInvoice.paidAmount||0).toFixed(2)}</strong></div>
+              <div>المتبقي<strong className="block">{(selectedInvoice.remainingAmount||0).toFixed(2)}</strong></div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-xs text-right border-collapse">
+                <thead className="bg-slate-100"><tr>
+                  <th className="p-2">الصنف</th><th className="p-2">ملاحظة البند</th>
+                  <th className="p-2">الكمية</th><th className="p-2">السعر</th><th className="p-2">الإجمالي</th>
+                </tr></thead>
+                <tbody>{(selectedInvoice.items||[]).map((line,index)=>(
+                  <tr key={index} className="border-b border-slate-200">
+                    <td className="p-2">{line.itemName}</td><td className="p-2">{line.notes||'—'}</td>
+                    <td className="p-2">{line.quantity}</td><td className="p-2">{line.unitPrice}</td>
+                    <td className="p-2 font-bold">{(line.totalAfterTax??line.total).toFixed(2)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            {selectedInvoice.notes&&<p className="text-xs"><strong>ملاحظات الفاتورة:</strong> {selectedInvoice.notes}</p>}
+            {selectedInvoice.paymentReceiptNote&&<p className="text-xs"><strong>ملاحظات السداد:</strong> {selectedInvoice.paymentReceiptNote}</p>}
+            <p className="text-[11px] text-slate-500">مستند مالي معتمد. التصحيح يجب أن يكون بإجراء محاسبي، وليس بالحذف.</p>
+          </div>
+        </div>
+      )}
 
       {/* New Expense Modal */}
       {isModalOpen && (

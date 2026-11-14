@@ -72,6 +72,13 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
   <div id="modeNotice" class="hint hidden" role="status"></div>
  </div>
  <div class="panel">
+  <div id="expenseCounterpartyPanel" class="compact-mode-row hidden">
+   <label for="expenseCounterpartyKind">مصروف على</label>
+   <select id="expenseCounterpartyKind" aria-label="نوع مستفيد المصروف">
+    <option value="supplier">مورد</option>
+    <option value="employee">موظف</option>
+   </select>
+  </div>
   <div class="invoice-party">
    <div class="party-role" id="partyRole">العميل</div>
    <input id="customerSearch" type="search" placeholder="ابحث بالاسم أو الرمز..." autocomplete="off" aria-label="بحث عن العميل"/>
@@ -92,6 +99,24 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
     <button type="button" class="primary" id="createCustomerButton" aria-label="حفظ العميل">✓</button>
    </div>
    <input id="newCustomerPhone" maxlength="35" type="tel" placeholder="الهاتف (اختياري)" style="margin-top:6px"/>
+  </div>
+  <div id="purchaseMetaPanel" class="compact-mode-row hidden">
+   <label for="supplierInvoiceNumber">فاتورة المورد</label>
+   <input id="supplierInvoiceNumber" maxlength="100" autocomplete="off" placeholder="رقم فاتورة المورد (اختياري)"/>
+  </div>
+  <div id="expenseMetaPanel" class="compact-mode-row hidden">
+   <label for="expenseAccount">حساب المصروف</label>
+   <select id="expenseAccount"><option value="">اختر الحساب</option></select>
+   <label for="expenseCategory">التصنيف</label>
+   <select id="expenseCategory">
+    <option value="maintenance">صيانة وإصلاح</option>
+    <option value="rent">إيجارات</option>
+    <option value="utilities">خدمات ومرافق</option>
+    <option value="marketing">تسويق وإعلان</option>
+    <option value="hospitality">ضيافة</option>
+    <option value="supplies">مستلزمات</option>
+    <option value="other" selected>مصروفات أخرى</option>
+   </select>
   </div>
  </div>
  <div class="panel">

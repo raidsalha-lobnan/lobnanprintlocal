@@ -10,12 +10,19 @@ const ENTITIES=new Map([
 ]);
 // Invoice-related journals and stock movements are technical side-effects, not
 // separate business actions. Confirm the invoice itself, not each ledger row.
-export const telegramRelevantChanges=(changes)=>changes.filter(c=>{
+export const telegramRelevantChanges=(changes)=>{
+ const isMiniFinancial=changes.some(c=>
+  ['purchases','expenses'].includes(c.entity)&&c.value?.source==='telegram-mini');
+ return changes.filter(c=>{
  if(!ENTITIES.has(c.entity))return false;
+ // One concise business notice for a mini purchase/expense: linked journals,
+ // stock receipts, vouchers and treasury activity belong to that one action.
+ if(isMiniFinancial&&!['purchases','expenses'].includes(c.entity))return false;
  if(c.entity==='journalEntries' && ['pos_invoice','cogs','invoice_correction'].includes(c.value?.referenceType))return false;
  if(c.entity==='stockMovements' && c.value?.referenceType==='pos_invoice')return false;
  return true;
-});
+ });
+};
 const clean=(v,max=160)=>String(v??'').replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,max);
 export function committedTelegramText(row){
  const c=telegramRelevantChanges(row.changes);

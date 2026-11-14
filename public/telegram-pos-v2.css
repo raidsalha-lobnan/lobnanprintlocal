@@ -94,3 +94,10 @@ main{max-width:1100px;padding:10px 9px 65px}
  .payment-notes-row{grid-template-columns:63px minmax(0,1fr)}
  #cashier .panel{padding:9px 7px}
 }
+
+.compact-mode-row{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px;align-items:center;margin-top:7px}
+.compact-mode-row label{white-space:nowrap;font-weight:700!important;margin:0!important}
+.compact-mode-row input,.compact-mode-row select{min-width:0}
+#expenseMetaPanel{grid-template-columns:max-content minmax(0,1fr) max-content minmax(0,1fr)}
+#expenseCounterpartyPanel{margin:0 0 7px;grid-template-columns:70px minmax(0,1fr)}
+@media(max-width:420px){#expenseMetaPanel{grid-template-columns:65px minmax(0,1fr)}}

@@ -112,11 +112,12 @@ test('bootstrap exposes only authorized subcustomers with visible parent account
  ];
  const mini=new TelegramMiniPos({query:async sql=>{
   if(sql.includes("entity IN ('settings','parties','treasuries')"))return {rows};
+  if(sql.includes("entity IN ('accounts','employees')"))return {rows:[]};
   if(sql.includes('FROM sync_telegram_pos_drafts'))return {rows:[]};
   throw Error('UNEXPECTED_BOOTSTRAP_QUERY');
  }},'lobnan_main',{});
  mini.session=async()=>({user:{name:'Authorized user'},access:{
-  canRead:(entity,record,id)=>id!==other.id&&id!==foreign.id
+  can:()=>true,canRead:(entity,record,id)=>id!==other.id&&id!==foreign.id
  }});
  const b=await mini.bootstrap('SIGNED');
  assert.deepEqual(b.parties.map(p=>p.id),[main.id]);

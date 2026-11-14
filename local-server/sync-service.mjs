@@ -41,10 +41,16 @@ export class SyncService {
     return this.withTx(client=>this.pushInTx(workspace,command,actorId,client));
   }
   // Internal only: must be called inside an open PostgreSQL transaction.
-  async pushInTx(workspace,command,actorId,client,authorizedRevisionInvoiceId=null) {
+  async pushInTx(workspace,command,actorId,client,authorizedRevisionInvoiceId=null,authorizedMiniPurchase=false) {
     validateCommand(command,workspace);
     validateAtomicInvoicePosting(command);
     const hash=fingerprint(command);
+    // Only the internal, already-authorized Telegram purchase worker may
+    // reconcile legacy warehouse presentation maps after a true stock receipt.
+    // The public push endpoint never receives this privileged boolean.
+    const trustedMiniPurchase=authorizedMiniPurchase===true&&
+      command.changes.some(c=>c.entity==='purchases'&&
+       c.id==='pur-mini-'+command.id&&c.value?.source==='telegram-mini');
 
       // Serializing all commits per workspace guarantees a commit-ordered, gap-free cursor.
       await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING',[workspace]);
@@ -155,7 +161,7 @@ export class SyncService {
           val=normalizeSingleWarehouseInventory({
             previous:old?.value,next:val,warehouseId:singleWarehouseId,
             commandId:command.id,now:new Date().toISOString(),
-            atomicSale:!!command.atomicInvoiceId && change.expectedVersion>0
+            atomicSale:(!!command.atomicInvoiceId||trustedMiniPurchase)&&change.expectedVersion>0
           });
         }
         // The workspace row is locked above. Resolve only explicitly automatic

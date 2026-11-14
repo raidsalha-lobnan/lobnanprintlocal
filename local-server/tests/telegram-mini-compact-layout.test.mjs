@@ -75,8 +75,10 @@ test('server requires treasury selection when an amount is entered',()=>{
  assert.throws(()=>normalizeMiniSaleBody({...base,cashPaidAmount:0,bankPaidAmount:10}),
   /MINI_POS_PAYMENT_TREASURY_REQUIRED/);
 });
-test('unsupported purchase/expense document types cannot ever be saved as sales',()=>{
- for(const documentType of ['purchase','expense']){
+test('all four valid business document types are accepted, unsupported modes rejected',()=>{
+ for(const documentType of ['sale','print','purchase','expense'])
+  assert.equal(normalizeMiniSaleBody({...base,documentType}).documentType,documentType);
+ for(const documentType of ['refund','unknown']){
   assert.throws(()=>normalizeMiniSaleBody({...base,documentType}),
    /MINI_POS_DOCUMENT_TYPE_NOT_IMPLEMENTED/);
  }

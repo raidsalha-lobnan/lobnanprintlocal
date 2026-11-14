@@ -851,6 +851,27 @@ export interface ExpenseItem {
   exchangeRate?: number;
   voucherNumber?: string;
   journalEntryId?: string;
+  /** Itemized supplier-cost invoice originating from the Telegram mini cashier. */
+  documentType?: 'purchase_invoice';
+  source?: string;
+  invoiceNumber?: string;
+  supplierId?: string;
+  supplierName?: string;
+  employeeId?: string;
+  items?: PurchaseItem[];
+  subtotal?: number;
+  taxRate?: number;
+  taxAmount?: number;
+  totalAmount?: number;
+  paidAmount?: number;
+  remainingAmount?: number;
+  paymentReceiptNote?: string;
+  overallDiscountAmount?: number;
+  cashPaidAmount?: number;
+  bankPaidAmount?: number;
+  cashTreasuryAccountCode?: string;
+  bankTreasuryAccountCode?: string;
+  status?: 'paid' | 'partial' | 'unpaid';
 }
 
 // Convenient aliases for POS & Financial components

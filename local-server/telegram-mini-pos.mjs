@@ -3,6 +3,7 @@ import {InputError} from './sync-domain.mjs';
 import {resolveAccess,authorizeCommand} from './access-policy.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
 import {buildNewAtomicPosSale} from './atomic-pos-builder.compiled.mjs';
+import {miniFinancialChanges,MINI_EXPENSE_CATEGORIES} from './telegram-mini-purchase-posting.mjs';
 
 const fail=(code,status=422)=>{throw new InputError(code,status);};
 const uid=v=>typeof v==='string'&&v.length<=180&&/^[a-zA-Z0-9_-]+$/.test(v);
@@ -49,7 +50,7 @@ export function normalizeMiniSaleBody(body){
  if(!body||typeof body!=='object'||Array.isArray(body))
   fail('MINI_POS_INVALID_DRAFT');
  const documentType=body.documentType||'sale';
- if(!['sale','print'].includes(documentType))fail('MINI_POS_DOCUMENT_TYPE_NOT_IMPLEMENTED',409);
+ if(!['sale','print','purchase','expense'].includes(documentType))fail('MINI_POS_DOCUMENT_TYPE_NOT_IMPLEMENTED',409);
  const items=body.items;
  if(!Array.isArray(items)||items.length<1||items.length>25)
   fail('MINI_POS_INVALID_ITEMS');
@@ -92,7 +93,11 @@ export function normalizeMiniSaleBody(body){
   customerName:text(body.customerName,160),
   subCustomerId:uid(body.subCustomerId)?body.subCustomerId:'',
   subCustomerName:text(body.subCustomerName,100),
-  paymentNotes:text(body.paymentNotes,1000)
+  paymentNotes:text(body.paymentNotes,1000),
+  counterpartyKind:body.counterpartyKind==='employee'?'employee':'supplier',
+  supplierInvoiceNumber:text(body.supplierInvoiceNumber,100),
+  expenseCategory:Object.hasOwn(MINI_EXPENSE_CATEGORIES,body.expenseCategory)?body.expenseCategory:'other',
+  expenseAccountCode:uid(body.expenseAccountCode)?body.expenseAccountCode:''
  };
 }
 
@@ -188,6 +193,21 @@ export class TelegramMiniPos {
   const rows=await this.pool.query(
    "SELECT entity,record_id,value FROM sync_records WHERE workspace=$1 AND entity IN ('settings','parties','treasuries')",
    [this.workspace]);
+  const suppliers=rows.rows.filter(r=>r.entity==='parties'&&
+    r.value&&!r.value.isSubCustomer&&['supplier','both'].includes(r.value.type)&&
+    auth.access.canRead('parties',r.value,r.record_id))
+   .map(r=>({id:r.record_id,name:r.value.name,code:r.value.code,
+     phone:r.value.phone||'',balance:r.value.balance||0}));
+  const financialRows=await this.pool.query(
+   "SELECT entity,record_id,value FROM sync_records WHERE workspace=$1 AND entity IN ('accounts','employees')",
+   [this.workspace]);
+  const expenseAccounts=financialRows.rows.filter(r=>r.entity==='accounts'&&r.value&&
+    r.value.type==='expense'&&String(r.value.code||'').startsWith('5')&&
+    auth.access.canRead('accounts',r.value,r.record_id))
+   .map(r=>({id:r.record_id,code:r.value.code,name:r.value.name}));
+  const employees=financialRows.rows.filter(r=>r.entity==='employees'&&r.value&&
+    r.value.status!=='inactive'&&auth.access.canRead('employees',r.value,r.record_id))
+   .map(r=>({id:r.record_id,name:r.value.name,code:r.value.code||''}));
   const parties=rows.rows.filter(r=>r.entity==='parties'&&
     r.value&&!r.value.isSubCustomer&&['customer','both'].includes(r.value.type)&&
     auth.access.canRead('parties',r.value,r.record_id))
@@ -208,7 +228,11 @@ export class TelegramMiniPos {
   const draftRows=await this.pool.query(
    "SELECT draft_id,status,body,invoice_id,updated_at FROM sync_telegram_pos_drafts WHERE workspace=$1 AND telegram_user_id=$2 ORDER BY updated_at DESC LIMIT 8",
    [this.workspace,auth.telegramUserId]);
-  return {ok:true,linked:true,linkExpires:false,displayName:auth.user.name||auth.name,parties,subCustomers,treasuries,
+  return {ok:true,linked:true,linkExpires:false,displayName:auth.user.name||auth.name,
+   parties,subCustomers,suppliers,employees,expenseAccounts,treasuries,
+   canPurchases:auth.access.can('view_inventory')&&auth.access.can('view_accounting')&&auth.access.can('add'),
+   canExpenses:auth.access.can('view_accounting')&&auth.access.can('add'),
+   defaultSupplierId:suppliers[0]?.id||'',
    canPrintOrders:typeof auth.access.can==='function'&&
     auth.access.can('view_print_orders')&&auth.access.can('add'),
    defaultCustomerId:parties.find(x=>x.code==='CUST-0001')?.id||parties[0]?.id||'',
@@ -228,18 +252,21 @@ export class TelegramMiniPos {
     barcode:x.value.barcode||'',sellingPrice:Number(x.value.sellingPrice||0),
     purchasePrice:Number(x.value.purchasePrice||0),
     stockQuantity:Number(x.value.stockQuantity||0),
-    category:x.value.category,unit:x.value.unit||''}));
+    category:x.value.category,unit:x.value.unit||'',
+    unitCalculationType:x.value.unitCalculationType||'unit'}));
   return {items};
  }
  async createCustomer(initData,details){
   const auth=await this.session(initData);
   const name=text(details?.name,120),phone=text(details?.phone,35);
+  const partyType=details?.type==='supplier'?'supplier':'customer';
   if(name.length<2)fail('MINI_POS_CUSTOMER_NAME_REQUIRED');
   const id='pt-mini-'+crypto.randomUUID();
   const command={id:crypto.randomUUID(),workspaceId:this.workspace,actorId:auth.user.id,
    createdAt:Date.now(),attempts:0,retryAt:0,status:'pending',
    changes:[{entity:'parties',id,expectedVersion:0,value:{
-    id,code:'CUST-0002',_serverAutoCode:true,type:'customer',
+    id,code:partyType==='supplier'?'SUPP-0001':'CUST-0002',
+    _serverAutoCode:true,type:partyType,
     name,phone,email:'',balance:0,openingBalance:0
    }}]};
   await authorizeCommand(this.pool,this.workspace,auth.access,command);
@@ -247,7 +274,7 @@ export class TelegramMiniPos {
   const customer=receipt.changes.find(x=>x.entity==='parties'&&x.id===id)?.value;
   if(!customer)fail('MINI_POS_CUSTOMER_RECEIPT_MISSING',503);
   return {ok:true,customer:{id:customer.id,name:customer.name,code:customer.code,
-    phone:customer.phone,balance:customer.balance}};
+    phone:customer.phone,balance:customer.balance,type:customer.type}};
  }
  async saveDraft(initData,draftId,input){
   const auth=await this.session(initData);
@@ -285,6 +312,8 @@ export class TelegramMiniPos {
    const draft=r.rows[0];
    if((draft.body?.documentType||'sale')==='print')
     return this.commitPrintOrderInTx(client,auth,draftId,draft);
+   if(['purchase','expense'].includes(draft.body?.documentType))
+    return this.commitPurchaseOrExpenseInTx(client,auth,draftId,draft);
    const invoiceId='inv-pos-'+draftId;
    if(draft.status==='posted'){
     const prev=await client.query(
@@ -395,6 +424,127 @@ export class TelegramMiniPos {
    return {ok:true,invoiceNumber:invoice.invoiceNumber,invoiceId,
     totalAmount:invoice.totalAmount,customerName:invoice.customerName};
   });
+ }
+ // Purchase and expense invoices are separate authoritative business entities.
+ // A purchase creates stock receipts; an expense invoice debits a selected
+ // expense account and NEVER moves stock. Every effect is one SQL transaction.
+ async commitPurchaseOrExpenseInTx(client,auth,draftId,draft){
+  const body=normalizeMiniSaleBody(draft.body);
+  const type=body.documentType,entity=type==='purchase'?'purchases':'expenses';
+  const id=(type==='purchase'?'pur-mini-':'exp-mini-')+draftId;
+  if(!['purchase','expense'].includes(type))fail('MINI_FINANCIAL_TYPE_INVALID');
+  if(draft.status==='posted'){
+   const previous=await client.query(
+    'SELECT value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',
+    [this.workspace,entity,id]);
+   const doc=previous.rows[0]?.value;
+   if(!doc)fail('MINI_FINANCIAL_POSTED_RECEIPT_NOT_FOUND',503);
+   return {ok:true,alreadyPosted:true,documentType:type,
+    invoiceNumber:doc.invoiceNumber,invoiceId:id,
+    customerName:doc.supplierName||doc.beneficiary,totalAmount:doc.totalAmount};
+  }
+  if(!auth.access.can('add')||!auth.access.can('view_accounting')||
+    (type==='purchase'&&!auth.access.can('view_inventory')))
+   fail('MINI_FINANCIAL_PERMISSION_DENIED',403);
+  if(type==='purchase'&&body.counterpartyKind==='employee')
+   fail('MINI_PURCHASE_SUPPLIER_REQUIRED',409);
+  // Lock the workspace BEFORE reading versions and issuing document numbers.
+  // pushInTx obtains this same lock reentrantly on the same pg client.
+  await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING',
+    [this.workspace]);
+  await client.query('SELECT next_sequence FROM sync_workspaces WHERE id=$1 FOR UPDATE',
+    [this.workspace]);
+  const itemIds=[...new Set(body.items.map(i=>i.itemId))];
+  const records=await client.query(
+   "SELECT entity,record_id,version,value FROM sync_records WHERE workspace=$1 AND ((entity='inventory' AND record_id=ANY($2::text[])) OR (entity='parties' AND record_id=$3) OR (entity='employees' AND record_id=$3) OR entity IN ('accounts','treasuries','warehouses','settings'))",
+   [this.workspace,itemIds,body.customerId]);
+  const rows=records.rows.filter(r=>r.value&&r.value._deleted!==true);
+  const inventoryRows=rows.filter(r=>r.entity==='inventory');
+  if(inventoryRows.length!==itemIds.length)fail('MINI_FINANCIAL_ITEM_NOT_FOUND',409);
+  for(const row of inventoryRows){
+   if(!auth.access.canRead('inventory',row.value,row.record_id))
+    fail('MINI_FINANCIAL_ITEM_NOT_AUTHORIZED',403);
+  }
+  const employeeRow=type==='expense'&&body.counterpartyKind==='employee'
+   ?rows.find(r=>r.entity==='employees'&&r.record_id===body.customerId):null;
+  if(type==='expense'&&body.counterpartyKind==='employee'&&!employeeRow)
+   fail('MINI_FINANCIAL_EMPLOYEE_NOT_FOUND',409);
+  const supplierRow=!employeeRow
+   ?rows.find(r=>r.entity==='parties'&&r.record_id===body.customerId):null;
+  if(employeeRow){
+   if(!auth.access.canRead('employees',employeeRow.value,employeeRow.record_id)||
+     employeeRow.value.status==='inactive')
+    fail('MINI_FINANCIAL_EMPLOYEE_NOT_AUTHORIZED',403);
+  }else if(!supplierRow||!['supplier','both'].includes(supplierRow.value.type)||
+    supplierRow.value.isSubCustomer===true||
+    !auth.access.canRead('parties',supplierRow.value,supplierRow.record_id)){
+   fail('MINI_FINANCIAL_SUPPLIER_REQUIRED',409);
+  }
+  const accountRows=rows.filter(r=>r.entity==='accounts');
+  const treasuryRows=rows.filter(r=>r.entity==='treasuries');
+  const accountCodes=new Set(['1302','2101','2103',body.expenseAccountCode,
+   body.cashPaidAmount>0?body.cashTreasuryCode:null,
+   body.bankPaidAmount>0?body.bankTreasuryCode:null].filter(Boolean));
+  for(const code of accountCodes){
+   const account=accountRows.find(r=>r.value.code===code);
+   if(account&&!auth.access.canRead('accounts',account.value,account.record_id))
+    fail('MINI_FINANCIAL_ACCOUNT_NOT_AUTHORIZED',403);
+  }
+  for(const [amt,code,expectedType] of [
+   [body.cashPaidAmount,body.cashTreasuryCode,'cash_box'],
+   [body.bankPaidAmount,body.bankTreasuryCode,'bank']]){
+   if(amt<=0)continue;
+   const row=treasuryRows.find(r=>r.value.accountCode===code&&
+     r.value.status==='active');
+   if(!row||!auth.access.canRead('treasuries',row.value,row.record_id)||
+      (expectedType==='cash_box'&&row.value.type!=='cash_box')||
+      (expectedType==='bank'&&row.value.type==='cash_box'))
+    fail('MINI_FINANCIAL_TREASURY_NOT_AUTHORIZED',403);
+  }
+  const warehouses=rows.filter(r=>r.entity==='warehouses');
+  if(type==='purchase'&&warehouses.length!==1)
+   fail('MINI_PURCHASE_SINGLE_WAREHOUSE_REQUIRED',409);
+  const selectedWarehouse=warehouses[0];
+  if(selectedWarehouse&&type==='purchase'&&
+    !auth.access.canRead('warehouses',selectedWarehouse.value,selectedWarehouse.record_id))
+   fail('MINI_PURCHASE_WAREHOUSE_NOT_AUTHORIZED',403);
+  const settings=rows.find(r=>r.entity==='settings'&&r.record_id==='global')?.
+    value||rows.find(r=>r.entity==='settings')?.value||{};
+  const vatRate=Number(settings.vatRate||0);
+  const year=(body.date||new Date(draft.created_at).toISOString().slice(0,10)).slice(0,4);
+  const prefix=type==='purchase'?'PUR-'+year+'-':'EXP-'+year+'-';
+  const existing=await client.query(
+   "SELECT value->>'invoiceNumber' AS code FROM sync_records WHERE workspace=$1 AND entity=$2 AND value->>'invoiceNumber' LIKE $3",
+   [this.workspace,entity,prefix+'%']);
+  const maximum=existing.rows.reduce((num,r)=>{
+   const str=String(r.code||'');
+   const suffix=str.startsWith(prefix)?str.slice(prefix.length):'';
+   return /^[0-9]+$/.test(suffix)?Math.max(num,Number(suffix)):num;
+  },0);
+  const documentNumber=prefix+String(maximum+1).padStart(4,'0');
+  const actor={id:auth.user.id,name:auth.user.name||auth.name,
+   branchId:auth.user.allowedBranchIds?.find(x=>x!=='*')||auth.user.branchId};
+  const output=miniFinancialChanges({
+   workspace:this.workspace,body,draftId,
+   createdAt:new Date(draft.created_at).toISOString(),
+   documentNumber,supplierRow,employeeRow,
+   stockRows:inventoryRows,accountRows,treasuryRows,
+   warehouseId:selectedWarehouse?.record_id,
+   warehouseName:selectedWarehouse?.value?.name||'الرئيسي',
+   vatRate,actor
+  });
+  await authorizeCommand(this.pool,this.workspace,auth.access,output.command);
+  const receipt=await this.syncService.pushInTx(
+   this.workspace,output.command,auth.user.id,client,null,type==='purchase');
+  const official=receipt.changes.find(r=>r.entity===entity&&r.id===id)?.value;
+  if(!official||official.invoiceNumber!==documentNumber)
+   fail('MINI_FINANCIAL_OFFICIAL_RECEIPT_MISSING',503);
+  const updated=await client.query(
+   "UPDATE sync_telegram_pos_drafts SET status='posted',invoice_id=$3,updated_at=now() WHERE workspace=$1 AND draft_id=$2 AND status='draft'",
+   [this.workspace,draftId,id]);
+  if(updated.rowCount!==1)fail('MINI_FINANCIAL_CHECKPOINT_FAILED',503);
+  return {ok:true,documentType:type,invoiceNumber:documentNumber,invoiceId:id,
+   customerName:output.partyName,totalAmount:output.amount.totalAmount};
  }
  // Print orders use the program's nonfinancial printOrders record. No sales
  // invoice, inventory movement, receipt, voucher or journal is ever generated.
