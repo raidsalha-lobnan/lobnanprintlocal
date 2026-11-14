@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {TELEGRAM_REPORT_COMMANDS,telegramReportsInlineMenu,telegramPersistentMainMenuKeyboard,telegramMenuText,isTelegramMenuMessage,isTelegramStartMessage,isTelegramMainMenuCallback} from './telegram-bot-menu.mjs';
 
 // A single server-side poller handles public Telegram /start and /stop even
 // when no sales dashboard is open. Interactive report commands are queued for
@@ -10,6 +11,9 @@ export class TelegramHub {
   this.pool=pool;this.workspace=workspace;this.fetch=fetchImpl;
   this.polling=false;this.nextPoll=0;
   this.inboxWaiters=new Set();
+  this.botMenuConfiguredToken=null;
+  this.botMenuAttemptedToken=null;
+  this.botMenuNextCheck=0;
  }
  async configuration(){
   const r=await this.pool.query(
@@ -25,13 +29,52 @@ export class TelegramHub {
    "INSERT INTO sync_telegram_subscribers(workspace,chat_id,subscribed_at) VALUES($1,$2,'1970-01-01'::timestamptz) ON CONFLICT DO NOTHING",
    [this.workspace,String(config.defaultChatId)]);
  }
- async sendReply(token,chatId,text){
+ async callBotApi(token,method,payload){
+  const response=await this.fetch('https://api.telegram.org/bot'+token+'/'+method,{
+   method:'POST',headers:{'content-type':'application/json'},
+   body:JSON.stringify(payload),signal:AbortSignal.timeout(10000)
+  });
+  if(!response.ok)throw new Error('TELEGRAM_BOT_'+method+'_HTTP_'+response.status);
+  const result=await response.json();
+  if(result.ok!==true)throw new Error('TELEGRAM_BOT_'+method+'_REJECTED');
+  return result.result;
+ }
+ async sendReply(token,chatId,text,replyMarkup,html=false){
+  return this.callBotApi(token,'sendMessage',{
+   chat_id:chatId,text,...(html?{parse_mode:'HTML'}:{}),
+   ...(replyMarkup?{reply_markup:replyMarkup}:{})
+  });
+ }
+ async sendMainMenu(token,chatId,{persistent=false}={}){
+  if(persistent){
+   // Always-visible one-tap reply keyboard inside the Telegram chat.
+   try{
+    await this.sendReply(token,chatId,
+     'يمكنك فتح الكشوفات في أي وقت بزر 📋 القائمة الرئيسية أسفل المحادثة.',
+     telegramPersistentMainMenuKeyboard());
+   }catch(error){
+    // A keyboard-setup problem must not prevent sending the actual report menu.
+    console.warn('telegram persistent menu keyboard setup failed',error.message);
+   }
+  }
+  // The entire report selection is shown directly by the server, without
+  // waiting for an open accounting dashboard or a browser worker.
+  return this.sendReply(token,chatId,telegramMenuText,telegramReportsInlineMenu(),true);
+ }
+ async configureTelegramMenu(token){
+  if(this.botMenuAttemptedToken===token&&Date.now()<this.botMenuNextCheck)return;
+  this.botMenuAttemptedToken=token;
   try{
-   await this.fetch('https://api.telegram.org/bot'+token+'/sendMessage',{
-    method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({chat_id:chatId,text}),signal:AbortSignal.timeout(10000)
+   await this.callBotApi(token,'setMyCommands',{
+    commands:TELEGRAM_REPORT_COMMANDS,scope:{type:'default'}
    });
-  }catch(e){console.warn('telegram bot welcome reply deferred',e.message)}
+   await this.callBotApi(token,'setChatMenuButton',{menu_button:{type:'commands'}});
+   this.botMenuConfiguredToken=token;
+   this.botMenuNextCheck=Date.now()+6*60*60*1000;
+  }catch(error){
+   this.botMenuNextCheck=Date.now()+60000;
+   throw error;
+  }
  }
  async ingest(update,botId,token){
   if(!Number.isSafeInteger(Number(update?.update_id)))return;
@@ -44,8 +87,9 @@ export class TelegramHub {
   const text=updateText(message?.text);
   const isStop=/^\/(?:stop|unsubscribe)(?:@\w+)?$/i.test(text)||
    text==='إلغاء الاشتراك';
-  const isStart=/^\/(?:start|subscribe)(?:@\w+)?(?:\s.*)?$/i.test(text)||
-   text==='اشتراك' || text==='مرحبا';
+  const isStart=isTelegramStartMessage(text)||text==='اشتراك'||text==='مرحبا';
+  const showMenu=(isTelegramMenuMessage(text)||isStart||
+    isTelegramMainMenuCallback(callback?.data));
   const sender=message?.from||callback?.from;
   const payload={
    type:callback?'callback':'message',
@@ -84,13 +128,17 @@ export class TelegramHub {
      await client.query(
       "INSERT INTO sync_telegram_subscribers(workspace,chat_id,active) VALUES($1,$2,true) ON CONFLICT(workspace,chat_id) DO UPDATE SET active=true,subscribed_at=CASE WHEN sync_telegram_subscribers.active THEN sync_telegram_subscribers.subscribed_at ELSE now() END,updated_at=now()",
       [this.workspace,chatId]);
-     if(isStart)action='start';
-     // All commands and buttons, including /start, can be answered by the
-     // existing full accounting report generator when a user is signed in.
-     await client.query(
-      'INSERT INTO sync_telegram_inbox(workspace,update_id,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
-      [this.workspace,id,JSON.stringify(payload)]);
-     queued=true;
+     if(showMenu){
+      // The public navigation menu must work even when the accounting browser
+      // is closed. Do NOT enqueue another copy for the browser to repeat.
+      action='menu';
+     }else{
+      // Report rendering remains isolated in the authorized accounting app.
+      await client.query(
+       'INSERT INTO sync_telegram_inbox(workspace,update_id,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
+       [this.workspace,id,JSON.stringify(payload)]);
+      queued=true;
+     }
     }
    }
    await client.query(
@@ -101,9 +149,16 @@ export class TelegramHub {
   finally{client.release()}
   // Notify a connected report operator immediately after the PostgreSQL commit.
   if(queued)for(const wake of this.inboxWaiters)wake();
-  if(action==='start'){
-   await this.sendReply(token,chatId,
-    '✅ تم تفعيل اشتراكك في إشعارات مطبعة ومكتبة لبنان. ستصلك الإدخالات الجديدة بعد اعتمادها. يمكنك طلب الكشوفات من البوت، واستخدام /stop لإيقاف الإشعارات.');
+  if(action==='menu'){
+   if(callback?.id){
+    try{
+     await this.callBotApi(token,'answerCallbackQuery',{callback_query_id:String(callback.id)});
+    }catch(error){
+     // Expired button acknowledgements must never block menu navigation.
+     if(!String(error.message).includes('HTTP_400'))console.warn('telegram menu callback acknowledgement',error.message);
+    }
+   }
+   await this.sendMainMenu(token,chatId,{persistent:isStart});
   }else if(action==='stop'){
    await this.sendReply(token,chatId,
     'تم إيقاف الاشتراك. لإعادة تفعيل إشعارات الإدخالات أرسل /start.');
@@ -119,6 +174,10 @@ export class TelegramHub {
    const token=String(config.botToken);
    const botId=token.split(':')[0];
    if(!/^\d+$/.test(botId))return 0;
+   // Set Telegram's actual bottom-left Menu button and slash-command list.
+   // Registration is cached and menu rendering never waits on an open browser.
+   try{await this.configureTelegramMenu(token);}
+   catch(error){console.warn('telegram bot menu setup retry scheduled',error.message);}
    const saved=await this.pool.query(
     'SELECT last_update_id FROM sync_telegram_bot_offsets WHERE workspace=$1 AND bot_id=$2',
     [this.workspace,botId]);

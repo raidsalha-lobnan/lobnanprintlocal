@@ -39,17 +39,55 @@ const message=(id,text,chatType='private')=>({
  }
 });
 
-test('any private Telegram /start records a durable subscriber and a report-menu request',async()=>{
+test('private /start sends persistent reply button and inline reports menu immediately without browser',async()=>{
  const f=makeMockHub();
  await f.hub.ingest(message(1,'/start'),'100','100:dummy');
- assert.ok(f.queries.some(x=>x.sql.includes('INSERT INTO sync_telegram_subscribers')&&
-  x.args[1]==='123'));
- assert.ok(f.queries.some(x=>x.sql.includes('INSERT INTO sync_telegram_inbox')&&
-  x.args[1]===1));
+ assert.ok(f.queries.some(x=>x.sql.includes('INSERT INTO sync_telegram_subscribers')&&x.args[1]==='123'));
+ assert.equal(f.queries.some(x=>x.sql.includes('INSERT INTO sync_telegram_inbox')),false);
  assert.equal(f.getOffset(),1);
+ assert.equal(f.replies.length,2);
  assert.equal(f.replies[0].chat_id,'123');
- assert.match(f.replies[0].text,/تم تفعيل اشتراكك/);
+ assert.equal(f.replies[0].reply_markup.keyboard[0][0].text,'📋 القائمة الرئيسية');
+ assert.equal(f.replies[0].reply_markup.is_persistent,true);
+ assert.equal(f.replies[1].parse_mode,'HTML');
+ assert.match(f.replies[1].text,/القائمة الرئيسية/);
+ assert.equal(f.replies[1].reply_markup.inline_keyboard.length,5);
+ assert.equal(f.replies[1].reply_markup.inline_keyboard[0][0].callback_data,'menu_customer_statement');
 });
+
+test('bot /menu and one-tap Arabic reply button reopen menu without adding to accounting queue',async()=>{
+ const f=makeMockHub();
+ await f.hub.ingest(message(5,'/menu'),'100','100:dummy');
+ await f.hub.ingest(message(6,'📋 القائمة الرئيسية'),'100','100:dummy');
+ assert.equal(f.replies.length,2);
+ assert.equal(f.replies.every(r=>r.reply_markup.inline_keyboard.length===5),true);
+ assert.equal(f.queries.some(x=>x.sql.includes('INSERT INTO sync_telegram_inbox')),false);
+});
+
+test('callback menu_main is answered and served on server even when report browser is closed',async()=>{
+ const f=makeMockHub();
+ await f.hub.ingest({update_id:7,callback_query:{
+  id:'callback-7',data:'menu_main',
+  message:{message_id:13,chat:{id:123,type:'private'}},from:{first_name:'User'}
+ }},'100','100:dummy');
+ assert.equal(f.queries.some(x=>x.sql.includes('INSERT INTO sync_telegram_inbox')),false);
+ assert.equal(f.replies.length,2);
+ assert.equal(f.replies[0].callback_query_id,'callback-7');
+ assert.equal(f.replies[1].reply_markup.inline_keyboard.length,5);
+});
+
+test('bot report commands and Telegram menu button are set once per token',async()=>{
+ const f=makeMockHub();
+ await f.hub.configureTelegramMenu('100:dummy');
+ await f.hub.configureTelegramMenu('100:dummy');
+ assert.equal(f.replies.length,2);
+ // The same mocked fetch is used for all Bot API methods.
+ const commands=f.replies[0].commands;
+ assert.ok(commands.some(x=>x.command==='menu'));
+ assert.ok(commands.some(x=>x.command==='reports'));
+ assert.deepEqual(f.replies[1].menu_button,{type:'commands'});
+});
+
 test('stopping disables only the requesting chat and cancels its pending broadcasts',async()=>{
  const f=makeMockHub();
  await f.hub.ingest(message(2,'/stop'),'100','100:dummy');
@@ -75,7 +113,7 @@ test('duplicate Telegram update ID is ignored without producing a second subscri
  await f.hub.ingest(message(4,'/start'),'100','100:dummy');
  const recent=f.queries.slice(n);
  assert.equal(recent.some(x=>x.sql.includes('INSERT INTO sync_telegram_subscribers')),false);
- assert.equal(f.replies.length,1);
+ assert.equal(f.replies.length,2);
 });
 test('report inbox claims and acknowledges with a stable lease',async()=>{
  const f=makeMockHub();
