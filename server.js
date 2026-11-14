@@ -399,43 +399,8 @@ app.post("/api/sync/push", (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.post("/api/sync/replace-database", (req, res) => {
-  try {
-    const rawData = req.body?.data || req.body;
-    if (!rawData || typeof rawData !== "object") {
-      return res.status(400).json({ error: "Invalid database snapshot" });
-    }
-    for (const ent of ALL_SYNC_ENTITIES) {
-      const items = Array.isArray(rawData[ent]) ? rawData[ent] : [];
-      saveEntityData(ent, items);
-    }
-    if (rawData.dailyEntrySheets && typeof rawData.dailyEntrySheets === "object") {
-      const dailyPath = path.join(SYNC_DATA_DIR, "dailyEntrySheets.json");
-      try {
-        fs.writeFileSync(dailyPath, JSON.stringify(rawData.dailyEntrySheets), "utf8");
-      } catch {
-      }
-    }
-    const newSeq = 1;
-    const initialDelta = { entity: "all", op: "replace_database", seq: newSeq, timestamp: Date.now() };
-    try {
-      fs.writeFileSync(DELTAS_FILE, JSON.stringify({ currentSeq: newSeq, deltas: [initialDelta] }), "utf8");
-    } catch {
-    }
-    try {
-      const snapshotPath = path.join(__dirname, "public", "master_drive_database_snapshot.json");
-      fs.writeFileSync(snapshotPath, JSON.stringify(rawData, null, 2), "utf8");
-    } catch {
-    }
-    res.json({
-      success: true,
-      message: "\u062A\u0645 \u0627\u0633\u062A\u0628\u062F\u0627\u0644 \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0645\u0631\u0643\u0632\u064A\u0629 \u0628\u0627\u0644\u0643\u0627\u0645\u0644 \u0639\u0644\u0649 \u0627\u0644\u0633\u064A\u0631\u0641\u0631 \u0628\u0646\u062C\u0627\u062D",
-      currentSeq: newSeq
-    });
-  } catch (err) {
-    console.error("Failed to replace server database:", err);
-    res.status(500).json({ error: err?.message || "Server database replacement failed" });
-  }
+app.post("/api/sync/replace-database", (_req, res) => {
+  return res.status(410).json({ error: "Legacy database overwrite disabled. Use reviewed migration procedure." });
 });
 app.all("/api/sync/full-sync", (req, res) => {
   if (req.method === "OPTIONS") return res.sendStatus(204);

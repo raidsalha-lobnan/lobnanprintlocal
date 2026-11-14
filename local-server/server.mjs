@@ -8,6 +8,7 @@ import {SyncService} from './sync-service.mjs';
 import {revisePostedInvoice} from './invoice-revision-service.mjs';
 import {TelegramDelivery} from './telegram-delivery.mjs';
 import {TelegramHub} from './telegram-hub.mjs';
+import {TelegramMiniPos} from './telegram-mini-pos.mjs';
 import {TelegramReportGateway} from './telegram-report-gateway.mjs';
 import {InputError} from './sync-domain.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
@@ -78,6 +79,7 @@ const currentBackupScheduler=()=>backupScheduler||{
 };
 const telegramDelivery=new TelegramDelivery(pool,WORKSPACE);
 const telegramHub=new TelegramHub(pool,WORKSPACE);
+const telegramMiniPos=new TelegramMiniPos(pool,WORKSPACE,service,ADMIN_USER_ID);
 const telegramReportGateway=new TelegramReportGateway(pool,WORKSPACE);
 const telegramTimer=setInterval(()=>{void telegramDelivery.drainOnce().catch(e=>console.error('telegram worker',e.message));},10000);
 telegramTimer.unref?.();
@@ -180,6 +182,21 @@ const srv=http.createServer(async(req,res)=>{
       authAttempts.delete(key);
       return json(res,200,session,cors);
     }
+    // Telegram Mini App uses signed Telegram initData, not a browser password
+    // or the legacy shared device token. Account linking is mandatory.
+    if(STRICT_AUTH && req.method==='POST' &&
+       url.pathname.startsWith('/api/v1/telegram/mini/')&&
+       url.pathname!=='/api/v1/telegram/mini/pair/start'){
+      const data=await parseBody(req,100000);
+      const method=url.pathname.slice('/api/v1/telegram/mini/'.length);
+      if(method==='pair')return json(res,200,await telegramMiniPos.pairFinish(data?.initData,data?.code),cors);
+      if(method==='bootstrap')return json(res,200,await telegramMiniPos.bootstrap(data?.initData),cors);
+      if(method==='search')return json(res,200,await telegramMiniPos.search(data?.initData,data?.query),cors);
+      if(method==='customer/create')return json(res,200,await telegramMiniPos.createCustomer(data?.initData,data?.customer),cors);
+      if(method==='draft')return json(res,200,await telegramMiniPos.saveDraft(data?.initData,data?.draftId,data?.body),cors);
+      if(method==='commit')return json(res,200,await telegramMiniPos.commit(data?.initData,data?.draftId),cors);
+      throw new InputError('TELEGRAM_MINI_ROUTE_UNKNOWN',404);
+    }
     const user=STRICT_AUTH?await userAuth.authenticate(bearer):null;
     if(STRICT_AUTH&&!user)return json(res,401,{code:'LOGIN_REQUIRED'},cors);
     const access=STRICT_AUTH?await resolveAccess(pool,workspace,user,ADMIN_USER_ID):null;
@@ -272,6 +289,10 @@ const srv=http.createServer(async(req,res)=>{
     if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/auth/logout'){
       await userAuth.logout(bearer);
       return json(res,200,{ok:true},cors);
+    }
+    if(req.method==='POST' && url.pathname==='/api/v1/telegram/mini/pair/start'){
+      if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);
+      return json(res,200,await telegramMiniPos.pairStart(user,access),cors);
     }
     if(req.method==='POST' && url.pathname.startsWith('/api/v1/telegram/')){
       if(!STRICT_AUTH||!access?.can('view_accounting')||!access?.can('view'))

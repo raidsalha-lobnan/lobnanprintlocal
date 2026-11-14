@@ -51,8 +51,8 @@ test('private /start sends persistent reply button and inline reports menu immed
  assert.equal(f.replies[0].reply_markup.is_persistent,true);
  assert.equal(f.replies[1].parse_mode,'HTML');
  assert.match(f.replies[1].text,/القائمة الرئيسية/);
- assert.equal(f.replies[1].reply_markup.inline_keyboard.length,5);
- assert.equal(f.replies[1].reply_markup.inline_keyboard[0][0].callback_data,'menu_customer_statement');
+ assert.equal(f.replies[1].reply_markup.inline_keyboard.length,6);
+ assert.equal(f.replies[1].reply_markup.inline_keyboard[1][0].callback_data,'menu_customer_statement');
 });
 
 test('bot /menu and one-tap Arabic reply button reopen menu without adding to accounting queue',async()=>{
@@ -60,7 +60,7 @@ test('bot /menu and one-tap Arabic reply button reopen menu without adding to ac
  await f.hub.ingest(message(5,'/menu'),'100','100:dummy');
  await f.hub.ingest(message(6,'📋 القائمة الرئيسية'),'100','100:dummy');
  assert.equal(f.replies.length,2);
- assert.equal(f.replies.every(r=>r.reply_markup.inline_keyboard.length===5),true);
+ assert.equal(f.replies.every(r=>r.reply_markup.inline_keyboard.length===6),true);
  assert.equal(f.queries.some(x=>x.sql.includes('INSERT INTO sync_telegram_inbox')),false);
 });
 
@@ -73,7 +73,7 @@ test('callback menu_main is answered and served on server even when report brows
  assert.equal(f.queries.some(x=>x.sql.includes('INSERT INTO sync_telegram_inbox')),false);
  assert.equal(f.replies.length,2);
  assert.equal(f.replies[0].callback_query_id,'callback-7');
- assert.equal(f.replies[1].reply_markup.inline_keyboard.length,5);
+ assert.equal(f.replies[1].reply_markup.inline_keyboard.length,6);
 });
 
 test('bot report commands and Telegram menu button are set once per token',async()=>{

@@ -9,6 +9,10 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/telegram-pos",
+      "destination": "/telegram-pos.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

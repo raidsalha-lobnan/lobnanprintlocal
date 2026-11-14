@@ -1,6 +1,8 @@
+export const TELEGRAM_MINI_POS_URL='https://lobnanprintlocal.vercel.app/telegram-pos';
 export const TELEGRAM_MAIN_MENU_LABEL = '📋 القائمة الرئيسية';
 
 export const TELEGRAM_REPORT_COMMANDS = Object.freeze([
+  {command:'invoice',description:'فتح الكاشير وإنشاء فاتورة بيع'},
   {command:'menu',description:'عرض القائمة الرئيسية للتقارير'},
   {command:'reports',description:'عرض الكشوفات والتقارير'},
   {command:'start',description:'فتح البوت وإظهار قائمة التقارير'},
@@ -13,6 +15,7 @@ export const TELEGRAM_REPORT_COMMANDS = Object.freeze([
 export function telegramReportsInlineMenu(){
   return {
     inline_keyboard: [
+      [{text:'➕ إنشاء فاتورة بيع',web_app:{url:TELEGRAM_MINI_POS_URL}}],
       [
         {text:'📑 كشف حساب عميل',callback_data:'menu_customer_statement'},
         {text:'📑 كشف حساب مورد',callback_data:'menu_supplier_statement'}
@@ -39,7 +42,7 @@ export function telegramReportsInlineMenu(){
 
 export function telegramPersistentMainMenuKeyboard(){
   return {
-    keyboard:[[{text:TELEGRAM_MAIN_MENU_LABEL}]],
+    keyboard:[[{text:TELEGRAM_MAIN_MENU_LABEL}],[{text:'➕ فاتورة جديدة'}]],
     resize_keyboard:true,
     is_persistent:true,
     one_time_keyboard:false,
@@ -68,6 +71,16 @@ export function isTelegramStartMessage(text){
     ['ابدأ','بدء'].includes(normalized);
 }
 
+export function isTelegramQuickInvoiceMessage(value){
+ const text=String(value||'').trim();
+ return /^\/(?:invoice|sale)(?:@\w+)?(?:\s.*)?$/i.test(text)||
+   /^(?:➕\s*)?فاتورة جديدة$/u.test(text)||/^(?:بيع\s+|فاتورة\s+)/u.test(text);
+}
+export function telegramQuickInvoiceUrl(value){
+ const text=String(value||'').trim();
+ const normalized=/^(?:بيع|فاتورة)\s+/u.test(text)?text:'';
+ return TELEGRAM_MINI_POS_URL+(normalized?'?quick='+encodeURIComponent(normalized.slice(0,180)):'');
+}
 export function isTelegramMainMenuCallback(callback){
   return String(callback||'')==='menu_main';
 }

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
-import { Send, CheckCircle, Bot, AlertTriangle } from 'lucide-react';
+import { Send, CheckCircle, Bot, AlertTriangle, Smartphone, Copy } from 'lucide-react';
+import {publicSyncApiUrl,getCurrentSessionToken,authHeaders} from '../../services/secureAuth';
 
 export const TelegramSettings: React.FC = () => {
   const { settings, updateSettings } = useAccounting();
@@ -8,6 +9,24 @@ export const TelegramSettings: React.FC = () => {
   const [defaultChatId, setDefaultChatId] = useState(settings.telegramConfig?.defaultChatId || '');
   const [enabled, setEnabled] = useState(settings.telegramConfig?.enabled || false);
   const [saved, setSaved] = useState(false);
+  const [pairCode,setPairCode]=useState('');
+  const [pairStatus,setPairStatus]=useState('');
+  const [isPairing,setIsPairing]=useState(false);
+  const createTelegramPairing=async()=>{
+    setIsPairing(true);setPairStatus('');
+    try{
+      const api=publicSyncApiUrl();
+      const res=await fetch(api+'/api/v1/telegram/mini/pair/start',{
+        method:'POST',headers:{'Content-Type':'application/json',
+          ...authHeaders(api,getCurrentSessionToken())},body:'{}',cache:'no-store'
+      });
+      const data=await res.json();
+      if(!res.ok||!data.code)throw new Error(String(data.code||'PAIRING_FAILED'));
+      setPairCode(data.code);
+      setPairStatus('رمز لمرة واحدة صالح لمدة عشر دقائق. افتح فاتورة جديدة في البوت وأدخل الرمز هناك.');
+    }catch(error){setPairStatus('تعذر إنشاء الرمز: '+String(error));}
+    finally{setIsPairing(false);}
+  };
 
   const handleSave = () => {
     updateSettings({
@@ -43,6 +62,29 @@ export const TelegramSettings: React.FC = () => {
         </button>
       </div>
 
+      <section dir="rtl" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Smartphone className="h-5 w-5 text-emerald-700"/>
+          <strong className="text-sm text-emerald-950">كاشير تلجرام — ربط حساب المستخدم</strong>
+        </div>
+        <p className="text-xs text-emerald-900">
+          لكل مستخدم صلاحية إنشاء المبيعات: اضغط إنشاء رمز ربط، ثم افتح زر «➕ فاتورة جديدة»
+          في بوت تلجرام واكتب الرمز مرة واحدة. بعد الربط تحفظ الفواتير مباشرة إلى PostgreSQL
+          حسب صلاحيات هذا المستخدم.
+        </p>
+        <button type="button" disabled={isPairing} onClick={createTelegramPairing}
+          className="rounded-lg bg-emerald-700 px-4 py-2 text-white font-bold disabled:opacity-50">
+          {isPairing?'جارٍ إنشاء الرمز...':'إنشاء رمز ربط الكاشير'}
+        </button>
+        {pairCode&&<div className="flex items-center gap-3">
+          <code dir="ltr" className="rounded-md bg-white border px-3 py-2 font-bold text-base tracking-wider select-all">{pairCode}</code>
+          <button type="button" onClick={()=>void navigator.clipboard.writeText(pairCode)}
+            className="rounded-md border bg-white px-3 py-2 text-emerald-800 flex items-center gap-1">
+            <Copy className="h-4 w-4"/> نسخ
+          </button>
+        </div>}
+        {pairStatus&&<p className="text-xs text-emerald-900">{pairStatus}</p>}
+      </section>
       <div className="bg-blue-50/50 p-4 rounded-lg border border-blue-100 space-y-3">
         <h4 className="font-bold text-blue-900">خطوات الحصول على التوكن (Bot Token):</h4>
         <ol className="list-decimal list-inside text-slate-700 space-y-1.5 font-medium">

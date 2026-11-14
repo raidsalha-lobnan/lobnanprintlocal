@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import {TELEGRAM_REPORT_COMMANDS,telegramReportsInlineMenu,telegramPersistentMainMenuKeyboard,telegramMenuText,isTelegramMenuMessage,isTelegramStartMessage,isTelegramMainMenuCallback} from './telegram-bot-menu.mjs';
+import {TELEGRAM_REPORT_COMMANDS,telegramReportsInlineMenu,telegramPersistentMainMenuKeyboard,telegramMenuText,isTelegramMenuMessage,isTelegramStartMessage,isTelegramMainMenuCallback,isTelegramQuickInvoiceMessage,telegramQuickInvoiceUrl} from './telegram-bot-menu.mjs';
 
 // A single server-side poller handles public Telegram /start and /stop even
 // when no sales dashboard is open. Interactive report commands are queued for
@@ -90,6 +90,7 @@ export class TelegramHub {
   const isStart=isTelegramStartMessage(text)||text==='اشتراك'||text==='مرحبا';
   const showMenu=(isTelegramMenuMessage(text)||isStart||
     isTelegramMainMenuCallback(callback?.data));
+  const showInvoice=!showMenu&&isTelegramQuickInvoiceMessage(text);
   const sender=message?.from||callback?.from;
   const payload={
    type:callback?'callback':'message',
@@ -132,6 +133,8 @@ export class TelegramHub {
       // The public navigation menu must work even when the accounting browser
       // is closed. Do NOT enqueue another copy for the browser to repeat.
       action='menu';
+     }else if(showInvoice){
+      action='invoice';
      }else{
       // Report rendering remains isolated in the authorized accounting app.
       await client.query(
@@ -159,6 +162,12 @@ export class TelegramHub {
     }
    }
    await this.sendMainMenu(token,chatId,{persistent:isStart});
+  }else if(action==='invoice'){
+   await this.sendReply(token,chatId,
+    '➕ افتح الكاشير من الزر التالي. بعد ربط حسابك مرة واحدة يمكنك إنشاء الفاتورة واعتمادها مباشرة.',
+    {inline_keyboard:[[{text:'🧾 فتح كاشير الفواتير',web_app:{
+      url:telegramQuickInvoiceUrl(text)
+    }}],[{text:'📋 القائمة الرئيسية',callback_data:'menu_main'}]]});
   }else if(action==='stop'){
    await this.sendReply(token,chatId,
     'تم إيقاف الاشتراك. لإعادة تفعيل إشعارات الإدخالات أرسل /start.');

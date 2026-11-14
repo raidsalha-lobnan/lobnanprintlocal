@@ -148,6 +148,43 @@ CREATE INDEX IF NOT EXISTS sync_telegram_inbox_ready_idx
  ON sync_telegram_inbox(workspace,attempts,received_at)
  WHERE processed_at IS NULL AND failed_at IS NULL;
 
+-- Telegram Mini App cashier. Pair codes are random, hashed, one-use and time-limited.
+-- This remains in the SAME authoritative PostgreSQL workspace.
+CREATE TABLE IF NOT EXISTS sync_telegram_pos_pair_codes (
+ workspace text NOT NULL REFERENCES sync_workspaces(id),
+ code_hash text NOT NULL,
+ app_user_id text NOT NULL,
+ expires_at timestamptz NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace,code_hash)
+);
+CREATE INDEX IF NOT EXISTS sync_telegram_pos_pair_expiry_idx
+ ON sync_telegram_pos_pair_codes(workspace,expires_at);
+
+CREATE TABLE IF NOT EXISTS sync_telegram_pos_links (
+ workspace text NOT NULL REFERENCES sync_workspaces(id),
+ telegram_user_id text NOT NULL,
+ app_user_id text NOT NULL,
+ linked_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace,telegram_user_id),
+ UNIQUE(workspace,app_user_id)
+);
+
+CREATE TABLE IF NOT EXISTS sync_telegram_pos_drafts (
+ workspace text NOT NULL REFERENCES sync_workspaces(id),
+ draft_id uuid NOT NULL,
+ telegram_user_id text NOT NULL,
+ app_user_id text NOT NULL,
+ status text NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','posted')),
+ body jsonb NOT NULL,
+ invoice_id text,
+ created_at timestamptz NOT NULL DEFAULT now(),
+ updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace,draft_id)
+);
+CREATE INDEX IF NOT EXISTS sync_telegram_pos_owner_drafts_idx
+ ON sync_telegram_pos_drafts(workspace,telegram_user_id,updated_at DESC);
+
 -- Per-recipient delivery checkpoints ensure a failed Telegram user does not
 -- block other subscribers or cause a completed multipart message to repeat.
 CREATE TABLE IF NOT EXISTS sync_telegram_recipients (
