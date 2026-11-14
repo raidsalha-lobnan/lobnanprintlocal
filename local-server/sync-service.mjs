@@ -12,6 +12,7 @@ import {APPROVED_CATALOG_MIGRATION_ID,preserveApprovedCatalogSettings} from './a
 import {applySettingsFieldPatch,isSettingsFieldPatch} from './settings-field-patch.mjs';
 import {assertTreasuryCodeIdentity,assertUniqueTreasuryCode} from './treasury-code-guard.mjs';
 import {validateNewFinancialTreasuries} from './treasury-routing-guard.mjs';
+import {forbidRetiredLegacyPrintResurrection} from './retired-legacy-print-guard.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -80,6 +81,8 @@ export class SyncService {
       for(const change of command.changes) {
         const previous=await client.query('SELECT version,value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',[workspace,change.entity,change.id]);
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
+        if(change.entity==='journalEntries'||change.entity==='printOrders')
+          await forbidRetiredLegacyPrintResurrection(client,workspace,change);
         const isFieldPatch=change.entity==='settings'&&isSettingsFieldPatch(change.value);
         // A NEW atomic invoice may be based on an older version of an
         // existing stock item or debtor. Rebase only these two derived effects

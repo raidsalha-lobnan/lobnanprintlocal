@@ -36,6 +36,7 @@ class PgFake{
    const v=s.records.get(key(p[0],'inventory',p[1]));if(v)rows.push({value:v.value});
   }
   else if(sql.startsWith('SELECT version,value FROM sync_records')){const v=s.records.get(key(p[0],p[1],p[2]));if(v)rows.push(v);}
+  else if(sql.startsWith('SELECT 1 FROM sync_retired_legacy_records')){}
   else if(sql.startsWith('SELECT record_id FROM sync_records')){
    const values=Array.from(s.records.values());
    const found=sql.includes('lower(btrim')

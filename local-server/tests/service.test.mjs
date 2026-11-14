@@ -33,6 +33,8 @@ class FakePostgres {
       const v=s.commands.get(key(p[0],p[1]));if(v)rows.push(v);
     } else if(sql.startsWith('SELECT version,value FROM sync_records')) {
       const v=s.records.get(key(p[0],p[1],p[2]));if(v)rows.push({...v});
+    } else if(sql.startsWith('SELECT 1 FROM sync_retired_legacy_records')) {
+      // Empty retired registry in the in-memory test database.
     } else if(sql.startsWith('SELECT record_id FROM sync_records')) {
       const treasuryQuery=sql.includes("entity='treasuries'");
       const found=Array.from(s.records.values()).find(v=>v.workspace===p[0]&&(
