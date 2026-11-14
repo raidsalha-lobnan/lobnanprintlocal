@@ -3,6 +3,7 @@ import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import { Treasury, TreasuryType, TreasuryTransaction } from '../types';
 import { posSound } from '../utils/audio';
+import {compareTreasurySequence} from '../utils/treasurySequence';
 import { TreasuryDepositWithdrawModal } from './TreasuryDepositWithdrawModal';
 import {
   Wallet,
@@ -129,7 +130,7 @@ export const TreasuriesView: React.FC = () => {
         (t.accountNumber && t.accountNumber.toLowerCase().includes(q)) ||
         (t.accountCode && t.accountCode.includes(q));
       return matchType && matchSearch;
-    });
+    }).sort(compareTreasurySequence);
   }, [treasuries, typeFilter, searchQuery]);
 
   // Handle open Add Modal
@@ -513,7 +514,7 @@ export const TreasuriesView: React.FC = () => {
                   : 'border-slate-200 hover:border-slate-300'
               }`}
             >
-              <div className="p-4">
+              <div className="px-3.5 py-3">
                 {/* Card Top: Badges & Type */}
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
@@ -529,7 +530,7 @@ export const TreasuriesView: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <span className="text-[10px] text-slate-400 font-light">{typeInfo.label}</span>
+
                     </div>
                   </div>
 
@@ -539,14 +540,7 @@ export const TreasuriesView: React.FC = () => {
                 </div>
 
                 {/* Balance Display - Multi-Currency Separated */}
-                <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200/80 mb-3 space-y-2">
-                  <div className="flex items-center justify-between border-b border-slate-200/60 pb-1">
-                    <span className="text-[9px] text-slate-400 font-light font-bold">الرصيد الفعلي في الصندوق</span>
-                    <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-semibold border border-emerald-200/60">
-                      مفصول بالعملة الفعلية
-                    </span>
-                  </div>
-
+                <div className="bg-slate-50 rounded-lg p-2 border border-slate-200/80 mb-2">
                   {/* Multi-currency distinct list */}
                   <div className="space-y-1">
                     {(() => {
@@ -586,44 +580,6 @@ export const TreasuriesView: React.FC = () => {
                     })()}
                   </div>
 
-                  {/* Accounting Equivalent in Base Currency */}
-                  <div className="pt-1.5 border-t border-slate-200/60 flex items-center justify-between text-[10px] text-slate-400 font-light">
-                    <span>المعادل التقديري المحاسبي:</span>
-                    <span className="font-mono font-bold text-slate-700">
-                      {treasury.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₪
-                    </span>
-                  </div>
-                </div>
-
-                {/* Additional Details */}
-                <div className="space-y-1.5 text-xs text-slate-600">
-                  {treasury.bankName && (
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-slate-400 flex items-center gap-1">
-                        <Building2 className="w-3 h-3" />
-                        <span>البنك / المشغل:</span>
-                      </span>
-                      <span className="font-semibold text-slate-800">{treasury.bankName}</span>
-                    </div>
-                  )}
-
-                  {treasury.accountNumber && (
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-slate-400 flex items-center gap-1">
-                        <CreditCard className="w-3 h-3" />
-                        <span>رقم الحساب / الآيبان:</span>
-                      </span>
-                      <span className="font-mono text-slate-800 font-medium dir-ltr select-all">
-                        {treasury.accountNumber}
-                      </span>
-                    </div>
-                  )}
-
-                  {treasury.notes && (
-                    <p className="text-[10px] text-slate-400 font-light line-clamp-2 pt-1 border-t border-slate-100">
-                      {treasury.notes}
-                    </p>
-                  )}
                 </div>
               </div>
 
