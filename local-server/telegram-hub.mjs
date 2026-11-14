@@ -10,6 +10,7 @@ export class TelegramHub {
  constructor(pool,workspace,fetchImpl=fetch){
   this.pool=pool;this.workspace=workspace;this.fetch=fetchImpl;
   this.polling=false;this.nextPoll=0;
+  this.serverReportQueue=false;
   this.inboxWaiters=new Set();
   this.botMenuConfiguredToken=null;
   this.botMenuAttemptedToken=null;
@@ -93,6 +94,8 @@ export class TelegramHub {
   const showInvoice=!showMenu&&isTelegramQuickInvoiceMessage(text);
   const sender=message?.from||callback?.from;
   const payload={
+   processor:this.serverReportQueue?'server':'browser',
+   telegramUserId:String(sender?.id??''),
    type:callback?'callback':'message',
    chatId,text:callback?String(callback.data||''):text,
    data:callback?String(callback.data||''):undefined,
@@ -231,7 +234,7 @@ export class TelegramHub {
    timer=setTimeout(wake,Math.max(0,Math.min(12000,waitMs)));
    // Seal race: an inbox row might have committed just before registration.
    this.pool.query(
-    "SELECT 1 FROM sync_telegram_inbox WHERE workspace=$1 AND processed_at IS NULL AND failed_at IS NULL AND (claimed_until IS NULL OR claimed_until<now()) LIMIT 1",
+    "SELECT 1 FROM sync_telegram_inbox WHERE workspace=$1 AND (payload->>'processor') IS DISTINCT FROM 'server' AND processed_at IS NULL AND failed_at IS NULL AND (claimed_until IS NULL OR claimed_until<now()) LIMIT 1",
     [this.workspace]
    ).then(result=>{if(result.rows.length)wake();}).catch(wake);
   });
@@ -242,7 +245,7 @@ export class TelegramHub {
   try{
    await client.query('BEGIN');
    const q=await client.query(
-    "SELECT update_id,payload,attempts,document_delivered_at FROM sync_telegram_inbox WHERE workspace=$1 AND processed_at IS NULL AND failed_at IS NULL AND (claimed_until IS NULL OR claimed_until<now()) ORDER BY attempts,received_at,update_id FOR UPDATE SKIP LOCKED LIMIT 1",
+    "SELECT update_id,payload,attempts,document_delivered_at FROM sync_telegram_inbox WHERE workspace=$1 AND (payload->>'processor') IS DISTINCT FROM 'server' AND processed_at IS NULL AND failed_at IS NULL AND (claimed_until IS NULL OR claimed_until<now()) ORDER BY attempts,received_at,update_id FOR UPDATE SKIP LOCKED LIMIT 1",
     [this.workspace]);
    if(!q.rows.length){await client.query('COMMIT');return null}
    const row=q.rows[0],lease=crypto.randomUUID();

@@ -1211,12 +1211,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
               </div>
               <div className="w-64">
                 <AutocompleteCombobox
-                  options={employeeComboboxOptions}
-                  value={selectedEmpId}
-                  onChange={(val) => setSelectedEmpId(val)}
+                  items={employeeComboboxOptions}
+                  selectedId={selectedEmpId}
+                  value={employees.find(employee=>employee.id===selectedEmpId)?.name||''}
+                  onSelect={employee=>setSelectedEmpId(employee.id)}
+                  entityType="employee"
                   placeholder="ابحث بالاسم أو رقم الموظف..."
-                  searchPlaceholder="اكتب اسم أو كود الموظف..."
-                  emptyMessage="لا يوجد موظف مطابق"
                 />
               </div>
 

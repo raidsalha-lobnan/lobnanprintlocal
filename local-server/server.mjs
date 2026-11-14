@@ -10,6 +10,8 @@ import {TelegramDelivery} from './telegram-delivery.mjs';
 import {TelegramHub} from './telegram-hub.mjs';
 import {TelegramMiniPos} from './telegram-mini-pos.mjs';
 import {TelegramReportGateway} from './telegram-report-gateway.mjs';
+import {TelegramServerReportWorker} from './telegram-report-worker.mjs';
+import {ensureTelegramReportSchema} from './telegram-report-schema.mjs';
 import {InputError} from './sync-domain.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
@@ -52,6 +54,7 @@ if(STRICT_AUTH && (allowedOrigins.has('*')||allowedOrigins.has('null')))
 const pool=new pg.Pool({connectionString:DATABASE_URL,max:12});
 const schema=fs.readFileSync(path.join(dir,'schema.sql'),'utf8');
 await pool.query(schema);
+await ensureTelegramReportSchema(pool);
 const service=new SyncService(pool);
 await prepareAttachmentTable(pool);
 const driveAuthorization=new GoogleDriveAuthorization({pool,workspace:WORKSPACE});
@@ -81,6 +84,13 @@ const telegramDelivery=new TelegramDelivery(pool,WORKSPACE);
 const telegramHub=new TelegramHub(pool,WORKSPACE);
 const telegramMiniPos=new TelegramMiniPos(pool,WORKSPACE,service,ADMIN_USER_ID);
 const telegramReportGateway=new TelegramReportGateway(pool,WORKSPACE);
+const telegramServerReportWorker=new TelegramServerReportWorker(pool,WORKSPACE,telegramReportGateway,ADMIN_USER_ID);
+// New interactive report requests use the centrally authorised PostgreSQL report worker.
+telegramHub.serverReportQueue=true;
+const telegramServerReportTimer=setInterval(()=>{
+ void telegramServerReportWorker.pollOnce().catch(e=>console.error('server reports',e.message));
+},900);
+telegramServerReportTimer.unref?.();
 const telegramTimer=setInterval(()=>{void telegramDelivery.drainOnce().catch(e=>console.error('telegram worker',e.message));},10000);
 telegramTimer.unref?.();
 // The private PostgreSQL server is the sole Telegram update consumer;
