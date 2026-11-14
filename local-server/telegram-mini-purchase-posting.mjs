@@ -135,7 +135,8 @@ export function miniFinancialChanges(input){
  const journalId='je-mini-'+draftId;
  if(type==='purchase'){
   Object.assign(value,{invoiceNumber:documentNumber,
-   supplierId:supplierRow?.record_id,
+   supplierId:body.counterpartyKind==='supplier'?supplierRow?.record_id:undefined,
+   customerId:body.counterpartyKind==='customer'?supplierRow?.record_id:undefined,
    supplierName:counterpartyName,warehouse:warehouseName,
    supplierInvoiceNumber:body.supplierInvoiceNumber||undefined});
   accountingChanges.push({entity:'purchases',id,expectedVersion:0,value});
@@ -143,7 +144,8 @@ export function miniFinancialChanges(input){
   Object.assign(value,{
    invoiceNumber:documentNumber,expenseInvoiceNumber:documentNumber,
    documentType:'purchase_invoice',source:'telegram-mini',
-   supplierId:employeeRow?undefined:supplierRow.record_id,
+   supplierId:body.counterpartyKind==='supplier'?supplierRow?.record_id:undefined,
+   customerId:body.counterpartyKind==='customer'?supplierRow?.record_id:undefined,
    employeeId:employeeRow?.record_id,
    supplierName:counterpartyName,beneficiary:counterpartyName,
    expenseAccountCode:expAccount.value.code,
@@ -151,7 +153,7 @@ export function miniFinancialChanges(input){
    category:body.expenseCategory,
    categoryName:MINI_EXPENSE_CATEGORIES[body.expenseCategory],
    amount:amount.totalAmount,
-   treasuryAccountCode:legs[0]?.code||'',
+   treasuryAccountCode:legs.length===1?legs[0].code:'',
    treasuryName:legs.map(l=>l.row.value.name).join(' + ')||'آجل',
    taxInvoiceNumber:body.supplierInvoiceNumber||documentNumber,
    journalEntryId:journalId
@@ -242,7 +244,8 @@ export function miniFinancialChanges(input){
    id:voucherId,voucherNumber:'PAY-'+documentNumber+'-'+leg.kind.toUpperCase(),
    type:'payment',date:value.date,partyId:employeeRow?.record_id||supplierRow.record_id,
    partyName:counterpartyName,amount:leg.amount,paymentMethod:leg.kind==='cash'?'cash':'bank_transfer',
-   accountCode:'2101',treasuryAccountCode:leg.code,currency:'ILS',
+   accountCode:type==='purchase'?'1302':expAccount.value.code,
+   treasuryAccountCode:leg.code,currency:'ILS',
    currencySymbol:'₪',baseAmount:leg.amount,relatedDocType:type,
    relatedDocId:id,description:documentNumber+' — '+(body.paymentNotes||'سداد')
   }});

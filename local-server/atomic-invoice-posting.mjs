@@ -1,4 +1,5 @@
 import {InputError,validateJournal} from './sync-domain.mjs';
+import {validateMiniSaleReceiptBundle} from './telegram-mini-sale-settlement.mjs';
 
 const fail=(code,status=422)=>{throw new InputError(code,status);};
 const cents=(value,label='AMOUNT')=>{
@@ -20,7 +21,13 @@ const qty=(value,label)=>{
 export function validateAtomicInvoicePosting(command){
   const invoiceId=command?.atomicInvoiceId;
   if(!invoiceId)return false; // Legacy commands use their existing guardrails.
-  const changes=command.changes||[];
+  const allChanges=command.changes||[];
+  // The Telegram mini cashier adds tightly-validated cash receipts, treasury
+  // movements and chart-account balances to the SAME atomic sales command.
+  // Ordinary POS clients retain the original five-entity posting contract.
+  const miniReceipt=command.miniSaleSettlement===true;
+  const receiptEntities=new Set(['treasuries','vouchers','accounts']);
+  const changes=miniReceipt?allChanges.filter(c=>!receiptEntities.has(c.entity)):allChanges;
   const allowed=new Set(['invoices','journalEntries','stockMovements','inventory','parties']);
   if(changes.some(c=>!allowed.has(c?.entity)))fail('ATOMIC_POSTING_UNRELATED_EFFECT');
   const invoices=changes.filter(c=>c.entity==='invoices');
@@ -35,6 +42,7 @@ export function validateAtomicInvoicePosting(command){
   const invUpdates=changes.filter(c=>c.entity==='inventory');
   const partyUpdates=changes.filter(c=>c.entity==='parties');
   if(!posted){
+    if(miniReceipt)fail('MINI_RECEIPT_UNPOSTED_NOT_ALLOWED');
     if(journals.length||stock.length||invUpdates.length||partyUpdates.length)
       fail('ATOMIC_POSTING_UNPOSTED_CANNOT_CHANGE_LEDGER');
     return true;
@@ -154,5 +162,6 @@ export function validateAtomicInvoicePosting(command){
   if(arDebited>0&&type!=='employee'&&!partyUpdates.some(c=>c.id===debtor))
     fail('ATOMIC_POSTING_CUSTOMER_BALANCE_REQUIRED');
   if(type==='employee'&&partyUpdates.length)fail('ATOMIC_POSTING_EMPLOYEE_PARTY_MISMATCH');
+  if(miniReceipt)validateMiniSaleReceiptBundle(command,invoice);
   return true;
 }

@@ -58,8 +58,9 @@ test('print order is one authorized printOrders-only write with a unique year se
  assert.equal(saved.customerName,main.name);
  assert.equal(saved.items.length,1);
  assert.equal(saved.items[0].notes,'ألوان خاصة');
- assert.equal(saved.items[0].total,0);
- assert.equal(saved.items[0].unitPrice,0);
+ assert.equal(saved.items[0].total,120);
+ assert.equal(saved.items[0].unitPrice,30);
+ assert.equal(saved.estimatedTotal,120);
  assert.equal(saved.notes,'الطباعة قبل الغد');
  assert.ok(f.calls.some(sql=>sql.includes('FOR UPDATE')));
  assert.ok(f.calls.some(sql=>sql.includes('UPDATE sync_telegram_pos_drafts SET')));

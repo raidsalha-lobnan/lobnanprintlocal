@@ -59,6 +59,6 @@ test('compact notes, accurate financial body, existing totals and actions are pr
  assert.match(js,/counterpartyKind:state\.partyType/);
  assert.match(js,/notes:el\('notes'\)\.value,paymentNotes:el\('paymentNotes'\)\.value/);
  assert.match(js,/notes:l\.notes/);
- assert.match(html,/telegram-pos-v2\.css\?v=compact-unified-20261114/);
- assert.match(html,/telegram-pos\.js\?v=compact-unified-20261114/);
+ assert.match(html,/telegram-pos-v2\.css\?v=accounting-modes-20261114/);
+ assert.match(html,/telegram-pos\.js\?v=accounting-modes-20261114/);
 });

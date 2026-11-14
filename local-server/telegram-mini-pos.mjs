@@ -4,6 +4,7 @@ import {resolveAccess,authorizeCommand} from './access-policy.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
 import {buildNewAtomicPosSale} from './atomic-pos-builder.compiled.mjs';
 import {miniFinancialChanges,MINI_EXPENSE_CATEGORIES} from './telegram-mini-purchase-posting.mjs';
+import {miniSaleReceiptChanges} from './telegram-mini-sale-settlement.mjs';
 
 const fail=(code,status=422)=>{throw new InputError(code,status);};
 const uid=v=>typeof v==='string'&&v.length<=180&&/^[a-zA-Z0-9_-]+$/.test(v);
@@ -221,7 +222,7 @@ export class TelegramMiniPos {
  async bootstrap(initData){
   const auth=await this.session(initData);
   const rows=await this.pool.query(
-   "SELECT entity,record_id,value FROM sync_records WHERE workspace=$1 AND entity IN ('settings','parties','treasuries')",
+   "SELECT entity,record_id,value FROM sync_records WHERE workspace=$1 AND entity IN ('settings','parties','treasuries','warehouses')",
    [this.workspace]);
   const suppliers=rows.rows.filter(r=>r.entity==='parties'&&
     r.value&&!r.value.isSubCustomer&&['supplier','both'].includes(r.value.type)&&
@@ -254,13 +255,16 @@ export class TelegramMiniPos {
     r.value?.status==='active'&&auth.access.canRead('treasuries',r.value,r.record_id))
    .map(r=>({id:r.record_id,name:r.value.name,accountCode:r.value.accountCode,
     type:r.value.type,isDefault:r.value.isDefault}));
+  const warehouses=rows.rows.filter(r=>r.entity==='warehouses'&&
+    r.value&&r.value._deleted!==true&&auth.access.canRead('warehouses',r.value,r.record_id))
+   .map(r=>({id:r.record_id,name:r.value.name||'الرئيسي'}));
   const settings=rows.rows.find(r=>r.entity==='settings'&&['global','workspace-settings'].includes(r.record_id))?.value||{};
   const draftRows=await this.pool.query(
    "SELECT draft_id,status,body,invoice_id,updated_at FROM sync_telegram_pos_drafts WHERE workspace=$1 AND telegram_user_id=$2 ORDER BY updated_at DESC LIMIT 8",
    [this.workspace,auth.telegramUserId]);
   return {ok:true,linked:true,linkExpires:false,displayName:auth.user.name||auth.name,
-   parties,subCustomers,suppliers,employees,expenseAccounts,treasuries,
-   canPurchases:auth.access.can('view_inventory')&&auth.access.can('view_accounting')&&auth.access.can('add'),
+   parties,subCustomers,suppliers,employees,expenseAccounts,treasuries,warehouses,
+   canPurchases:auth.access.can('view_inventory')&&auth.access.can('view_accounting')&&auth.access.can('add')&&warehouses.length===1,
    canExpenses:auth.access.can('view_accounting')&&auth.access.can('add'),
    defaultSupplierId:suppliers[0]?.id||'',
    canPrintOrders:typeof auth.access.can==='function'&&
@@ -355,12 +359,17 @@ export class TelegramMiniPos {
      invoiceId,totalAmount:invoice.totalAmount,customerName:invoice.customerName};
    }
    let body=normalizeMiniSaleBody(draft.body);
+   // Serialize sales before reading account and treasury versions. The same
+   // advisory workspace row is reused by pushInTx in this PostgreSQL tx.
+   await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING',[this.workspace]);
+   await client.query('SELECT next_sequence FROM sync_workspaces WHERE id=$1 FOR UPDATE',[this.workspace]);
    const ids=[...new Set(body.items.map(i=>i.itemId))];
    // A pg client must execute statements sequentially inside a single open transaction.
    const stock=await client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='inventory' AND record_id=ANY($2::text[])",[this.workspace,ids]);
-   const parties=await client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND ((entity='parties' AND (record_id=$2 OR value->>'parentPartyId'=$2)) OR (entity='employees' AND record_id=$2))",[this.workspace,body.customerId]);
+   const parties=await client.query("SELECT entity,record_id,version,value FROM sync_records WHERE workspace=$1 AND ((entity='parties' AND (record_id=$2 OR value->>'parentPartyId'=$2)) OR (entity='employees' AND record_id=$2))",[this.workspace,body.customerId]);
    const settings=await client.query("SELECT value FROM sync_records WHERE workspace=$1 AND entity='settings' AND record_id IN ('global','workspace-settings') ORDER BY CASE WHEN record_id='global' THEN 0 ELSE 1 END LIMIT 1",[this.workspace]);
-   const treasuries=await client.query("SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='treasuries'",[this.workspace]);
+   const treasuries=await client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='treasuries'",[this.workspace]);
+   const accounts=await client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='accounts'",[this.workspace]);
    body=resolveMiniCashBox(body,treasuries.rows,auth.access);
    const warehouses=await client.query("SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='warehouses'",[this.workspace]);
    if(warehouses.rows.length!==1)fail('MINI_POS_SINGLE_WAREHOUSE_REQUIRED',409);
@@ -446,21 +455,29 @@ export class TelegramMiniPos {
     vatRate:Number(settings.rows[0]?.value?.vatRate||0),
     inventory,parties:partyViews
    });
-   const versionMap=new Map([...stock.rows,...parties.rows].map(r=>[r.record_id,Number(r.version)]));
+   if(type==='employee'&&Number(posting.invoice.value.remainingAmount||0)>0)
+    fail('MINI_EMPLOYEE_SALE_CREDIT_NOT_SUPPORTED',409);
+   const versionMap=new Map([...stock.rows,...parties.rows,...treasuries.rows,...accounts.rows]
+    .map(r=>[r.record_id,Number(r.version)]));
    // Treasury identifiers (CASH-1101, CASH-1102, wallets...) are not GL
    // account numbers. Preserve treasury codes on invoice and payment records,
    // but debit their official chart accounts in the journal.
    const ledgerJournals=mapMiniTreasuryJournalAccounts(posting.journals,body);
+   const settlement=miniSaleReceiptChanges({
+    invoice:posting.invoice.value,postings:{...posting,journals:ledgerJournals},
+    draftId,treasuryRows:treasuries.rows,accountRows:accounts.rows,
+    createdAt:new Date(draft.created_at).toISOString()
+   });
    const changes=[posting.invoice,...ledgerJournals,...posting.stockMovements,
-     ...posting.partyChanges,...posting.inventoryChanges].map(c=>({
+     ...posting.partyChanges,...posting.inventoryChanges,...settlement].map(c=>({
       ...c,expectedVersion:versionMap.get(c.id)||0
      }));
    const command={id:draftId,workspaceId:this.workspace,actorId:auth.user.id,
-    atomicInvoiceId:invoiceId,changes,createdAt:Date.parse(draft.created_at),
+    atomicInvoiceId:invoiceId,miniSaleSettlement:true,changes,createdAt:Date.parse(draft.created_at),
     attempts:0,retryAt:0,status:'pending'};
    validateAtomicInvoicePosting(command);
    // authorization checks original user access and constrains derived ledger effects
-   await authorizeCommand(this.pool,this.workspace,auth.access,command);
+   await authorizeCommand(this.pool,this.workspace,auth.access,command,{trustedTelegramMiniSale:true});
    const receipt=await this.syncService.pushInTx(this.workspace,command,auth.user.id,client);
    const invoice=receipt.changes.find(x=>x.entity==='invoices'&&x.id===invoiceId)?.value;
    if(!invoice||!/^INV-\d+$/.test(invoice.invoiceNumber))
@@ -667,14 +684,19 @@ export class TelegramMiniPos {
   const items=body.items.map(line=>{
    const record=byId.get(line.itemId).value;
    const qty=line.hasDimensions
-    ?Number((line.length*line.width*line.count).toFixed(3)):line.quantity;
+    ?Number((line.length*(record.unitCalculationType==='linear'?1:line.width)*line.count).toFixed(3))
+    :line.quantity;
+   const estimate=Number((qty*line.unitPrice).toFixed(2));
    return {itemId:line.itemId,itemCode:record.code,itemName:record.name,
     quantity:qty,unit:record.unit||'',notes:line.notes,
     description:line.notes,hasDimensions:line.hasDimensions,
     length:line.hasDimensions?line.length:0,width:line.hasDimensions?line.width:0,
     count:line.hasDimensions?line.count:1,
-    unitPrice:0,discount:0,tax:0,total:0};
+    unitPrice:line.unitPrice,discount:0,tax:0,total:estimate};
   });
+  const quoteSubtotal=Number(items.reduce((s,row)=>s+row.total,0).toFixed(2));
+  if(Number(body.overallDiscount)>quoteSubtotal)fail('MINI_PRINT_ORDER_DISCOUNT_EXCEEDS_ESTIMATE');
+  const quoteTotal=Number((quoteSubtotal-Number(body.overallDiscount||0)).toFixed(2));
   const order={
    id,orderNumber,customerId:body.customerId,customerName:customer.value.name,
    counterpartyType:kind,counterpartyId:body.customerId,
@@ -684,6 +706,7 @@ export class TelegramMiniPos {
    serviceType:'custom_print',paperType:'',dimensions:'',
    quantity:items.reduce((n,item)=>n+Number(item.count||item.quantity||1),0),
    colorType:'',finishingOptions:[],unitCost:0,totalPrice:0,
+   estimatedTotal:quoteTotal,estimatedDiscount:Number(body.overallDiscount||0),
    depositPaid:0,remainingBalance:0,status:'new',
    notes:body.notes||'',createdAt,deliveryDate:body.date||createdAt.slice(0,10),
    items,isExternalPrint:false

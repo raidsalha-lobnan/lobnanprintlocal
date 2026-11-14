@@ -111,7 +111,7 @@ test('bootstrap exposes only authorized subcustomers with visible parent account
   {entity:'settings',record_id:'global',value:{vatRate:0}}
  ];
  const mini=new TelegramMiniPos({query:async sql=>{
-  if(sql.includes("entity IN ('settings','parties','treasuries')"))return {rows};
+  if(sql.includes("entity IN ('settings','parties','treasuries','warehouses')"))return {rows};
   if(sql.includes("entity IN ('accounts','employees')"))return {rows:[]};
   if(sql.includes('FROM sync_telegram_pos_drafts'))return {rows:[]};
   throw Error('UNEXPECTED_BOOTSTRAP_QUERY');
@@ -148,6 +148,8 @@ test('server rejects a subcustomer id from a different parent before any account
  let pushCalls=0;
  const pgClient={
   query:async sql=>{
+   if(sql.startsWith('INSERT INTO sync_workspaces'))return {rows:[]};
+   if(sql.startsWith('SELECT next_sequence'))return {rows:[{next_sequence:1}]};
    if(sql.includes('FROM sync_telegram_pos_drafts')&&sql.includes('FOR UPDATE'))return{
     rows:[{status:'draft',body:{...sample,subCustomerId:foreign.id,
      subCustomerName:foreign.name},created_at:new Date(date+'T08:00:00Z')}]
@@ -159,6 +161,7 @@ test('server rejects a subcustomer id from a different parent before any account
    ]};
    if(sql.includes("entity='settings'"))return{rows:[{value:{vatRate:0}}]};
    if(sql.includes("entity='treasuries'"))return{rows:[]};
+   if(sql.includes("entity='accounts'"))return{rows:[]};
    if(sql.includes("entity='warehouses'"))return{rows:[{
     record_id:'warehouse-main',value:{name:'الرئيسي'}}]};
    throw Error('UNEXPECTED_COMMIT_SQL');

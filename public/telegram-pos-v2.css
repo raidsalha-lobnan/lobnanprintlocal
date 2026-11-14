@@ -271,3 +271,14 @@ main{padding-bottom:14px}
  #cashier .payment-inline label{font-size:10px!important}
  #cashier .payment-inline input,#cashier .payment-inline select{font-size:10px;padding:3px!important}
 }
+
+/* Purchase warehouse is the existing authorized single warehouse. It is not
+   a second editable selection, so stock remains tied to the central main store. */
+#cashier #purchaseMetaPanel{grid-template-columns:max-content minmax(0,1fr) auto;gap:5px}
+#cashier #purchaseWarehouseInfo{align-self:center;white-space:nowrap;
+ font-size:10px;color:#2760a0;background:#eef6ff;padding:5px 6px;border-radius:7px}
+#cashier #purchaseWarehouseInfo.hidden{display:none!important}
+@media(max-width:390px){
+ #cashier #purchaseMetaPanel{grid-template-columns:max-content minmax(0,1fr)}
+ #cashier #purchaseWarehouseInfo:not(.hidden){grid-column:1/-1;justify-self:end;padding:2px 4px}
+}

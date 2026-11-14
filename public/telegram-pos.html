@@ -21,7 +21,7 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
 </style>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-<link rel="stylesheet" href="/telegram-pos-v2.css?v=compact-unified-20261114"/>
+<link rel="stylesheet" href="/telegram-pos-v2.css?v=accounting-modes-20261114"/>
 </head>
 <body>
 <header class="top">
@@ -104,6 +104,7 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
   <div id="purchaseMetaPanel" class="compact-mode-row hidden">
    <label for="supplierInvoiceNumber">فاتورة المورد</label>
    <input id="supplierInvoiceNumber" maxlength="100" autocomplete="off" placeholder="رقم فاتورة المورد (اختياري)"/>
+   <span id="purchaseWarehouseInfo" class="warehouse-info hidden" aria-label="المخزن المعتمد"></span>
   </div>
   <div id="expenseMetaPanel" class="compact-mode-row hidden">
    <label for="expenseAccount">حساب المصروف</label>
@@ -182,6 +183,6 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
  <div class="actions"><button id="newButton" class="primary">➕ فاتورة أخرى</button><button id="closeButton" class="secondary">إغلاق</button></div>
 </section>
 </main>
-<script src="/telegram-pos.js?v=compact-unified-20261114"></script>
+<script src="/telegram-pos.js?v=accounting-modes-20261114"></script>
 </body>
 </html>

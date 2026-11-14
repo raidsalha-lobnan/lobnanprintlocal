@@ -13,7 +13,7 @@ const todayLocal=()=>{
  return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
 };
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state={people:[],partyType:'customer',customers:[],suppliers:[],employees:[],expenseAccounts:[],
+const state={people:[],partyType:'customer',customers:[],suppliers:[],employees:[],expenseAccounts:[],warehouses:[],
   subCustomers:[],treasuries:[],vatRate:0,lines:[],draftId:crypto.randomUUID(),
   busy:false,saved:false,lastReceipt:null,quickDone:false,kind:'sale',subOpen:false,
   canPrint:false,canPurchases:false,canExpenses:false};
@@ -191,6 +191,8 @@ const formBody=()=>{
  if(state.kind!=='print'&&(!Number.isFinite(cash)||!Number.isFinite(bank)||cash<0||bank<0))throw Error('أدخل مبالغ سداد صحيحة');
  if(state.kind!=='print'&&paid>total+.005)throw Error('المدفوع لا يمكن أن يتجاوز الإجمالي');
  if(state.kind!=='print'&&bank>0&&!el('bankTreasury').value)throw Error('اختر حساب البنك');
+ if(state.kind==='sale'&&state.partyType==='employee'&&paid<total-.005)
+  throw Error('البيع على الموظف يتطلب السداد الكامل حتى لا تتكوّن ذمة غير مرتبطة.');
  if(['purchase','expense'].includes(state.kind)&&state.partyType!=='supplier'&&paid<total-.005)
   throw Error('الشراء أو المصروف على عميل/موظف يتطلب السداد الكامل؛ اختر موردًا لتسجيل ذمة آجلة.');
  if(state.kind==='expense'&&!el('expenseAccount').value)
@@ -300,6 +302,9 @@ const bootstrap=async()=>{
   state.suppliers=result.suppliers||[];
   state.employees=result.employees||[];
   state.expenseAccounts=result.expenseAccounts||[];
+  state.warehouses=result.warehouses||[];
+  el('purchaseWarehouseInfo').textContent=state.warehouses.length===1
+   ?'المخزن: '+state.warehouses[0].name:'المخزن الرئيسي غير متاح';
   state.people=state.customers;
   state.subCustomers=result.subCustomers||[];
   state.treasuries=result.treasuries||[];
@@ -440,14 +445,19 @@ const selectKind=kind=>{
  const enabled=sale||(print&&state.canPrint)||
   (purchase&&state.canPurchases)||(expense&&state.canExpenses&&state.expenseAccounts.length>0);
  el('purchaseMetaPanel').classList.toggle('hidden',!purchase&&!expense);
+ el('purchaseWarehouseInfo').classList.toggle('hidden',!purchase);
  el('expenseMetaPanel').classList.toggle('hidden',!expense);
  el('settlementPanel').classList.toggle('hidden',print);
+ el('settlementPanel').dataset.flow=sale?'receipt':print?'none':'payment';
+ el('cashPaid').setAttribute('aria-label',sale?'مبلغ القبض النقدي':'مبلغ الصرف النقدي');
+ el('bankPaid').setAttribute('aria-label',sale?'مبلغ القبض البنكي':'مبلغ الصرف البنكي');
  el('totalLabel').textContent=print?'تقديري':'إجمالي';
  el('modeNotice').classList.toggle('hidden',sale||purchase&&enabled||expense&&enabled);
  if(print)el('modeNotice').textContent=enabled
   ?'أمر طباعة غير محاسبي؛ لا يُرحّل إلى المبيعات أو المخزون.'
   :'ليست لديك صلاحية إضافة أوامر الطباعة.';
- else if(!enabled)el('modeNotice').textContent=expense&&state.expenseAccounts.length===0
+ else if(!enabled)el('modeNotice').textContent=purchase&&state.warehouses.length!==1
+  ?'المشتريات تتطلب وجود مخزن رئيسي واحد مصرح به.':expense&&state.expenseAccounts.length===0
   ?'يجب إعداد حساب مصروف مسموح به في دليل الحسابات أولًا.'
   :'لا توجد صلاحية كافية لاعتماد هذه العملية من الحساب الحالي.';
  el('saveButton').disabled=!enabled;

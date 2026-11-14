@@ -2,6 +2,7 @@ import {fingerprint,InputError} from './sync-domain.mjs';
 import {officialInvoiceAmendment} from './invoice-amendments.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
 import {authoritativeAtomicSaleEffect} from './atomic-pos-ledger-scope.mjs';
+import {authoritativeMiniSaleSettlementEffect} from './telegram-mini-sale-settlement.mjs';
 /**
  * Server-enforced permissions for the single-workspace transitional API.
  * Fail closed: UI-only permissions and user-selected company/branch are not trusted.
@@ -167,9 +168,13 @@ export function authorizedAtomicOpeningStock(access,command,change,previous){
   return v.referenceNumber==='OP-'+item.code;
 }
 
-export async function authorizeCommand(pool,workspace,access,command){
+export async function authorizeCommand(pool,workspace,access,command,options={}){
   if(!command||!Array.isArray(command.changes)||command.changes.length===0||
      command.changes.length>80)throw denied('INVALID_COMMAND');
+  // Never trust a mini-sale privilege marker supplied by the public sync API.
+  // Only the internal authenticated Telegram route passes this private option.
+  if(command.miniSaleSettlement===true&&options.trustedTelegramMiniSale!==true)
+   throw denied('MINI_SALE_SETTLEMENT_REQUIRES_SERVER');
   // A confirmed command may be retried after session expiry. Replays must
   // match the same exact request and be owned by the same authenticated user.
   const previousCommand=await pool.query(
@@ -214,9 +219,20 @@ export async function authorizeCommand(pool,workspace,access,command){
       authoritativeAtomicSaleEffect(command,change,previous);
       restrictedPosEffect=true;
     }
+    const trustedReceiptEffect=options.trustedTelegramMiniSale===true&&
+      isPosOperator&&command.miniSaleSettlement===true&&
+      ['accounts','treasuries','vouchers'].includes(change.entity);
+    if(trustedReceiptEffect){
+      if(['accounts','treasuries'].includes(change.entity))
+        authoritativeMiniSaleSettlementEffect(command,change,previous);
+      if(change.entity==='vouchers'&&previous!==null)
+        throw denied('MINI_SALE_RECEIPT_ALREADY_EXISTS');
+      // The operator may commit only derived evidence that the trusted
+      // accounting service constructed for this exact signed session.
+    }
     if(!access.canChange(change.entity,change.value,previous)&&
        !authorizedAtomicOpeningStock(access,command,change,previous)&&
-       !restrictedPosEffect)
+       !restrictedPosEffect&&!trustedReceiptEffect)
       throw denied('ENTITY_PERMISSION_DENIED',{
         entity:change.entity,id:change.id,
         operation:previous===null?'add':'edit',
