@@ -40,6 +40,7 @@ import { ReportSignatures } from './common/ReportSignatures';
 import { AutocompleteCombobox, ComboboxOption } from './common/AutocompleteCombobox';
 import { formatInvoiceCustomerDisplay } from '../utils/partyUtils';
 import { isConfirmedSalesInvoice } from '../utils/invoiceConfirmation';
+import { OperationalReportDocument } from './reports/OperationalReportDocument';
 
 const parseThumbnails = (val?: string): string[] => {
   if (!val) return [];
@@ -65,13 +66,23 @@ export type ReportType =
   | 'treasuries_movement'
   | 'income'
   | 'balance_sheet'
-  | 'vat';
+  | 'vat'
+  | 'purchases_report'
+  | 'inventory_report'
+  | 'expenses_report';
 
 interface ReportsViewProps {
   initialReport?: ReportType;
+  /** Print/export callers select exactly the same report, party and period. */
+  exportSelection?: {
+    partyId?: string;
+    employeeId?: string;
+    fromDate?: string;
+    toDate?: string;
+  };
 }
 
-export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
+export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportSelection }) => {
   const {
     accounts,
     settings,
@@ -103,8 +114,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
   }, [initialReport]);
 
   // Common filters
-  const [fromDate, setFromDate] = useState<string>('');
-  const [toDate, setToDate] = useState<string>('');
+  const [fromDate, setFromDate] =  useState<string>(exportSelection?.fromDate || '');
+  const [toDate, setToDate] = useState<string>(exportSelection?.toDate || '');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // 1 & 2: Customer selection (Main & Sub)
@@ -112,8 +123,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
     return parties.filter(p => (p.type === 'customer' || p.type === 'both') && !p.parentPartyId && !p.isSubCustomer);
   }, [parties]);
 
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(mainCustomers[0]?.id || '');
-  const [selectedSubCustomerId, setSelectedSubCustomerId] = useState<string>('all');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(() => {
+    const target=parties.find(p=>p.id===exportSelection?.partyId);
+    return target?.parentPartyId || target?.parentCustomerId || target?.id || mainCustomers[0]?.id || '';
+  });
+  const [selectedSubCustomerId, setSelectedSubCustomerId] = useState<string>(() => {
+    const target=parties.find(p=>p.id===exportSelection?.partyId);
+    return (target?.parentPartyId || target?.parentCustomerId) ? target.id : 'all';
+  });
 
   const subCustomersForSelected = useMemo(() => {
     if (!selectedCustomerId) return [];
@@ -156,8 +173,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
     return parties.filter(p => (p.type === 'supplier' || p.type === 'both') && !p.parentPartyId && !p.isSubCustomer);
   }, [parties]);
 
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>(mainSuppliers[0]?.id || '');
-  const [selectedSubSupplierId, setSelectedSubSupplierId] = useState<string>('all');
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>(() => {
+    const target=parties.find(p=>p.id===exportSelection?.partyId);
+    return target?.parentPartyId || target?.parentCustomerId || target?.id || mainSuppliers[0]?.id || '';
+  });
+  const [selectedSubSupplierId, setSelectedSubSupplierId] = useState<string>(() => {
+    const target=parties.find(p=>p.id===exportSelection?.partyId);
+    return (target?.parentPartyId || target?.parentCustomerId) ? target.id : 'all';
+  });
 
   const subSuppliersForSelected = useMemo(() => {
     if (!selectedSupplierId) return [];
@@ -230,7 +253,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
   const [paymentTreasuryFilter, setPaymentTreasuryFilter] = useState<string>('all');
 
   // 7: Employee selection
-  const [selectedEmpId, setSelectedEmpId] = useState<string>(employees[0]?.id || '');
+  const [selectedEmpId, setSelectedEmpId] = useState<string>(exportSelection?.employeeId || employees[0]?.id || '');
 
   // 9: Treasuries selection
   const [selectedTreasuryCode, setSelectedTreasuryCode] = useState<string>('all');
@@ -916,6 +939,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
   }
 
   const reportsCategories: ReportCategory[] = [
+    {group:'الكشوفات التشغيلية المشتركة مع تلجرام',items:[
+      {id:'purchases_report' as const,name:'كشف فواتير المشتريات',icon:Truck},
+      {id:'inventory_report' as const,name:'كشف نواقص المخزون',icon:Boxes},
+      {id:'expenses_report' as const,name:'كشف المصروفات',icon:Wallet},
+    ]},
     {
       group: 'تقارير العملاء والمبيعات',
       items: [
@@ -2007,6 +2035,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* ========================================================================= */}
       {/* FINANCIAL STATEMENTS: Income Statement */}
       {/* ========================================================================= */}
+      {(['purchases_report','inventory_report','expenses_report'] as const).includes(activeReport as any) && (
+        <OperationalReportDocument kind={activeReport as 'purchases_report'|'inventory_report'|'expenses_report'}
+          fromDate={fromDate} toDate={toDate}/>
+      )}
       {activeReport === 'income' && (
         <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
           <PrintHeader

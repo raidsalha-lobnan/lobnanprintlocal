@@ -13,6 +13,8 @@ export interface DetailedSalesReportOptions {
   customerName: (invoice: Invoice) => string;
   categoryName?: (invoice: Invoice) => string;
   treasuries: Treasury[];
+  /** Telegram exports the identical pre-paginated A4 pages without opening print dialogs. */
+  autoPrint?: boolean;
 }
 
 const escapeHtml = (value: unknown): string => String(value ?? '').replace(
@@ -368,7 +370,10 @@ export function buildDetailedSalesReportHtml(invoices: Invoice[], options: Detai
     '<main id="pages"></main>',
     '<template id="report-intro">',intro,'</template>',
     '<template id="invoice-sources">',reports,'</template>',
-    '<script>',pagerJs,'</script>',
+    '<script>',options.autoPrint===false
+      ?pagerJs.replace('}).then(()=>setTimeout(()=>window.print(),180));',
+        '}).then(()=>{document.documentElement.dataset.printReady="true";});')
+      :pagerJs,'</script>',
     '</body></html>',
   ].join('');
 }

@@ -1,20 +1,16 @@
 import React, { useEffect, useRef } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { TelegramService, TelegramIncomingAction } from '../services/TelegramService';
-import { generateAccountStatement } from '../utils/statementGenerator';
+import { useOfficialAppReportPdf } from '../utils/useOfficialAppReportPdf';
+import { isConfirmedSalesInvoice } from '../utils/invoiceConfirmation';
+import { formatInvoiceCustomerDisplay } from '../utils/partyUtils';
+import { buildDetailedSalesReportHtml } from '../utils/printDetailedSalesInvoiceRegister';
+import { captureOfficialSalesRegisterPdf } from '../utils/captureOfficialSalesRegisterPdf';
 import {
   fuzzyMatchParties,
   fuzzyMatchEmployees,
   getDateRangeForPeriod,
   parseCustomDateRange,
-  generateStatementPdfBlob,
-  generateCustomerItemsPdfBlob,
-  generateTreasuryReportPdfBlob,
-  generateSalesReportPdfBlob,
-  generatePurchasesReportPdfBlob,
-  generateInventoryReportPdfBlob,
-  generateExpensesReportPdfBlob,
-  generateEmployeeStatementPdfBlob,
 } from '../utils/telegramReportsHelper';
 import { Party, Employee } from '../types';
 
@@ -120,6 +116,8 @@ export const TelegramBotIntegration: React.FC = () => {
 
   const payrollSheetsRef = useRef(payrollSheets);
   payrollSheetsRef.current = payrollSheets;
+
+  const { createReportPdf, printSurface } = useOfficialAppReportPdf();
 
   // Session state per chat ID to manage interactive multi-step conversations
   const sessionsRef = useRef<Map<string, SessionState>>(new Map());
@@ -356,7 +354,8 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
         | 'last_30_days'
         | 'this_year'
         | 'all'
-        | { fromDate: string; toDate: string; label: string }
+        | { fromDate: string; toDate: string; label: string },
+      requestedReport:'customer_statement'|'supplier_statement'
     ) => {
       const party = partiesRef.current.find(p => p.id === partyId);
       if (!party) {
@@ -374,48 +373,14 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       );
 
       try {
-        const parentParty = party.parentCustomerId
-          ? partiesRef.current.find(p => p.id === party.parentCustomerId) || null
-          : null;
-
-        const statementResult = generateAccountStatement({
-          party,
-          fromDate,
-          toDate,
-          invoices: invoicesRef.current,
-          purchases: purchasesRef.current,
-          purchaseReturns: purchaseReturnsRef.current,
-          salesReturns: salesReturnsRef.current,
-          vouchers: vouchersRef.current,
-          printOrders: printOrdersRef.current,
-          journalEntries: journalEntriesRef.current,
-          debtClearings: debtClearingsRef.current,
+        // Render the real ReportsView statement, identical to Customers/Reports print.
+        const { blob, filename } = await createReportPdf({
+          reportType:requestedReport,
+          partyId:party.id,fromDate,toDate,
+          filename:'account_statement_'+party.code+'_'+(fromDate||'all')+'_'+(toDate||'now')+'.pdf'
         });
 
-        const { blob, filename } = await generateStatementPdfBlob({
-          party,
-          parentParty,
-          statementResult,
-          settings: settingsRef.current,
-          periodLabel,
-        });
-
-        const currency = (settingsRef.current as any).currency || '₪';
-        const closingBal = statementResult.closingBalance || 0;
-        const balLabel =
-          closingBal > 0
-            ? `مدين: ${closingBal.toFixed(2)} ${currency}`
-            : closingBal < 0
-            ? `دائن: ${Math.abs(closingBal).toFixed(2)} ${currency}`
-            : `خالص (0.00)`;
-
-        const caption = `
-📄 <b>كشف حساب تفصيلي: ${party.name}</b>
-📅 الفترة: ${periodLabel}
-➕ إجمالي السحوبات (مدين): ${statementResult.totalDebit.toFixed(2)} ${currency}
-➖ إجمالي المقبوضات (دائن): ${statementResult.totalCredit.toFixed(2)} ${currency}
-🎯 صافي الرصيد النهائي: <b>${balLabel}</b>
-        `.trim();
+        const caption = 'كشف حساب تفصيلي: '+party.name+' — '+periodLabel;
 
         await TelegramService.sendDocument(blob, filename, caption, chatId, botToken);
 
@@ -470,17 +435,9 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       );
 
       try {
-        const parentParty = party.parentCustomerId
-          ? partiesRef.current.find(p => p.id === party.parentCustomerId) || null
-          : null;
-
-        const { blob, filename } = await generateCustomerItemsPdfBlob({
-          party,
-          parentParty,
-          invoices: invoicesRef.current,
-          settings: settingsRef.current,
-          fromDate,
-          toDate,
+        const { blob, filename } = await createReportPdf({
+          reportType:'customer_items',partyId:party.id,fromDate,toDate,
+          filename:'customer_items_'+party.code+'_'+(fromDate||'all')+'_'+(toDate||'now')+'.pdf'
         });
 
         const caption = `
@@ -532,14 +489,9 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       );
 
       try {
-        const { blob, filename } = await generateTreasuryReportPdfBlob({
-          treasuries: activeTreasuries,
-          vouchers: vouchersRef.current,
-          invoices: invoicesRef.current,
-          parties: partiesRef.current,
-          settings: settingsRef.current,
-          fromDate,
-          toDate,
+        const { blob, filename } = await createReportPdf({
+          reportType:'treasuries_movement',fromDate,toDate,
+          filename:'treasuries_movement_'+(fromDate||'all')+'_'+(toDate||'now')+'.pdf'
         });
 
         await TelegramService.sendDocument(
@@ -584,14 +536,17 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       );
 
       try {
-        const { blob, filename } = await generateSalesReportPdfBlob({
-          invoices: invoicesRef.current,
-          parties: partiesRef.current,
-          treasuries: treasuriesRef.current,
-          settings: settingsRef.current,
-          fromDate,
-          toDate,
+        // Same A4 Sales Invoice Register generator invoked by the program.
+        const matching=invoicesRef.current.filter(inv=>isConfirmedSalesInvoice(inv) &&
+          (!fromDate||inv.date>=fromDate)&&(!toDate||inv.date<=toDate));
+        const officialHtml=buildDetailedSalesReportHtml(matching,{
+          companyName:settingsRef.current.businessName||'',
+          settings:settingsRef.current,periodLabel,invoiceTypeLabel:'جميع الفواتير',
+          searchLabel:'',customerName:inv=>formatInvoiceCustomerDisplay(inv,partiesRef.current),
+          treasuries:treasuriesRef.current,autoPrint:false,
         });
+        const blob=await captureOfficialSalesRegisterPdf(officialHtml);
+        const filename='sales_invoice_register_'+(fromDate||'all')+'_'+(toDate||'now')+'.pdf';
 
         await TelegramService.sendDocument(
           blob,
@@ -635,11 +590,9 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       );
 
       try {
-        const { blob, filename } = await generatePurchasesReportPdfBlob({
-          purchases: purchasesRef.current,
-          settings: settingsRef.current,
-          fromDate,
-          toDate,
+        const { blob, filename } = await createReportPdf({
+          reportType:'purchases_report',fromDate,toDate,
+          filename:'purchases_register_'+(fromDate||'all')+'_'+(toDate||'now')+'.pdf',
         });
 
         await TelegramService.sendDocument(
@@ -676,9 +629,9 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       );
 
       try {
-        const { blob, filename } = await generateInventoryReportPdfBlob({
-          inventory: items,
-          settings: settingsRef.current,
+        const { blob, filename } = await createReportPdf({
+          reportType:'inventory_report',
+          filename:'inventory_shortages_'+new Date().toISOString().slice(0,10)+'.pdf',
         });
 
         await TelegramService.sendDocument(
@@ -723,11 +676,9 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       );
 
       try {
-        const { blob, filename } = await generateExpensesReportPdfBlob({
-          expenses: expensesRef.current,
-          settings: settingsRef.current,
-          fromDate,
-          toDate,
+        const { blob, filename } = await createReportPdf({
+          reportType:'expenses_report',fromDate,toDate,
+          filename:'expense_register_'+(fromDate||'all')+'_'+(toDate||'now')+'.pdf',
         });
 
         await TelegramService.sendDocument(
@@ -779,18 +730,9 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       );
 
       try {
-        const { blob, filename } = await generateEmployeeStatementPdfBlob({
-          employee,
-          vouchers: vouchersRef.current,
-          advances: employeeAdvancesRef.current,
-          deductions: employeeDeductionsRef.current,
-          incentives: employeeIncentivesRef.current,
-          payrollSheets: payrollSheetsRef.current,
-          invoices: invoicesRef.current,
-          purchases: purchasesRef.current,
-          settings: settingsRef.current,
-          fromDate,
-          toDate,
+        const { blob, filename } = await createReportPdf({
+          reportType:'employee_statement',employeeId:employee.id,fromDate,toDate,
+          filename:'employee_statement_'+employee.code+'_'+(fromDate||'all')+'_'+(toDate||'now')+'.pdf'
         });
 
         await TelegramService.sendDocument(
@@ -826,7 +768,7 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       switch (reportType) {
         case 'customer_statement':
         case 'supplier_statement':
-          await dispatchStatementPdf(chatId, targetId, period);
+          await dispatchStatementPdf(chatId, targetId, period, reportType);
           break;
         case 'customer_items':
           await dispatchCustomerItemsPdf(chatId, targetId, period);
@@ -1344,7 +1286,7 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
     return () => {
       TelegramService.stopPolling();
     };
-  }, [isEnabled, botToken]);
+  }, [isEnabled, botToken, createReportPdf]);
 
-  return null;
+  return <>{printSurface}</>;
 };
