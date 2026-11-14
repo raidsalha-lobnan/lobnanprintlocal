@@ -5,7 +5,9 @@ import jsPDF from 'jspdf';
  * Capture an existing application print surface as an A4 PDF.
  * No independent Telegram markup or accounting calculations are involved.
  */
-export async function captureOfficialPrintSurface(root: HTMLElement):Promise<Blob>{
+export async function captureOfficialPrintSurface(root: HTMLElement,signal?:AbortSignal):Promise<Blob>{
+  const ensureActive=()=>{if(signal?.aborted)throw new Error('OFFICIAL_REPORT_RENDER_ABORTED');};
+  ensureActive();
   if(!root.isConnected)throw new Error('OFFICIAL_REPORT_NOT_MOUNTED');
   const width=Math.ceil(Math.max(root.scrollWidth,root.getBoundingClientRect().width));
   if(width<400||width>3000)throw new Error('OFFICIAL_REPORT_INVALID_WIDTH');
@@ -23,6 +25,7 @@ export async function captureOfficialPrintSurface(root: HTMLElement):Promise<Blo
       new Promise<void>(resolve=>setTimeout(resolve,6000))
     ]);
   }));
+  ensureActive();
   const height=Math.ceil(Math.max(root.scrollHeight,root.getBoundingClientRect().height));
   if(height<50||height>160000)throw new Error('OFFICIAL_REPORT_INVALID_LENGTH');
   const pdf=new jsPDF('p','mm','a4');
@@ -35,6 +38,7 @@ export async function captureOfficialPrintSurface(root: HTMLElement):Promise<Blo
     .filter(p=>p>0&&p<height).sort((a,b)=>a-b);
   let start=0,pageIndex=0;
   while(start<height){
+    ensureActive();
     if(pageIndex>200)throw new Error('OFFICIAL_REPORT_TOO_MANY_PAGES');
     let end=Math.min(height,start+maxPx);
     if(end<height){
@@ -50,6 +54,7 @@ export async function captureOfficialPrintSurface(root: HTMLElement):Promise<Blo
       x:0,y:start,scrollX:0,scrollY:0,
       windowWidth:width,windowHeight:Math.max(1200,chunkHeight),
     });
+    ensureActive();
     if(pageIndex>0)pdf.addPage();
     const image=canvas.toDataURL('image/jpeg',.94);
     pdf.addImage(image,'JPEG',marginLeft,marginTop,

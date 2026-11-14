@@ -12,7 +12,7 @@ function makeMockHub() {
     return {rows:[{last_update_id:lastUpdateId}]};
    if(sql.includes('UPDATE sync_telegram_bot_offsets SET last_update_id'))
     lastUpdateId=args[2];
-   if(sql.includes('SELECT update_id,payload FROM sync_telegram_inbox'))
+   if(sql.includes('SELECT update_id,payload,attempts,document_delivered_at FROM sync_telegram_inbox'))
     return {rows:[{update_id:42,payload:{
       type:'message',text:'/start',chatId:'123',fromName:'Test'
     }}]};

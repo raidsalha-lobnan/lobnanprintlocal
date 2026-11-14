@@ -163,7 +163,7 @@ export class TelegramHub {
    timer=setTimeout(wake,Math.max(0,Math.min(12000,waitMs)));
    // Seal race: an inbox row might have committed just before registration.
    this.pool.query(
-    "SELECT 1 FROM sync_telegram_inbox WHERE workspace=$1 AND processed_at IS NULL AND (claimed_until IS NULL OR claimed_until<now()) LIMIT 1",
+    "SELECT 1 FROM sync_telegram_inbox WHERE workspace=$1 AND processed_at IS NULL AND failed_at IS NULL AND (claimed_until IS NULL OR claimed_until<now()) LIMIT 1",
     [this.workspace]
    ).then(result=>{if(result.rows.length)wake();}).catch(wake);
   });
@@ -174,15 +174,16 @@ export class TelegramHub {
   try{
    await client.query('BEGIN');
    const q=await client.query(
-    "SELECT update_id,payload FROM sync_telegram_inbox WHERE workspace=$1 AND processed_at IS NULL AND (claimed_until IS NULL OR claimed_until<now()) ORDER BY received_at,update_id FOR UPDATE SKIP LOCKED LIMIT 1",
+    "SELECT update_id,payload,attempts,document_delivered_at FROM sync_telegram_inbox WHERE workspace=$1 AND processed_at IS NULL AND failed_at IS NULL AND (claimed_until IS NULL OR claimed_until<now()) ORDER BY attempts,received_at,update_id FOR UPDATE SKIP LOCKED LIMIT 1",
     [this.workspace]);
    if(!q.rows.length){await client.query('COMMIT');return null}
    const row=q.rows[0],lease=crypto.randomUUID();
    await client.query(
-    "UPDATE sync_telegram_inbox SET claim_token=$3,claimed_until=now()+interval '15 minutes' WHERE workspace=$1 AND update_id=$2",
+    "UPDATE sync_telegram_inbox SET claim_token=$3,claimed_until=now()+interval '3 minutes',attempts=attempts+1 WHERE workspace=$1 AND update_id=$2",
     [this.workspace,row.update_id,lease]);
    await client.query('COMMIT');
-   return {updateId:Number(row.update_id),leaseToken:lease,action:row.payload};
+   return {updateId:Number(row.update_id),leaseToken:lease,action:row.payload,
+    attempts:Number(row.attempts||0)+1,documentDelivered:!!row.document_delivered_at};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}
   finally{client.release()}
  }
@@ -193,6 +194,28 @@ export class TelegramHub {
    "UPDATE sync_telegram_inbox SET claimed_until=now()+interval '20 seconds',claim_token=NULL WHERE workspace=$1 AND update_id=$2 AND claim_token=$3 AND processed_at IS NULL",
    [this.workspace,updateId,leaseToken]);
   return r.rowCount===1;
+ }
+ /** A report is retried once. Never leave a failed PDF job in an infinite loop. */
+ async failInbox(updateId,leaseToken,code){
+  if(!Number.isSafeInteger(updateId)||updateId<=0||
+    typeof leaseToken!=='string'||leaseToken.length!==36)return null;
+  const safeCode=/^[A-Z0-9_]{3,100}$/.test(String(code))?code:'REPORT_GENERATION_FAILED';
+  const r=await this.pool.query(
+   `UPDATE sync_telegram_inbox SET
+       failure_code=$4,
+       failed_at=CASE WHEN document_delivered_at IS NULL AND attempts>=2 THEN now() ELSE failed_at END,
+       processed_at=CASE WHEN document_delivered_at IS NOT NULL THEN now() ELSE processed_at END,
+       claimed_until=CASE WHEN attempts>=2 OR document_delivered_at IS NOT NULL THEN NULL ELSE now()+interval '3 seconds' END,
+       claim_token=NULL
+     WHERE workspace=$1 AND update_id=$2 AND claim_token=$3
+       AND processed_at IS NULL AND failed_at IS NULL
+     RETURNING attempts,failed_at IS NOT NULL AS terminal,
+       payload->>'chatId' AS chat_id,progress_message_id`,
+   [this.workspace,updateId,leaseToken,safeCode]);
+  if(!r.rows.length)return null;
+  return {terminal:r.rows[0].terminal,attempts:Number(r.rows[0].attempts),
+   chatId:r.rows[0].chat_id,progressMessageId:r.rows[0].progress_message_id,
+   code:safeCode};
  }
  async ackInbox(updateId,leaseToken){
   if(!Number.isSafeInteger(updateId)||updateId<=0||

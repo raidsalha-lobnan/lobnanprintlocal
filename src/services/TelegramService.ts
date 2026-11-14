@@ -11,7 +11,7 @@ export interface TelegramInlineButton {
  text:string;callback_data?:string;url?:string;
 }
 export interface TelegramSendMessageOptions {
- chatId?:string;parseMode?:'HTML'|'Markdown'|'MarkdownV2';
+ chatId?:string;parseMode?:'HTML'|'Markdown'|'MarkdownV2';progress?:boolean;
  replyMarkup?:{inline_keyboard?:TelegramInlineButton[][];keyboard?:{text:string}[][];resize_keyboard?:boolean;one_time_keyboard?:boolean;};
 }
 export interface TelegramIncomingAction {
@@ -30,7 +30,8 @@ async function postToCentral(path:string,body:Record<string,unknown>):Promise<vo
  const config=getLocalSyncConfig();
  const reply=await fetch(config.url+'/api/v1/telegram/'+path+'?workspace='+encodeURIComponent(config.workspace),{
   method:'POST',headers:getHeaders(config.url),
-  body:JSON.stringify(body),cache:'no-store'
+  body:JSON.stringify(body),cache:'no-store',
+  signal:AbortSignal.timeout(path==='report/send-document'?100000:16000)
  });
  if(!reply.ok)throw new Error('TELEGRAM_SERVER_'+path.toUpperCase().replaceAll('/','_')+'_HTTP_'+reply.status);
  const outcome=await reply.json().catch(()=>null);
@@ -60,7 +61,7 @@ export const TelegramService={
   if(!settings.telegramConfig?.enabled)throw new Error('TELEGRAM_DISABLED');
   const chatId=String(options?.chatId||settings.telegramConfig?.defaultChatId||'');
   await postToCentral('report/send-message',{
-   ...authorizedLease(chatId),text,replyMarkup:options?.replyMarkup
+   ...authorizedLease(chatId),text,replyMarkup:options?.replyMarkup,progress:options?.progress===true
   });
   return true;
  },
@@ -111,27 +112,39 @@ export const TelegramService={
     });
     if(!response.ok){schedule(response.status===401?20000:10000);return;}
     const payload=await response.json() as {item?:{
-      updateId:number;leaseToken:string;action:Omit<TelegramIncomingAction,'token'>
+      updateId:number;leaseToken:string;action:Omit<TelegramIncomingAction,'token'>;
+      attempts?:number;documentDelivered?:boolean
     }|null};
     // A claim already waited for Telegram; immediately re-arm the next wait.
     if(!payload.item){schedule(60);return;}
     const {updateId,leaseToken,action}=payload.item;
     activeLease={updateId,leaseToken,chatId:String(action.chatId)};
     try{
-     if(action.type==='callback'&&action.callbackQueryId)
-       await TelegramService.answerCallbackQuery(action.callbackQueryId,'');
-     await onAction({...action,token:''});
+     if(!payload.item.documentDelivered){
+       if(action.type==='callback'&&action.callbackQueryId)
+         await TelegramService.answerCallbackQuery(action.callbackQueryId,'');
+       await onAction({...action,token:''});
+     } // A previously confirmed PDF must never be regenerated on an ACK retry.
      const ack=await fetch(endpoint+'inbox/ack?workspace='+encodeURIComponent(config.workspace),{
       method:'POST',headers,body:JSON.stringify({updateId,leaseToken}),cache:'no-store'
      });
      if(!ack.ok)throw new Error('TELEGRAM_INBOX_ACK_FAILED_'+ack.status);
      schedule(70);
     }catch(error){
-     console.warn('Telegram inbox operation failed; releasing for retry',error);
-     await fetch(endpoint+'inbox/release?workspace='+encodeURIComponent(config.workspace),{
-      method:'POST',headers,body:JSON.stringify({updateId,leaseToken}),cache:'no-store'
-     }).catch(()=>{});
-     schedule(1000); // Released request sleeps on server; newer commands may proceed.
+     console.warn('Telegram report operation failed; recording bounded retry',error);
+     const raw=error instanceof Error?error.message:String(error);
+     const code=/^[A-Z0-9_]{3,100}$/.test(raw)?raw:'REPORT_PROCESSING_FAILED';
+     const failed=await fetch(endpoint+'inbox/fail?workspace='+encodeURIComponent(config.workspace),{
+      method:'POST',headers,body:JSON.stringify({updateId,leaseToken,code}),
+      cache:'no-store',signal:AbortSignal.timeout(18000)
+     }).catch(()=>null);
+     if(!failed?.ok){
+       // Never delete a financial report request just because diagnostics failed.
+       await fetch(endpoint+'inbox/release?workspace='+encodeURIComponent(config.workspace),{
+        method:'POST',headers,body:JSON.stringify({updateId,leaseToken}),cache:'no-store'
+       }).catch(()=>{});
+     }
+     schedule(400);
     }finally{activeLease=null;}
    }catch(error){
     console.warn('Telegram central report queue temporarily unavailable',error);

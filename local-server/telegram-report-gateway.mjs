@@ -36,7 +36,19 @@ export class TelegramReportGateway {
   if(!response.ok)throw new InputError('TELEGRAM_'+method.toUpperCase()+'_HTTP_'+response.status,502);
   const body=await response.json();
   if(body.ok!==true)throw new InputError('TELEGRAM_DELIVERY_REJECTED',502);
-  return {ok:true};
+  return body.result?.message_id?{ok:true,messageId:body.result.message_id}:{ok:true};
+ }
+ async sendText(token,options){
+  try{return await this.telegramRequest(token,'sendMessage',options);}
+  catch(error){
+   if(!(error instanceof InputError)||error.message!=='TELEGRAM_SENDMESSAGE_HTTP_400')
+    throw error;
+   const text=String(options.text||'');
+   const plain=text.replace(/<[^>]*>/g,'').replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+   const {parse_mode,...safe}=options;
+   return this.telegramRequest(token,'sendMessage',{...safe,text:plain});
+  }
  }
  async message(payload){
   await this.verifyLease(payload);
@@ -45,16 +57,19 @@ export class TelegramReportGateway {
   const options={chat_id:String(payload.chatId),text:txt,parse_mode:'HTML'};
   if(payload.replyMarkup)options.reply_markup=payload.replyMarkup;
   const {botToken}=await this.config();
-  try{return await this.telegramRequest(botToken,'sendMessage',options);}
-  catch(error){
-   if(!(error instanceof InputError)||error.message!=='TELEGRAM_SENDMESSAGE_HTTP_400')
-    throw error;
-   // Invalid HTML entities should not block the next chat command forever.
-   // Retry once as plain text; true delivery failures still remain unacknowledged.
-   const plain=txt.replace(/<[^>]*>/g,'').replace(/&lt;/g,'<')
-    .replace(/&gt;/g,'>').replace(/&amp;/g,'&');
-   return this.telegramRequest(botToken,'sendMessage',{...options,text:plain,parse_mode:undefined});
+  if(payload.progress===true){
+   const state=await this.pool.query(
+    'SELECT progress_message_id FROM sync_telegram_inbox WHERE workspace=$1 AND update_id=$2 AND claim_token=$3 AND processed_at IS NULL AND failed_at IS NULL',
+    [this.workspace,payload.updateId,payload.leaseToken]);
+   if(!state.rows.length)throw new InputError('TELEGRAM_REPORT_LEASE_NOT_AUTHORIZED',403);
+   if(state.rows[0].progress_message_id)return {ok:true,alreadyShown:true};
+   const sent=await this.sendText(botToken,options);
+   if(Number.isSafeInteger(sent.messageId))await this.pool.query(
+    'UPDATE sync_telegram_inbox SET progress_message_id=$4 WHERE workspace=$1 AND update_id=$2 AND claim_token=$3',
+    [this.workspace,payload.updateId,payload.leaseToken,sent.messageId]);
+   return {ok:true};
   }
+  return this.sendText(botToken,options);
  }
  async callback(payload){
   await this.verifyLease(payload);
@@ -74,11 +89,34 @@ export class TelegramReportGateway {
    throw error;
   }
  }
+ async progressStatus(chatId,messageId,text,token){
+  if(Number(messageId)>0){
+   try{return await this.telegramRequest(token,'editMessageText',{
+    chat_id:String(chatId),message_id:Number(messageId),text
+   },10000);}
+   catch(error){
+    if(!(error instanceof InputError)||!error.message.endsWith('_HTTP_400'))throw error;
+   }
+  }
+  return this.telegramRequest(token,'sendMessage',{chat_id:String(chatId),text},12000);
+ }
+ async notifyTerminalFailure(result){
+  if(!result?.terminal||!validChat(result.chatId))return;
+  const {botToken}=await this.config();
+  const code=String(result.code||'REPORT_GENERATION_FAILED').slice(0,90);
+  await this.progressStatus(result.chatId,result.progressMessageId,
+    '❌ تعذر إكمال الكشف بعد المحاولة التلقائية. أعد طلبه أو اختر فترة أقصر. رمز التشخيص: '+code,botToken);
+ }
  async document(payload){
   await this.verifyLease(payload);
   if(typeof payload.base64!=='string'||payload.base64.length>28_000_000||
      payload.base64.length<16||! /^[A-Za-z0-9+/]+={0,2}$/.test(payload.base64))
    throw new InputError('TELEGRAM_DOCUMENT_ENCODING_INVALID',400);
+  const existing=await this.pool.query(
+   'SELECT document_delivered_at,progress_message_id FROM sync_telegram_inbox WHERE workspace=$1 AND update_id=$2 AND claim_token=$3 AND processed_at IS NULL',
+   [this.workspace,payload.updateId,payload.leaseToken]);
+  if(!existing.rows.length)throw new InputError('TELEGRAM_REPORT_LEASE_NOT_AUTHORIZED',403);
+  if(existing.rows[0].document_delivered_at)return {ok:true,alreadyDelivered:true};
   const pdf=Buffer.from(payload.base64,'base64');
   if(pdf.length<30||pdf.length>20_000_000||pdf.toString('ascii',0,5)!=='%PDF-')
    throw new InputError('TELEGRAM_DOCUMENT_INVALID_PDF',400);
@@ -87,6 +125,18 @@ export class TelegramReportGateway {
   form.append('document',new Blob([pdf],{type:'application/pdf'}),safeFilename(payload.filename));
   if(payload.caption)form.append('caption',String(payload.caption).slice(0,1024));
   const {botToken}=await this.config();
-  return this.telegramRequest(botToken,'sendDocument',form,70000);
+  const sent=await this.telegramRequest(botToken,'sendDocument',form,70000);
+  const updated=await this.pool.query(
+   'UPDATE sync_telegram_inbox SET document_delivered_at=now(),document_message_id=$4 WHERE workspace=$1 AND update_id=$2 AND claim_token=$3 AND processed_at IS NULL RETURNING progress_message_id',
+   [this.workspace,payload.updateId,payload.leaseToken,sent.messageId||null]);
+  if(updated.rowCount!==1)throw new InputError('TELEGRAM_DOCUMENT_CHECKPOINT_FAILED',503);
+  try{
+   const status=updated.rows[0].progress_message_id;
+   if(status)await this.telegramRequest(botToken,'editMessageText',{
+    chat_id:String(payload.chatId),message_id:Number(status),
+    text:'✅ تم إرسال الكشف بنجاح كملف PDF.'
+   },8000);
+  }catch{/* Report was delivered; cosmetic Telegram status errors are nonfatal. */}
+  return {ok:true,documentDelivered:true};
  }
 }

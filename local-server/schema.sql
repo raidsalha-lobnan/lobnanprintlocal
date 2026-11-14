@@ -134,9 +134,19 @@ CREATE TABLE IF NOT EXISTS sync_telegram_inbox (
  processed_at timestamptz,
  PRIMARY KEY(workspace,update_id)
 );
+-- Durable Telegram job lifecycle; safe additive upgrades on existing installations.
+ALTER TABLE sync_telegram_inbox ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
+ALTER TABLE sync_telegram_inbox ADD COLUMN IF NOT EXISTS failed_at timestamptz;
+ALTER TABLE sync_telegram_inbox ADD COLUMN IF NOT EXISTS failure_code text;
+ALTER TABLE sync_telegram_inbox ADD COLUMN IF NOT EXISTS progress_message_id bigint;
+ALTER TABLE sync_telegram_inbox ADD COLUMN IF NOT EXISTS document_delivered_at timestamptz;
+ALTER TABLE sync_telegram_inbox ADD COLUMN IF NOT EXISTS document_message_id bigint;
 CREATE INDEX IF NOT EXISTS sync_telegram_inbox_pending_idx
  ON sync_telegram_inbox(workspace,received_at)
  WHERE processed_at IS NULL;
+CREATE INDEX IF NOT EXISTS sync_telegram_inbox_ready_idx
+ ON sync_telegram_inbox(workspace,attempts,received_at)
+ WHERE processed_at IS NULL AND failed_at IS NULL;
 
 -- Per-recipient delivery checkpoints ensure a failed Telegram user does not
 -- block other subscribers or cause a completed multipart message to repeat.

@@ -5,7 +5,16 @@ import {TelegramReportGateway} from '../telegram-report-gateway.mjs';
 const lease={updateId:10001,leaseToken:'eb2d40d7-6a3f-4c48-b5c0-dcc67e8d5a2c',chatId:'777777'};
 function makeGateway({authorized=true,fail=false}={}){
  const calls=[];
+ const state={progress_message_id:null,document_delivered_at:null};
  const pool={async query(sql,args){
+  if(sql.includes('SELECT progress_message_id FROM sync_telegram_inbox'))return {rows:[state]};
+  if(sql.includes('SELECT document_delivered_at,progress_message_id'))return {rows:[state]};
+  if(sql.includes('UPDATE sync_telegram_inbox SET progress_message_id')){
+   state.progress_message_id=args[3];return {rowCount:1,rows:[state]};
+  }
+  if(sql.includes('UPDATE sync_telegram_inbox SET document_delivered_at')){
+   state.document_delivered_at='now';return {rowCount:1,rows:[state]};
+  }
   if(sql.includes('sync_telegram_inbox i JOIN sync_telegram_subscribers'))return {rows:authorized?[{one:1}]:[]};
   if(sql.includes("value->'telegramConfig'"))return {rows:[{config:{enabled:true,botToken:'DUMMY_PRIVATE_TEST_TOKEN'}}]};
   throw new Error('Unexpected SQL query');
@@ -44,7 +53,8 @@ test('PDF upload uses server-side token and binary multipart, with no invalid fi
  assert.equal(doc.name,'customer-01.pdf');
  assert.equal(doc.type,'application/pdf');
  assert.deepEqual(Buffer.from(await doc.arrayBuffer()),bytes);
- await assert.rejects(hub.document({...lease,base64:Buffer.from('NOT_A_PDF_WITH_ENOUGH_CHARACTERS').toString('base64')}),/TELEGRAM_DOCUMENT_INVALID_PDF/);
+ const fresh=makeGateway();
+ await assert.rejects(fresh.hub.document({...lease,base64:Buffer.from('NOT_A_PDF_WITH_ENOUGH_CHARACTERS').toString('base64')}),/TELEGRAM_DOCUMENT_INVALID_PDF/);
  assert.equal(calls.length,1);
 });
 test('Telegram API failure is not acknowledged as successful delivery',async()=>{

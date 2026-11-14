@@ -288,6 +288,15 @@ const srv=http.createServer(async(req,res)=>{
         const payload=await parseBody(req,8000);
         return json(res,200,await telegramReportGateway.callback(payload),cors);
       }
+      if(url.pathname==='/api/v1/telegram/inbox/fail'){
+        const payload=await parseBody(req,4096);
+        const result=await telegramHub.failInbox(payload?.updateId,payload?.leaseToken,payload?.code);
+        if(!result)throw new InputError('TELEGRAM_INBOX_LEASE_EXPIRED',409);
+        if(result.terminal)try{
+          await telegramReportGateway.notifyTerminalFailure(result);
+        }catch(error){console.error('Telegram report failure notice pending',error.message);}
+        return json(res,200,{ok:true,terminal:!!result.terminal,attempts:result.attempts},cors);
+      }
       if(url.pathname==='/api/v1/telegram/inbox/release'){
         const payload=await parseBody(req,2048);
         const ok=await telegramHub.releaseInbox(payload?.updateId,payload?.leaseToken);

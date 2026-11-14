@@ -63,7 +63,7 @@ test('client claims a report without the bot token, relays message and PDF, then
  assert.ok(!paths.some(x=>x.includes('api.telegram.org')));
 });
 
-test('failed remote PDF delivery releases lease and never acknowledges an unsent report',async()=>{
+test('failed report records bounded retry and never acknowledges an unsent report',async()=>{
  const paths:string[]=[];let released!:()=>void;
  const finished=new Promise<void>(resolve=>{released=resolve;});let claimed=false;
  (globalThis as any).fetch=async(url:string)=>{
@@ -74,7 +74,7 @@ test('failed remote PDF delivery releases lease and never acknowledges an unsent
    return response({item:{updateId:92,leaseToken:lease,action:{type:'message',text:'test',chatId:'12345'}}});
   }
   if(path.endsWith('/report/send-message'))return {ok:false,status:502,json:async()=>({code:'TELEGRAM_FAIL'})};
-  if(path.endsWith('/inbox/release')){released();return response({ok:true});}
+  if(path.endsWith('/inbox/fail')){released();return response({ok:true,terminal:false});}
   throw new Error('unexpected endpoint '+path);
  };
  TelegramService.startPolling(settings,async action=>{
@@ -82,6 +82,6 @@ test('failed remote PDF delivery releases lease and never acknowledges an unsent
  });
  await Promise.race([finished,sleep(2600).then(()=>{throw new Error('RELEASE_NOT_RECEIVED')})]);
  TelegramService.stopPolling();
- assert.ok(paths.some(x=>x.endsWith('/inbox/release')));
+ assert.ok(paths.some(x=>x.endsWith('/inbox/fail')));
  assert.ok(!paths.some(x=>x.endsWith('/inbox/ack')));
 });

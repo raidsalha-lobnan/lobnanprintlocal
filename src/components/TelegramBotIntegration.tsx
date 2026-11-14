@@ -369,7 +369,7 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       await TelegramService.sendMessage(
         `⏳ <b>جاري تجهيز كشف الحساب التفصيلي بالبنود الكاملة والختم الرسمي...</b>\nالطرف: <b>${party.name}</b>\nالفترة: <b>${periodLabel}</b>`,
         settingsRef.current,
-        { chatId }
+        { chatId, progress: true }
       );
 
       try {
@@ -398,11 +398,6 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
         });
       } catch (err: any) {
         console.error('Failed to generate statement PDF for Telegram:', err);
-        await TelegramService.sendMessage(
-          '❌ حدث خطأ أثناء تجهيز ملف الـ PDF لكشف الحساب. يرجى المحاولة مرة أخرى.',
-          settingsRef.current,
-          { chatId }
-        );
         // Keep failed document requests pending: never acknowledge a report that was not sent.
         throw err;
       }
@@ -433,7 +428,7 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       await TelegramService.sendMessage(
         `⏳ <b>جاري إنشاء كشف مسحوبات ومبيعات الأصناف التراكمي...</b>\nالعميل: <b>${party.name}</b>\nالفترة: <b>${periodLabel}</b>`,
         settingsRef.current,
-        { chatId }
+        { chatId, progress: true }
       );
 
       try {
@@ -461,7 +456,6 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
         });
       } catch (err) {
         console.error('Customer items PDF error:', err);
-        await TelegramService.sendMessage('❌ تعذر إنشاء ملف PDF لمبيعات الأصناف.', settingsRef.current, { chatId });
         // Keep failed document requests pending: never acknowledge a report that was not sent.
         throw err;
       }
@@ -489,7 +483,7 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       await TelegramService.sendMessage(
         `⏳ <b>جاري إنشاء كشف حركة الخزائن والتدفق النقدي بالفترة (${periodLabel})...</b>\nإجمالي السيولة النقدية: <b>${totalLiquidity.toFixed(2)} ${currency}</b>`,
         settingsRef.current,
-        { chatId }
+        { chatId, progress: true }
       );
 
       try {
@@ -514,7 +508,6 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
         });
       } catch (err) {
         console.error('Treasury report PDF error:', err);
-        await TelegramService.sendMessage('❌ تعذر إنشاء تقرير حركة الصناديق.', settingsRef.current, { chatId });
         // Keep failed document requests pending: never acknowledge a report that was not sent.
         throw err;
       }
@@ -538,7 +531,7 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       await TelegramService.sendMessage(
         `⏳ <b>جاري تجهيز تقرير فواتير المبيعات بالفترة (${periodLabel})...</b>`,
         settingsRef.current,
-        { chatId }
+        { chatId, progress: true }
       );
 
       try {
@@ -570,7 +563,6 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
         });
       } catch (err) {
         console.error('Sales report PDF error:', err);
-        await TelegramService.sendMessage('❌ تعذر إنشاء تقرير المبيعات.', settingsRef.current, { chatId });
         // Keep failed document requests pending: never acknowledge a report that was not sent.
         throw err;
       }
@@ -594,7 +586,7 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       await TelegramService.sendMessage(
         `⏳ <b>جاري تجهيز تقرير فواتير المشتريات والتوريدات بالفترة (${periodLabel})...</b>`,
         settingsRef.current,
-        { chatId }
+        { chatId, progress: true }
       );
 
       try {
@@ -619,7 +611,6 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
         });
       } catch (err) {
         console.error('Purchases report PDF error:', err);
-        await TelegramService.sendMessage('❌ تعذر إنشاء تقرير المشتريات.', settingsRef.current, { chatId });
         // Keep failed document requests pending: never acknowledge a report that was not sent.
         throw err;
       }
@@ -635,7 +626,7 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       await TelegramService.sendMessage(
         `⏳ <b>جاري إنشاء كشف نواقص المخزون وتنبيهات حد الطلب...</b>\nعدد الأصناف الناقصة: <b>${lowStock.length} صنف</b>\nإجمالي القيمة التقديرية للمخزون: <b>${totalValuation.toFixed(2)} ${currency}</b>`,
         settingsRef.current,
-        { chatId }
+        { chatId, progress: true }
       );
 
       try {
@@ -660,7 +651,6 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
         });
       } catch (err) {
         console.error('Inventory report PDF error:', err);
-        await TelegramService.sendMessage('❌ تعذر إنشاء تقرير المخزون.', settingsRef.current, { chatId });
         // Keep failed document requests pending: never acknowledge a report that was not sent.
         throw err;
       }
@@ -684,7 +674,7 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       await TelegramService.sendMessage(
         `⏳ <b>جاري تجهيز تقرير المصروفات والنفقات التشغيلية بالفترة (${periodLabel})...</b>`,
         settingsRef.current,
-        { chatId }
+        { chatId, progress: true }
       );
 
       try {
@@ -709,7 +699,6 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
         });
       } catch (err) {
         console.error('Expenses report PDF error:', err);
-        await TelegramService.sendMessage('❌ تعذر إنشاء تقرير المصروفات.', settingsRef.current, { chatId });
         // Keep failed document requests pending: never acknowledge a report that was not sent.
         throw err;
       }
@@ -740,7 +729,7 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
       await TelegramService.sendMessage(
         `⏳ <b>جاري إنشاء كشف حساب ومسحوبات الموظف (${employee.name})...</b>\nالفترة: <b>${periodLabel}</b>`,
         settingsRef.current,
-        { chatId }
+        { chatId, progress: true }
       );
 
       try {
@@ -768,7 +757,6 @@ ${salaryText ? `💰 الراتب: <b>${salaryText}</b>\n` : ''}${best.phone ? `
         });
       } catch (err) {
         console.error('Employee statement PDF error:', err);
-        await TelegramService.sendMessage('❌ تعذر إنشاء كشف حساب الموظف.', settingsRef.current, { chatId });
         // Keep failed document requests pending: never acknowledge a report that was not sent.
         throw err;
       }
