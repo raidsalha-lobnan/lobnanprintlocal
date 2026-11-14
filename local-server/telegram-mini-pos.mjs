@@ -48,6 +48,8 @@ export function verifyTelegramMiniInitData(initData,botToken,now=Date.now()){
 export function normalizeMiniSaleBody(body){
  if(!body||typeof body!=='object'||Array.isArray(body))
   fail('MINI_POS_INVALID_DRAFT');
+ const documentType=body.documentType||'sale';
+ if(!['sale','print'].includes(documentType))fail('MINI_POS_DOCUMENT_TYPE_NOT_IMPLEMENTED',409);
  const items=body.items;
  if(!Array.isArray(items)||items.length<1||items.length>25)
   fail('MINI_POS_INVALID_ITEMS');
@@ -68,11 +70,22 @@ export function normalizeMiniSaleBody(body){
  });
  const paidAmount=body.paidAmount===null||body.paidAmount===''||body.paidAmount===undefined
   ?null:number(Number(body.paidAmount),'PAID',0,1e9);
+ const split=body.cashPaidAmount!==undefined||body.bankPaidAmount!==undefined;
+ const cashPaidAmount=split?number(Number(body.cashPaidAmount||0),'CASH_PAID',0,1e9):0;
+ const bankPaidAmount=split?number(Number(body.bankPaidAmount||0),'BANK_PAID',0,1e9):0;
+ const cashTreasuryCode=body.cashTreasuryCode||'';
+ const bankTreasuryCode=body.bankTreasuryCode||'';
+ if(split&&((cashPaidAmount>0&&!uid(cashTreasuryCode))||
+    (bankPaidAmount>0&&!uid(bankTreasuryCode))))
+  fail('MINI_POS_PAYMENT_TREASURY_REQUIRED');
  const subCustomerId=body.subCustomerId||'';
  if(subCustomerId&&!uid(subCustomerId))fail('MINI_POS_SUBCUSTOMER_ID_INVALID');
  return {
   customerId:uid(body.customerId)?body.customerId:'',
-  date,items:normalizedItems,paymentMethod,paidAmount,
+  date,documentType,items:normalizedItems,
+  paymentMethod:split?(bankPaidAmount>0?'bank_transfer':cashPaidAmount>0?'cash':'credit'):paymentMethod,
+  paidAmount:split?Math.round((cashPaidAmount+bankPaidAmount)*100)/100:paidAmount,
+  cashPaidAmount,bankPaidAmount,cashTreasuryCode,bankTreasuryCode,hasPaymentSplit:split,
   overallDiscount:number(Number(body.overallDiscount||0),'DISCOUNT',0,1e9),
   notes:text(body.notes,1200),
   treasuryCode:uid(body.treasuryCode)?body.treasuryCode:'',
@@ -196,6 +209,8 @@ export class TelegramMiniPos {
    "SELECT draft_id,status,body,invoice_id,updated_at FROM sync_telegram_pos_drafts WHERE workspace=$1 AND telegram_user_id=$2 ORDER BY updated_at DESC LIMIT 8",
    [this.workspace,auth.telegramUserId]);
   return {ok:true,linked:true,linkExpires:false,displayName:auth.user.name||auth.name,parties,subCustomers,treasuries,
+   canPrintOrders:typeof auth.access.can==='function'&&
+    auth.access.can('view_print_orders')&&auth.access.can('add'),
    defaultCustomerId:parties.find(x=>x.code==='CUST-0001')?.id||parties[0]?.id||'',
    currency:'ILS',currencySymbol:'₪',vatRate:Number(settings.vatRate||0),
    drafts:draftRows.rows.map(r=>({draftId:r.draft_id,status:r.status,invoiceId:r.invoice_id,
@@ -268,6 +283,8 @@ export class TelegramMiniPos {
     [this.workspace,draftId,auth.telegramUserId,auth.user.id]);
    if(!r.rows.length)fail('MINI_POS_DRAFT_NOT_FOUND',404);
    const draft=r.rows[0];
+   if((draft.body?.documentType||'sale')==='print')
+    return this.commitPrintOrderInTx(client,auth,draftId,draft);
    const invoiceId='inv-pos-'+draftId;
    if(draft.status==='posted'){
     const prev=await client.query(
@@ -321,6 +338,19 @@ export class TelegramMiniPos {
        body.subCustomerName?{subCustomerName:body.subCustomerName}:{}),
     paymentNotes:body.paymentNotes,
    };
+   if(body.hasPaymentSplit){
+    for(const [sum,code,target] of [
+      [body.cashPaidAmount,body.cashTreasuryCode,'cashTreasuryCode'],
+      [body.bankPaidAmount,body.bankTreasuryCode,'bankTreasuryCode']]){
+     if(sum<=0)continue;
+     const row=treasuries.rows.find(r=>r.value?.status==='active'&&r.value?.accountCode===code);
+     if(!row||!auth.access.canRead('treasuries',row.value,row.record_id))
+      fail('MINI_POS_PAYMENT_TREASURY_NOT_AUTHORIZED',403);
+     options[target]=code;
+    }
+    options.cashPaidAmount=body.cashPaidAmount;
+    options.bankPaidAmount=body.bankPaidAmount;
+   }
    if(body.treasuryCode){
     const treasury=treasuries.rows.find(r=>r.value?.accountCode===body.treasuryCode&&r.value.status==='active');
     if(!treasury||!auth.access.canRead('treasuries',treasury.value,treasury.record_id))
@@ -365,5 +395,100 @@ export class TelegramMiniPos {
    return {ok:true,invoiceNumber:invoice.invoiceNumber,invoiceId,
     totalAmount:invoice.totalAmount,customerName:invoice.customerName};
   });
+ }
+ // Print orders use the program's nonfinancial printOrders record. No sales
+ // invoice, inventory movement, receipt, voucher or journal is ever generated.
+ async commitPrintOrderInTx(client,auth,draftId,draft){
+  const id='job-mini-'+draftId;
+  if(draft.status==='posted'){
+   const old=await client.query(
+    "SELECT value FROM sync_records WHERE workspace=$1 AND entity='printOrders' AND record_id=$2",
+    [this.workspace,id]);
+   if(!old.rows.length)fail('MINI_PRINT_ORDER_RECEIPT_NOT_FOUND',503);
+   const order=old.rows[0].value;
+   return {ok:true,alreadyPosted:true,invoiceNumber:order.orderNumber,
+    invoiceId:id,totalAmount:0,customerName:order.customerName,documentType:'print'};
+  }
+  const body=normalizeMiniSaleBody(draft.body);
+  if(body.documentType!=='print')fail('MINI_PRINT_ORDER_INVALID_TYPE');
+  if(Number(body.paidAmount||0)>0||body.cashPaidAmount>0||body.bankPaidAmount>0)
+   fail('MINI_PRINT_ORDER_FINANCIAL_PAYMENT_NOT_ALLOWED',409);
+  if(!auth.access.can('view_print_orders')||!auth.access.can('add'))
+   fail('MINI_PRINT_ORDER_PERMISSION_DENIED',403);
+  const parties=await client.query(
+   "SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='parties' AND (record_id=$2 OR value->>'parentPartyId'=$2)",
+   [this.workspace,body.customerId]);
+  const customer=parties.rows.find(row=>row.record_id===body.customerId);
+  if(!customer||!['customer','both'].includes(customer.value?.type)||
+     customer.value?.isSubCustomer===true)
+   fail('MINI_PRINT_ORDER_CUSTOMER_INVALID',409);
+  if(!auth.access.canRead('parties',customer.value,customer.record_id))
+   fail('MINI_PRINT_ORDER_CUSTOMER_FORBIDDEN',403);
+  const sub=body.subCustomerId?parties.rows.find(row=>
+   row.record_id===body.subCustomerId&&row.value?.isSubCustomer===true&&
+   row.value?.parentPartyId===body.customerId):null;
+  if(body.subCustomerId&&!sub)fail('MINI_PRINT_ORDER_SUBCUSTOMER_INVALID',409);
+  if(sub&&!auth.access.canRead('parties',sub.value,sub.record_id))
+   fail('MINI_PRINT_ORDER_SUBCUSTOMER_FORBIDDEN',403);
+  const ids=[...new Set(body.items.map(x=>x.itemId))];
+  const stock=await client.query(
+   "SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='inventory' AND record_id=ANY($2::text[])",
+   [this.workspace,ids]);
+  if(stock.rows.length!==ids.length)fail('MINI_PRINT_ORDER_ITEM_NOT_FOUND',409);
+  const byId=new Map(stock.rows.map(row=>[row.record_id,row]));
+  for(const row of stock.rows)
+   if(!row.value||!auth.access.canRead('inventory',row.value,row.record_id))
+    fail('MINI_PRINT_ORDER_ITEM_FORBIDDEN',403);
+  // The workspace row is locked BEFORE selecting the next public job number.
+  // This prevents two devices from allocating the same JOB-YYYY-NNNN number.
+  await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING',[this.workspace]);
+  await client.query('SELECT next_sequence FROM sync_workspaces WHERE id=$1 FOR UPDATE',[this.workspace]);
+  const year=(body.date||new Date(draft.created_at).toISOString().slice(0,10)).slice(0,4);
+  const prefix='JOB-'+year+'-';
+  const used=await client.query(
+   "SELECT value->>'orderNumber' AS code FROM sync_records WHERE workspace=$1 AND entity='printOrders' AND value->>'orderNumber' LIKE $2",
+   [this.workspace,prefix+'%']);
+  const maximum=used.rows.reduce((n,row)=>{
+   const value=String(row.code||'');
+   const suffix=value.startsWith(prefix)?value.slice(prefix.length):'';
+   return /^[0-9]+$/.test(suffix)?Math.max(n,Number(suffix)):n;
+  },0);
+  const orderNumber=prefix+String(maximum+1).padStart(4,'0');
+  const createdAt=new Date(draft.created_at).toISOString();
+  const items=body.items.map(line=>{
+   const record=byId.get(line.itemId).value;
+   const qty=line.hasDimensions
+    ?Number((line.length*line.width*line.count).toFixed(3)):line.quantity;
+   return {itemId:line.itemId,itemCode:record.code,itemName:record.name,
+    quantity:qty,unit:record.unit||'',notes:line.notes,
+    description:line.notes,hasDimensions:line.hasDimensions,
+    length:line.hasDimensions?line.length:0,width:line.hasDimensions?line.width:0,
+    count:line.hasDimensions?line.count:1,
+    unitPrice:0,discount:0,tax:0,total:0};
+  });
+  const order={
+   id,orderNumber,customerId:body.customerId,customerName:customer.value.name,
+   customerPhone:customer.value.phone||'',subCustomerName:sub?.value?.name||body.subCustomerName||undefined,
+   title:'أمر طباعة: '+String(items[0]?.itemName||'طلب جديد').slice(0,100),
+   serviceType:'custom_print',paperType:'',dimensions:'',
+   quantity:items.reduce((n,item)=>n+Number(item.count||item.quantity||1),0),
+   colorType:'',finishingOptions:[],unitCost:0,totalPrice:0,
+   depositPaid:0,remainingBalance:0,status:'new',
+   notes:body.notes||'',createdAt,deliveryDate:body.date||createdAt.slice(0,10),
+   items,isExternalPrint:false
+  };
+  const command={id:draftId,workspaceId:this.workspace,actorId:auth.user.id,
+   changes:[{entity:'printOrders',id,expectedVersion:0,value:order}],
+   createdAt:Date.parse(draft.created_at),attempts:0,retryAt:0,status:'pending'};
+  await authorizeCommand(this.pool,this.workspace,auth.access,command);
+  const receipt=await this.syncService.pushInTx(this.workspace,command,auth.user.id,client);
+  const official=receipt.changes.find(row=>row.entity==='printOrders'&&row.id===id)?.value;
+  if(!official||official.orderNumber!==orderNumber)fail('MINI_PRINT_ORDER_RECEIPT_INVALID',503);
+  const updated=await client.query(
+   "UPDATE sync_telegram_pos_drafts SET status='posted',invoice_id=$3,updated_at=now() WHERE workspace=$1 AND draft_id=$2 AND status='draft'",
+   [this.workspace,draftId,id]);
+  if(updated.rowCount!==1)fail('MINI_PRINT_ORDER_CHECKPOINT_FAILED',503);
+  return {ok:true,invoiceNumber:official.orderNumber,invoiceId:id,
+   totalAmount:0,customerName:official.customerName,documentType:'print'};
  }
 }

@@ -1,0 +1,96 @@
+
+/* Compact Telegram cashier — design approved 14 Nov 2026.
+   Mobile-first, right-to-left; original authenticated mini app, no external assets. */
+:root{--blue:#0759bd;--soft:#eaf3ff;--edge:#c8d9ed;--ink:#14344f;--canvas:#f3f7fd}
+body{background:var(--canvas);font-size:13px}
+.top{background:#fff;color:var(--ink);box-shadow:none;border-bottom:1px solid #dce6f0;padding:10px 14px}
+.logo{background:var(--soft);color:var(--blue);border:1px solid #cfdfec;width:34px;height:34px;font-size:19px}
+.brand strong{font-size:16px}.brand small{color:#6e849b}.small-badge{color:#637c95}
+main{max-width:1100px;padding:10px 9px 65px}
+.panel{border-color:#d3e0ef;border-radius:13px;margin-bottom:8px;box-shadow:0 2px 9px #1c4f8b07;padding:11px}
+.panel h2{margin-bottom:5px}
+#cashier .panel{padding:10px 11px}
+#cashier input,#cashier select,#cashier textarea{min-height:38px;border-radius:8px;border-color:#bed0e4;padding:6px 9px;line-height:1.3;font-size:13px}
+#cashier input:focus,#cashier select:focus,#cashier textarea:focus{border-color:#1272da;box-shadow:0 0 0 2px #1272da20}
+#cashier button{min-height:38px;border-radius:8px}
+#cashier label{font-size:11px;margin:0 0 3px;color:#516a83}
+.invoice-top{display:grid;grid-template-columns:minmax(130px,1fr) minmax(150px,1fr);gap:8px;align-items:start}
+.kind-wrap{position:relative}
+.kind-button{width:100%;background:#e8f2ff;border:1px solid #7daeea!important;color:#06479e!important;display:flex;align-items:center;justify-content:space-between;gap:9px;white-space:nowrap}
+.kind-button .kind-icon{font-size:18px}.kind-button .chev{font-size:12px;color:#276cc0}
+.kind-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:30;min-width:205px;max-width:min(86vw,270px);background:#fff;border:1px solid var(--edge);padding:5px;border-radius:12px;box-shadow:0 15px 32px #153b6c2e;display:grid;gap:2px}
+.kind-menu button{background:transparent;text-align:right;padding:9px;border-radius:8px;color:var(--ink);display:flex;align-items:center;gap:8px;width:100%}
+.kind-menu button:hover,.kind-menu button[aria-current="true"]{background:#e6f1ff;color:#0756b9}
+.kind-menu .mode-icon{width:26px;text-align:center;font-size:16px}
+.cashier-date{display:flex;gap:5px;align-items:center}
+.cashier-date input{min-width:0;width:100%;direction:ltr;flex:1;text-align:center}
+.invoice-party{display:grid;grid-template-columns:minmax(70px,.25fr) minmax(0,1fr) 41px;gap:7px;align-items:end}
+.invoice-party .party-role{font-weight:700;white-space:nowrap;margin:0;padding-bottom:8px;text-align:center}
+.invoice-party #customerSearch{min-width:0}
+.invoice-party #customer{grid-column:2;min-width:0}
+#addCustomerButton{grid-column:3;grid-row:2;background:#e7f1ff;color:#0756b9;font-size:23px;padding:2px}
+.party-subrow{display:grid;grid-template-columns:65px minmax(0,1fr);gap:7px;align-items:center;margin-top:6px}
+.party-subrow label{margin:0!important;text-align:center}
+#subCustomerNewPanel{margin:6px 0 0 70px!important;padding:8px!important}
+#newCustomerPanel{margin-top:6px!important}
+#notes{resize:vertical;min-height:39px!important}
+.section-note{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px;align-items:center}
+.section-note label{white-space:nowrap;font-weight:700!important;margin:0!important}
+.section-note textarea{width:100%;padding:7px 9px;resize:vertical}
+.panel-items{padding-top:8px!important}
+.item-search-row{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:7px}
+#addItemButton{background:#075ec7;color:#fff;font-size:22px;padding:2px}
+.results{max-height:170px}
+#items{display:grid;gap:6px;margin-top:7px}
+.line{border:1px solid #c7d8ed;border-radius:10px;padding:8px;background:white}
+.line-head{align-items:center;flex-wrap:wrap}
+.line-title{font-size:13px}
+.line-subtitle{font-size:11px;display:inline-block;color:#2160a1;background:#e9f2ff;border-radius:5px;padding:1px 5px}
+.line-remove{font-size:14px;padding:0 7px!important;min-height:27px!important}
+.line-notes{width:100%;margin-top:6px!important;min-height:34px!important}
+.line-columns{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;align-items:end;margin-top:5px}
+.line-field{min-width:0}
+.line-field label{font-size:10px!important;white-space:nowrap;text-align:center;color:#4e6580!important}
+.line-field input,.line-field .dash{width:100%;text-align:center;padding:4px 2px!important;min-height:32px!important;font-size:12px!important}
+.line-field .dash{border:1px solid #d5e0ec;background:#f7fafc;display:grid;place-items:center;border-radius:7px;color:#8090a2}
+.line-field .line-value{background:#e7f1ff;color:#083b80;font-weight:800;min-height:32px;border:1px solid #b8d4f3;border-radius:7px;display:grid;place-items:center;font-size:12px}
+.line-dimension-toggle{display:flex;align-items:center;justify-content:flex-end;gap:5px;font-size:10px;color:#59718a;margin-top:5px}
+.line-dimension-toggle input{width:auto;min-height:auto!important}
+#emptyItems{margin:9px 0 2px;text-align:center}
+#lineCount{color:#0d58b6;background:#ecf3fc;font-size:10px}
+.summary-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;align-items:center}
+.summary-field{min-width:0;background:#f7fbff;border:1px solid #e0eaf6;border-radius:9px;padding:5px 4px;text-align:center}
+.summary-field strong{display:block;color:#0d3e80;font-size:14px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.summary-field span{color:#61758c;font-size:11px}
+.summary-field.total{background:#e8f1ff;border-color:#bad7f8}
+.summary-field.total strong{font-size:16px;color:#074baf}
+#discount{width:100%;min-height:31px!important;background:#fff;font-weight:700;text-align:center}
+#discountSummary,#vatSummary,#subtotal{display:none}
+.pay-row{display:grid;grid-template-columns:48px minmax(0,.65fr) minmax(0,1.1fr);gap:7px;align-items:center;margin-top:6px}
+.pay-row label{white-space:nowrap;margin:0!important;font-size:12px!important;font-weight:750;text-align:center}
+.pay-row input{text-align:center}
+.pay-row select{min-width:0}
+.payment-notes-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:center;margin-top:7px}
+.payment-notes-row label{margin:0!important;white-space:nowrap}
+.payment-status{text-align:left;color:#99600b;background:#fff3d8;border-radius:8px;padding:4px 8px;white-space:nowrap;font-size:11px}
+.action-row{display:grid;grid-template-columns:1fr 1.2fr;gap:8px;margin-top:9px}
+.action-row #saveButton{background:#068655;color:#fff;min-height:43px}
+.action-row #draftButton{background:#e9f1fa;color:#204f80;min-height:43px}
+#status{font-size:11px;margin-bottom:7px;padding:7px 9px}
+#status.success{display:none}
+#cashier .hint{font-size:11px;margin:3px 0}
+#newCustomerPanel{padding:8px!important}
+#cashier #payment,#cashier #paid,#cashier #treasury{display:none!important}
+@media(max-width:420px){
+ .invoice-top{grid-template-columns:1fr 1fr}
+ .line-columns{gap:3px}
+ .line-field label{font-size:9px!important}
+ .line-field input,.line-field .dash,.line-field .line-value{font-size:11px!important}
+ .summary-field strong{font-size:12px}
+ .summary-field.total strong{font-size:14px}
+ .summary-field span{font-size:10px}
+ .party-subrow{grid-template-columns:49px 1fr}
+ .pay-row{grid-template-columns:43px minmax(0,.66fr) minmax(0,1fr);gap:4px}
+ .payment-notes-row{grid-template-columns:63px minmax(0,1fr)}
+ #cashier .panel{padding:9px 7px}
+}

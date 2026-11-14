@@ -21,6 +21,7 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
 </style>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
+<link rel="stylesheet" href="/telegram-pos-v2.css"/>
 </head>
 <body>
 <header class="top">
@@ -49,69 +50,97 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
  <button id="pairButton" class="primary">تأكيد الربط الدائم</button>
 </section>
 
+
 <section id="cashier" class="hidden">
  <div class="panel">
-  <div class="bar"><h2>فاتورة بيع جديدة</h2><span class="pill">مزامنة مركزية</span></div>
-  <div class="cols">
-   <div><label for="invoiceDate">تاريخ الفاتورة</label><input id="invoiceDate" type="date" required/></div>
-   <div><label>عدد البنود</label><div id="lineCount" class="pill" aria-live="polite" style="margin-top:11px;display:inline-block">0 بنود</div></div>
-  </div>
-  <label for="customerSearch">العميل</label>
-  <input id="customerSearch" type="search" placeholder="بحث باسم العميل أو كوده"/>
-  <select id="customer" aria-label="اختر العميل"></select>
-   <div class="subcustomer-row">
-    <label for="subCustomer">العميل الفرعي (اختياري)</label>
-    <select id="subCustomer" aria-label="اختيار العميل الفرعي المرتبط"><option value="">بدون عميل فرعي</option></select>
-    <div id="subCustomerNewPanel" class="hidden">
-     <label for="subCustomerNewName">اسم العميل الفرعي الجديد</label>
-     <input id="subCustomerNewName" type="text" maxlength="100" autocomplete="off" placeholder="اكتب اسم العميل الفرعي"/>
+  <div class="invoice-top">
+   <div class="kind-wrap">
+    <button type="button" class="kind-button" id="invoiceTypeButton" aria-expanded="false" aria-haspopup="true">
+     <span><span class="kind-icon">🛒</span> <strong id="currentInvoiceType">مبيعات</strong></span><span class="chev">⌄</span>
+    </button>
+    <div class="kind-menu hidden" id="invoiceTypeMenu" role="menu">
+     <button type="button" data-kind="sale" role="menuitem" aria-current="true"><span class="mode-icon">🛒</span>فاتورة بيع جديدة</button>
+     <button type="button" data-kind="print" role="menuitem"><span class="mode-icon">🖨️</span>أمر طباعة</button>
+     <button type="button" data-kind="purchase" role="menuitem"><span class="mode-icon">📦</span>مشتريات</button>
+     <button type="button" data-kind="expense" role="menuitem"><span class="mode-icon">🧾</span>مصروفات</button>
     </div>
    </div>
-  <button id="addCustomerButton" type="button" class="secondary" style="margin-top:8px">➕ إضافة عميل جديد</button>
-  <div id="newCustomerPanel" class="hidden" style="margin-top:9px;border:1px solid #d8e4e8;border-radius:10px;padding:12px">
-   <label for="newCustomerName">اسم العميل الجديد</label>
-   <input id="newCustomerName" maxlength="120" placeholder="الاسم الكامل"/>
-   <label for="newCustomerPhone">رقم الجوال (اختياري)</label>
-   <input id="newCustomerPhone" maxlength="35" type="tel" placeholder="رقم الجوال"/>
-   <button id="createCustomerButton" type="button" class="primary" style="margin-top:10px">حفظ العميل واختياره</button>
-  </div>
-  <div class="cols">
-   <div><label for="payment">طريقة السداد</label>
-    <select id="payment"><option value="cash">نقدي</option><option value="credit">آجل</option><option value="bank_transfer">تحويل بنكي</option><option value="card">بطاقة</option></select>
+   <div class="cashier-date">
+    <input id="invoiceDate" aria-label="تاريخ المستند" type="date" required/>
    </div>
-   <div><label for="treasury">الصندوق / الحساب</label><select id="treasury"><option value="">الافتراضي</option></select></div>
   </div>
-   <label for="paymentNotes">ملاحظات السداد (اختياري)</label>
-   <input id="paymentNotes" type="text" maxlength="1000" autocomplete="off" placeholder="مثال: رقم التحويل أو تفاصيل السداد"/>
+  <div id="modeNotice" class="hint hidden" role="status"></div>
  </div>
-
  <div class="panel">
-  <h2>إضافة الأصناف</h2>
-  <label for="itemSearch">اسم الصنف أو الكود أو الباركود</label>
-  <input id="itemSearch" type="search" autocomplete="off" placeholder="اكتب اسم الصنف للبحث الفوري"/>
+  <div class="invoice-party">
+   <div class="party-role" id="partyRole">العميل</div>
+   <input id="customerSearch" type="search" placeholder="ابحث بالاسم أو الرمز..." autocomplete="off" aria-label="بحث عن العميل"/>
+   <button id="addCustomerButton" type="button" aria-label="إضافة عميل" title="إضافة عميل">＋</button>
+   <select id="customer" aria-label="العميل الرئيسي"></select>
+  </div>
+  <div id="subCustomerArea" class="party-subrow">
+   <label for="subCustomer">الفرعي</label>
+   <select id="subCustomer" aria-label="العميل الفرعي المرتبط"><option value="">بدون عميل فرعي</option></select>
+  </div>
+  <div id="subCustomerNewPanel" class="hidden">
+   <input id="subCustomerNewName" type="text" maxlength="100" autocomplete="off" placeholder="اسم العميل الفرعي الجديد" aria-label="اسم العميل الفرعي الجديد"/>
+  </div>
+  <div id="newCustomerPanel" class="hidden" style="margin-top:7px;border:1px solid #d7e5f5;border-radius:10px;padding:8px">
+   <div class="invoice-party">
+    <label for="newCustomerName">اسم العميل</label>
+    <input id="newCustomerName" maxlength="120" placeholder="الاسم الجديد" autocomplete="off"/>
+    <button type="button" class="primary" id="createCustomerButton" aria-label="حفظ العميل">✓</button>
+   </div>
+   <input id="newCustomerPhone" maxlength="35" type="tel" placeholder="الهاتف (اختياري)" style="margin-top:6px"/>
+  </div>
+ </div>
+ <div class="panel">
+  <div class="section-note">
+   <label for="notes">ملاحظات الفاتورة</label>
+   <textarea id="notes" rows="1" maxlength="1200" placeholder="اكتب ملاحظات الفاتورة، إن وجدت..."></textarea>
+  </div>
+ </div>
+ <div class="panel panel-items">
+  <div class="item-search-row">
+   <input id="itemSearch" type="search" autocomplete="off" placeholder="اسم الصنف أو رقمه / الباركود" aria-label="ابحث عن الصنف"/>
+   <button id="addItemButton" type="button" aria-label="البحث وإضافة صنف">＋</button>
+  </div>
   <div id="results" class="results" role="listbox"></div>
-  <button type="button" id="addItemButton" class="secondary" style="width:100%;margin-top:9px">➕ إضافة صنف آخر إلى نفس الفاتورة</button>
-  <p class="hint">يمكنك إضافة أكثر من صنف، حتى 25 بندًا. لكل بند كمية وسعر وملاحظات مستقلة.</p>
+  <div class="bar"><span class="hint">الأصناف وملاحظات كل بند</span><span id="lineCount" class="pill" aria-live="polite">0 / 25</span></div>
   <div id="items" class="items"></div>
-  <p id="emptyItems" class="hint">ابدأ بكتابة اسم الصنف أعلاه.</p>
+  <p id="emptyItems" class="hint">ابحث عن صنف لإضافته إلى المستند.</p>
  </div>
-
  <div class="panel">
-  <div class="cols">
-   <div><label for="discount">خصم الفاتورة (₪)</label><input id="discount" type="number" min="0" step=".01" value="0"/></div>
-   <div><label for="paid">المبلغ المدفوع (₪)</label><input id="paid" type="number" min="0" step=".01" placeholder="تلقائي حسب السداد"/></div>
+  <div class="summary-row" aria-label="ملخص المستند">
+   <div class="summary-field total"><span id="totalLabel">إجمالي</span><strong id="grand">₪ 0.00</strong></div>
+   <div class="summary-field"><span>خصم</span><input id="discount" type="number" min="0" step=".01" value="0" aria-label="الخصم"/></div>
+   <div class="summary-field"><span>مدفوع</span><strong id="paidSummary">₪ 0.00</strong></div>
+   <div class="summary-field"><span>متبقي</span><strong id="remainingSummary">₪ 0.00</strong></div>
   </div>
-  <label for="notes">ملاحظات الفاتورة (اختياري)</label>
-  <textarea id="notes" rows="2" placeholder="ملاحظات عامة (اختياري)"></textarea>
-  <div class="totals">
-   <div><span>الإجمالي قبل الخصم</span><strong id="subtotal">₪ 0.00</strong></div>
-   <div><span>خصم</span><span id="discountSummary">₪ 0.00</span></div>
-   <div><span>ضريبة</span><span id="vatSummary">₪ 0.00</span></div>
-   <div class="grand"><span>الإجمالي المستحق</span><strong id="grand">₪ 0.00</strong></div>
+  <div class="hidden"><span id="subtotal"></span><span id="discountSummary"></span><span id="vatSummary"></span></div>
+  <div id="paymentStatus" class="payment-status" aria-live="polite" style="margin-top:6px">آجل — لا توجد مبالغ سداد</div>
+ </div>
+ <div class="panel" id="settlementPanel">
+  <div class="pay-row">
+   <label for="cashPaid">نقدي</label>
+   <input id="cashPaid" type="number" min="0" step=".01" inputmode="decimal" placeholder="المبلغ" aria-label="المبلغ النقدي"/>
+   <select id="cashTreasury" aria-label="الصندوق النقدي"><option value="">الصندوق</option></select>
   </div>
-  <div class="actions">
-   <button id="draftButton" class="secondary">حفظ مسودة</button>
-   <button id="saveButton" class="primary">مراجعة وحفظ واعتماد</button>
+  <div class="pay-row">
+   <label for="bankPaid">بنكي</label>
+   <input id="bankPaid" type="number" min="0" step=".01" inputmode="decimal" placeholder="المبلغ" aria-label="المبلغ البنكي"/>
+   <select id="bankTreasury" aria-label="الصندوق البنكي"><option value="">البنك</option></select>
+  </div>
+  <div class="payment-notes-row">
+   <label for="paymentNotes">ملاحظة السداد</label>
+   <input id="paymentNotes" type="text" maxlength="1000" autocomplete="off" placeholder="ملاحظات الدفع، إن وجدت"/>
+  </div>
+  <!-- Legacy draft fields are read only for safe backward compatibility. -->
+  <div class="hidden"><select id="payment"><option value="credit">آجل</option><option value="cash">نقدي</option><option value="bank_transfer">بنكي</option><option value="card">بطاقة</option></select>
+   <select id="treasury"><option value="">الصندوق</option></select><input id="paid" type="number"/></div>
+  <div class="action-row">
+   <button id="draftButton" type="button" class="secondary">▤ حفظ مسودة</button>
+   <button id="saveButton" type="button" class="primary">✓ اعتماد الفاتورة</button>
   </div>
  </div>
 </section>

@@ -14,7 +14,7 @@ const todayLocal=()=>{
 };
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state={people:[],subCustomers:[],treasuries:[],vatRate:0,lines:[],draftId:crypto.randomUUID(),
-  busy:false,saved:false,lastReceipt:null,quickDone:false};
+  busy:false,saved:false,lastReceipt:null,quickDone:false,kind:'sale',canPrint:false};
 let searchTimer=0,searchEpoch=0;
 const msg=(text,kind='')=>{
  const x=el('status');x.textContent=text;x.className='status '+kind;
@@ -39,7 +39,8 @@ const api=async(path,payload={})=>{
 };
 const persistUi=()=>{
  try{localStorage.setItem('telegram_pos_last_customer',el('customer').value);
- localStorage.setItem('telegram_pos_last_treasury',el('treasury').value);}catch{}
+ localStorage.setItem('telegram_pos_last_cash',el('cashTreasury').value);
+ localStorage.setItem('telegram_pos_last_bank',el('bankTreasury').value);}catch{}
 };
 const customerOptions=filter=>{
  const selected=el('customer').value||state.people.find(x=>x.code==='CUST-0001')?.id||'';
@@ -71,41 +72,50 @@ const renderSubCustomers=(wanted='',newName='')=>{
 };
 
 const account=()=>state.treasuries.find(x=>x.accountCode===el('treasury').value);
-const lineQty=l=>l.hasDimensions?round((Number(l.length)||0)*(Number(l.width)||0)*(Number(l.count)||0)):(Number(l.quantity)||0);
+const lineQty=l=>l.hasDimensions?Number(((Number(l.length)||0)*(Number(l.width)||0)*(Number(l.count)||0)).toFixed(3)):(Number(l.quantity)||0);
+const paidValue=id=>{const v=el(id).value.trim();return v===''?0:Number(v);};
 const totals=()=>{
  const subtotal=round(state.lines.reduce((sum,l)=>sum+round(lineQty(l)*Number(l.unitPrice||0)),0));
  const discount=Number(el('discount').value||0);
  const base=Math.max(0,round(subtotal-discount));
  const vat=round(base*state.vatRate/100);
  const total=round(base+vat);
+ const cash=paidValue('cashPaid'),bank=paidValue('bankPaid');
+ const paid=round(cash+bank),remaining=round(total-paid);
  el('subtotal').textContent=format(subtotal);
  el('discountSummary').textContent=format(discount);
  el('vatSummary').textContent=format(vat);
  el('grand').textContent=format(total);
- return {subtotal,discount,vat,total};
+ el('paidSummary').textContent=format(paid);
+ el('remainingSummary').textContent=format(remaining);
+ const status=el('paymentStatus');
+ if(paid<=0){status.textContent='◷ آجل — لا يوجد سداد';status.style.background='#fff3d8';status.style.color='#99600b';}
+ else if(paid>total+.005){status.textContent='⚠ المدفوع أكبر من الإجمالي';status.style.background='#fff0ee';status.style.color='#a22b2b';}
+ else if(remaining<=.005){status.textContent='✓ مسددة بالكامل';status.style.background='#e3f7e9';status.style.color='#0b7045';}
+ else{status.textContent='◐ سداد جزئي';status.style.background='#fff3d8';status.style.color='#99600b';}
+ return {subtotal,discount,vat,total,cash,bank,paid,remaining};
 };
 const renderLines=()=>{
  const container=el('items');container.replaceChildren();
  el('emptyItems').classList.toggle('hidden',state.lines.length>0);
- el('lineCount').textContent=state.lines.length+' / 25 بندًا';
+ el('lineCount').textContent=state.lines.length+' / 25';
  state.lines.forEach((line,index)=>{
   const panel=document.createElement('div');panel.className='line';
-  panel.innerHTML=`
-   <div class="line-head"><div><div class="line-title">${escapeHtml(line.name)}</div>
-    <div class="line-subtitle">${escapeHtml(line.code)} · ${escapeHtml(line.unit)}</div></div>
-    <button class="line-remove" data-remove="${index}">حذف</button></div>
-   <div class="line-grid">
-    <div><label>الكمية</label><input data-prop="quantity" data-index="${index}" type="number" min=".001" step=".001" value="${line.quantity}" ${line.hasDimensions?'disabled':''}/></div>
-    <div><label>السعر (₪)</label><input data-prop="unitPrice" data-index="${index}" type="number" min="0" step=".01" value="${line.unitPrice}"/></div>
-   </div>
-   <label class="dim-options"><input data-prop="hasDimensions" data-index="${index}" type="checkbox" ${line.hasDimensions?'checked':''}/> صنف بالأبعاد (طول × عرض × عدد)</label>
-   <div class="dim-grid ${line.hasDimensions?'':'hidden'}">
-    <div><label>الطول</label><input data-index="${index}" data-prop="length" type="number" min=".001" step=".001" value="${line.length||1}"/></div>
-    <div><label>العرض</label><input data-index="${index}" data-prop="width" type="number" min=".001" step=".001" value="${line.width||1}"/></div>
-    <div><label>العدد</label><input data-index="${index}" data-prop="count" type="number" min="1" step="1" value="${line.count||1}"/></div>
-   </div>
-   <label>ملاحظات البند</label><input data-index="${index}" data-prop="notes" type="text" maxlength="300" value="${escapeHtml(line.notes||'')}"/>
-   <div class="line-total">الإجمالي: <span>${format(round(lineQty(line)*line.unitPrice))}</span></div>`;
+  const field=(label,prop,val,opts='')=>'<div class="line-field"><label>'+label+'</label><input data-index="'+index+'" data-prop="'+prop+'" type="number" value="'+escapeHtml(val)+'" '+opts+'/></div>';
+  const dash=label=>'<div class="line-field"><label>'+label+'</label><div class="dash">—</div></div>';
+  const qty=lineQty(line);
+  panel.innerHTML=
+   '<div class="line-head"><div><strong class="line-title">'+escapeHtml(line.name)+'</strong> <span class="line-subtitle">'+escapeHtml(line.code)+'</span></div>'+
+   '<button type="button" class="line-remove" data-remove="'+index+'" aria-label="حذف الصنف">🗑</button></div>'+
+   '<input class="line-notes" data-index="'+index+'" data-prop="notes" type="text" maxlength="300" aria-label="ملاحظات هذا الصنف" placeholder="📝 ملاحظة الصنف (اختياري)" value="'+escapeHtml(line.notes||'')+'"/>'+
+   '<div class="line-columns">'+
+   (line.hasDimensions?field('الطول','length',line.length||1,'min=".001" step=".001"'):dash('الطول'))+
+   (line.hasDimensions?field('العرض','width',line.width||1,'min=".001" step=".001"'):dash('العرض'))+
+   (line.hasDimensions?field('العدد','count',line.count||1,'min="1" step="1"'):dash('العدد'))+
+   (line.hasDimensions?'<div class="line-field"><label>الكمية</label><div class="line-value line-quantity">'+qty+'</div></div>':field('الكمية','quantity',line.quantity,'min=".001" step=".001"'))+
+   field('السعر','unitPrice',line.unitPrice,'min="0" step=".01"')+
+   '<div class="line-field"><label>الإجمالي</label><div class="line-value line-row-total">'+format(round(qty*Number(line.unitPrice)))+'</div></div></div>'+
+   '<label class="line-dimension-toggle"><input data-prop="hasDimensions" data-index="'+index+'" type="checkbox" '+(line.hasDimensions?'checked':'')+'/> الأبعاد (الطول × العرض × العدد)</label>';
   container.appendChild(panel);
  });
  totals();
@@ -116,7 +126,8 @@ const addItem=item=>{
  searchEpoch++; // Invalidate slow search replies before they can repopulate an old list.
  state.lines.push({itemId:item.id,name:item.name,code:item.code,unit:item.unit,
   unitPrice:Number(item.sellingPrice||0),quantity:1,
-  hasDimensions:false,length:1,width:1,count:1,notes:''});
+  hasDimensions:/(م²|م2|m²|m2|sqm|متر مربع)/i.test(String(item.unit||'')),
+  length:1,width:1,count:1,notes:''});
  el('itemSearch').value='';el('results').replaceChildren();
  renderLines();
  msg('تمت إضافة الصنف '+item.name+'. يمكنك إضافة صنف آخر إلى الفاتورة نفسها.','success');
@@ -140,27 +151,34 @@ const searchItems=async query=>{
  }catch(error){if(current===searchEpoch)msg('تعذر البحث: '+String(error.message||error),'error');}
 };
 const formBody=()=>{
+ if(!['sale','print'].includes(state.kind))throw Error('هذا النوع لم يُفعّل ترحيله في الكاشير المصغّر؛ استخدم قسمه في البرنامج.');
  const person=customer();
- if(!person)throw Error('اختر العميل أولًا');
+ if(!person)throw Error('اختر العميل الرئيسي');
  if(!state.lines.length)throw Error('أضف صنفًا واحدًا على الأقل');
- const {total}=totals();
- if(total<=0)throw Error('لا يمكن اعتماد فاتورة بمبلغ صفر');
- const paymentMethod=el('payment').value;
- const rawPaid=el('paid').value.trim();
- const paidAmount=rawPaid===''?null:Number(rawPaid);
- if(paidAmount!==null&&(paidAmount<0||paidAmount>total))throw Error('مبلغ السداد غير صحيح أو يزيد عن الإجمالي');
+ const {total,cash,bank,paid}=totals();
+ if(state.kind==='sale'&&total<=0)throw Error('إجمالي الفاتورة يجب أن يكون أكبر من صفر');
+ if(state.kind==='sale'&&(!Number.isFinite(cash)||!Number.isFinite(bank)||cash<0||bank<0))throw Error('أدخل مبالغ سداد صحيحة');
+ if(state.kind==='sale'&&paid>total+.005)throw Error('المدفوع لا يمكن أن يتجاوز الإجمالي');
+ if(state.kind==='sale'&&cash>0&&!el('cashTreasury').value)throw Error('اختر صندوق النقدي');
+ if(state.kind==='sale'&&bank>0&&!el('bankTreasury').value)throw Error('اختر حساب البنك');
  const subChoice=el('subCustomer').value;
- const sub=state.subCustomers.find(s=>s.id===subChoice&&s.parentPartyId===person.id);
+ const sub=state.subCustomers.find(x=>x.id===subChoice&&x.parentPartyId===person.id);
  if(subChoice&&subChoice!=='__new__'&&!sub)throw Error('العميل الفرعي لا يتبع العميل الرئيسي');
  const newSubName=subChoice==='__new__'?el('subCustomerNewName').value.trim():'';
- if(subChoice==='__new__'&&newSubName.length<2)throw Error('أدخل اسم العميل الفرعي الجديد');
+ if(subChoice==='__new__'&&newSubName.length<2)throw Error('اكتب اسم العميل الفرعي');
  const date=el('invoiceDate').value;
- if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw Error('يرجى تحديد تاريخ صحيح للفاتورة');
+ if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date))throw Error('اختر تاريخ الفاتورة');
+ const cashLeg=state.kind==='print'?0:cash,bankLeg=state.kind==='print'?0:bank;
+ const paymentMethod=bankLeg>0?'bank_transfer':cashLeg>0?'cash':'credit';
  const body={
-  date,customerId:person.id,customerName:person.name,
+  documentType:state.kind,date,customerId:person.id,customerName:person.name,
   subCustomerId:sub?.id||'',subCustomerName:sub?.name||newSubName,
-  paymentMethod,treasuryCode:el('treasury').value,
-  paidAmount,overallDiscount:Number(el('discount').value||0),
+  paymentMethod,paidAmount:cashLeg+bankLeg,
+  cashPaidAmount:cashLeg,bankPaidAmount:bankLeg,
+  cashTreasuryCode:cashLeg>0?el('cashTreasury').value:'',
+  bankTreasuryCode:bankLeg>0?el('bankTreasury').value:'',
+  treasuryCode:bankLeg>0?el('bankTreasury').value:cashLeg>0?el('cashTreasury').value:'',
+  overallDiscount:Number(el('discount').value||0),
   notes:el('notes').value,paymentNotes:el('paymentNotes').value,
   items:state.lines.map(l=>({
    itemId:l.itemId,quantity:Number(l.quantity),unitPrice:Number(l.unitPrice),
@@ -169,26 +187,31 @@ const formBody=()=>{
   }))
  };
  if(body.items.some(l=>l.quantity<=0||l.unitPrice<0||(l.hasDimensions&&
-  (l.length<=0||l.width<=0||l.count<=0))))
-  throw Error('تحقق من الكميات والأبعاد وأسعار البنود');
- persistUi();return body;
+   (l.length<=0||l.width<=0||l.count<=0))))
+  throw Error('راجع الكمية والأبعاد والأسعار قبل الحفظ');
+ persistUi();
+ return body;
 };
 const setBusy=on=>{
  state.busy=on;el('saveButton').disabled=on;el('draftButton').disabled=on;
- el('saveButton').textContent=on?'جارٍ الحفظ المركزي...':'مراجعة وحفظ واعتماد';
+ el('saveButton').textContent=on?'جاري الحفظ...':state.kind==='print'?'✓ حفظ أمر الطباعة':'✓ اعتماد الفاتورة';
 };
 const draft=async commit=>{
  if(state.busy)return;
  try{
   const body=formBody();
-  if(commit&&!window.confirm('اعتماد فاتورة بيع بقيمة '+format(totals().total)+' للعميل '+customer().name+'؟'))return;
+  if(commit&&!window.confirm(state.kind==='print'
+   ?'حفظ أمر الطباعة دون ترحيل مالي للعميل '+customer().name+'؟'
+   :'اعتماد فاتورة بيع بقيمة '+format(totals().total)+' للعميل '+customer().name+'؟'))return;
   setBusy(true);msg(commit?'جارٍ الحفظ في PostgreSQL...':'جارٍ حفظ المسودة...');
   await api('draft',{draftId:state.draftId,body});
   if(!commit){msg('تم حفظ المسودة ويمكن استكمالها لاحقًا.','success');return;}
   const response=await api('commit',{draftId:state.draftId});
   state.saved=true;state.lastReceipt=response;
   el('receiptNumber').textContent=response.invoiceNumber;
-  el('receiptDetails').textContent=response.customerName+' — '+format(response.totalAmount);
+  el('receiptDetails').textContent=response.documentType==='print'
+   ?response.customerName+' — أمر طباعة غير مالي'
+   :response.customerName+' • '+format(response.totalAmount);
   show('success');
   msg(response.alreadyPosted?'الفاتورة كانت معتمدة مسبقًا؛ لم يُنشأ قيد مكرر.':'تم الحفظ المركزي بنجاح.','success');
   telegram?.HapticFeedback?.notificationOccurred('success');
@@ -200,9 +223,10 @@ const draft=async commit=>{
 };
 const startNew=()=>{
  state.lines=[];state.draftId=crypto.randomUUID();state.saved=false;state.lastReceipt=null;
- el('discount').value='0';el('paid').value='';el('notes').value='';el('paymentNotes').value='';renderSubCustomers();
+ el('discount').value='0';el('paid').value='';el('notes').value='';
+ el('cashPaid').value='';el('bankPaid').value='';el('paymentNotes').value='';
  el('invoiceDate').value=todayLocal();
- renderLines();show('cashier');msg('فاتورة جديدة. ابحث عن صنف لإضافته.','success');
+ renderSubCustomers();renderLines();show('cashier');msg('ابدأ بإضافة الأصناف.','success');
 };
 const initQuick=async()=>{
  const raw=new URLSearchParams(location.search).get('quick')||'';
@@ -224,8 +248,9 @@ const initQuick=async()=>{
   const addedIndex=state.lines.length;
   addItem(exact[0]);state.lines[addedIndex].quantity=Number(match[2]);
   if(match[3]!==undefined)state.lines[addedIndex].unitPrice=Number(match[3]);
-  if(match[4]==='آجل')el('payment').value='credit';
-  else if(match[4]==='بنكي')el('payment').value='bank_transfer';
+  if(match[4]==='آجل'){el('cashPaid').value='';el('bankPaid').value='';}
+  else if(match[4]==='نقدي'){el('cashPaid').value=String(totals().total);el('bankPaid').value='';}
+  else if(match[4]==='بنكي'){el('bankPaid').value=String(totals().total);el('cashPaid').value='';}
   renderLines();msg('تم تجهيز الفاتورة السريعة. راجع التفاصيل واضغط حفظ واعتماد.','success');
  }catch{el('itemSearch').value=match[1];}
 };
@@ -236,6 +261,7 @@ const bootstrap=async()=>{
   state.people=result.parties||[];
   state.subCustomers=result.subCustomers||[];
   state.treasuries=result.treasuries||[];
+  state.canPrint=result.canPrintOrders===true;
   state.vatRate=Number(result.vatRate||0);
   customerOptions('');
   const sel=el('customer');
@@ -243,20 +269,41 @@ const bootstrap=async()=>{
   const choice=state.people.some(x=>x.id===remembered)?remembered:result.defaultCustomerId;
   if(choice)sel.value=choice;
   renderSubCustomers();
-  const treasury=el('treasury');treasury.replaceChildren(new Option('الافتراضي',''));
-  for(const x of state.treasuries)treasury.appendChild(new Option(x.name,x.accountCode));
-  try{const code=localStorage.getItem('telegram_pos_last_treasury');if(code)treasury.value=code;}catch{}
+  const cashBox=el('cashTreasury'),bankBox=el('bankTreasury');
+  cashBox.replaceChildren(new Option('اختر الصندوق',''));
+  bankBox.replaceChildren(new Option('اختر البنك',''));
+  const isBank=t=>/bank|بنكي|بنك/i.test(String(t.type||'')+' '+String(t.name||''));
+  const cashOptions=state.treasuries.filter(t=>!isBank(t));
+  const bankOptions=state.treasuries.filter(t=>isBank(t));
+  for(const t of cashOptions)cashBox.appendChild(new Option(t.name,t.accountCode));
+  for(const t of bankOptions)bankBox.appendChild(new Option(t.name,t.accountCode));
+  try{
+   const previousCash=localStorage.getItem('telegram_pos_last_cash')||'';
+   const previousBank=localStorage.getItem('telegram_pos_last_bank')||'';
+   if(previousCash&&cashOptions.some(t=>t.accountCode===previousCash))cashBox.value=previousCash;
+   if(previousBank&&bankOptions.some(t=>t.accountCode===previousBank))bankBox.value=previousBank;
+  }catch{}
+
   el('userBadge').textContent='🔒 '+(result.displayName||'مستخدم معتمد')+' • مرتبط دائمًا';
   show('cashier');msg('حساب تلجرام مرتبط بحساب البرنامج. لا يلزم إعادة الربط عند انتهاء الرمز المؤقت.','success');
   const draftToResume=(result.drafts||[]).find(x=>x.status==='draft');
   if(draftToResume&&window.confirm('توجد مسودة سابقة. هل تريد استكمالها؟')){
    state.draftId=draftToResume.draftId;const b=draftToResume.body;
+   if(b.documentType==='print')selectKind('print');
    if(b.customerId)sel.value=b.customerId;
    renderSubCustomers(b.subCustomerId|| (b.subCustomerName?'__new__':''),b.subCustomerName||'');
    el('invoiceDate').value=b.date||todayLocal();
    el('discount').value=b.overallDiscount||0;el('payment').value=b.paymentMethod||'cash';
-   el('paid').value=b.paidAmount??'';el('notes').value=b.notes||'';el('paymentNotes').value=b.paymentNotes||'';
-   el('treasury').value=b.treasuryCode||'';
+   el('notes').value=b.notes||'';el('paymentNotes').value=b.paymentNotes||'';
+   const legacyPaid=Number(b.paidAmount||0);
+   const restoredCash=b.hasPaymentSplit?Number(b.cashPaidAmount||0):
+     ['cash','card'].includes(b.paymentMethod)?legacyPaid:0;
+   const restoredBank=b.hasPaymentSplit?Number(b.bankPaidAmount||0):
+     b.paymentMethod==='bank_transfer'?legacyPaid:0;
+   el('cashPaid').value=restoredCash>0?String(restoredCash):'';
+   el('bankPaid').value=restoredBank>0?String(restoredBank):'';
+   el('cashTreasury').value=b.cashTreasuryCode||(restoredCash>0?b.treasuryCode:'')||'';
+   el('bankTreasury').value=b.bankTreasuryCode||(restoredBank>0?b.treasuryCode:'')||'';
    state.lines=[];
    for(const l of b.items||[]){
     const r=await api('search',{query:l.itemId});
@@ -279,6 +326,47 @@ const bootstrap=async()=>{
   }else{show('notTelegram');msg('تعذر فتح الكاشير: '+code,'error');}
  }
 };
+const kindLabels={sale:['🛒','مبيعات'],print:['🖨️','أمر طباعة'],purchase:['📦','مشتريات'],expense:['🧾','مصروفات']};
+const selectKind=kind=>{
+ if(!Object.hasOwn(kindLabels,kind))return;
+ if(state.kind!==kind&&state.lines.length&&
+  !window.confirm('تغيير نوع المستند لا ينقل البنود إلى قسم مالي آخر. هل تريد المتابعة؟'))return;
+ state.kind=kind;
+ const info=kindLabels[kind];
+ el('currentInvoiceType').textContent=info[1];
+ el('invoiceTypeButton').querySelector('.kind-icon').textContent=info[0];
+ el('invoiceTypeMenu').classList.add('hidden');
+ el('invoiceTypeButton').setAttribute('aria-expanded','false');
+ for(const button of el('invoiceTypeMenu').querySelectorAll('[data-kind]'))
+  button.setAttribute('aria-current',button.dataset.kind===kind?'true':'false');
+ const sale=kind==='sale',print=kind==='print',enabled=sale||(print&&state.canPrint);
+ el('modeNotice').classList.toggle('hidden',sale);
+ if(print)el('modeNotice').textContent=state.canPrint
+  ?'أمر الطباعة طلب عمل غير محاسبي؛ لا يسجّل سدادًا أو بيعًا أو حركة مخزون. الأسعار الظاهرة للمعاينة فقط.'
+  :'ليست لديك صلاحية إضافة أوامر الطباعة من هذا الحساب.';
+ else if(!sale)el('modeNotice').textContent='هذا النوع غير مفعل للاعتماد في الكاشير المصغّر بعد. استخدم القسم المختص في البرنامج، لتجنب ترحيل العملية إلى مكان محاسبي غير صحيح.';
+ el('settlementPanel').classList.toggle('hidden',print);
+ el('paymentStatus').classList.toggle('hidden',print);
+ el('totalLabel').textContent=print?'تقديري':'إجمالي';
+ el('partyRole').textContent=kind==='purchase'?'المورد':kind==='expense'?'المستفيد':'العميل';
+ el('subCustomerArea').classList.toggle('hidden',kind!=='sale'&&kind!=='print');
+ el('saveButton').disabled=!enabled;
+ el('draftButton').disabled=!enabled;
+ el('addCustomerButton').disabled=!enabled;
+ el('saveButton').textContent=sale?'✓ اعتماد الفاتورة':print&&enabled?'✓ حفظ أمر الطباعة':'الاعتماد غير متاح';
+};
+el('invoiceTypeButton').addEventListener('click',()=>{
+ const menu=el('invoiceTypeMenu');menu.classList.toggle('hidden');
+ el('invoiceTypeButton').setAttribute('aria-expanded',menu.classList.contains('hidden')?'false':'true');
+});
+for(const button of el('invoiceTypeMenu').querySelectorAll('[data-kind]'))
+ button.addEventListener('click',()=>selectKind(button.dataset.kind));
+document.addEventListener('click',event=>{
+ if(!event.target.closest('.kind-wrap')){
+  el('invoiceTypeMenu').classList.add('hidden');
+  el('invoiceTypeButton').setAttribute('aria-expanded','false');
+ }
+});
 el('sessionClose').addEventListener('click',()=>telegram?.close?.());
 el('pairButton').addEventListener('click',async()=>{
  el('pairButton').disabled=true;
@@ -338,10 +426,14 @@ el('items').addEventListener('input',event=>{
  if(prop==='hasDimensions'){line.hasDimensions=input.checked;renderLines();return;}
  line[prop]=prop==='notes'?input.value:Number(input.value);
  totals();
- const total=input.closest('.line')?.querySelector('.line-total span');
+ const row=input.closest('.line');
+ const total=row?.querySelector('.line-row-total');
  if(total)total.textContent=format(round(lineQty(line)*line.unitPrice));
+ const qty=row?.querySelector('.line-quantity');
+ if(qty)qty.textContent=String(lineQty(line));
 });
-for(const name of ['discount','paid','payment'])el(name).addEventListener('input',totals);
+for(const name of ['discount','cashPaid','bankPaid'])el(name).addEventListener('input',totals);
+for(const name of ['cashTreasury','bankTreasury'])el(name).addEventListener('change',persistUi);
 el('draftButton').addEventListener('click',()=>draft(false));
 el('saveButton').addEventListener('click',()=>draft(true));
 el('newButton').addEventListener('click',startNew);
