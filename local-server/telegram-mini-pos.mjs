@@ -254,7 +254,7 @@ export class TelegramMiniPos {
   const treasuries=rows.rows.filter(r=>r.entity==='treasuries'&&
     r.value?.status==='active'&&auth.access.canRead('treasuries',r.value,r.record_id))
    .map(r=>({id:r.record_id,name:r.value.name,accountCode:r.value.accountCode,
-    type:r.value.type,isDefault:r.value.isDefault}));
+    type:r.value.type,status:r.value.status,isDefault:r.value.isDefault}));
   const warehouses=rows.rows.filter(r=>r.entity==='warehouses'&&
     r.value&&r.value._deleted!==true&&auth.access.canRead('warehouses',r.value,r.record_id))
    .map(r=>({id:r.record_id,name:r.value.name||'الرئيسي'}));
