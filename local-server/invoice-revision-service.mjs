@@ -42,7 +42,7 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
   if(actual!==request.expectedVersion)
    throw new InputError('VERSION_CONFLICT',409,
     {entity:'invoices',id:request.invoiceId,expectedVersion:request.expectedVersion,actualVersion:actual});
-  const invoice=stored.value,proposed=request.proposed;
+  let invoice=stored.value,proposed=request.proposed;
   if(!access?.canReviseInvoice?.(invoice,proposed))
    throw new InputError('INVOICE_REVISION_PERMISSION_DENIED',403);
   if(invoice.id!==request.invoiceId||proposed.id!==invoice.id||
@@ -82,6 +82,25 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     'INSERT INTO sync_invoice_revision_requests(workspace,request_id,invoice_id,request_fingerprint,actor_id,receipt) VALUES($1,$2,$3,$4,$5,$6)',
     [workspace,request.commandId,invoice.id,hash,actorId,JSON.stringify(receipt)]);
    return receipt;
+  }
+  // Telegram invoices created before the fix may omit the warehouse name.
+  // Attribute them only when PostgreSQL confirms ONE registered warehouse.
+  // Rebase both snapshots in memory: this is NOT a warehouse transfer and
+  // must not generate an artificial return/issue of historical stock.
+  if(typeof invoice.warehouse!=='string'||!invoice.warehouse.trim()){
+    const registered=await client.query(
+      "SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='warehouses'",
+      [workspace]);
+    if(registered.rows.length!==1)
+      throw new InputError('INVOICE_REVISION_LEGACY_WAREHOUSE_UNRESOLVED',409);
+    const authoritativeName=String(registered.rows[0].value?.name||'').trim();
+    if(!authoritativeName)
+      throw new InputError('INVOICE_REVISION_LEGACY_WAREHOUSE_UNRESOLVED',409);
+    const requested=typeof proposed.warehouse==='string'?proposed.warehouse.trim():'';
+    if(requested&&requested!==authoritativeName&&requested!==registered.rows[0].record_id)
+      throw new InputError('INVOICE_REVISION_LEGACY_WAREHOUSE_MISMATCH',409);
+    invoice={...invoice,warehouse:authoritativeName};
+    proposed={...proposed,warehouse:authoritativeName};
   }
   // Corrective changes keep the immutable original journal and stock audit.
   // Ordinary invoice reports read the latest stored date and warehouse.

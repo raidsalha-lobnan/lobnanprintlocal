@@ -14,6 +14,11 @@ const number=(value,label,min=0,max=1e8)=>{
  return value;
 };
 const text=(v,max=300)=>typeof v==='string'?v.trim().slice(0,max):'';
+export function validMiniInvoiceDate(value){
+ if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;
+ const time=Date.parse(value+'T00:00:00Z');
+ return Number.isFinite(time)&&new Date(time).toISOString().slice(0,10)===value;
+}
 
 export function verifyTelegramMiniInitData(initData,botToken,now=Date.now()){
  if(typeof initData!=='string'||initData.length<45||initData.length>8192)
@@ -48,6 +53,8 @@ export function normalizeMiniSaleBody(body){
   fail('MINI_POS_INVALID_ITEMS');
  const allowed=['cash','card','bank_transfer','credit'];
  const paymentMethod=allowed.includes(body.paymentMethod)?body.paymentMethod:'cash';
+ const date=body.date===undefined||body.date===null||body.date===''?'':body.date;
+ if(date!==''&&!validMiniInvoiceDate(date))fail('MINI_POS_DATE_INVALID');
  const normalizedItems=items.map(x=>{
   if(!uid(x?.itemId))fail('MINI_POS_INVALID_ITEM_ID');
   const dimensioned=x.hasDimensions===true;
@@ -63,7 +70,7 @@ export function normalizeMiniSaleBody(body){
   ?null:number(Number(body.paidAmount),'PAID',0,1e9);
  return {
   customerId:uid(body.customerId)?body.customerId:'',
-  items:normalizedItems,paymentMethod,paidAmount,
+  date,items:normalizedItems,paymentMethod,paidAmount,
   overallDiscount:number(Number(body.overallDiscount||0),'DISCOUNT',0,1e9),
   notes:text(body.notes,1200),
   treasuryCode:uid(body.treasuryCode)?body.treasuryCode:'',
@@ -254,12 +261,15 @@ export class TelegramMiniPos {
    }
    const body=normalizeMiniSaleBody(draft.body);
    const ids=[...new Set(body.items.map(i=>i.itemId))];
-   const [stock,parties,settings,treasuries]=await Promise.all([
-    client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='inventory' AND record_id=ANY($2::text[])",[this.workspace,ids]),
-    client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='parties' AND (record_id=$2 OR value->>'parentPartyId'=$2)",[this.workspace,body.customerId]),
-    client.query("SELECT value FROM sync_records WHERE workspace=$1 AND entity='settings' AND record_id IN ('global','workspace-settings') ORDER BY CASE WHEN record_id='global' THEN 0 ELSE 1 END LIMIT 1",[this.workspace]),
-    client.query("SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='treasuries'",[this.workspace])
-   ]);
+   // A pg client must execute statements sequentially inside a single open transaction.
+   const stock=await client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='inventory' AND record_id=ANY($2::text[])",[this.workspace,ids]);
+   const parties=await client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='parties' AND (record_id=$2 OR value->>'parentPartyId'=$2)",[this.workspace,body.customerId]);
+   const settings=await client.query("SELECT value FROM sync_records WHERE workspace=$1 AND entity='settings' AND record_id IN ('global','workspace-settings') ORDER BY CASE WHEN record_id='global' THEN 0 ELSE 1 END LIMIT 1",[this.workspace]);
+   const treasuries=await client.query("SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='treasuries'",[this.workspace]);
+   const warehouses=await client.query("SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='warehouses'",[this.workspace]);
+   if(warehouses.rows.length!==1)fail('MINI_POS_SINGLE_WAREHOUSE_REQUIRED',409);
+   const warehouseName=text(warehouses.rows[0].value?.name,120);
+   if(!warehouseName)fail('MINI_POS_WAREHOUSE_NAME_MISSING',409);
    if(stock.rows.length!==ids.length)fail('MINI_POS_ITEM_NOT_FOUND',409);
    const byId=new Map(stock.rows.map(row=>[row.record_id,row]));
    const selected=parties.rows.find(p=>p.record_id===body.customerId);
@@ -274,6 +284,8 @@ export class TelegramMiniPos {
     userId:auth.user.id,userName:auth.user.name||auth.user.username||'Telegram',
     branchId:auth.user.allowedBranchIds?.find(x=>x!=='*')||auth.user.branchId||undefined,
     currency:'ILS',currencySymbol:'₪',exchangeRate:1,
+    date:body.date||new Date(draft.created_at).toISOString().slice(0,10),
+    warehouse:warehouseName,
     overallDiscount:body.overallDiscount,
     ...(body.paidAmount===null?{}:{paidAmount:body.paidAmount}),
     ...(body.subCustomerName?{subCustomerName:body.subCustomerName}:{}),

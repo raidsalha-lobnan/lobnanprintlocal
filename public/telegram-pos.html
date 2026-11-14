@@ -43,6 +43,10 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
 <section id="cashier" class="hidden">
  <div class="panel">
   <div class="bar"><h2>فاتورة بيع جديدة</h2><span class="pill">مزامنة مركزية</span></div>
+  <div class="cols">
+   <div><label for="invoiceDate">تاريخ الفاتورة</label><input id="invoiceDate" type="date" required/></div>
+   <div><label>عدد البنود</label><div id="lineCount" class="pill" aria-live="polite" style="margin-top:11px;display:inline-block">0 بنود</div></div>
+  </div>
   <label for="customerSearch">العميل</label>
   <input id="customerSearch" type="search" placeholder="بحث باسم العميل أو كوده"/>
   <select id="customer" aria-label="اختر العميل"></select>
@@ -67,6 +71,8 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
   <label for="itemSearch">اسم الصنف أو الكود أو الباركود</label>
   <input id="itemSearch" type="search" autocomplete="off" placeholder="اكتب اسم الصنف للبحث الفوري"/>
   <div id="results" class="results" role="listbox"></div>
+  <button type="button" id="addItemButton" class="secondary" style="width:100%;margin-top:9px">➕ إضافة صنف آخر إلى نفس الفاتورة</button>
+  <p class="hint">يمكنك إضافة أكثر من صنف، حتى 25 بندًا. لكل بند كمية وسعر وملاحظات مستقلة.</p>
   <div id="items" class="items"></div>
   <p id="emptyItems" class="hint">ابدأ بكتابة اسم الصنف أعلاه.</p>
  </div>

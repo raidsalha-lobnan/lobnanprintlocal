@@ -8,6 +8,10 @@ const API='https://lobnan-api.shares.zrok.io/api/v1/telegram/mini/';
 const el=id=>document.getElementById(id);
 const format=v=>'₪ '+Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const round=n=>Math.round((n+Number.EPSILON)*100)/100;
+const todayLocal=()=>{
+ const d=new Date();
+ return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+};
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state={people:[],treasuries:[],vatRate:0,lines:[],draftId:crypto.randomUUID(),
   busy:false,saved:false,lastReceipt:null,quickDone:false};
@@ -67,6 +71,7 @@ const totals=()=>{
 const renderLines=()=>{
  const container=el('items');container.replaceChildren();
  el('emptyItems').classList.toggle('hidden',state.lines.length>0);
+ el('lineCount').textContent=state.lines.length+' / 25 بندًا';
  state.lines.forEach((line,index)=>{
   const panel=document.createElement('div');panel.className='line';
   panel.innerHTML=`
@@ -91,11 +96,14 @@ const renderLines=()=>{
 };
 const addItem=item=>{
  if(state.lines.length>=25){msg('الحد الأقصى 25 بندًا في الفاتورة الواحدة','error');return;}
+ clearTimeout(searchTimer);
+ searchEpoch++; // Invalidate slow search replies before they can repopulate an old list.
  state.lines.push({itemId:item.id,name:item.name,code:item.code,unit:item.unit,
   unitPrice:Number(item.sellingPrice||0),quantity:1,
   hasDimensions:false,length:1,width:1,count:1,notes:''});
  el('itemSearch').value='';el('results').replaceChildren();
- renderLines();el('itemSearch').focus();
+ renderLines();
+ msg('تمت إضافة الصنف '+item.name+'. يمكنك إضافة صنف آخر إلى الفاتورة نفسها.','success');
 };
 const searchItems=async query=>{
  const current=++searchEpoch;
@@ -125,8 +133,10 @@ const formBody=()=>{
  const rawPaid=el('paid').value.trim();
  const paidAmount=rawPaid===''?null:Number(rawPaid);
  if(paidAmount!==null&&(paidAmount<0||paidAmount>total))throw Error('مبلغ السداد غير صحيح أو يزيد عن الإجمالي');
+ const date=el('invoiceDate').value;
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw Error('يرجى تحديد تاريخ صحيح للفاتورة');
  const body={
-  customerId:person.id,customerName:person.name,
+  date,customerId:person.id,customerName:person.name,
   paymentMethod,treasuryCode:el('treasury').value,
   paidAmount,overallDiscount:Number(el('discount').value||0),
   notes:el('notes').value,
@@ -169,6 +179,7 @@ const draft=async commit=>{
 const startNew=()=>{
  state.lines=[];state.draftId=crypto.randomUUID();state.saved=false;state.lastReceipt=null;
  el('discount').value='0';el('paid').value='';el('notes').value='';
+ el('invoiceDate').value=todayLocal();
  renderLines();show('cashier');msg('فاتورة جديدة. ابحث عن صنف لإضافته.','success');
 };
 const initQuick=async()=>{
@@ -188,8 +199,9 @@ const initQuick=async()=>{
    el('itemSearch').value=match[1];await searchItems(match[1]);
    msg('اختر الصنف الصحيح من نتائج البحث لإكمال الإدخال السريع.');return;
   }
-  addItem(exact[0]);state.lines[0].quantity=Number(match[2]);
-  if(match[3]!==undefined)state.lines[0].unitPrice=Number(match[3]);
+  const addedIndex=state.lines.length;
+  addItem(exact[0]);state.lines[addedIndex].quantity=Number(match[2]);
+  if(match[3]!==undefined)state.lines[addedIndex].unitPrice=Number(match[3]);
   if(match[4]==='آجل')el('payment').value='credit';
   else if(match[4]==='بنكي')el('payment').value='bank_transfer';
   renderLines();msg('تم تجهيز الفاتورة السريعة. راجع التفاصيل واضغط حفظ واعتماد.','success');
@@ -198,6 +210,7 @@ const initQuick=async()=>{
 const bootstrap=async()=>{
  try{
   const result=await api('bootstrap');
+  el('invoiceDate').value=todayLocal();
   state.people=result.parties||[];
   state.treasuries=result.treasuries||[];
   state.vatRate=Number(result.vatRate||0);
@@ -215,6 +228,7 @@ const bootstrap=async()=>{
   if(draftToResume&&window.confirm('توجد مسودة سابقة. هل تريد استكمالها؟')){
    state.draftId=draftToResume.draftId;const b=draftToResume.body;
    if(b.customerId)sel.value=b.customerId;
+   el('invoiceDate').value=b.date||todayLocal();
    el('discount').value=b.overallDiscount||0;el('payment').value=b.paymentMethod||'cash';
    el('paid').value=b.paidAmount??'';el('notes').value=b.notes||'';
    el('treasury').value=b.treasuryCode||'';
@@ -268,6 +282,11 @@ el('createCustomerButton').addEventListener('click',async()=>{
 el('customer').addEventListener('change',persistUi);
 el('itemSearch').addEventListener('input',event=>{
  clearTimeout(searchTimer);searchTimer=setTimeout(()=>searchItems(event.target.value),180);
+});
+el('addItemButton').addEventListener('click',()=>{
+ el('itemSearch').focus();
+ el('itemSearch').select();
+ if(el('itemSearch').value.trim())void searchItems(el('itemSearch').value);
 });
 el('items').addEventListener('click',event=>{
  const button=event.target.closest('[data-remove]');

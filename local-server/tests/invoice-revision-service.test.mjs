@@ -28,7 +28,7 @@ const fixture=(options={})=>{
  const history=new Map();
  const sourceInvoice=options.employee?{
   ...invoice,customerId:'emp1',counterpartyType:'employee',counterpartyId:'emp1',employeeId:'emp1'
- }:invoice;
+ }:options.missingWarehouse?{...invoice,warehouse:undefined}:invoice;
  const records={
   journalEntries:options.missingJournals?[]:options.duplicate?[...originalJournals,j('duplicate','pos_invoice',8)]:originalJournals,
   stockMovements:movements,
@@ -166,5 +166,26 @@ test('missing accounting journal rejects legacy financial changes with actionabl
  assert.equal(actual?.detail?.diagnosis?.cogsJournalCount,0);
  assert.equal(actual?.detail?.diagnosis?.stockMovementCandidateCount,2);
  assert.equal(actual?.detail?.diagnosis?.baselineRequiresAccountantReview,true);
+ assert.equal(f.commands,0);
+});
+
+test('old Telegram invoice with absent warehouse can be revised in the sole registered warehouse without fake full transfer',async()=>{
+ const f=fixture({missingWarehouse:true});
+ const newProposal={...req.proposed,warehouse:undefined};
+ const result=await revisePostedInvoice(f.svc,'lobnan_main',
+   {...req,commandId:'telegram-old-warehouse-repair',proposed:newProposal},'admin',access);
+ assert.equal(f.commands,1);
+ const amended=result.changes.find(x=>x.entity==='invoices').value;
+ assert.equal(amended.warehouse,'main');
+ assert.equal(amended.totalAmount,51);
+ const stock=result.changes.filter(x=>x.entity==='stockMovements');
+ assert.equal(stock.some(row=>row.value?.itemId==='card'),false);
+});
+
+test('old Telegram invoice rejects an unverified explicit warehouse, even when only one exists',async()=>{
+ const f=fixture({missingWarehouse:true});
+ await assert.rejects(revisePostedInvoice(f.svc,'lobnan_main',
+   {...req,commandId:'telegram-fake-warehouse',proposed:{...req.proposed,warehouse:'not-registered'}},
+   'admin',access),/INVOICE_REVISION_LEGACY_WAREHOUSE_MISMATCH/);
  assert.equal(f.commands,0);
 });
