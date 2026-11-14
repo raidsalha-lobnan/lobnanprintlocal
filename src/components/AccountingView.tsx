@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import {AccountingBooksPanels} from './AccountingBooksPanels';
+import {bookMoney,makeTrialBalance} from '../utils/accountingBooks';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import { Account, AccountType, JournalEntry } from '../types';
@@ -50,7 +52,10 @@ export const AccountingView: React.FC = () => {
       localStorage.setItem('accounting_selected_ledger', acc);
     } catch {}
   }, []);
+  const chartTrial=React.useMemo(()=>makeTrialBalance(journalEntries,accounts),[journalEntries,accounts]);
+  const chartRowsByCode=React.useMemo(()=>new Map(chartTrial.rows.map(row=>[row.code,row])),[chartTrial]);
   const [showNewEntryModal, setShowNewEntryModal] = useState(false);
+  const [entryError, setEntryError] = useState('');
   const [showNewAccountModal, setShowNewAccountModal] = useState(false);
 
   // New Journal Entry Form State
@@ -70,7 +75,15 @@ export const AccountingView: React.FC = () => {
   // Total debits and credits in manual entry
   const totalDebit = entryLines.reduce((acc, l) => acc + (Number(l.debit) || 0), 0);
   const totalCredit = entryLines.reduce((acc, l) => acc + (Number(l.credit) || 0), 0);
-  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
+  const validAmount = (n: number) => Number.isFinite(Number(n)) &&
+    Number(n) >= 0 && Number.isSafeInteger(Math.round(Number(n)*100)) &&
+    Math.abs(Number(n)*100-Math.round(Number(n)*100))<1e-6;
+  const entryLinesValid=entryLines.length>=2&&entryLines.every(l=>
+    accounts.some(a=>a.code===l.accountCode) &&
+    validAmount(l.debit) && validAmount(l.credit) &&
+    ((Number(l.debit)>0&&Number(l.credit)===0)||(Number(l.credit)>0&&Number(l.debit)===0))
+  );
+  const isBalanced = entryLinesValid&&Math.round(totalDebit*100)===Math.round(totalCredit*100)&&totalDebit>0;
 
   const handleAddLine = () => {
     setEntryLines([...entryLines, { accountCode: '1101', debit: 0, credit: 0, desc: '' }]);
@@ -92,8 +105,12 @@ export const AccountingView: React.FC = () => {
 
   const handleSubmitEntry = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isBalanced || !entryDesc) return;
-
+    if (!isBalanced || !entryDesc.trim()) {
+      setEntryError("أكمل البيان وكل طرف حساب، ويجب أن يتساوى المدين والدائن حتى أصغر وحدة نقدية.");
+      return;
+    }
+    setEntryError("");
+    try {
     addJournalEntry({
       date: entryDate,
       description: entryDesc,
@@ -109,7 +126,10 @@ export const AccountingView: React.FC = () => {
         };
       })
     });
-
+    } catch (error) {
+      setEntryError(error instanceof Error ? error.message : "فشل حفظ القيد؛ لم يتم تأكيده.");
+      return;
+    }
     setShowNewEntryModal(false);
     setEntryDesc('');
     setEntryLines([
@@ -145,13 +165,6 @@ export const AccountingView: React.FC = () => {
       case 'expense': return { label: 'مصروفات', class: 'bg-amber-50 text-amber-700' };
     }
   };
-
-  // General Ledger transactions for selected account
-  const ledgerEntries = journalEntries.filter(je =>
-    je.lines.some(l => l.accountCode === selectedLedgerAccount)
-  );
-
-  const selectedAcc = accounts.find(a => a.code === selectedLedgerAccount);
 
   return (
     <div className="space-y-4">
@@ -213,69 +226,7 @@ export const AccountingView: React.FC = () => {
         </div>
       </div>
 
-      {/* Tab 1: Journal Entries (دفتر اليومية العامة) */}
-      {activeTab === 'journal' && (
-        <div className="space-y-3">
-          <div className="bg-white rounded-lg border border-slate-200 shadow-xs p-2.5 flex items-center justify-between text-xs">
-            <span className="text-slate-500">إجمالي القيود المسجلة: <strong className="text-slate-900 font-bold font-mono">{journalEntries.length}</strong> قيد</span>
-            <span className="text-emerald-600 font-semibold flex items-center gap-1 text-[11px]">
-              <CheckCircle className="w-3.5 h-3.5" />
-              <span>كافة القيود مطابقة ومتزنة (مدين = دائن)</span>
-            </span>
-          </div>
-
-          <div className="space-y-2.5">
-            {journalEntries.map((entry, idx) => {
-              const entryTotalDebit = entry.lines.reduce((acc, l) => acc + l.debit, 0);
-              return (
-                <div key={`${entry.id || 'je'}-${idx}`} className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
-                  <div className="bg-slate-50 p-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-blue-600 bg-white border border-blue-100 px-1.5 py-0.5 rounded text-[11px]">
-                        {entry.entryNumber}
-                      </span>
-                      <span className="font-bold text-slate-800 text-xs">{entry.description}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-slate-500 text-[11px]">
-                      <span>التاريخ: <span className="font-mono">{entry.date}</span></span>
-                      <span className="font-mono font-bold text-slate-800">
-                        الإجمالي: {entryTotalDebit.toLocaleString('ar-SA')} {settings.currency}
-                      </span>
-                    </div>
-                  </div>
-
-                  <table className="w-full text-right text-xs">
-                    <thead className="bg-slate-50/50 text-slate-500 border-b border-slate-100 text-[11px]">
-                      <tr>
-                        <th className="p-2">رقم الحساب</th>
-                        <th className="p-2">اسم الحساب</th>
-                        <th className="p-2">البيان والتفاصيل</th>
-                        <th className="p-2 text-left w-24">مدين ({settings.currency})</th>
-                        <th className="p-2 text-left w-24">دائن ({settings.currency})</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {entry.lines.map((line, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="p-2 font-mono text-slate-600 font-semibold text-[11px]">{line.accountCode}</td>
-                          <td className="p-2 font-bold text-slate-800 text-xs">{line.accountName}</td>
-                          <td className="p-2 text-slate-500 text-[11px]">{line.description || '-'}</td>
-                          <td className="p-2 text-left font-mono font-bold text-emerald-700 text-xs">
-                            {line.debit > 0 ? line.debit.toLocaleString('ar-SA', { minimumFractionDigits: 2 }) : '-'}
-                          </td>
-                          <td className="p-2 text-left font-mono font-bold text-blue-700 text-xs">
-                            {line.credit > 0 ? line.credit.toLocaleString('ar-SA', { minimumFractionDigits: 2 }) : '-'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {activeTab === 'journal' && <AccountingBooksPanels mode="journal" entries={journalEntries} accounts={accounts} currency={settings.currency} selectedAccount={selectedLedgerAccount} onAccount={setSelectedLedgerAccount} />}
 
       {/* Tab 2: Chart of Accounts (دليل الحسابات) */}
       {activeTab === 'chart' && (
@@ -298,7 +249,8 @@ export const AccountingView: React.FC = () => {
                   <th className="p-2.5">رمز الحساب</th>
                   <th className="p-2.5">اسم الحساب</th>
                   <th className="p-2.5">النوع والتصنيف</th>
-                  <th className="p-2.5">الرصيد الدفتري الحالي</th>
+                  <th className="p-2.5">رصيد الأستاذ من القيود</th>
+                  <th className="p-2.5">رصيد بطاقة الحساب (للمطابقة)</th>
                   <th className="p-2.5">طبيعة الحساب</th>
                   <th className="p-2.5">الوصف والغرض</th>
                 </tr>
@@ -307,6 +259,8 @@ export const AccountingView: React.FC = () => {
                 {accounts.map(acc => {
                   const badge = getAccountTypeLabel(acc.type);
                   const isDebitNature = acc.type === 'asset' || acc.type === 'expense';
+                  const derived = chartRowsByCode.get(acc.code);
+                  const journalBalance = (derived?.debitBalance||0)-(derived?.creditBalance||0);
                   return (
                     <tr key={acc.code} className="hover:bg-slate-50 transition-colors">
                       <td className="p-2.5 font-mono font-bold text-blue-600">{acc.code}</td>
@@ -317,7 +271,12 @@ export const AccountingView: React.FC = () => {
                         </span>
                       </td>
                       <td className="p-2.5 font-mono font-bold text-slate-900">
-                        {acc.balance.toLocaleString('ar-SA', { minimumFractionDigits: 2 })} {settings.currency}
+                        {bookMoney(Math.abs(journalBalance))} {settings.currency}
+                        <small className="block text-slate-500">{journalBalance>0?'مدين':journalBalance<0?'دائن':'صفر'}</small>
+                      </td>
+                      <td className="p-2.5 font-mono font-semibold tabular-nums">
+                        {acc.balance.toLocaleString('en-US', { minimumFractionDigits: 2,maximumFractionDigits:2 })} {settings.currency}
+                        {derived?.storedDifference!==0&&<small className="block text-amber-700">فرق عن الأستاذ {bookMoney(Math.abs(derived?.storedDifference||0))}</small>}
                       </td>
                       <td className="p-2.5 text-slate-500 text-[11px]">
                         {isDebitNature ? 'مدين بطبيعته' : 'دائن بطبيعته'}
@@ -332,138 +291,8 @@ export const AccountingView: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 3: General Ledger (دفتر الأستاذ العام) */}
-      {activeTab === 'ledger' && (
-        <div className="space-y-3">
-          <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-semibold text-slate-700">اختر الحساب لعرض كشف الحركات:</label>
-              <select
-                value={selectedLedgerAccount}
-                onChange={e => setSelectedLedgerAccount(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs font-bold text-slate-900 focus:bg-white focus:ring-1 focus:ring-blue-500"
-              >
-                {accounts.map(a => (
-                  <option key={a.code} value={a.code}>
-                    {a.code} - {a.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {selectedAcc && (
-              <div className="text-xs flex items-center gap-2">
-                <span className="text-slate-500">الرصيد الختامي الحالي:</span>
-                <span className="font-mono font-bold text-blue-600 text-xs">
-                  {selectedAcc.balance.toLocaleString('ar-SA', { minimumFractionDigits: 2 })} {settings.currency}
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
-                <tr>
-                  <th className="p-2.5">التاريخ</th>
-                  <th className="p-2.5">رقم القيد</th>
-                  <th className="p-2.5">البيان والشرح</th>
-                  <th className="p-2.5 text-left">حركة مدينة</th>
-                  <th className="p-2.5 text-left">حركة دائنة</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {ledgerEntries.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="p-6 text-center text-slate-400 text-xs">
-                      لا توجد حركات مسجلة لهذا الحساب حتى الآن.
-                    </td>
-                  </tr>
-                ) : (
-                  ledgerEntries.map((entry, idx) => {
-                    const line = entry.lines.find(l => l.accountCode === selectedLedgerAccount);
-                    if (!line) return null;
-                    return (
-                      <tr key={`${entry.id || 'je'}-${idx}`} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-2.5 text-slate-500 font-mono text-[11px]">{entry.date}</td>
-                        <td className="p-2.5 font-mono font-bold text-blue-600">{entry.entryNumber}</td>
-                        <td className="p-2.5 font-medium text-slate-900">{entry.description}</td>
-                        <td className="p-2.5 text-left font-mono font-bold text-emerald-600">
-                          {line.debit > 0 ? line.debit.toLocaleString('ar-SA', { minimumFractionDigits: 2 }) : '-'}
-                        </td>
-                        <td className="p-2.5 text-left font-mono font-bold text-blue-600">
-                          {line.credit > 0 ? line.credit.toLocaleString('ar-SA', { minimumFractionDigits: 2 }) : '-'}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 4: Trial Balance (ميزان المراجعة) */}
-      {activeTab === 'trial' && (
-        <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
-          <div className="p-2.5 border-b border-slate-200 bg-slate-50/60">
-            <h3 className="font-bold text-xs text-slate-900">ميزان المراجعة بالأرصدة (Trial Balance)</h3>
-            <p className="text-[10px] text-slate-400 font-light">مراجعة مطابقة إجمالي الأرصدة المدينة والدائنة لكافة الحسابات</p>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
-                <tr>
-                  <th className="p-2.5">رمز الحساب</th>
-                  <th className="p-2.5">اسم الحساب</th>
-                  <th className="p-2.5">النوع</th>
-                  <th className="p-2.5 text-left">أرصدة مدينة ({settings.currency})</th>
-                  <th className="p-2.5 text-left">أرصدة دائنة ({settings.currency})</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {accounts.map(acc => {
-                  const isDebit = acc.type === 'asset' || acc.type === 'expense';
-                  return (
-                    <tr key={acc.code} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-2.5 font-mono font-bold text-slate-600">{acc.code}</td>
-                      <td className="p-2.5 font-bold text-slate-800">{acc.name}</td>
-                      <td className="p-2.5 text-slate-500 text-[11px]">{getAccountTypeLabel(acc.type).label}</td>
-                      <td className="p-2.5 text-left font-mono font-bold text-emerald-700">
-                        {isDebit ? acc.balance.toLocaleString('ar-SA', { minimumFractionDigits: 2 }) : '-'}
-                      </td>
-                      <td className="p-2.5 text-left font-mono font-bold text-blue-700">
-                        {!isDebit ? acc.balance.toLocaleString('ar-SA', { minimumFractionDigits: 2 }) : '-'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
-                <tr>
-                  <td colSpan={3} className="p-2.5 text-slate-900 text-xs">إجمالي ميزان المراجعة:</td>
-                  <td className="p-2.5 text-left font-mono text-emerald-800 text-xs">
-                    {accounts
-                      .filter(a => a.type === 'asset' || a.type === 'expense')
-                      .reduce((acc, a) => acc + a.balance, 0)
-                      .toLocaleString('ar-SA', { minimumFractionDigits: 2 })}{' '}
-                    {settings.currency}
-                  </td>
-                  <td className="p-2.5 text-left font-mono text-blue-800 text-xs">
-                    {accounts
-                      .filter(a => a.type !== 'asset' && a.type !== 'expense')
-                      .reduce((acc, a) => acc + a.balance, 0)
-                      .toLocaleString('ar-SA', { minimumFractionDigits: 2 })}{' '}
-                    {settings.currency}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-      )}
+      {activeTab === 'ledger' && <AccountingBooksPanels mode="ledger" entries={journalEntries} accounts={accounts} currency={settings.currency} selectedAccount={selectedLedgerAccount} onAccount={setSelectedLedgerAccount} />}
+      {activeTab === 'trial' && <AccountingBooksPanels mode="trial" entries={journalEntries} accounts={accounts} currency={settings.currency} selectedAccount={selectedLedgerAccount} onAccount={setSelectedLedgerAccount} />}
 
       {/* Modal: Manual Journal Entry */}
       {showNewEntryModal && (
@@ -562,6 +391,8 @@ export const AccountingView: React.FC = () => {
                   ))}
                 </div>
               </div>
+
+              {entryError && <div role="alert" className="text-rose-700 bg-rose-50 text-xs rounded-md border border-rose-200 p-2">{entryError}</div>}
 
               {/* Balance Validation Bar */}
               <div className="bg-slate-100 p-2.5 rounded-md flex items-center justify-between font-mono font-bold text-xs">
