@@ -10,7 +10,7 @@ import {InputError} from './sync-domain.mjs';
 const legacyPrintJournalTypes=new Set(['print_order','print_order_void_reversal']);
 
 export async function forbidRetiredLegacyPrintResurrection(client,workspace,change){
- if(change.entity!=='printOrders'&&change.entity!=='journalEntries')return;
+ if(!['printOrders','journalEntries','debtClearings'].includes(change.entity))return;
  if(change.entity==='journalEntries'&&
     legacyPrintJournalTypes.has(change.value?.referenceType)){
   throw new InputError('RETIRED_FAKE_PRINT_JOURNAL_FORBIDDEN',409,{

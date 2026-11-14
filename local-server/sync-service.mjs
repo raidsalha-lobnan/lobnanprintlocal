@@ -81,7 +81,7 @@ export class SyncService {
       for(const change of command.changes) {
         const previous=await client.query('SELECT version,value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',[workspace,change.entity,change.id]);
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
-        if(change.entity==='journalEntries'||change.entity==='printOrders')
+        if(['journalEntries','printOrders','debtClearings'].includes(change.entity))
           await forbidRetiredLegacyPrintResurrection(client,workspace,change);
         const isFieldPatch=change.entity==='settings'&&isSettingsFieldPatch(change.value);
         // A NEW atomic invoice may be based on an older version of an
