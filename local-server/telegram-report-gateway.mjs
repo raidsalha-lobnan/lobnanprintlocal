@@ -33,7 +33,7 @@ export class TelegramReportGateway {
    headers:payload instanceof FormData?undefined:{'content-type':'application/json'},
    signal:AbortSignal.timeout(timeout)
   });
-  if(!response.ok)throw new InputError('TELEGRAM_DELIVERY_HTTP_'+response.status,502);
+  if(!response.ok)throw new InputError('TELEGRAM_'+method.toUpperCase()+'_HTTP_'+response.status,502);
   const body=await response.json();
   if(body.ok!==true)throw new InputError('TELEGRAM_DELIVERY_REJECTED',502);
   return {ok:true};
@@ -45,17 +45,34 @@ export class TelegramReportGateway {
   const options={chat_id:String(payload.chatId),text:txt,parse_mode:'HTML'};
   if(payload.replyMarkup)options.reply_markup=payload.replyMarkup;
   const {botToken}=await this.config();
-  return this.telegramRequest(botToken,'sendMessage',options);
+  try{return await this.telegramRequest(botToken,'sendMessage',options);}
+  catch(error){
+   if(!(error instanceof InputError)||error.message!=='TELEGRAM_SENDMESSAGE_HTTP_400')
+    throw error;
+   // Invalid HTML entities should not block the next chat command forever.
+   // Retry once as plain text; true delivery failures still remain unacknowledged.
+   const plain=txt.replace(/<[^>]*>/g,'').replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+   return this.telegramRequest(botToken,'sendMessage',{...options,text:plain,parse_mode:undefined});
+  }
  }
  async callback(payload){
   await this.verifyLease(payload);
   if(typeof payload.callbackQueryId!=='string'||payload.callbackQueryId.length<5||
      payload.callbackQueryId.length>200)throw new InputError('TELEGRAM_CALLBACK_INVALID',400);
   const {botToken}=await this.config();
-  return this.telegramRequest(botToken,'answerCallbackQuery',{
-   callback_query_id:payload.callbackQueryId,text:String(payload.text||'').slice(0,180),
-   show_alert:false
-  });
+  try {
+   return await this.telegramRequest(botToken,'answerCallbackQuery',{
+    callback_query_id:payload.callbackQueryId,text:String(payload.text||'').slice(0,180),
+    show_alert:false
+   });
+  }catch(error){
+   // Telegram expires callback IDs within seconds. A stale UI spinner must
+   // never prevent processing the user's requested menu/report operation.
+   if(error instanceof InputError && error.message==='TELEGRAM_ANSWERCALLBACKQUERY_HTTP_400')
+    return {ok:true,callbackExpired:true};
+   throw error;
+  }
  }
  async document(payload){
   await this.verifyLease(payload);

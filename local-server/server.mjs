@@ -85,7 +85,7 @@ telegramTimer.unref?.();
 // the browser receives claimed commands, not a competing getUpdates stream.
 const telegramPollingTimer=setInterval(()=>{
  void telegramHub.pollOnce().catch(e=>console.error('telegram hub',e.message));
-},3500);
+},700);
 telegramPollingTimer.unref?.();
 const userAuth=new UserAuth(pool,WORKSPACE);
 function loginBlocked(key){
@@ -297,7 +297,7 @@ const srv=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST' && url.pathname==='/api/v1/telegram/inbox/claim'){
       if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);
-      return json(res,200,{item:await telegramHub.claimInbox()},cors);
+      return json(res,200,{item:await telegramHub.claimInboxWait(12000)},cors);
     }
     if(req.method==='POST' && url.pathname==='/api/v1/telegram/inbox/ack'){
       if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);

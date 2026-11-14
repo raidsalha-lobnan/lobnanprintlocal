@@ -9,6 +9,7 @@ export class TelegramHub {
  constructor(pool,workspace,fetchImpl=fetch){
   this.pool=pool;this.workspace=workspace;this.fetch=fetchImpl;
   this.polling=false;this.nextPoll=0;
+  this.inboxWaiters=new Set();
  }
  async configuration(){
   const r=await this.pool.query(
@@ -55,6 +56,7 @@ export class TelegramHub {
    fromName:[sender?.first_name,sender?.last_name].filter(Boolean).join(' ').slice(0,100)
   };
   let action=null;
+  let queued=false;
   const client=await this.pool.connect();
   try{
    await client.query('BEGIN');
@@ -88,6 +90,7 @@ export class TelegramHub {
      await client.query(
       'INSERT INTO sync_telegram_inbox(workspace,update_id,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
       [this.workspace,id,JSON.stringify(payload)]);
+     queued=true;
     }
    }
    await client.query(
@@ -96,6 +99,8 @@ export class TelegramHub {
    await client.query('COMMIT');
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}
   finally{client.release()}
+  // Notify a connected report operator immediately after the PostgreSQL commit.
+  if(queued)for(const wake of this.inboxWaiters)wake();
   if(action==='start'){
    await this.sendReply(token,chatId,
     '✅ تم تفعيل اشتراكك في إشعارات مطبعة ومكتبة لبنان. ستصلك الإدخالات الجديدة بعد اعتمادها. يمكنك طلب الكشوفات من البوت، واستخدام /stop لإيقاف الإشعارات.');
@@ -119,10 +124,12 @@ export class TelegramHub {
     [this.workspace,botId]);
    const offset=Number(saved.rows[0]?.last_update_id||0);
    const url='https://api.telegram.org/bot'+token+'/getUpdates?'+new URLSearchParams({
-    offset:String(offset+1),timeout:'0',limit:'80',
+    // Telegram long-poll returns as soon as an update exists, avoiding
+    // a request/response gap for every button press.
+    offset:String(offset+1),timeout:'10',limit:'80',
     allowed_updates:JSON.stringify(['message','callback_query'])
    });
-   const response=await this.fetch(url,{signal:AbortSignal.timeout(12000)});
+   const response=await this.fetch(url,{signal:AbortSignal.timeout(16000)});
    if(!response.ok){
     if(response.status===409)
      console.warn('telegram getUpdates blocked by another poller/webhook; browser Telegram polling must be disabled');
@@ -134,6 +141,33 @@ export class TelegramHub {
    return body.result.length;
   }catch(e){console.warn('telegram central polling',e.message);this.nextPoll=Date.now()+15000;return 0}
   finally{this.polling=false}
+ }
+ /** Suspend a client claim while the server receives Telegram updates.
+  * Listeners are installed before the second database check, preventing a
+  * missed message in the gap between SELECT and subscribe.
+  * No DB connection is held while the HTTP request is waiting.
+  */
+ async claimInboxWait(waitMs=12000){
+  const first=await this.claimInbox();
+  if(first)return first;
+  await new Promise((resolve,reject)=>{
+   let closed=false,timer=null;
+   const wake=error=>{
+    if(closed)return;
+    closed=true;
+    clearTimeout(timer);
+    this.inboxWaiters.delete(wake);
+    if(error)reject(error);else resolve();
+   };
+   this.inboxWaiters.add(wake);
+   timer=setTimeout(wake,Math.max(0,Math.min(12000,waitMs)));
+   // Seal race: an inbox row might have committed just before registration.
+   this.pool.query(
+    "SELECT 1 FROM sync_telegram_inbox WHERE workspace=$1 AND processed_at IS NULL AND (claimed_until IS NULL OR claimed_until<now()) LIMIT 1",
+    [this.workspace]
+   ).then(result=>{if(result.rows.length)wake();}).catch(wake);
+  });
+  return this.claimInbox();
  }
  async claimInbox(){
   const client=await this.pool.connect();

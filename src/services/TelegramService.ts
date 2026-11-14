@@ -113,7 +113,8 @@ export const TelegramService={
     const payload=await response.json() as {item?:{
       updateId:number;leaseToken:string;action:Omit<TelegramIncomingAction,'token'>
     }|null};
-    if(!payload.item){schedule(3500);return;}
+    // A claim already waited for Telegram; immediately re-arm the next wait.
+    if(!payload.item){schedule(60);return;}
     const {updateId,leaseToken,action}=payload.item;
     activeLease={updateId,leaseToken,chatId:String(action.chatId)};
     try{
@@ -124,13 +125,13 @@ export const TelegramService={
       method:'POST',headers,body:JSON.stringify({updateId,leaseToken}),cache:'no-store'
      });
      if(!ack.ok)throw new Error('TELEGRAM_INBOX_ACK_FAILED_'+ack.status);
-     schedule(400);
+     schedule(70);
     }catch(error){
      console.warn('Telegram inbox operation failed; releasing for retry',error);
      await fetch(endpoint+'inbox/release?workspace='+encodeURIComponent(config.workspace),{
       method:'POST',headers,body:JSON.stringify({updateId,leaseToken}),cache:'no-store'
      }).catch(()=>{});
-     schedule(15000);
+     schedule(1000); // Released request sleeps on server; newer commands may proceed.
     }finally{activeLease=null;}
    }catch(error){
     console.warn('Telegram central report queue temporarily unavailable',error);

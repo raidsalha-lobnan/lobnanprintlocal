@@ -49,5 +49,5 @@ test('PDF upload uses server-side token and binary multipart, with no invalid fi
 });
 test('Telegram API failure is not acknowledged as successful delivery',async()=>{
  const {hub}=makeGateway({fail:true});
- await assert.rejects(hub.message({...lease,text:'test'}),/TELEGRAM_DELIVERY_HTTP_502/);
+ await assert.rejects(hub.message({...lease,text:'test'}),/TELEGRAM_SENDMESSAGE_HTTP_502/);
 });
