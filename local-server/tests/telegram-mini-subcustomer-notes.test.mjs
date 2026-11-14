@@ -154,8 +154,8 @@ test('server rejects a subcustomer id from a different parent before any account
    };
    if(sql.includes("entity='inventory'"))return {rows:stock};
    if(sql.includes("entity='parties'"))return{rows:[
-    {record_id:main.id,value:main,version:1},
-    {record_id:child.id,value:child,version:1}
+    {entity:'parties',record_id:main.id,value:main,version:1},
+    {entity:'parties',record_id:child.id,value:child,version:1}
    ]};
    if(sql.includes("entity='settings'"))return{rows:[{value:{vatRate:0}}]};
    if(sql.includes("entity='treasuries'"))return{rows:[]};

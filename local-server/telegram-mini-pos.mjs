@@ -76,8 +76,7 @@ export function normalizeMiniSaleBody(body){
  const bankPaidAmount=split?number(Number(body.bankPaidAmount||0),'BANK_PAID',0,1e9):0;
  const cashTreasuryCode=body.cashTreasuryCode||'';
  const bankTreasuryCode=body.bankTreasuryCode||'';
- if(split&&((cashPaidAmount>0&&!uid(cashTreasuryCode))||
-    (bankPaidAmount>0&&!uid(bankTreasuryCode))))
+ if(split&&bankPaidAmount>0&&!/^CASH-\d{4,}$/.test(bankTreasuryCode))
   fail('MINI_POS_PAYMENT_TREASURY_REQUIRED');
  const subCustomerId=body.subCustomerId||'';
  if(subCustomerId&&!uid(subCustomerId))fail('MINI_POS_SUBCUSTOMER_ID_INVALID');
@@ -94,11 +93,42 @@ export function normalizeMiniSaleBody(body){
   subCustomerId:uid(body.subCustomerId)?body.subCustomerId:'',
   subCustomerName:text(body.subCustomerName,100),
   paymentNotes:text(body.paymentNotes,1000),
-  counterpartyKind:body.counterpartyKind==='employee'?'employee':'supplier',
+  counterpartyKind:['customer','supplier','employee'].includes(body.counterpartyKind)
+   ?body.counterpartyKind:(['sale','print'].includes(documentType)?'customer':'supplier'),
   supplierInvoiceNumber:text(body.supplierInvoiceNumber,100),
   expenseCategory:Object.hasOwn(MINI_EXPENSE_CATEGORIES,body.expenseCategory)?body.expenseCategory:'other',
   expenseAccountCode:uid(body.expenseAccountCode)?body.expenseAccountCode:''
  };
+}
+
+// Cash always belongs to the single default cash_box in the authoritative
+// workspace, irrespective of any previously saved/browser-submitted code.
+export function resolveMiniCashBox(body,treasuryRows,access){
+ if(!body||!(Number(body.cashPaidAmount)>0))return body;
+ const cash=treasuryRows.filter(row=>row.record_id==='treasury-cash-main'&&
+  row.value?.status==='active'&&row.value?.type==='cash_box'&&
+  row.value?.accountCode==='CASH-1101'&&row.value?.isDefault===true);
+ const main=cash.length===1?cash[0]:null;
+ if(!main)
+  fail('MINI_POS_DEFAULT_CASH_BOX_MISSING_OR_AMBIGUOUS',409);
+ if(access&&!access.canRead('treasuries',main.value,main.record_id))
+  fail('MINI_POS_DEFAULT_CASH_BOX_NOT_AUTHORIZED',403);
+ return {...body,cashTreasuryCode:main.value.accountCode,
+  treasuryCode:body.bankPaidAmount>0?body.bankTreasuryCode:main.value.accountCode};
+}
+
+// Only presentation IDs for treasuries differ from general-ledger account codes.
+// Never change the invoice's actual cash or bank treasury identities.
+export function mapMiniTreasuryJournalAccounts(journals,body){
+ return journals.map(j=>({
+  ...j,value:{...j.value,lines:(j.value.lines||[]).map(line=>{
+   const cash=body.cashPaidAmount>0&&line.accountCode===body.cashTreasuryCode;
+   const bank=body.bankPaidAmount>0&&line.accountCode===body.bankTreasuryCode;
+   if(!cash&&!bank)return line;
+   return {...line,accountCode:cash?'1101':'1102',
+    accountName:cash?'الصندوق النقدي الرئيسي':'الحساب البنكي والمحافظ'};
+  })}
+ }));
 }
 
 export class TelegramMiniPos {
@@ -324,13 +354,14 @@ export class TelegramMiniPos {
     return {ok:true,alreadyPosted:true,invoiceNumber:invoice.invoiceNumber,
      invoiceId,totalAmount:invoice.totalAmount,customerName:invoice.customerName};
    }
-   const body=normalizeMiniSaleBody(draft.body);
+   let body=normalizeMiniSaleBody(draft.body);
    const ids=[...new Set(body.items.map(i=>i.itemId))];
    // A pg client must execute statements sequentially inside a single open transaction.
    const stock=await client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='inventory' AND record_id=ANY($2::text[])",[this.workspace,ids]);
-   const parties=await client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='parties' AND (record_id=$2 OR value->>'parentPartyId'=$2)",[this.workspace,body.customerId]);
+   const parties=await client.query("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND ((entity='parties' AND (record_id=$2 OR value->>'parentPartyId'=$2)) OR (entity='employees' AND record_id=$2))",[this.workspace,body.customerId]);
    const settings=await client.query("SELECT value FROM sync_records WHERE workspace=$1 AND entity='settings' AND record_id IN ('global','workspace-settings') ORDER BY CASE WHEN record_id='global' THEN 0 ELSE 1 END LIMIT 1",[this.workspace]);
    const treasuries=await client.query("SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='treasuries'",[this.workspace]);
+   body=resolveMiniCashBox(body,treasuries.rows,auth.access);
    const warehouses=await client.query("SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='warehouses'",[this.workspace]);
    if(warehouses.rows.length!==1)fail('MINI_POS_SINGLE_WAREHOUSE_REQUIRED',409);
    const warehouseName=text(warehouses.rows[0].value?.name,120);
@@ -338,12 +369,20 @@ export class TelegramMiniPos {
    if(stock.rows.length!==ids.length)fail('MINI_POS_ITEM_NOT_FOUND',409);
    const byId=new Map(stock.rows.map(row=>[row.record_id,row]));
    const selected=parties.rows.find(p=>p.record_id===body.customerId);
-   if(!selected||!['customer','both'].includes(selected.value?.type)||
-     selected.value.isSubCustomer===true)fail('MINI_POS_CUSTOMER_INVALID',409);
+   const type=body.counterpartyKind;
+   const partyAllowed=type==='employee'
+    ?selected?.entity==='employees'&&selected.value?.status!=='terminated'&&
+      selected.value?.status!=='inactive'
+    :selected?.entity==='parties'&&!selected.value?.isSubCustomer&&
+      [type,'both'].includes(selected.value?.type);
+   if(!partyAllowed)fail('MINI_POS_COUNTERPARTY_INVALID',409);
    // A selected sub-customer must be an existing child of the selected main
    // customer. Never trust names or relationships submitted by the browser.
+   if(type!=='customer'&&(body.subCustomerId||body.subCustomerName))
+    fail('MINI_POS_SUBCUSTOMER_REQUIRES_CUSTOMER',409);
    const linkedSub=body.subCustomerId
-    ?parties.rows.find(p=>p.record_id===body.subCustomerId&&
+    ?parties.rows.find(p=>p.entity==='parties'&&
+       p.record_id===body.subCustomerId&&
       p.value?.isSubCustomer===true&&p.value?.parentPartyId===body.customerId&&
       ['customer','both'].includes(p.value?.type))
     :null;
@@ -351,7 +390,8 @@ export class TelegramMiniPos {
    if(linkedSub&&!auth.access.canRead('parties',linkedSub.value,linkedSub.record_id))
     fail('MINI_POS_SUBCUSTOMER_NOT_AUTHORIZED',403);
    for(const row of [...stock.rows,...parties.rows]){
-    const entity=byId.has(row.record_id)?'inventory':'parties';
+    const entity=byId.has(row.record_id)?'inventory':
+     row.entity==='employees'?'employees':'parties';
     if(!auth.access.canRead(entity,row.value,row.record_id))
      fail('MINI_POS_RECORD_NOT_AUTHORIZED',403);
    }
@@ -366,6 +406,7 @@ export class TelegramMiniPos {
     ...(linkedSub?{subCustomerId:linkedSub.record_id,subCustomerName:linkedSub.value.name}:
        body.subCustomerName?{subCustomerName:body.subCustomerName}:{}),
     paymentNotes:body.paymentNotes,
+    counterpartyType:type,counterpartyId:body.customerId,
    };
    if(body.hasPaymentSplit){
     for(const [sum,code,target] of [
@@ -373,7 +414,9 @@ export class TelegramMiniPos {
       [body.bankPaidAmount,body.bankTreasuryCode,'bankTreasuryCode']]){
      if(sum<=0)continue;
      const row=treasuries.rows.find(r=>r.value?.status==='active'&&r.value?.accountCode===code);
-     if(!row||!auth.access.canRead('treasuries',row.value,row.record_id))
+     if(!row||!auth.access.canRead('treasuries',row.value,row.record_id)||
+       (target==='cashTreasuryCode'&&row.value.type!=='cash_box')||
+       (target==='bankTreasuryCode'&&row.value.type==='cash_box'))
       fail('MINI_POS_PAYMENT_TREASURY_NOT_AUTHORIZED',403);
      options[target]=code;
     }
@@ -387,7 +430,8 @@ export class TelegramMiniPos {
     options.treasuryAccountCode=body.treasuryCode;
    }
    const inventory=stock.rows.map(r=>({id:r.record_id,value:r.value,version:Number(r.version),pending:false}));
-   const partyViews=parties.rows.map(r=>({id:r.record_id,value:r.value,version:Number(r.version),pending:false}));
+   const partyViews=parties.rows.filter(r=>r.entity==='parties')
+    .map(r=>({id:r.record_id,value:r.value,version:Number(r.version),pending:false}));
    const lines=body.items.map(line=>{
     const item=byId.get(line.itemId).value;
     return {item,quantity:line.quantity,unitPrice:line.unitPrice,
@@ -403,7 +447,11 @@ export class TelegramMiniPos {
     inventory,parties:partyViews
    });
    const versionMap=new Map([...stock.rows,...parties.rows].map(r=>[r.record_id,Number(r.version)]));
-   const changes=[posting.invoice,...posting.journals,...posting.stockMovements,
+   // Treasury identifiers (CASH-1101, CASH-1102, wallets...) are not GL
+   // account numbers. Preserve treasury codes on invoice and payment records,
+   // but debit their official chart accounts in the journal.
+   const ledgerJournals=mapMiniTreasuryJournalAccounts(posting.journals,body);
+   const changes=[posting.invoice,...ledgerJournals,...posting.stockMovements,
      ...posting.partyChanges,...posting.inventoryChanges].map(c=>({
       ...c,expectedVersion:versionMap.get(c.id)||0
      }));
@@ -429,7 +477,7 @@ export class TelegramMiniPos {
  // A purchase creates stock receipts; an expense invoice debits a selected
  // expense account and NEVER moves stock. Every effect is one SQL transaction.
  async commitPurchaseOrExpenseInTx(client,auth,draftId,draft){
-  const body=normalizeMiniSaleBody(draft.body);
+  let body=normalizeMiniSaleBody(draft.body);
   const type=body.documentType,entity=type==='purchase'?'purchases':'expenses';
   const id=(type==='purchase'?'pur-mini-':'exp-mini-')+draftId;
   if(!['purchase','expense'].includes(type))fail('MINI_FINANCIAL_TYPE_INVALID');
@@ -446,8 +494,8 @@ export class TelegramMiniPos {
   if(!auth.access.can('add')||!auth.access.can('view_accounting')||
     (type==='purchase'&&!auth.access.can('view_inventory')))
    fail('MINI_FINANCIAL_PERMISSION_DENIED',403);
-  if(type==='purchase'&&body.counterpartyKind==='employee')
-   fail('MINI_PURCHASE_SUPPLIER_REQUIRED',409);
+  if(!['customer','supplier','employee'].includes(body.counterpartyKind))
+   fail('MINI_FINANCIAL_COUNTERPARTY_TYPE_INVALID',409);
   // Lock the workspace BEFORE reading versions and issuing document numbers.
   // pushInTx obtains this same lock reentrantly on the same pg client.
   await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING',
@@ -465,9 +513,9 @@ export class TelegramMiniPos {
    if(!auth.access.canRead('inventory',row.value,row.record_id))
     fail('MINI_FINANCIAL_ITEM_NOT_AUTHORIZED',403);
   }
-  const employeeRow=type==='expense'&&body.counterpartyKind==='employee'
+  const employeeRow=body.counterpartyKind==='employee'
    ?rows.find(r=>r.entity==='employees'&&r.record_id===body.customerId):null;
-  if(type==='expense'&&body.counterpartyKind==='employee'&&!employeeRow)
+  if(body.counterpartyKind==='employee'&&!employeeRow)
    fail('MINI_FINANCIAL_EMPLOYEE_NOT_FOUND',409);
   const supplierRow=!employeeRow
    ?rows.find(r=>r.entity==='parties'&&r.record_id===body.customerId):null;
@@ -475,16 +523,18 @@ export class TelegramMiniPos {
    if(!auth.access.canRead('employees',employeeRow.value,employeeRow.record_id)||
      employeeRow.value.status==='inactive')
     fail('MINI_FINANCIAL_EMPLOYEE_NOT_AUTHORIZED',403);
-  }else if(!supplierRow||!['supplier','both'].includes(supplierRow.value.type)||
+  }else if(!supplierRow||
+    ![body.counterpartyKind,'both'].includes(supplierRow.value.type)||
     supplierRow.value.isSubCustomer===true||
     !auth.access.canRead('parties',supplierRow.value,supplierRow.record_id)){
-   fail('MINI_FINANCIAL_SUPPLIER_REQUIRED',409);
+   fail('MINI_FINANCIAL_COUNTERPARTY_NOT_AUTHORIZED',409);
   }
   const accountRows=rows.filter(r=>r.entity==='accounts');
   const treasuryRows=rows.filter(r=>r.entity==='treasuries');
+  body=resolveMiniCashBox(body,treasuryRows,auth.access);
   const accountCodes=new Set(['1302','2101','2103',body.expenseAccountCode,
-   body.cashPaidAmount>0?body.cashTreasuryCode:null,
-   body.bankPaidAmount>0?body.bankTreasuryCode:null].filter(Boolean));
+   body.cashPaidAmount>0?'1101':null,
+   body.bankPaidAmount>0?'1102':null].filter(Boolean));
   for(const code of accountCodes){
    const account=accountRows.find(r=>r.value.code===code);
    if(account&&!auth.access.canRead('accounts',account.value,account.record_id))
@@ -566,16 +616,25 @@ export class TelegramMiniPos {
   if(!auth.access.can('view_print_orders')||!auth.access.can('add'))
    fail('MINI_PRINT_ORDER_PERMISSION_DENIED',403);
   const parties=await client.query(
-   "SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity='parties' AND (record_id=$2 OR value->>'parentPartyId'=$2)",
+   "SELECT entity,record_id,value FROM sync_records WHERE workspace=$1 AND ((entity='parties' AND (record_id=$2 OR value->>'parentPartyId'=$2)) OR (entity='employees' AND record_id=$2))",
    [this.workspace,body.customerId]);
   const customer=parties.rows.find(row=>row.record_id===body.customerId);
-  if(!customer||!['customer','both'].includes(customer.value?.type)||
-     customer.value?.isSubCustomer===true)
-   fail('MINI_PRINT_ORDER_CUSTOMER_INVALID',409);
-  if(!auth.access.canRead('parties',customer.value,customer.record_id))
-   fail('MINI_PRINT_ORDER_CUSTOMER_FORBIDDEN',403);
+  const kind=body.counterpartyKind;
+  const valid=kind==='employee'
+   ?customer?.entity==='employees'&&customer.value?.status!=='terminated'&&
+     customer.value?.status!=='inactive'
+   :customer?.entity==='parties'&&
+     [kind,'both'].includes(customer.value?.type)&&
+     customer.value?.isSubCustomer!==true;
+  if(!valid)fail('MINI_PRINT_ORDER_COUNTERPARTY_INVALID',409);
+  if(!auth.access.canRead(kind==='employee'?'employees':'parties',
+    customer.value,customer.record_id))
+   fail('MINI_PRINT_ORDER_COUNTERPARTY_FORBIDDEN',403);
+  if(kind!=='customer'&&(body.subCustomerId||body.subCustomerName))
+   fail('MINI_PRINT_ORDER_SUBCUSTOMER_REQUIRES_CUSTOMER',409);
   const sub=body.subCustomerId?parties.rows.find(row=>
-   row.record_id===body.subCustomerId&&row.value?.isSubCustomer===true&&
+   row.entity==='parties'&&row.record_id===body.subCustomerId&&
+   row.value?.isSubCustomer===true&&
    row.value?.parentPartyId===body.customerId):null;
   if(body.subCustomerId&&!sub)fail('MINI_PRINT_ORDER_SUBCUSTOMER_INVALID',409);
   if(sub&&!auth.access.canRead('parties',sub.value,sub.record_id))
@@ -618,6 +677,8 @@ export class TelegramMiniPos {
   });
   const order={
    id,orderNumber,customerId:body.customerId,customerName:customer.value.name,
+   counterpartyType:kind,counterpartyId:body.customerId,
+   ...(kind==='employee'?{employeeId:body.customerId}:{}),
    customerPhone:customer.value.phone||'',subCustomerName:sub?.value?.name||body.subCustomerName||undefined,
    title:'أمر طباعة: '+String(items[0]?.itemName||'طلب جديد').slice(0,100),
    serviceType:'custom_print',paperType:'',dimensions:'',

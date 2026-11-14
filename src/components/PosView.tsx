@@ -947,29 +947,22 @@ const getInitialPosDraft = (): PosFullDraftData => {
   const [cashCurrencyCode, setCashCurrencyCode] = useState<string>('ILS');
   const [cashExchangeRate, setCashExchangeRate] = useState<number>(1.0);
   const [cashTreasuryCode, setCashTreasuryCode] = useState<string>(() => {
-    const def = treasuries?.find(t => t.type === 'cash_box' || t.isDefault);
-    return def?.accountCode || '1101';
+    return 'CASH-1101';
   });
 
   // 2. Bank Payment State (عملة الدفع، سعر الصرف، الصندوق)
   const [bankCurrencyCode, setBankCurrencyCode] = useState<string>('ILS');
   const [bankExchangeRate, setBankExchangeRate] = useState<number>(1.0);
   const [bankTreasuryCode, setBankTreasuryCode] = useState<string>(() => {
-    const def = treasuries?.find(t => t.type === 'bank_account' || t.type === 'bank_app' || t.type === 'pos_terminal' || t.accountCode === '1102');
-    return def?.accountCode || '1102';
+    return '';
   });
 
   // Synchronize selected treasuries when treasuries list is loaded or updated
   useEffect(() => {
     if (treasuries && treasuries.length > 0) {
-      if (!cashTreasuryCode || !treasuries.some(t => t.accountCode === cashTreasuryCode)) {
-        const defaultCash = treasuries.find(t => t.type === 'cash_box' || t.isDefault) || treasuries[0];
-        if (defaultCash) setCashTreasuryCode(defaultCash.accountCode);
-      }
-      if (!bankTreasuryCode || !treasuries.some(t => t.accountCode === bankTreasuryCode)) {
-        const defaultBank = treasuries.find(t => t.type === 'bank_account' || t.type === 'bank_app' || t.type === 'pos_terminal' || t.accountCode === '1102') || treasuries.find(t => t.accountCode !== cashTreasuryCode) || treasuries[0];
-        if (defaultBank) setBankTreasuryCode(defaultBank.accountCode);
-      }
+      if (cashTreasuryCode !== 'CASH-1101') setCashTreasuryCode('CASH-1101');
+      if (bankTreasuryCode && !treasuries.some(t => t.accountCode === bankTreasuryCode && t.type !== 'cash_box' && t.status !== 'inactive'))
+        setBankTreasuryCode('');
     }
   }, [treasuries]);
 
@@ -2666,7 +2659,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
       else effectiveMethod = 'credit';
     }
 
-    const effectiveTreasuryCode = forcedPayment?.treasuryCode || (bBase > cBase ? bankTreasuryCode : cashTreasuryCode);
+    const effectiveTreasuryCode = bBase > cBase ? (forcedPayment?.method === 'card' ? forcedPayment.treasuryCode : bankTreasuryCode) : 'CASH-1101';
+    if (bBase > 0 && !treasuries.some(t => t.accountCode === (forcedPayment?.method === 'card' ? forcedPayment.treasuryCode : bankTreasuryCode) && t.type !== 'cash_box' && t.status !== 'inactive')) {
+      alert('اختر الصندوق غير النقدي الصحيح قبل اعتماد الفاتورة.');
+      return;
+    }
 
     setIsPostingCloudInvoice(true);
     onlineInvoicePostingService.stageInvoiceDraft({
@@ -2716,11 +2713,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
         cashPaidAmount: cashVal,
         cashCurrency: cashCurrencyCode,
         cashExchangeRate: cashExchangeRate,
-        cashTreasuryCode: (forcedPayment && forcedPayment.method === 'cash' ? forcedPayment.treasuryCode : cashTreasuryCode) || '1101',
+        cashTreasuryCode: 'CASH-1101',
         bankPaidAmount: bankVal,
         bankCurrency: bankCurrencyCode,
         bankExchangeRate: bankExchangeRate,
-        bankTreasuryCode: (forcedPayment && (forcedPayment.method === 'card' || forcedPayment.method === 'bank_transfer') ? forcedPayment.treasuryCode : bankTreasuryCode) || '1102',
+        bankTreasuryCode: forcedPayment && (forcedPayment.method === 'card' || forcedPayment.method === 'bank_transfer') ? forcedPayment.treasuryCode : bankTreasuryCode,
         paymentNotes: paymentNotes || undefined,
         workflowStatus: invoiceWorkflowStatus
       }
@@ -2881,7 +2878,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setCashExchangeRate(1.0);
 
     // 2. Main Cash Treasury (الصندوق المختار أو الصندوق الرئيسي 1101)
-    const mainCashTreasury = cashTreasuryCode || treasuries?.find(t => t.type === 'cash_box' || t.isDefault)?.accountCode || '1101';
+    const mainCashTreasury = 'CASH-1101';
     setCashTreasuryCode(mainCashTreasury);
     setSelectedTreasuryCode(mainCashTreasury);
 
@@ -2908,7 +2905,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
     const req = Number((calculatedTotalAmount / rate).toFixed(2));
     setBankAmountInput(String(req));
     setCashAmountInput('0');
-    const bTreasury = bankTreasuryCode || treasuries?.find(t => t.type === 'bank_account' || t.type === 'pos_terminal' || t.type === 'bank_app')?.accountCode || '1102';
+    const bTreasury = bankTreasuryCode;
+    if (!treasuries.some(t => t.accountCode === bTreasury && t.type !== 'cash_box' && t.status !== 'inactive')) {
+      alert('اختر الصندوق غير النقدي قبل اعتماد الدفع.');
+      return;
+    }
     handleSaveInvoice(printMode, true, {
       method: 'card',
       cashAmount: 0,

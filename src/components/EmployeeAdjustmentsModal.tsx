@@ -44,7 +44,7 @@ export const EmployeeAdjustmentsModal: React.FC<EmployeeAdjustmentsModalProps> =
   const [amount, setAmount] = useState<number>(0);
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [reason, setReason] = useState<string>('');
-  const [treasuryAccountCode, setTreasuryAccountCode] = useState<string>('1101');
+  const [treasuryAccountCode, setTreasuryAccountCode] = useState<string>('CASH-1101');
   const [disburseImmediately, setDisburseImmediately] = useState<boolean>(true);
 
   // Available treasuries
@@ -57,7 +57,7 @@ export const EmployeeAdjustmentsModal: React.FC<EmployeeAdjustmentsModalProps> =
       setAmount(0);
       setDate(new Date().toISOString().split('T')[0]);
       setReason('');
-      setTreasuryAccountCode('1101');
+      setTreasuryAccountCode('CASH-1101');
       setDisburseImmediately(true);
     }
   }, [isOpen, initialType, preselectedEmployeeId, employees]);

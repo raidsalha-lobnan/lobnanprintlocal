@@ -592,10 +592,10 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
       exchangeRate: 1.0,
       cashCurrency: 'ILS',
       cashExchangeRate: 1.0,
-      cashTreasuryCode: '1101',
+      cashTreasuryCode: 'CASH-1101',
       bankCurrency: 'ILS',
       bankExchangeRate: 1.0,
-      bankTreasuryCode: '1102'
+      bankTreasuryCode: ''
     };
 
     setDraftInvoices(prev => [newDraft, ...prev]);
@@ -974,11 +974,11 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
         cashPaidAmount: effectiveMethod === 'cash' ? (rawCashNum > 0 ? rawCashNum : cBase) : 0,
         cashCurrency: draft.cashCurrency || 'ILS',
         cashExchangeRate: cRate,
-        cashTreasuryCode: draft.cashTreasuryCode || '1101',
+        cashTreasuryCode: 'CASH-1101',
         bankPaidAmount: (effectiveMethod === 'bank_transfer' || effectiveMethod === 'card') ? (rawBankNum > 0 ? rawBankNum : bBase) : 0,
         bankCurrency: draft.bankCurrency || 'ILS',
         bankExchangeRate: bRate,
-        bankTreasuryCode: draft.bankTreasuryCode || '1102',
+        bankTreasuryCode: draft.bankTreasuryCode || '',
         branchId: activeBranchId || (branches[0] && branches[0].id)
       }
     );
@@ -1916,7 +1916,7 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
                       <div className="col-span-1">
                         <label className="block text-[10px] text-emerald-800 font-bold mb-0.5">الصندوق / الخزينة:</label>
                         <select
-                          value={currentDraft.cashTreasuryCode || '1101'}
+                          value={'CASH-1101'}
                           onChange={e => handleUpdateDraft(currentDraft.id, { cashTreasuryCode: e.target.value })}
                           className="w-full p-1.5 bg-white border border-emerald-300 rounded-lg text-xs outline-none cursor-pointer"
                         >
@@ -1990,7 +1990,7 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
                       <div className="col-span-1">
                         <label className="block text-[10px] text-blue-800 font-bold mb-0.5">الحساب البنكي:</label>
                         <select
-                          value={currentDraft.bankTreasuryCode || '1102'}
+                          value={currentDraft.bankTreasuryCode || ''}
                           onChange={e => handleUpdateDraft(currentDraft.id, { bankTreasuryCode: e.target.value })}
                           className="w-full p-1.5 bg-white border border-blue-300 rounded-lg text-xs outline-none cursor-pointer"
                         >

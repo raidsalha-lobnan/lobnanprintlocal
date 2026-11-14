@@ -101,3 +101,42 @@ main{max-width:1100px;padding:10px 9px 65px}
 #expenseMetaPanel{grid-template-columns:max-content minmax(0,1fr) max-content minmax(0,1fr)}
 #expenseCounterpartyPanel{margin:0 0 7px;grid-template-columns:70px minmax(0,1fr)}
 @media(max-width:420px){#expenseMetaPanel{grid-template-columns:65px minmax(0,1fr)}}
+
+/* Party ledger selector and per-item dimension checkbox */
+#cashier #partyType.party-role{font-weight:800;color:#0754a6;background:#e8f2ff;
+ border:1px solid #a9c9ea;border-radius:8px;text-align:center;
+ padding:5px 17px 5px 5px;min-width:0;width:100%;height:38px;min-height:38px}
+.invoice-party{grid-template-columns:minmax(74px,.24fr) minmax(0,1fr) 41px}
+.line-name-wrap{display:flex;align-items:center;flex-wrap:wrap;gap:5px;min-width:0}
+.line-dimension-inline{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;
+ font-size:11px!important;color:#28629d!important;background:#e9f3ff;
+ padding:3px 6px;border:1px solid #c9dff6;border-radius:7px;margin:0!important;
+ font-weight:600!important;cursor:pointer}
+#cashier .line-dimension-inline input{width:15px;height:15px;min-height:15px;
+ margin:0;accent-color:#0862c4}
+@media(max-width:420px){.invoice-party{grid-template-columns:minmax(66px,.25fr) minmax(0,1fr) 38px}}
+
+/* compact payment: cash always uses the default cash box; bank lists noncash treasuries */
+#cashier .pay-row{grid-template-columns:50px minmax(0,.67fr) minmax(0,1fr);gap:5px}
+#cashier .pay-row-cash{grid-template-columns:50px minmax(0,1fr)}
+#cashier .pay-amount-parens{display:flex;align-items:center;gap:4px;min-width:0}
+#cashier .pay-amount-parens span{font-size:18px;color:#52728f;line-height:1}
+#cashier .pay-amount-parens input{flex:1;min-width:0}
+#cashier .payment-notes-row{display:block;margin-top:6px}
+#cashier #paymentNotes{width:100%}
+#cashier #cashTreasury{display:none!important}
+@media(max-width:420px){
+ #cashier .pay-row{grid-template-columns:43px minmax(0,.67fr) minmax(0,1fr);gap:4px}
+ #cashier .pay-row-cash{grid-template-columns:43px minmax(0,1fr)}
+}
+
+/* Four totals: label and number on the same single line; no extra credit banner */
+#cashier .summary-row{gap:3px}
+#cashier .summary-field{display:flex;flex-direction:row;align-items:center;justify-content:space-between;
+ white-space:nowrap;gap:2px;padding:5px 3px}
+#cashier .summary-field span{font-size:10px!important;flex:0 0 auto}
+#cashier .summary-field strong{display:inline;font-size:11px!important;min-width:0}
+#cashier .summary-field.total strong{font-size:12px!important}
+#cashier #discount{width:39px!important;min-width:0;flex:1;font-size:11px!important;
+ min-height:28px!important;padding:2px!important}
+#cashier #paymentStatus{display:none!important}

@@ -152,8 +152,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
 }) => {
   // Fallback default treasuries if none supplied
   const defaultTreasuriesList: TreasuryAccount[] = React.useMemo(() => [
-    { id: 'tr-1101', accountCode: '1101', name: 'الصندوق النقدي الرئيسي (الكاشير)', type: 'cash_box', balance: 0, currency: 'ILS', isDefault: true },
-    { id: 'tr-1102', accountCode: '1102', name: 'حساب البنك الأهلي / بطاقات Visa', type: 'bank_account', balance: 0, currency: 'ILS', isDefault: false }
+    { id: 'treasury-cash-main', accountCode: 'CASH-1101', name: 'الصندوق النقدي الرئيسي (الكاشير)', type: 'cash_box', balance: 0, currency: 'ILS', isDefault: true },
   ], []);
 
   const effectiveTreasuries = React.useMemo(() => {
@@ -161,15 +160,12 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
   }, [treasuries, defaultTreasuriesList]);
 
   const cashTreasuryOptions = React.useMemo(() => {
-    const cashList = effectiveTreasuries.filter(t => t.type === 'cash_box' || t.isDefault);
-    const otherList = effectiveTreasuries.filter(t => !(t.type === 'cash_box' || t.isDefault));
-    return [...cashList, ...otherList];
+    return effectiveTreasuries.filter(t => t.accountCode === 'CASH-1101' && t.type === 'cash_box');
   }, [effectiveTreasuries]);
 
   const bankTreasuryOptions = React.useMemo(() => {
-    const bankList = effectiveTreasuries.filter(t => t.type !== 'cash_box');
-    const cashList = effectiveTreasuries.filter(t => t.type === 'cash_box');
-    return [...bankList, ...cashList];
+    return effectiveTreasuries.filter(t => t.type !== 'cash_box' &&
+      /^CASH-\d{4,}$/.test(t.accountCode || '') && t.status !== 'inactive');
   }, [effectiveTreasuries]);
 
   const selectedCashTreasuryObj = React.useMemo(() => {
@@ -177,7 +173,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
   }, [cashTreasuryOptions, cashTreasuryCode]);
 
   const selectedBankTreasuryObj = React.useMemo(() => {
-    return bankTreasuryOptions.find(t => t.id === bankTreasuryCode || t.accountCode === bankTreasuryCode) || bankTreasuryOptions[0];
+    return bankTreasuryOptions.find(t => t.id === bankTreasuryCode || t.accountCode === bankTreasuryCode);
   }, [bankTreasuryOptions, bankTreasuryCode]);
 
   // Resolve effective currency and exchange rate (Default ILS and 1.0)
@@ -577,7 +573,8 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
               className="w-full bg-white text-slate-900 font-bold px-1.5 py-0.5 rounded text-[11px] border border-slate-300 cursor-pointer shadow-2xs truncate"
               title="الحساب البنكي أو نقطة البيع / الشبكة"
             >
-              {bankTreasuryOptions.map(t => (
+              <option value="">اختر الصندوق غير النقدي</option>
+                {bankTreasuryOptions.map(t => (
                 <option key={t.id} value={t.id}>
                   {t.name}
                 </option>

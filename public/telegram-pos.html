@@ -72,15 +72,12 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
   <div id="modeNotice" class="hint hidden" role="status"></div>
  </div>
  <div class="panel">
-  <div id="expenseCounterpartyPanel" class="compact-mode-row hidden">
-   <label for="expenseCounterpartyKind">مصروف على</label>
-   <select id="expenseCounterpartyKind" aria-label="نوع مستفيد المصروف">
+  <div class="invoice-party">
+   <select class="party-role" id="partyType" aria-label="اختيار نوع الطرف">
+    <option value="customer">عميل</option>
     <option value="supplier">مورد</option>
     <option value="employee">موظف</option>
    </select>
-  </div>
-  <div class="invoice-party">
-   <div class="party-role" id="partyRole">العميل</div>
    <input id="customerSearch" type="search" placeholder="ابحث بالاسم أو الرمز..." autocomplete="off" aria-label="بحث عن العميل"/>
    <button id="addCustomerButton" type="button" aria-label="إضافة عميل" title="إضافة عميل">＋</button>
    <select id="customer" aria-label="العميل الرئيسي"></select>
@@ -146,19 +143,26 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
   <div id="paymentStatus" class="payment-status" aria-live="polite" style="margin-top:6px">آجل — لا توجد مبالغ سداد</div>
  </div>
  <div class="panel" id="settlementPanel">
-  <div class="pay-row">
-   <label for="cashPaid">نقدي</label>
-   <input id="cashPaid" type="number" min="0" step=".01" inputmode="decimal" placeholder="المبلغ" aria-label="المبلغ النقدي"/>
-   <select id="cashTreasury" aria-label="الصندوق النقدي"><option value="">الصندوق</option></select>
+  <div class="pay-row pay-row-cash">
+   <label for="cashPaid">نقداً</label>
+   <div class="pay-amount-parens">
+    <span aria-hidden="true">(</span>
+    <input id="cashPaid" type="number" min="0" step=".01" inputmode="decimal" placeholder="المبلغ" aria-label="المبلغ النقدي"/>
+    <span aria-hidden="true">)</span>
+   </div>
+   <input id="cashTreasury" type="hidden" value="" aria-hidden="true"/>
   </div>
   <div class="pay-row">
    <label for="bankPaid">بنكي</label>
-   <input id="bankPaid" type="number" min="0" step=".01" inputmode="decimal" placeholder="المبلغ" aria-label="المبلغ البنكي"/>
-   <select id="bankTreasury" aria-label="الصندوق البنكي"><option value="">البنك</option></select>
+   <div class="pay-amount-parens">
+    <span aria-hidden="true">(</span>
+    <input id="bankPaid" type="number" min="0" step=".01" inputmode="decimal" placeholder="المبلغ" aria-label="المبلغ البنكي"/>
+    <span aria-hidden="true">)</span>
+   </div>
+   <select id="bankTreasury" aria-label="اختيار صندوق غير نقدي"><option value="">اختر الصندوق</option></select>
   </div>
   <div class="payment-notes-row">
-   <label for="paymentNotes">ملاحظة السداد</label>
-   <input id="paymentNotes" type="text" maxlength="1000" autocomplete="off" placeholder="ملاحظات الدفع، إن وجدت"/>
+   <input id="paymentNotes" type="text" maxlength="1000" autocomplete="off" aria-label="ملاحظات السداد" placeholder="ملاحظات (إن وجدت)"/>
   </div>
   <!-- Legacy draft fields are read only for safe backward compatibility. -->
   <div class="hidden"><select id="payment"><option value="credit">آجل</option><option value="cash">نقدي</option><option value="bank_transfer">بنكي</option><option value="card">بطاقة</option></select>

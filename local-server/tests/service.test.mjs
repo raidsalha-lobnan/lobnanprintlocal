@@ -34,7 +34,10 @@ class FakePostgres {
     } else if(sql.startsWith('SELECT version,value FROM sync_records')) {
       const v=s.records.get(key(p[0],p[1],p[2]));if(v)rows.push({...v});
     } else if(sql.startsWith('SELECT record_id FROM sync_records')) {
-      const found=Array.from(s.records.values()).find(v=>v.workspace===p[0]&&v.entity==='journalEntries'&&v.value?.referenceId===p[1]&&v.value?.referenceType===p[2]);
+      const treasuryQuery=sql.includes("entity='treasuries'");
+      const found=Array.from(s.records.values()).find(v=>v.workspace===p[0]&&(
+        treasuryQuery?(v.entity==='treasuries'&&v.value?.accountCode===p[1]&&v.record_id!==p[2]):
+        (v.entity==='journalEntries'&&v.value?.referenceId===p[1]&&v.value?.referenceType===p[2])));
       if(found)rows.push({record_id:found.record_id});
     } else if(sql.startsWith('INSERT INTO sync_records')) {
       const k=key(p[0],p[1],p[2]);if(s.records.has(k))throw new Error('UNIQUE_RECORD');s.records.set(k,{workspace:p[0],entity:p[1],record_id:p[2],version:p[3],value:p[4]});
@@ -77,8 +80,8 @@ test('conflicting update does not overwrite existing invoice or advance cursor',
 });
 test('transaction rolls back all changes if any record fails version validation',async()=>{
  const pool=new FakePostgres(),svc=new SyncService(pool);
- await svc.push('lobnan_main',make('seed-cash',[record('treasuries','cash',{id:'cash',accountCode:'1101',balance:500})]));
- const cmd=make('transaction-reject',[record('parties','new-customer',{id:'new-customer',code:'CUST-NEW',name:'New'}),record('treasuries','cash',{id:'cash',balance:0},0)]);
+ await svc.push('lobnan_main',make('seed-cash',[record('treasuries','treasury-cash-main',{id:'treasury-cash-main',type:'cash_box',accountCode:'CASH-1101',isDefault:true,status:'active',balance:500})]));
+ const cmd=make('transaction-reject',[record('parties','new-customer',{id:'new-customer',code:'CUST-NEW',name:'New'}),record('treasuries','treasury-cash-main',{id:'treasury-cash-main',balance:0},0)]);
  await assert.rejects(svc.push('lobnan_main',cmd),/VERSION_CONFLICT/);
  assert.equal((await svc.bootstrap('lobnan_main')).records.some(r=>r.id==='new-customer'),false);
 });

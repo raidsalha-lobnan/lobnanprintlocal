@@ -134,7 +134,7 @@ export function getInvoiceTreasuryDisplay(inv: Invoice, treasuries: Treasury[] =
 
   // Split payment (مختلط: نقد + شبكة)
   if (hasCash && hasBank && (inv.cashPaidAmount || 0) > 0 && (inv.bankPaidAmount || 0) > 0) {
-    const cashCode = inv.cashTreasuryCode || '1101';
+    const cashCode = inv.cashTreasuryCode || 'CASH-1101';
     let bankCode = inv.bankTreasuryCode || '1103';
     if (bankCode === '1102' && !treasuries.some(t => t.accountCode === '1102' || t.id === '1102')) {
       bankCode = '1103';
@@ -156,7 +156,7 @@ export function getInvoiceTreasuryDisplay(inv: Invoice, treasuries: Treasury[] =
 
   // Pure Cash
   if (inv.paymentMethod === 'cash' || (hasCash && !hasBank)) {
-    const cashCode = inv.cashTreasuryCode || (inv as any).treasuryAccountCode || '1101';
+    const cashCode = inv.cashTreasuryCode || (inv as any).treasuryAccountCode || 'CASH-1101';
     const match = treasuries.find(t => t.accountCode === cashCode || t.id === cashCode);
     const name = match ? match.name : 'الصندوق النقدي (الخزينة الرئيسية)';
     return {

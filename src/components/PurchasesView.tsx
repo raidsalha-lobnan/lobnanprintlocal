@@ -203,7 +203,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
       cashPurchasePayment,bankPurchasePayment);}
     catch{return null;}
   })();
-  const cashPurchaseAccounts=treasuries.filter(t=>t.status==='active'&&t.type==='cash_box');
+  const cashPurchaseAccounts=treasuries.filter(t=>t.status==='active'&&t.type==='cash_box'&&t.accountCode==='CASH-1101');
   const bankPurchaseAccounts=treasuries.filter(t=>t.status==='active'&&t.type!=='cash_box');
   const validPurchasePayment=!!purchaseSettlement&&
     (cashPurchasePayment.amount===0||cashPurchaseAccounts.some(t=>t.accountCode===cashPurchasePayment.treasuryCode))&&

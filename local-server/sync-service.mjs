@@ -10,6 +10,8 @@ import {normalizeSingleWarehouseInventory} from './single-warehouse-inventory.mj
 import {preserveWorkspaceSettingsCredentials} from './workspace-settings-public.mjs';
 import {APPROVED_CATALOG_MIGRATION_ID,preserveApprovedCatalogSettings} from './approved-settings-guard.mjs';
 import {applySettingsFieldPatch,isSettingsFieldPatch} from './settings-field-patch.mjs';
+import {assertTreasuryCodeIdentity,assertUniqueTreasuryCode} from './treasury-code-guard.mjs';
+import {validateNewFinancialTreasuries} from './treasury-routing-guard.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -186,6 +188,13 @@ export class SyncService {
                 ?'OP-'+authoritativeCode:val.referenceNumber};
           }
         }
+        // CASH-#### treasury codes are immutable identifiers throughout the app.
+        // Only CASH-1101 is a cash_box; other treasuries are explicit noncash choices.
+        // Reject invalid/duplicate identifiers inside the workspace transaction.
+        if(change.entity==='treasuries'&&val){
+          const code=assertTreasuryCodeIdentity(change.id,val,old?.value);
+          await assertUniqueTreasuryCode(client,workspace,change.id,code);
+        }
         // Enforce business-code identity inside the serialized PostgreSQL commit.
         // A display-name edit cannot change account/customer/item identity.
         await assertStableEntitySerial(client,workspace,change.entity,change.id,old?.value,val);
@@ -230,6 +239,11 @@ export class SyncService {
             } else val=preserveOfficialInvoiceFields(old?.value,val);
           }
         }
+        // Enforce selected CASH-#### on every newly posted financial document,
+        // regardless of device/browser version. Cash is always CASH-1101;
+        // noncash must identify an existing noncash treasury explicitly.
+        if(actual===0&&val)
+          val=await validateNewFinancialTreasuries(client,workspace,change.entity,val);
         if(actual===0) await client.query('INSERT INTO sync_records(workspace,entity,record_id,version,value) VALUES($1,$2,$3,$4,$5)',[workspace,change.entity,change.id,1,val]);
         else await client.query('UPDATE sync_records SET version=$4,value=$5,updated_at=now() WHERE workspace=$1 AND entity=$2 AND record_id=$3',[workspace,change.entity,change.id,actual+1,val]);
         applied.push({entity:change.entity,id:change.id,value:val,version:actual+1});

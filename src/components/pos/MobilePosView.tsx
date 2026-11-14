@@ -133,39 +133,25 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const [showPartySuggestions, setShowPartySuggestions] = useState<boolean>(false);
 
   // Bank treasury selection for card/bank payment
-  const bankTreasuries = useMemo(() => {
-    return (treasuries || []).filter(t =>
-      t.type === 'bank' ||
-      t.type === 'electronic' ||
-      (t.accountCode && t.accountCode.startsWith('1102')) ||
-      (t.name && t.name.includes('بنك')) ||
-      (t.name && t.name.includes('شيك'))
-    );
-  }, [treasuries]);
-
+  const bankTreasuries = useMemo(() => (treasuries || []).filter(t =>
+    t.status !== 'inactive' && t.type !== 'cash_box' &&
+    /^CASH-\d{4,}$/.test(t.accountCode || '')), [treasuries]);
   const [selectedBankTreasuryCode, setSelectedBankTreasuryCode] = useState<string>('');
 
+  // Noncash treasury is an explicit selection, never silently first bank.
   useEffect(() => {
-    if (bankTreasuries.length > 0 && !selectedBankTreasuryCode) {
-      setSelectedBankTreasuryCode(bankTreasuries[0].accountCode);
-    }
+    if (selectedBankTreasuryCode && !bankTreasuries.some(t => t.accountCode === selectedBankTreasuryCode))
+      setSelectedBankTreasuryCode('');
   }, [bankTreasuries, selectedBankTreasuryCode]);
 
   // Cash treasury selection for cash payment
-  const cashTreasuries = useMemo(() => {
-    return (treasuries || []).filter(t =>
-      t.type === 'cash' ||
-      (t.accountCode && t.accountCode.startsWith('1101')) ||
-      (t.name && t.name.includes('نقدي'))
-    );
-  }, [treasuries]);
-
-  const [selectedCashTreasuryCode, setSelectedCashTreasuryCode] = useState<string>('1101');
+  const cashTreasuries = useMemo(() => (treasuries || []).filter(t =>
+    t.accountCode === 'CASH-1101' && t.type === 'cash_box' &&
+    t.status !== 'inactive'), [treasuries]);
+  const [selectedCashTreasuryCode, setSelectedCashTreasuryCode] = useState<string>('CASH-1101');
 
   useEffect(() => {
-    if (cashTreasuries.length > 0 && !selectedCashTreasuryCode) {
-      setSelectedCashTreasuryCode(cashTreasuries[0].accountCode || '1101');
-    }
+    if (selectedCashTreasuryCode !== 'CASH-1101') setSelectedCashTreasuryCode('CASH-1101');
   }, [cashTreasuries, selectedCashTreasuryCode]);
 
   // Payment currency & exchange rate state (Global / default, plus dedicated cash & bank rates)
@@ -902,8 +888,12 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
         : payExchangeRate;
 
       const effectiveTreasuryCode = paymentMethod === 'card'
-        ? (selectedBankTreasuryCode || '1102')
-        : (selectedCashTreasuryCode || '1101');
+        ? selectedBankTreasuryCode
+        : 'CASH-1101';
+      if (paymentMethod === 'card' && !bankTreasuries.some(t => t.accountCode === selectedBankTreasuryCode)) {
+        alert('اختر الصندوق البنكي أو المحفظة قبل الحفظ.');
+        return;
+      }
 
       onlineInvoicePostingService.stageInvoiceDraft({
         cart,
@@ -926,11 +916,11 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
           exchangeRate: effectivePayExchangeRate,
           treasuryAccountCode: effectiveTreasuryCode,
           cashPaidAmount: paymentMethod === 'cash' || paymentMethod === 'credit' ? paid : 0,
-          cashTreasuryCode: selectedCashTreasuryCode || '1101',
+          cashTreasuryCode: 'CASH-1101',
           cashCurrency: activeCashCurr.code,
           cashExchangeRate: cashExchangeRate,
           bankPaidAmount: paymentMethod === 'card' ? paid : 0,
-          bankTreasuryCode: selectedBankTreasuryCode || '1102',
+          bankTreasuryCode: selectedBankTreasuryCode,
           bankCurrency: activeBankCurr.code,
           bankExchangeRate: bankExchangeRate,
           branchId: activeBranchId,
@@ -1910,6 +1900,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                       onChange={(e) => setSelectedBankTreasuryCode(e.target.value)}
                       className="w-full bg-white border border-blue-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500"
                     >
+                      <option value="">اختر الصندوق غير النقدي</option>
                       {bankTreasuries.map(b => (
                         <option key={b.accountCode || b.id} value={b.accountCode}>
                           {b.name} ({b.accountCode})
@@ -1922,7 +1913,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                       onChange={(e) => setSelectedBankTreasuryCode(e.target.value)}
                       className="w-full bg-white border border-blue-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500"
                     >
-                      <option value="1102">حساب بنكي رئيسي (1102)</option>
+                      <option value="">حساب بنكي رئيسي (1102)</option>
                     </select>
                   )}
                 </div>

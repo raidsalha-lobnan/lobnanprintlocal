@@ -750,7 +750,7 @@ export interface EmployeeAdvance {
   employeeName: string;
   date: string;
   amount: number;
-  treasuryAccountCode: string; // '1101' | '1102'
+  treasuryAccountCode: string; // CASH-#### treasury identifier, not a GL account code
   treasuryName: string;
   reason: string;
   status: 'pending' | 'deducted' | 'cancelled';
@@ -817,7 +817,7 @@ export interface PayrollSheet {
   createdAt: string;
   status: 'draft' | 'approved'; // 'draft' مسودة | 'approved' معتمد ومصروف
   disbursedAt?: string;
-  treasuryAccountCode: string; // '1101' | '1102'
+  treasuryAccountCode: string; // CASH-#### treasury identifier, not a GL account code
   treasuryName: string;
   items: PayrollSheetItem[];
   totalBasic: number;

@@ -32,7 +32,7 @@ const run=(fields,overrides={})=>{
   workspace:'lobnan_main',body:b,draftId:id,createdAt:'2026-11-14T14:00:00.000Z',
   documentNumber:(fields.documentType==='expense'?'EXP':'PUR')+'-2026-0001',
   supplierRow,stockRows:stock,accountRows:accounts,
-  treasuryRows:[t('cash','1101','cash_box'),t('bank','1102','bank')],
+  treasuryRows:[t('treasury-cash-main','CASH-1101','cash_box'),t('bank','CASH-1102','bank')],
   warehouseId:'main',warehouseName:'الرئيسي',vatRate:0,
   actor:{id:'user-admin',name:'مسؤول'},...overrides
  });
@@ -64,7 +64,7 @@ test('purchase is posted to purchases with a balanced journal, actual stock rece
 });
 test('cash and bank settlement decreases both treasuries and creates two payment vouchers atomically',()=>{
  const out=run({cashPaidAmount:100,bankPaidAmount:120,
-  cashTreasuryCode:'1101',bankTreasuryCode:'1102'});
+  cashTreasuryCode:'CASH-1101',bankTreasuryCode:'CASH-1102'});
  assert.equal(change(out,'purchases')[0].value.paidAmount,220);
  assert.equal(change(out,'parties')[0].value.balance,-270);
  assert.equal(change(out,'treasuries').length,2);
@@ -77,7 +77,7 @@ test('cash and bank settlement decreases both treasuries and creates two payment
 });
 test('expense is an itemized purchase invoice in expenses with selected expense account and absolutely NO stock movements',()=>{
  const out=run({documentType:'expense',expenseAccountCode:'5105',
-  expenseCategory:'maintenance',cashPaidAmount:480,cashTreasuryCode:'1101'});
+  expenseCategory:'maintenance',cashPaidAmount:480,cashTreasuryCode:'CASH-1101'});
  assert.equal(change(out,'purchases').length,0);
  assert.equal(change(out,'expenses').length,1);
  assert.equal(change(out,'stockMovements').length,0);
@@ -104,7 +104,7 @@ test('unpaid supplier expense is a payable and not a cash withdrawal or stock re
 test('employee may receive fully paid expense but not a supplier debt',()=>{
  const out=run({documentType:'expense',expenseAccountCode:'5105',
   expenseCategory:'other',counterpartyKind:'employee',cashPaidAmount:480,
-  cashTreasuryCode:'1101'},{
+  cashTreasuryCode:'CASH-1101'},{
   supplierRow:null,employeeRow:{record_id:employee.id,version:1,value:employee}
  });
  assert.equal(change(out,'expenses')[0].value.employeeId,employee.id);
@@ -112,7 +112,7 @@ test('employee may receive fully paid expense but not a supplier debt',()=>{
  assert.throws(()=>run({documentType:'expense',expenseAccountCode:'5105',
   expenseCategory:'other',counterpartyKind:'employee'},{
   supplierRow:null,employeeRow:{record_id:employee.id,version:1,value:employee}
- }),/MINI_EMPLOYEE_EXPENSE_CREDIT_NOT_SUPPORTED/);
+ }),/MINI_NON_SUPPLIER_PURCHASE_EXPENSE_CREDIT_NOT_SUPPORTED/);
 });
 test('expense account must be configured and an actual expense account',()=>{
  assert.throws(()=>run({documentType:'expense',expenseAccountCode:'1101'}),

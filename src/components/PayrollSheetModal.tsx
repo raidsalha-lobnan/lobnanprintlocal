@@ -53,7 +53,7 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
   const [period, setPeriod] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [treasuryAccountCode, setTreasuryAccountCode] = useState('1101');
+  const [treasuryAccountCode, setTreasuryAccountCode] = useState('CASH-1101');
   const [notes, setNotes] = useState('');
 
   // Default parameters for calculations
@@ -84,7 +84,7 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
       setPeriod(editingSheet.period);
       setStartDate(editingSheet.startDate);
       setEndDate(editingSheet.endDate);
-      setTreasuryAccountCode(editingSheet.treasuryAccountCode || '1101');
+      setTreasuryAccountCode(editingSheet.treasuryAccountCode || 'CASH-1101');
       setNotes(editingSheet.notes || '');
       setItems(editingSheet.items);
     } else {
@@ -97,7 +97,7 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
       setPeriod(`شهر ${currentMonthName} ${currentYear}`);
       setStartDate(firstDay);
       setEndDate(lastDay);
-      setTreasuryAccountCode('1101');
+      setTreasuryAccountCode('CASH-1101');
       setNotes(`مسودة كشف رواتب العاملين والموظفين لشهر ${currentMonthName}`);
 
       generateInitialItems('all', 26, 4);

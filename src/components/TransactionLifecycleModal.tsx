@@ -60,8 +60,8 @@ export const TransactionLifecycleModal: React.FC = () => {
     v => (v.description && v.description.includes(inv.invoiceNumber)) || v.id === `vch-inv-${inv.id}` || v.voucherNumber === `RCT-INV-${inv.invoiceNumber.replace('INV-', '')}`
   );
 
-  const relatedTreasuryCash = treasuries.find(t => t.accountCode === (inv as any).cashTreasuryCode || t.accountCode === '1101');
-  const relatedTreasuryBank = treasuries.find(t => t.accountCode === (inv as any).bankTreasuryCode || t.accountCode === '1102');
+  const relatedTreasuryCash = treasuries.find(t => t.accountCode === ((inv as any).cashTreasuryCode || 'CASH-1101'));
+  const relatedTreasuryBank = treasuries.find(t => !!(inv as any).bankTreasuryCode && t.accountCode === (inv as any).bankTreasuryCode);
 
   // 4. Identify Delivery Fee, COGS & Profit
   const isDeliveryItem = (item: any) =>

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {normalizeMiniSaleBody} from '../telegram-mini-pos.mjs';
+import {normalizeMiniSaleBody,resolveMiniCashBox,mapMiniTreasuryJournalAccounts} from '../telegram-mini-pos.mjs';
 import {buildNewAtomicPosSale} from '../atomic-pos-builder.compiled.mjs';
 import {validateAtomicInvoicePosting} from '../atomic-invoice-posting.mjs';
 
@@ -44,8 +44,8 @@ test('unentered cash and bank amounts always produce a credit invoice',()=>{
 });
 test('cash and bank amounts post as two separate authorized treasury legs',()=>{
  const body={
-  cashPaidAmount:100,bankPaidAmount:200,cashTreasuryCode:'1101',
-  bankTreasuryCode:'1102'
+  cashPaidAmount:100,bankPaidAmount:200,cashTreasuryCode:'CASH-1101',
+  bankTreasuryCode:'CASH-1102'
  };
  const normalized=normalizeMiniSaleBody({...base,...body});
  assert.equal(normalized.paidAmount,300);
@@ -56,8 +56,8 @@ test('cash and bank amounts post as two separate authorized treasury legs',()=>{
  assert.equal(invoice.remainingAmount,180);
  assert.equal(invoice.cashPaidAmount,100);
  assert.equal(invoice.bankPaidAmount,200);
- assert.equal(invoice.cashTreasuryCode,'1101');
- assert.equal(invoice.bankTreasuryCode,'1102');
+ assert.equal(invoice.cashTreasuryCode,'CASH-1101');
+ assert.equal(invoice.bankTreasuryCode,'CASH-1102');
  assert.equal(invoice.notes,base.notes);
  assert.equal(invoice.paymentNotes,base.paymentNotes);
  assert.equal(invoice.items[0].notes,base.items[0].notes);
@@ -69,11 +69,34 @@ test('cash and bank amounts post as two separate authorized treasury legs',()=>{
   id:uuid,workspaceId:'lobnan_main',atomicInvoiceId:'inv-pos-'+uuid,changes
  }),true);
 });
-test('server requires treasury selection when an amount is entered',()=>{
- assert.throws(()=>normalizeMiniSaleBody({...base,cashPaidAmount:10,bankPaidAmount:0}),
-  /MINI_POS_PAYMENT_TREASURY_REQUIRED/);
+test('cash requires no cash-box selection; bank requires a noncash treasury code',()=>{
+ const cash=normalizeMiniSaleBody({...base,cashPaidAmount:10,bankPaidAmount:0});
+ assert.equal(cash.cashTreasuryCode,'');
+ assert.equal(cash.cashPaidAmount,10);
  assert.throws(()=>normalizeMiniSaleBody({...base,cashPaidAmount:0,bankPaidAmount:10}),
   /MINI_POS_PAYMENT_TREASURY_REQUIRED/);
+});
+test('cash resolves to authoritative default cash box, overriding stale or forged codes',()=>{
+ const entries=[
+  {record_id:'treasury-cash-main',value:{name:'الصندوق النقدي الرئيسي',accountCode:'CASH-1101',type:'cash_box',status:'active',isDefault:true}},
+  {record_id:'other-cash',value:{name:'كاش إضافي',accountCode:'CASH-1108',type:'cash_box',status:'active'}},
+  {record_id:'bank-wallet',value:{name:'محفظة',accountCode:'CASH-1106',type:'digital_wallet',status:'active'}}
+ ];
+ const cash=normalizeMiniSaleBody({...base,cashPaidAmount:10,bankPaidAmount:0,
+  cashTreasuryCode:'CASH-1108'});
+ const resolved=resolveMiniCashBox(cash,entries,{canRead:()=>true});
+ assert.equal(resolved.cashTreasuryCode,'CASH-1101');
+ assert.equal(resolved.treasuryCode,'CASH-1101');
+ assert.equal(cash.cashTreasuryCode,'CASH-1108','input must stay immutable');
+ const mixed=resolveMiniCashBox(normalizeMiniSaleBody({...base,
+  cashPaidAmount:10,bankPaidAmount:5,bankTreasuryCode:'CASH-1106'}),entries,{canRead:()=>true});
+ assert.equal(mixed.cashTreasuryCode,'CASH-1101');
+ assert.equal(mixed.treasuryCode,'CASH-1106');
+ assert.throws(()=>resolveMiniCashBox(cash,entries,{canRead:()=>false}),
+  /MINI_POS_DEFAULT_CASH_BOX_NOT_AUTHORIZED/);
+ assert.throws(()=>resolveMiniCashBox(cash,entries.map(e=>({
+  ...e,value:{...e.value,isDefault:false}})),{canRead:()=>true}),
+  /MINI_POS_DEFAULT_CASH_BOX_MISSING_OR_AMBIGUOUS/);
 });
 test('all four valid business document types are accepted, unsupported modes rejected',()=>{
  for(const documentType of ['sale','print','purchase','expense'])

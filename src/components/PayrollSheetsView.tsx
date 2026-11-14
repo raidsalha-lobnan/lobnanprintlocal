@@ -61,7 +61,7 @@ export const PayrollSheetsView: React.FC<PayrollSheetsViewProps> = ({
 
   // Direct approve and disburse from the list
   const handleApprove = (sheet: PayrollSheet) => {
-    const treasuryCode = sheet.treasuryAccountCode || '1101';
+    const treasuryCode = sheet.treasuryAccountCode || 'CASH-1101';
     const treasury = treasuries.find(t => t.accountCode === treasuryCode) || accounts.find(a => a.code === treasuryCode);
 
     if (treasury && treasury.balance < sheet.totalNet) {
@@ -276,7 +276,7 @@ export const PayrollSheetsView: React.FC<PayrollSheetsViewProps> = ({
                       <td className="p-3">
                         {sheet.status === 'draft' ? (
                           <select
-                            value={sheet.treasuryAccountCode || '1101'}
+                            value={sheet.treasuryAccountCode || 'CASH-1101'}
                             onChange={e => handleTreasuryChange(sheet.id, e.target.value)}
                             className="bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 max-w-[170px]"
                           >

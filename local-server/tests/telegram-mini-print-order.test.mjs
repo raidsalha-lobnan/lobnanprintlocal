@@ -13,7 +13,7 @@ function fixture(){
  const pg={
   query:async(sql,args)=>{
    calls.push(sql);
-   if(sql.includes("entity='parties'"))return {rows:[{record_id:main.id,value:main}]};
+   if(sql.includes("entity='parties'"))return {rows:[{entity:'parties',record_id:main.id,value:main}]};
    if(sql.includes("entity='inventory'"))return {rows:[{record_id:item.id,value:item}]};
    if(sql.startsWith('INSERT INTO sync_workspaces'))return {rows:[]};
    if(sql.startsWith('SELECT next_sequence FROM sync_workspaces'))return {rows:[{next_sequence:1}]};

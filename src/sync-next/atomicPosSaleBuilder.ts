@@ -230,18 +230,16 @@ export function buildNewAtomicPosSale(input:Inputs):{posting:AtomicInvoicePostin
     }
     const debitLines:JournalEntry['lines']=[];
     if(cashBase)debitLines.push({
-      accountCode:options.cashTreasuryCode||'1101',accountName:'Cash',
+      accountCode:'1101',accountName:'Cash',
       debit:cashBase,credit:0
     });
     if(bankBase)debitLines.push({
-      accountCode:options.bankTreasuryCode||'1102',accountName:'Bank',
+      accountCode:'1102',accountName:'Bank',
       debit:bankBase,credit:0
     });
     if(!explicit&&paidBase){
       debitLines.push({
-        accountCode:options.treasuryAccountCode||
-          (['card','bank_transfer'].includes(input.paymentMethod)
-            ?options.bankTreasuryCode||'1102':options.cashTreasuryCode||'1101'),
+        accountCode:['card','bank_transfer'].includes(input.paymentMethod)?'1102':'1101',
         accountName:'Payment collected',debit:paidBase,credit:0
       });
     }

@@ -754,7 +754,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
       }
 
       let invTreasuryCode = inv.treasuryAccountCode || 
-        (inv.paymentMethod === 'cash' ? (inv.cashTreasuryCode || '1101') : (inv.bankTreasuryCode || '1105'));
+        (inv.paymentMethod === 'cash' ? (inv.cashTreasuryCode || 'CASH-1101') : (inv.bankTreasuryCode || ''));
 
       if (invTreasuryCode === '1102' && !treasuries.some(tr => tr.accountCode === '1102' || tr.id === '1102')) {
         invTreasuryCode = '1105';

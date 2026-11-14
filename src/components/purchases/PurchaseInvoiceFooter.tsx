@@ -33,8 +33,8 @@ const badge='inline-flex shrink-0 items-center gap-1 rounded border bg-white px-
 const money=(n:number)=>Number(n||0).toFixed(2);
 
 export const PurchaseInvoiceFooter:React.FC<Props>=(p)=>{
- const cashAccounts=p.treasuries.filter(t=>t.status==='active'&&t.type==='cash_box');
- const bankAccounts=p.treasuries.filter(t=>t.status==='active'&&t.type!=='cash_box');
+ const cashAccounts=p.treasuries.filter(t=>t.status==='active'&&t.type==='cash_box'&&t.accountCode==='CASH-1101');
+ const bankAccounts=p.treasuries.filter(t=>t.status==='active'&&t.type!=='cash_box'&&/^CASH-\d{4,}$/.test(t.accountCode));
  const paidStatus=p.totals.total>0&&p.remainingBase<0.005?'مدفوع بالكامل':p.paidBase>0?'مدفوع جزئياً':'آجل';
  const currSymbol=p.currencies.find(c=>c.code===p.currency)?.symbol||p.currency;
  const compactRate=(v:number)=>Number(v||1).toFixed(4);

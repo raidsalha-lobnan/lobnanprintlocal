@@ -697,10 +697,10 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
       exchangeRate: 1.0,
       cashCurrency: 'ILS',
       cashExchangeRate: 1.0,
-      cashTreasuryCode: '1101',
+      cashTreasuryCode: 'CASH-1101',
       bankCurrency: 'ILS',
       bankExchangeRate: 1.0,
-      bankTreasuryCode: '1102'
+      bankTreasuryCode: ''
     };
 
     setDraftInvoices(prev => [newDraft, ...prev]);
@@ -1096,11 +1096,11 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
           cashPaidAmount: isZeroPayment ? 0 : (rawCash > 0 ? rawCash : cashPaidBase),
           cashCurrency: draft.cashCurrency || 'ILS',
           cashExchangeRate: cRate,
-          cashTreasuryCode: draft.cashTreasuryCode || '1101',
+          cashTreasuryCode: 'CASH-1101',
           bankPaidAmount: isZeroPayment ? 0 : (rawBank > 0 ? rawBank : bankPaidBase),
           bankCurrency: draft.bankCurrency || 'ILS',
           bankExchangeRate: bRate,
-          bankTreasuryCode: draft.bankTreasuryCode || '1102',
+          bankTreasuryCode: draft.bankTreasuryCode || '',
           paymentNotes: draft.paymentNotes,
           userId: currentUser?.id,
           userName: currentUser?.name || currentUser?.fullName || 'مدير النظام',
@@ -1991,7 +1991,7 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
               onChangeCashCurrency={code => handleUpdateDraft(currentDraft.id, { cashCurrency: code })}
               cashExchangeRate={currentDraft.cashExchangeRate || 1.0}
               onChangeCashExchangeRate={rate => handleUpdateDraft(currentDraft.id, { cashExchangeRate: rate })}
-              cashTreasuryCode={currentDraft.cashTreasuryCode || '1101'}
+              cashTreasuryCode={'CASH-1101'}
               onChangeCashTreasury={code => handleUpdateDraft(currentDraft.id, { cashTreasuryCode: code })}
               bankAmount={currentDraft.bankAmount || ''}
               onChangeBankAmount={val => handleUpdateDraft(currentDraft.id, { bankAmount: val })}
@@ -1999,7 +1999,7 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
               onChangeBankCurrency={code => handleUpdateDraft(currentDraft.id, { bankCurrency: code })}
               bankExchangeRate={currentDraft.bankExchangeRate || 1.0}
               onChangeBankExchangeRate={rate => handleUpdateDraft(currentDraft.id, { bankExchangeRate: rate })}
-              bankTreasuryCode={currentDraft.bankTreasuryCode || '1102'}
+              bankTreasuryCode={currentDraft.bankTreasuryCode || ''}
               onChangeBankTreasury={code => handleUpdateDraft(currentDraft.id, { bankTreasuryCode: code })}
               treasuries={treasuries}
               invoiceNotes={currentDraft.notes || ''}
@@ -2756,7 +2756,7 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
                             onChangeCashCurrency={code => handleUpdateDraft(draft.id, { cashCurrency: code })}
                             cashExchangeRate={draft.cashExchangeRate || 1.0}
                             onChangeCashExchangeRate={rate => handleUpdateDraft(draft.id, { cashExchangeRate: rate })}
-                            cashTreasuryCode={draft.cashTreasuryCode || '1101'}
+                            cashTreasuryCode={'CASH-1101'}
                             onChangeCashTreasury={code => handleUpdateDraft(draft.id, { cashTreasuryCode: code })}
                             bankAmount={draft.bankAmount || ''}
                             onChangeBankAmount={val => handleUpdateDraft(draft.id, { bankAmount: val })}
@@ -2764,7 +2764,7 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
                             onChangeBankCurrency={code => handleUpdateDraft(draft.id, { bankCurrency: code })}
                             bankExchangeRate={draft.bankExchangeRate || 1.0}
                             onChangeBankExchangeRate={rate => handleUpdateDraft(draft.id, { bankExchangeRate: rate })}
-                            bankTreasuryCode={draft.bankTreasuryCode || '1102'}
+                            bankTreasuryCode={draft.bankTreasuryCode || ''}
                             onChangeBankTreasury={code => handleUpdateDraft(draft.id, { bankTreasuryCode: code })}
                             treasuries={treasuries}
                             invoiceNotes={draft.notes || ''}

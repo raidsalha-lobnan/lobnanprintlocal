@@ -82,8 +82,8 @@ export function miniFinancialChanges(input){
  if(!counterparty)fail('MINI_FINANCIAL_COUNTERPARTY_MISSING');
  const counterpartyName=counterparty.name;
  const paidMinor=cents(amount.paidAmount),remainingMinor=cents(amount.remainingAmount);
- if(employeeRow&&remainingMinor>0)
-  fail('MINI_EMPLOYEE_EXPENSE_CREDIT_NOT_SUPPORTED');
+ if(body.counterpartyKind!=='supplier'&&remainingMinor>0)
+  fail('MINI_NON_SUPPLIER_PURCHASE_EXPENSE_CREDIT_NOT_SUPPORTED');
  const accountByCode=new Map(accountRows.map(row=>[row.value?.code,row]));
  const expAccount=type==='expense'?accountByCode.get(body.expenseAccountCode):null;
  if(type==='expense'&&(!expAccount||!['expense'].includes(expAccount.value.type)||
@@ -110,7 +110,11 @@ export function miniFinancialChanges(input){
  if(legTotal!==paidMinor)fail('MINI_FINANCIAL_SETTLEMENT_MISMATCH');
  const accountingChanges=[];
  const value={
-  id,source:'telegram-mini',date:body.date||createdAt.slice(0,10),
+  id,source:'telegram-mini',
+  counterpartyType:body.counterpartyKind,
+  counterpartyId:body.customerId,
+  ...(employeeRow?{employeeId:employeeRow.record_id}:{}),
+  date:body.date||createdAt.slice(0,10),
   notes:body.notes,items:amount.items,overallDiscountAmount:amount.overallDiscount,
   currency:'ILS',currencySymbol:'₪',exchangeRate:1,
   subtotal:amount.subtotal,taxRate:amount.taxRate,taxAmount:amount.taxAmount,
@@ -130,7 +134,8 @@ export function miniFinancialChanges(input){
  };
  const journalId='je-mini-'+draftId;
  if(type==='purchase'){
-  Object.assign(value,{invoiceNumber:documentNumber,supplierId:supplierRow.record_id,
+  Object.assign(value,{invoiceNumber:documentNumber,
+   supplierId:supplierRow?.record_id,
    supplierName:counterpartyName,warehouse:warehouseName,
    supplierInvoiceNumber:body.supplierInvoiceNumber||undefined});
   accountingChanges.push({entity:'purchases',id,expectedVersion:0,value});
@@ -165,8 +170,8 @@ export function miniFinancialChanges(input){
  push(type==='purchase'?'1302':expAccount.value.code,subtotal,0,
   type==='purchase'?'مشتريات مخزنية':'فاتورة مصروف');
  if(tax>0)push('2103',tax,0,'ضريبة مدخلات');
- for(const leg of legs)push(leg.code,0,cents(leg.amount),
-  leg.kind==='cash'?'سداد نقدي':'سداد بنكي');
+ for(const leg of legs)push(leg.kind==='cash'?'1101':'1102',0,cents(leg.amount),
+  leg.kind==='cash'?'سداد نقدي':'سداد بنكي أو محفظة');
  if(remainingMinor>0)push('2101',0,remainingMinor,'ذمم دائنة');
  const jvalue={id:journalId,
   entryNumber:'JE-'+documentNumber,date:value.date,
@@ -205,7 +210,7 @@ export function miniFinancialChanges(input){
    });
   }
  }
- if(remainingMinor>0&&supplierRow){
+ if(remainingMinor>0&&supplierRow&&body.counterpartyKind==='supplier'){
   const old=Number(supplierRow.value.balance||0);
   if(!Number.isFinite(old))fail('MINI_FINANCIAL_SUPPLIER_BALANCE_INVALID');
   accountingChanges.push({entity:'parties',id:supplierRow.record_id,

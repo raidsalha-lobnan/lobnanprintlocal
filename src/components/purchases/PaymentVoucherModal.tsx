@@ -75,7 +75,7 @@ export const PaymentVoucherModal: React.FC<PaymentVoucherModalProps> = ({
         setCurrencyCode(voucherToEdit.currency || settings.baseCurrencyCode || 'ILS');
         setExchangeRate(voucherToEdit.exchangeRate || 1.0);
         setPaymentMethod(voucherToEdit.paymentMethod || 'bank_transfer');
-        setTreasuryCode(voucherToEdit.treasuryAccountCode || voucherToEdit.accountCode || '1101');
+        setTreasuryCode(voucherToEdit.treasuryAccountCode || (voucherToEdit.paymentMethod === 'cash' ? 'CASH-1101' : ''));
         setDescription(voucherToEdit.description || '');
         setChequeNumber(voucherToEdit.chequeNumber || '');
         setChequeBank(voucherToEdit.chequeBank || 'بنك فلسطين');

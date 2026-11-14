@@ -13,6 +13,7 @@ import {buildNewAtomicPosSale} from '../sync-next/atomicPosSaleBuilder';
 import {enqueueAtomicInvoicePosting} from '../sync-next/accountingBundle';
 import {selectWorkspaceSettings,applyWorkspaceSettings,mergeWorkspaceSettingsDraft} from '../utils/workspaceSettingsSync';
 import {createWorkspaceSettingsPatch} from '../sync-next/settingsPatch';
+import {MAIN_CASH_TREASURY_CODE,canonicalTreasuryCode,requiredTreasury,ledgerAccountForTreasury} from '../utils/treasuryCodes';
 import { LocalHttpSyncTransport, getLocalSyncConfig } from '../sync-next/httpTransport';
 import {invoiceEditSignature} from '../utils/invoiceEditSignature';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
@@ -809,18 +810,16 @@ export function auditAndRecalculateTreasuries(
   const tByCode = new Map<string, Treasury>();
   const tById = new Map<string, Treasury>();
 
-  treasuriesList.forEach((t, idx) => {
+  treasuriesList.forEach(t => {
     if (!t) return;
     const isMain = t.id === 'treasury-cash-main' || t.name.includes('النقدي الرئيسي') || t.name.includes('الكاشير');
     if (isMain) {
-      t.accountCode = 'CASH-1101';
+      t.accountCode = MAIN_CASH_TREASURY_CODE;
       t.isDefault = true;
     } else if (t.accountCode) {
       if (!t.accountCode.startsWith('CASH-') && !t.accountCode.startsWith('BANK-') && !t.accountCode.startsWith('TR-')) {
         t.accountCode = `CASH-${t.accountCode}`;
       }
-    } else {
-      t.accountCode = `CASH-${1102 + idx}`;
     }
 
     tById.set(t.id, t);
@@ -891,7 +890,7 @@ export function auditAndRecalculateTreasuries(
       }
 
       if (cashAmt > 0) {
-        const cashTargetCode = inv.cashTreasuryCode || '1101';
+        const cashTargetCode = MAIN_CASH_TREASURY_CODE;
         const target = getTargetTreasury(cashTargetCode, false);
         addTx(target, {
           id: `tx-inv-cash-${inv.id}`,
@@ -918,8 +917,8 @@ export function auditAndRecalculateTreasuries(
 
       if (bankAmt > 0) {
         let bankTargetCode = inv.bankTreasuryCode || (inv as any).treasuryAccountCode;
-        if (!bankTargetCode || bankTargetCode === '1101') {
-          bankTargetCode = '1103';
+        if (!bankTargetCode || bankTargetCode === '1101' || bankTargetCode === MAIN_CASH_TREASURY_CODE) {
+          bankTargetCode = '';
         }
         const target = getTargetTreasury(bankTargetCode, true);
         addTx(target, {
@@ -1615,7 +1614,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const ensureUniqueTreasuryAccountCodes = (list: Treasury[]): Treasury[] => {
     if (!list || list.length === 0) return list;
-    const accs = accounts || [];
 
     // Ensure main cash box is always recognized, set to CASH-1101, and sorted first
     const sortedList = [...list].sort((a, b) => {
@@ -1628,26 +1626,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     const usedCodes = new Set<string>();
 
-    return sortedList.map((t, idx) => {
-      let code = t.accountCode ? String(t.accountCode).trim() : '';
-      if (code && !code.startsWith('CASH-') && !code.startsWith('BANK-') && !code.startsWith('TR-')) {
-        code = `CASH-${code}`;
-      }
-
-      const isMainCash = t.id === 'treasury-cash-main' || t.name.includes('النقدي الرئيسي') || t.name.includes('الكاشير') || (idx === 0 && (!code || code === 'CASH-1101'));
-      if (isMainCash) {
-        code = 'CASH-1101';
-      } else if (!code || code === 'CASH-1101' || usedCodes.has(code)) {
-        let n = 1102;
-        while (usedCodes.has(`CASH-${n}`)) {
-          n++;
-        }
-        code = `CASH-${n}`;
-      }
+    return sortedList.map(t => {
+      // Never auto-renumber an already referenced treasury or silently
+      // make another cash box. PostgreSQL guards the CASH-#### identity.
+      const isMainCash = t.id === 'treasury-cash-main';
+      const code = isMainCash ? MAIN_CASH_TREASURY_CODE :
+        (canonicalTreasuryCode(t.accountCode) || String(t.accountCode || ''));
+      if (usedCodes.has(code) || (!isMainCash && code === MAIN_CASH_TREASURY_CODE))
+        console.warn('TREASURY_CODE_IDENTITY_CONFLICT', t.id, code);
       usedCodes.add(code);
 
-      const matchedAcc = accs.find(a => a.code === code || a.code === code.replace('CASH-', '') || (code === 'CASH-1101' && (a.code === '1101' || a.code === 'CASH-1101')));
-      const targetBal = matchedAcc ? matchedAcc.balance : t.balance;
+      // Treasury balances are authoritative; never replace them with an
+      // unrelated ledger account balance while normalizing a display code.
+      const targetBal = t.balance;
       const curBal = { ...(t.currencyBalances || {}) };
 
       let foreignVal = 0;
@@ -4879,13 +4870,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const symbol = options?.currencySymbol || (curr === 'ILS' ? '₪' : (currInfo?.symbol || curr));
     const baseDelta = Number((delta * rate).toFixed(2));
 
+    const normalizedCode=canonicalTreasuryCode(treasuryIdOrCode);
+    const resolved=treasuries.find(t => t.id===treasuryIdOrCode ||
+      t.accountCode===normalizedCode || t.accountCode===treasuryIdOrCode);
+    if(!resolved)throw new Error('لا يمكن تسجيل حركة على صندوق غير معروف أو غير معتمد.');
+    if(resolved.accountCode===MAIN_CASH_TREASURY_CODE && resolved.type!=='cash_box')
+      throw new Error('رمز الصندوق النقدي الرئيسي غير صحيح.');
+    if(resolved.accountCode!==MAIN_CASH_TREASURY_CODE && resolved.type==='cash_box')
+      throw new Error('يُسمح بصندوق نقدي واحد فقط CASH-1101.');
     let matchedAccountCode = '';
 
     setTreasuries(prev => {
-      let target = prev.find(t => t.id === treasuryIdOrCode || t.accountCode === treasuryIdOrCode);
-      if (!target) {
-        target = prev.find(t => t.isDefault) || prev[0];
-      }
+      const target = prev.find(t => t.id === resolved.id);
       if (!target) return prev;
       matchedAccountCode = target.accountCode;
 
@@ -5241,10 +5237,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       name: expenseData.expenseAccountName || 'مصروفات عامة'
     };
 
-    const targetTreasury = treasuries.find(
-      t => t.accountCode === expenseData.treasuryAccountCode || t.id === expenseData.treasuryAccountCode
-    );
-    const treasuryCode = targetTreasury ? targetTreasury.accountCode : (expenseData.treasuryAccountCode || '1101');
+    const targetTreasury = requiredTreasury(treasuries,
+      expenseData.paymentMethod === 'cash' ? 'cash' : 'noncash',
+      expenseData.treasuryAccountCode);
+    const treasuryCode = targetTreasury.accountCode;
     const treasuryName = targetTreasury ? targetTreasury.name : (expenseData.treasuryName || 'الصندوق النقدي (الكاشير)');
 
     const amount = Number(expenseData.amount) || 0;
@@ -5267,7 +5263,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           description: `مصروف: ${expenseData.notes || expenseData.categoryName}`
         },
         {
-          accountCode: treasuryCode,
+          accountCode: ledgerAccountForTreasury(expenseData.paymentMethod === 'cash' ? 'cash' : 'noncash'),
           accountName: treasuryName,
           debit: 0,
           credit: baseAmount,
@@ -5885,8 +5881,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const emp = employees.find(e => e.id === employeeId);
     if (!emp) return;
 
-    const treasuryAcc = accounts.find(a => a.code === treasuryAccountCode);
-    const treasuryName = treasuryAcc ? treasuryAcc.name : (treasuryAccountCode === '1101' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)');
+    const normalizedTreasuryCode=canonicalTreasuryCode(treasuryAccountCode);
+    const treasuryKind=normalizedTreasuryCode===MAIN_CASH_TREASURY_CODE?'cash':'noncash';
+    const treasuryObj=disburseImmediately
+      ?requiredTreasury(treasuries,treasuryKind,normalizedTreasuryCode)
+      :treasuries.find(t=>t.accountCode===normalizedTreasuryCode);
+    const treasuryAcc=accounts.find(a=>a.code===ledgerAccountForTreasury(treasuryKind));
+    const treasuryName=treasuryObj?.name || treasuryAcc?.name || 'صندوق غير محدد';
 
     let voucherNumber: string | undefined = undefined;
 
@@ -5900,7 +5901,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         partyId: emp.id,
         partyName: emp.name,
         amount,
-        paymentMethod: treasuryAccountCode === '1101' ? 'cash' : 'bank_transfer',
+        paymentMethod: treasuryKind === 'cash' ? 'cash' : 'bank_transfer',
+        treasuryAccountCode: normalizedTreasuryCode,
         accountCode: '1104',
         description: `سند صرف سلفة نقدية للموظف: ${emp.name} (${emp.jobTitle}) - ${reason}`
       };
@@ -5927,7 +5929,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             description: `سلفة ${emp.name} - ${reason}`
           },
           {
-            accountCode: treasuryAccountCode,
+            accountCode: ledgerAccountForTreasury(treasuryKind),
             accountName: treasuryName,
             debit: 0,
             credit: amount,
@@ -5949,7 +5951,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   amount,
                   type: 'advance' as const,
                   period: `سلفة نقدية (${date})`,
-                  paymentMethod: treasuryAccountCode === '1101' ? 'cash' as const : 'bank_transfer' as const,
+                  paymentMethod: treasuryKind === 'cash' ? 'cash' as const : 'bank_transfer' as const,
                   voucherNumber,
                   notes: reason
                 },
@@ -5970,7 +5972,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       employeeName: emp.name,
       date,
       amount,
-      treasuryAccountCode,
+      treasuryAccountCode:normalizedTreasuryCode,
       treasuryName,
       reason,
       status: 'pending',
@@ -6164,7 +6166,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!sheet) return { success: false, message: 'كشف الرواتب غير موجود' };
     if (sheet.status === 'approved') return { success: false, message: 'كشف الرواتب معتمد ومصروف مسبقاً' };
 
-    const treasuryCode = treasuryAccountCodeOverride || sheet.treasuryAccountCode || '1101';
+    const treasuryCode = canonicalTreasuryCode(treasuryAccountCodeOverride || sheet.treasuryAccountCode || MAIN_CASH_TREASURY_CODE);
     const treasuryAcc = accounts.find(a => a.code === treasuryCode);
     const treasuryName = treasuryAcc ? treasuryAcc.name : (treasuryCode === '1101' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)');
 
@@ -6427,6 +6429,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   ): Invoice => {
     // ربط العميل النقدي برمز CUST-0001
+    // Reject wrong treasury routes before creating any POS invoice effect.
+    if ((extraOptions?.cashPaidAmount || 0) > 0)
+      requiredTreasury(treasuries,'cash',MAIN_CASH_TREASURY_CODE);
+    if ((extraOptions?.bankPaidAmount || 0) > 0)
+      requiredTreasury(treasuries,'noncash',extraOptions?.bankTreasuryCode);
     if ((extraOptions?.counterpartyType || 'customer') === 'customer' &&
         (!customerId || customerName === 'عميل كاشير نقدي' || customerName === 'عميل نقدي' || customerName === 'زبون عام' || customerId === 'pt-cust-1')) {
       const defaultCashCust = parties.find(p => p.code === 'CUST-0001');
@@ -6813,7 +6820,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           amount: effectiveBasePaidAmount,
           paymentMethod: paymentMethod === 'credit' ? 'cash' : (paymentMethod as any),
           accountCode: '1201',
-          treasuryAccountCode: paymentMethod === 'cash' ? (extraOptions?.cashTreasuryCode || '1101') : (extraOptions?.bankTreasuryCode || '1105'),
+          treasuryAccountCode: paymentMethod === 'cash' ? MAIN_CASH_TREASURY_CODE : (extraOptions?.bankTreasuryCode || ''),
           relatedDocType: 'pos_sale',
           relatedDocId: invId,
           description: `سند تحصيل فوري لفاتورة مبيعات رقم ${invoiceNumber}`
@@ -6834,7 +6841,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }> = [];
 
       if (cashBase > 0) {
-        const cCode = extraOptions?.cashTreasuryCode || '1101';
+        const cCode = ledgerAccountForTreasury('cash');
         const cAcc = accounts.find(a => a.code === cCode);
         journalDebitLines.push({
           accountCode: cCode,
@@ -6846,7 +6853,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       if (bankBase > 0) {
-        const bCode = extraOptions?.bankTreasuryCode || '1102';
+        const bCode = ledgerAccountForTreasury('noncash');
         const bAcc = accounts.find(a => a.code === bCode);
         journalDebitLines.push({
           accountCode: bCode,
@@ -6979,14 +6986,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         referenceId: invId,
         lines: [
           ...(cashBase > 0 ? [{
-            accountCode: extraOptions?.cashTreasuryCode || '1101',
+            accountCode: '1101',
             accountName: 'الصندوق النقدي',
             debit: cashBase,
             credit: 0,
             description: `قبض نقدي لفاتورة ${invoiceNumber}`
           }] : []),
           ...(bankBase > 0 ? [{
-            accountCode: extraOptions?.bankTreasuryCode || '1102',
+            accountCode: '1102',
             accountName: 'البنك / الشبكة',
             debit: bankBase,
             credit: 0,
@@ -9000,13 +9007,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         kind:invoiceData.paymentMethod==='cash'?'cash':'bank',
         amount:sourcePaid,rate:exchangeRate,
         currency:invoiceData.currency||'ILS',
-        treasuryCode:invoiceData.treasuryAccountCode||
-          (invoiceData.paymentMethod==='cash'?'1101':'1102'),
+        treasuryCode:invoiceData.paymentMethod==='cash'
+          ?MAIN_CASH_TREASURY_CODE:invoiceData.treasuryAccountCode||'',
         base:basePaidAmount
       });
     }
     const verifiedPayments=paymentLegs.map(leg=>{
-      const treasury=treasuries.find(t=>t.accountCode===leg.treasuryCode);
+      const treasury=requiredTreasury(treasuries,leg.kind==='cash'?'cash':'noncash',leg.treasuryCode);
       if(!treasury||treasury.status==='inactive'||
         (leg.kind==='cash'&&treasury.type!=='cash_box')||
         (leg.kind==='bank'&&treasury.type==='cash_box'))
@@ -9096,7 +9103,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     for(const leg of verifiedPayments){
       journalLines.push({
-        accountCode:leg.treasury.accountCode,
+        accountCode:ledgerAccountForTreasury(leg.kind==='cash'?'cash':'noncash'),
         accountName:leg.treasury.name,
         debit:0,credit:leg.base,
         description:`سداد فاتورة مشتريات ${invoiceNumber} ${leg.kind==='cash'?'نقدًا':'بنكيًا'} ${leg.amount} ${leg.currency}`
@@ -9191,8 +9198,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       ? voucherData.baseAmount
       : Number((actualAmount * rate).toFixed(2));
 
+    // Validate exact treasury before creating voucher, journal or changing balance.
+    const voucherTreasuryKind = voucherData.paymentMethod === 'cash' ? 'cash' : 'noncash';
+    const targetTreasury = requiredTreasury(treasuries,voucherTreasuryKind,voucherData.treasuryAccountCode);
+    const cashBankCode = targetTreasury.accountCode;
+    const ledgerCode = ledgerAccountForTreasury(voucherTreasuryKind);
     const newVoucher: PaymentVoucher = {
       ...voucherData,
+      treasuryAccountCode: cashBankCode,
       id,
       voucherNumber,
       currency: curr,
@@ -9213,13 +9226,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.warn('Direct cloud save voucher notice:', err);
     });
 
-    const cashBankCode = voucherData.treasuryAccountCode || (voucherData.paymentMethod === 'cash' ? '1101' : '1102');
-    const targetTreasury = treasuries.find(t => t.accountCode === cashBankCode || t.id === cashBankCode);
     const cashBankName = targetTreasury ? targetTreasury.name : (voucherData.paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)');
     const effectiveAccountCode = voucherData.accountCode || (voucherData.type === 'receipt' ? '1201' : '2101');
 
     if (voucherData.type === 'receipt') {
-      // Receipt voucher: Debit Cash/Bank, Credit Account / Customer (in base currency ILS)
+      // Ledger debit uses account 1101/1102, not the CASH-#### treasury ID.
       addJournalEntry({
         date: voucherData.date,
         description: `سند قبض ${voucherNumber} من ${voucherData.partyName} (${actualAmount.toLocaleString()} ${symbol} معادل ${baseAmount.toLocaleString()} ₪)`,
@@ -9227,7 +9238,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         referenceId: id,
         lines: [
           {
-            accountCode: cashBankCode,
+            accountCode: ledgerCode,
             accountName: cashBankName,
             debit: baseAmount,
             credit: 0,
