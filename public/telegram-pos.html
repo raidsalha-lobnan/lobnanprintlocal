@@ -32,12 +32,18 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
  <p>للحفاظ على صلاحيات المستخدم، يجب فتح هذه الصفحة من زر «➕ فاتورة جديدة» داخل بوت تلجرام، وليس من رابط خارجي.</p>
 </section>
 
+<section id="sessionExpired" class="panel hidden">
+ <h2>انتهت جلسة فتح الكاشير، ولم ينتهِ ربط الحساب</h2>
+ <p>أغلق هذه الصفحة وافتح الكاشير مرة أخرى من محادثة تلجرام عبر الأمر /invoice. لن تحتاج إلى رمز ربط جديد. يعمل البوت خارج أوقات الدوام ما دام الخادم واتصال الإنترنت يعملان.</p>
+ <button type="button" id="sessionClose" class="secondary">إغلاق الكاشير وإعادة فتحه من البوت</button>
+</section>
+
 <section id="pairPanel" class="panel hidden">
- <h2>ربط كاشير تلجرام</h2>
- <p>هذه الخطوة مطلوبة مرة واحدة فقط لحماية الفواتير. افتح البرنامج ← الإعدادات ← تلجرام، ثم اضغط «إنشاء رمز ربط الكاشير».</p>
- <label for="pairCode">رمز الربط (صالح 10 دقائق)</label>
- <input id="pairCode" dir="ltr" inputmode="text" autocomplete="off" placeholder="رمز الربط" maxlength="20"/>
- <button id="pairButton" class="primary">ربط حسابي والبدء</button>
+ <h2>ربط حساب تلجرام لأول مرة</h2>
+ <p>اربط حساب تلجرام بحسابك في البرنامج مرة واحدة فقط. بعد نجاح الربط يبقى محفوظًا في قاعدة البيانات ولا تنتهي صلاحيته كل 10 دقائق. انتهاء الرمز المؤقت لا يلغي الربط.</p>
+ <label for="pairCode">رمز الربط لمرة واحدة (يصلح لإتمام الربط خلال 10 دقائق فقط)</label>
+ <input id="pairCode" dir="ltr" inputmode="text" autocomplete="off" placeholder="أدخل رمز الربط" maxlength="20"/>
+ <button id="pairButton" class="primary">تأكيد الربط الدائم</button>
 </section>
 
 <section id="cashier" class="hidden">

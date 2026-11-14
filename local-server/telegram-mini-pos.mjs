@@ -143,16 +143,24 @@ export class TelegramMiniPos {
     'DELETE FROM sync_telegram_pos_pair_codes WHERE workspace=$1 AND app_user_id=$2',
     [this.workspace,appUserId]);
    await client.query('COMMIT');
-   return {ok:true,linked:true};
+   return {ok:true,linked:true,requiresRePair:false};
   }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error}
   finally{client.release()}
  }
  async session(initData){
   const identity=await this.identity(initData);
-  const r=await this.pool.query(
-   "SELECT l.app_user_id,p.value AS profile FROM sync_telegram_pos_links l JOIN sync_auth_users a ON a.workspace=l.workspace AND a.user_id=l.app_user_id AND a.status='active' JOIN sync_records p ON p.workspace=l.workspace AND p.entity='users' AND p.record_id=l.app_user_id WHERE l.workspace=$1 AND l.telegram_user_id=$2",
+  // A linking code lasts ten minutes. The actual Telegram-account link is durable
+  // and must not depend on the pairing code, login token, or its expiry.
+  const link=await this.pool.query(
+   'SELECT app_user_id FROM sync_telegram_pos_links WHERE workspace=$1 AND telegram_user_id=$2',
    [this.workspace,identity.telegramUserId]);
-  if(!r.rows.length)fail('TELEGRAM_MINI_PAIR_REQUIRED',403);
+  if(!link.rows.length)fail('TELEGRAM_MINI_PAIR_REQUIRED',403);
+  const r=await this.pool.query(
+   "SELECT p.value AS profile FROM sync_auth_users a JOIN sync_records p ON p.workspace=a.workspace AND p.entity='users' AND p.record_id=a.user_id WHERE a.workspace=$1 AND a.user_id=$2 AND a.status='active'",
+   [this.workspace,link.rows[0].app_user_id]);
+  // An inactive/deleted user is not an unpaired user: refuse access, never
+  // encourage re-linking to bypass a revoked account or missing profile.
+  if(!r.rows.length)fail('TELEGRAM_MINI_LINKED_USER_UNAVAILABLE',403);
   const profile=r.rows[0].profile;
   const access=await resolveAccess(this.pool,this.workspace,profile,this.adminUserId);
   this.ensurePosAccess(access);
@@ -176,7 +184,7 @@ export class TelegramMiniPos {
   const draftRows=await this.pool.query(
    "SELECT draft_id,status,body,invoice_id,updated_at FROM sync_telegram_pos_drafts WHERE workspace=$1 AND telegram_user_id=$2 ORDER BY updated_at DESC LIMIT 8",
    [this.workspace,auth.telegramUserId]);
-  return {ok:true,displayName:auth.user.name||auth.name,parties,treasuries,
+  return {ok:true,linked:true,linkExpires:false,displayName:auth.user.name||auth.name,parties,treasuries,
    defaultCustomerId:parties.find(x=>x.code==='CUST-0001')?.id||parties[0]?.id||'',
    currency:'ILS',currencySymbol:'₪',vatRate:Number(settings.vatRate||0),
    drafts:draftRows.rows.map(r=>({draftId:r.draft_id,status:r.status,invoiceId:r.invoice_id,

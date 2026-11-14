@@ -7,7 +7,8 @@ test('Telegram cashier retains the explicit system administrator identity after 
  const calls=[];
  const pool={query:async(sql,args)=>{
    calls.push({sql,args});
-   if(sql.includes('SELECT l.app_user_id'))return {rows:[{app_user_id:profile.id,profile}]};
+   if(sql.includes('FROM sync_telegram_pos_links'))return {rows:[{app_user_id:profile.id}]};
+   if(sql.includes('FROM sync_auth_users a JOIN sync_records p'))return {rows:[{profile}]};
    if(sql.includes("entity='roles'"))return {rows:[]};
    throw Error('UNEXPECTED_SQL');
  }};

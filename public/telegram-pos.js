@@ -20,7 +20,7 @@ const msg=(text,kind='')=>{
  const x=el('status');x.textContent=text;x.className='status '+kind;
 };
 const show=(name)=>{
- for(const id of ['notTelegram','pairPanel','cashier','success'])
+ for(const id of ['notTelegram','pairPanel','sessionExpired','cashier','success'])
   el(id).classList.toggle('hidden',name!==id);
 };
 const api=async(path,payload={})=>{
@@ -222,8 +222,8 @@ const bootstrap=async()=>{
   const treasury=el('treasury');treasury.replaceChildren(new Option('الافتراضي',''));
   for(const x of state.treasuries)treasury.appendChild(new Option(x.name,x.accountCode));
   try{const code=localStorage.getItem('telegram_pos_last_treasury');if(code)treasury.value=code;}catch{}
-  el('userBadge').textContent='🔒 '+(result.displayName||'مستخدم معتمد');
-  show('cashier');msg('الكاشير جاهز. يمكنك إصدار فاتورة من الهاتف.','success');
+  el('userBadge').textContent='🔒 '+(result.displayName||'مستخدم معتمد')+' • مرتبط دائمًا';
+  show('cashier');msg('حساب تلجرام مرتبط بحساب البرنامج. لا يلزم إعادة الربط عند انتهاء الرمز المؤقت.','success');
   const draftToResume=(result.drafts||[]).find(x=>x.status==='draft');
   if(draftToResume&&window.confirm('توجد مسودة سابقة. هل تريد استكمالها؟')){
    state.draftId=draftToResume.draftId;const b=draftToResume.body;
@@ -244,11 +244,17 @@ const bootstrap=async()=>{
   }
   await initQuick();
  }catch(error){
-  if(String(error.message||error).includes('TELEGRAM_MINI_PAIR_REQUIRED')){
-   show('pairPanel');msg('يجب ربط حسابك بصلاحيات برنامج المحاسبة لمرة واحدة.');
-  }else{show('notTelegram');msg('تعذر فتح الكاشير: '+String(error.message||error),'error');}
+  const code=String(error.message||error);
+  if(code.includes('TELEGRAM_MINI_PAIR_REQUIRED')){
+   show('pairPanel');msg('هذا الحساب غير مرتبط بعد. رمز الربط مطلوب مرة واحدة فقط.');
+  }else if(code.includes('TELEGRAM_MINI_SESSION_EXPIRED')){
+   show('sessionExpired');msg('انتهت جلسة فتح تلجرام فقط. افتح /invoice من البوت مجددًا دون ربط.','error');
+  }else if(code.includes('TELEGRAM_MINI_LINKED_USER_UNAVAILABLE')||code.includes('TELEGRAM_POS_PERMISSION_DENIED')){
+   show('notTelegram');msg('الربط موجود لكن صلاحية المستخدم غير متاحة. لا تحاول تجاوز الإيقاف بإعادة الربط.','error');
+  }else{show('notTelegram');msg('تعذر فتح الكاشير: '+code,'error');}
  }
 };
+el('sessionClose').addEventListener('click',()=>telegram?.close?.());
 el('pairButton').addEventListener('click',async()=>{
  el('pairButton').disabled=true;
  try{
