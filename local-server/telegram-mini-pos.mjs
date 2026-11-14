@@ -68,6 +68,8 @@ export function normalizeMiniSaleBody(body){
  });
  const paidAmount=body.paidAmount===null||body.paidAmount===''||body.paidAmount===undefined
   ?null:number(Number(body.paidAmount),'PAID',0,1e9);
+ const subCustomerId=body.subCustomerId||'';
+ if(subCustomerId&&!uid(subCustomerId))fail('MINI_POS_SUBCUSTOMER_ID_INVALID');
  return {
   customerId:uid(body.customerId)?body.customerId:'',
   date,items:normalizedItems,paymentMethod,paidAmount,
@@ -75,7 +77,9 @@ export function normalizeMiniSaleBody(body){
   notes:text(body.notes,1200),
   treasuryCode:uid(body.treasuryCode)?body.treasuryCode:'',
   customerName:text(body.customerName,160),
-  subCustomerName:text(body.subCustomerName,100)
+  subCustomerId:uid(body.subCustomerId)?body.subCustomerId:'',
+  subCustomerName:text(body.subCustomerName,100),
+  paymentNotes:text(body.paymentNotes,1000)
  };
 }
 
@@ -176,6 +180,13 @@ export class TelegramMiniPos {
     auth.access.canRead('parties',r.value,r.record_id))
    .map(r=>({id:r.record_id,name:r.value.name,code:r.value.code,
     phone:r.value.phone||'',balance:r.value.balance||0}));
+  const permittedParentIds=new Set(parties.map(p=>p.id));
+  const subCustomers=rows.rows.filter(r=>r.entity==='parties'&&
+    r.value?.isSubCustomer===true&&permittedParentIds.has(r.value.parentPartyId)&&
+    ['customer','both'].includes(r.value.type)&&
+    auth.access.canRead('parties',r.value,r.record_id))
+   .map(r=>({id:r.record_id,name:r.value.name,code:r.value.code,
+    parentPartyId:r.value.parentPartyId}));
   const treasuries=rows.rows.filter(r=>r.entity==='treasuries'&&
     r.value?.status==='active'&&auth.access.canRead('treasuries',r.value,r.record_id))
    .map(r=>({id:r.record_id,name:r.value.name,accountCode:r.value.accountCode,
@@ -184,7 +195,7 @@ export class TelegramMiniPos {
   const draftRows=await this.pool.query(
    "SELECT draft_id,status,body,invoice_id,updated_at FROM sync_telegram_pos_drafts WHERE workspace=$1 AND telegram_user_id=$2 ORDER BY updated_at DESC LIMIT 8",
    [this.workspace,auth.telegramUserId]);
-  return {ok:true,linked:true,linkExpires:false,displayName:auth.user.name||auth.name,parties,treasuries,
+  return {ok:true,linked:true,linkExpires:false,displayName:auth.user.name||auth.name,parties,subCustomers,treasuries,
    defaultCustomerId:parties.find(x=>x.code==='CUST-0001')?.id||parties[0]?.id||'',
    currency:'ILS',currencySymbol:'₪',vatRate:Number(settings.vatRate||0),
    drafts:draftRows.rows.map(r=>({draftId:r.draft_id,status:r.status,invoiceId:r.invoice_id,
@@ -283,6 +294,16 @@ export class TelegramMiniPos {
    const selected=parties.rows.find(p=>p.record_id===body.customerId);
    if(!selected||!['customer','both'].includes(selected.value?.type)||
      selected.value.isSubCustomer===true)fail('MINI_POS_CUSTOMER_INVALID',409);
+   // A selected sub-customer must be an existing child of the selected main
+   // customer. Never trust names or relationships submitted by the browser.
+   const linkedSub=body.subCustomerId
+    ?parties.rows.find(p=>p.record_id===body.subCustomerId&&
+      p.value?.isSubCustomer===true&&p.value?.parentPartyId===body.customerId&&
+      ['customer','both'].includes(p.value?.type))
+    :null;
+   if(body.subCustomerId&&!linkedSub)fail('MINI_POS_SUBCUSTOMER_PARENT_INVALID',409);
+   if(linkedSub&&!auth.access.canRead('parties',linkedSub.value,linkedSub.record_id))
+    fail('MINI_POS_SUBCUSTOMER_NOT_AUTHORIZED',403);
    for(const row of [...stock.rows,...parties.rows]){
     const entity=byId.has(row.record_id)?'inventory':'parties';
     if(!auth.access.canRead(entity,row.value,row.record_id))
@@ -296,7 +317,9 @@ export class TelegramMiniPos {
     warehouse:warehouseName,
     overallDiscount:body.overallDiscount,
     ...(body.paidAmount===null?{}:{paidAmount:body.paidAmount}),
-    ...(body.subCustomerName?{subCustomerName:body.subCustomerName}:{}),
+    ...(linkedSub?{subCustomerId:linkedSub.record_id,subCustomerName:linkedSub.value.name}:
+       body.subCustomerName?{subCustomerName:body.subCustomerName}:{}),
+    paymentNotes:body.paymentNotes,
    };
    if(body.treasuryCode){
     const treasury=treasuries.rows.find(r=>r.value?.accountCode===body.treasuryCode&&r.value.status==='active');

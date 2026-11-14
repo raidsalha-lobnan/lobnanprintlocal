@@ -13,7 +13,7 @@ const todayLocal=()=>{
  return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
 };
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state={people:[],treasuries:[],vatRate:0,lines:[],draftId:crypto.randomUUID(),
+const state={people:[],subCustomers:[],treasuries:[],vatRate:0,lines:[],draftId:crypto.randomUUID(),
   busy:false,saved:false,lastReceipt:null,quickDone:false};
 let searchTimer=0,searchEpoch=0;
 const msg=(text,kind='')=>{
@@ -52,8 +52,24 @@ const customerOptions=filter=>{
   opt.textContent=p.name+' — '+p.code;sel.appendChild(opt);
  }
  if(people.some(x=>x.id===selected))sel.value=selected;
+ // Filtering can replace the selected main party without firing a change event.
+ if(sel.value!==selected)renderSubCustomers();
 };
 const customer=()=>state.people.find(x=>x.id===el('customer').value);
+const renderSubCustomers=(wanted='',newName='')=>{
+ const parentId=el('customer').value;
+ const children=state.subCustomers.filter(s=>s.parentPartyId===parentId);
+ const select=el('subCustomer');
+ select.replaceChildren(new Option('بدون عميل فرعي',''));
+ for(const sub of children)select.appendChild(new Option(sub.name+' · '+(sub.code||''),sub.id));
+ select.appendChild(new Option('＋ إدخال اسم عميل فرعي جديد','__new__'));
+ select.value=children.some(s=>s.id===wanted)?wanted:
+  wanted==='__new__'||(newName&&!children.some(s=>s.id===wanted))?'__new__':'';
+ const creating=select.value==='__new__';
+ el('subCustomerNewPanel').classList.toggle('hidden',!creating);
+ el('subCustomerNewName').value=creating?newName:'';
+};
+
 const account=()=>state.treasuries.find(x=>x.accountCode===el('treasury').value);
 const lineQty=l=>l.hasDimensions?round((Number(l.length)||0)*(Number(l.width)||0)*(Number(l.count)||0)):(Number(l.quantity)||0);
 const totals=()=>{
@@ -133,13 +149,19 @@ const formBody=()=>{
  const rawPaid=el('paid').value.trim();
  const paidAmount=rawPaid===''?null:Number(rawPaid);
  if(paidAmount!==null&&(paidAmount<0||paidAmount>total))throw Error('مبلغ السداد غير صحيح أو يزيد عن الإجمالي');
+ const subChoice=el('subCustomer').value;
+ const sub=state.subCustomers.find(s=>s.id===subChoice&&s.parentPartyId===person.id);
+ if(subChoice&&subChoice!=='__new__'&&!sub)throw Error('العميل الفرعي لا يتبع العميل الرئيسي');
+ const newSubName=subChoice==='__new__'?el('subCustomerNewName').value.trim():'';
+ if(subChoice==='__new__'&&newSubName.length<2)throw Error('أدخل اسم العميل الفرعي الجديد');
  const date=el('invoiceDate').value;
  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw Error('يرجى تحديد تاريخ صحيح للفاتورة');
  const body={
   date,customerId:person.id,customerName:person.name,
+  subCustomerId:sub?.id||'',subCustomerName:sub?.name||newSubName,
   paymentMethod,treasuryCode:el('treasury').value,
   paidAmount,overallDiscount:Number(el('discount').value||0),
-  notes:el('notes').value,
+  notes:el('notes').value,paymentNotes:el('paymentNotes').value,
   items:state.lines.map(l=>({
    itemId:l.itemId,quantity:Number(l.quantity),unitPrice:Number(l.unitPrice),
    hasDimensions:!!l.hasDimensions,length:Number(l.length),width:Number(l.width),
@@ -178,7 +200,7 @@ const draft=async commit=>{
 };
 const startNew=()=>{
  state.lines=[];state.draftId=crypto.randomUUID();state.saved=false;state.lastReceipt=null;
- el('discount').value='0';el('paid').value='';el('notes').value='';
+ el('discount').value='0';el('paid').value='';el('notes').value='';el('paymentNotes').value='';renderSubCustomers();
  el('invoiceDate').value=todayLocal();
  renderLines();show('cashier');msg('فاتورة جديدة. ابحث عن صنف لإضافته.','success');
 };
@@ -212,6 +234,7 @@ const bootstrap=async()=>{
   const result=await api('bootstrap');
   el('invoiceDate').value=todayLocal();
   state.people=result.parties||[];
+  state.subCustomers=result.subCustomers||[];
   state.treasuries=result.treasuries||[];
   state.vatRate=Number(result.vatRate||0);
   customerOptions('');
@@ -219,6 +242,7 @@ const bootstrap=async()=>{
   const remembered=(()=>{try{return localStorage.getItem('telegram_pos_last_customer')}catch{return null}})();
   const choice=state.people.some(x=>x.id===remembered)?remembered:result.defaultCustomerId;
   if(choice)sel.value=choice;
+  renderSubCustomers();
   const treasury=el('treasury');treasury.replaceChildren(new Option('الافتراضي',''));
   for(const x of state.treasuries)treasury.appendChild(new Option(x.name,x.accountCode));
   try{const code=localStorage.getItem('telegram_pos_last_treasury');if(code)treasury.value=code;}catch{}
@@ -228,9 +252,10 @@ const bootstrap=async()=>{
   if(draftToResume&&window.confirm('توجد مسودة سابقة. هل تريد استكمالها؟')){
    state.draftId=draftToResume.draftId;const b=draftToResume.body;
    if(b.customerId)sel.value=b.customerId;
+   renderSubCustomers(b.subCustomerId|| (b.subCustomerName?'__new__':''),b.subCustomerName||'');
    el('invoiceDate').value=b.date||todayLocal();
    el('discount').value=b.overallDiscount||0;el('payment').value=b.paymentMethod||'cash';
-   el('paid').value=b.paidAmount??'';el('notes').value=b.notes||'';
+   el('paid').value=b.paidAmount??'';el('notes').value=b.notes||'';el('paymentNotes').value=b.paymentNotes||'';
    el('treasury').value=b.treasuryCode||'';
    state.lines=[];
    for(const l of b.items||[]){
@@ -279,13 +304,20 @@ el('createCustomerButton').addEventListener('click',async()=>{
   el('customerSearch').value='';
   customerOptions('');
   el('customer').value=result.customer.id;
+  renderSubCustomers();
   el('newCustomerPanel').classList.add('hidden');
   el('newCustomerName').value='';el('newCustomerPhone').value='';
   msg('تم إنشاء العميل '+result.customer.code+' واختياره.','success');
  }catch(error){msg('تعذر إضافة العميل: '+String(error.message||error),'error');}
  finally{el('createCustomerButton').disabled=false;}
 });
-el('customer').addEventListener('change',persistUi);
+el('customer').addEventListener('change',()=>{persistUi();renderSubCustomers()});
+el('subCustomer').addEventListener('change',()=>{
+ const isNew=el('subCustomer').value==='__new__';
+ el('subCustomerNewPanel').classList.toggle('hidden',!isNew);
+ if(!isNew)el('subCustomerNewName').value='';
+ else el('subCustomerNewName').focus();
+});
 el('itemSearch').addEventListener('input',event=>{
  clearTimeout(searchTimer);searchTimer=setTimeout(()=>searchItems(event.target.value),180);
 });

@@ -15,6 +15,9 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
 .results{margin-top:8px;max-height:220px;overflow-y:auto;display:grid;gap:6px}.result{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid #e4ecee;border-radius:9px;padding:9px;background:#fff;text-align:right;width:100%;cursor:pointer}.result:hover{background:#eff8f3}.result strong,.result small{display:block}.result small{color:#708791}.result .price{color:#0b7054;font-size:13px;white-space:nowrap}
 .items{display:grid;gap:10px;margin-top:12px}.line{border:1px solid #dae5e7;border-radius:11px;background:#fbfdfd;padding:12px}.line-head{display:flex;justify-content:space-between;gap:7px}.line-title{font-weight:750}.line-subtitle{font-size:11px;color:#687c87}.line-remove{border:1px solid #f2d7d7;padding:1px 9px;color:#b63a32;background:#fff;border-radius:7px;min-height:28px}.line-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.line-grid label{margin-top:7px}.dim-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.dim-options{display:flex;align-items:center;gap:6px;margin:10px 0 4px;font-size:12px}.dim-options input{width:auto;min-height:auto}.line input{min-height:36px;padding:7px}.line-total{display:flex;justify-content:flex-end;gap:8px;font-weight:750;margin-top:7px}.totals{border-top:1px solid var(--border);padding-top:12px;margin-top:12px}.totals>div{display:flex;justify-content:space-between;margin-bottom:5px}.totals .grand{font-size:17px;font-weight:800;color:var(--green);border-top:1px dashed #c8d7dc;padding-top:10px;margin-top:8px}
 .success-icon{width:64px;height:64px;border-radius:50%;background:#e3f5e9;color:#0f8555;font-size:38px;font-weight:800;margin:14px auto;display:grid;place-items:center}#success{text-align:center}.invoice-number{font-size:28px;font-weight:850;color:#0b7755!important;margin:16px 0!important}footer{text-align:center;color:#778a91;font-size:11px;padding:0 10px 20px} @media(max-width:380px){main{padding:8px}.panel{padding:12px}.cols{gap:6px}.small-badge{display:none}}
+.subcustomer-row{margin-top:8px;padding:2px 0 3px}
+#subCustomerNewPanel{background:#f7fafb;border:1px solid #dbe8e9;padding:10px;border-radius:10px;margin-top:7px}
+#paymentNotes{margin-bottom:2px}
 </style>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
@@ -56,6 +59,14 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
   <label for="customerSearch">العميل</label>
   <input id="customerSearch" type="search" placeholder="بحث باسم العميل أو كوده"/>
   <select id="customer" aria-label="اختر العميل"></select>
+   <div class="subcustomer-row">
+    <label for="subCustomer">العميل الفرعي (اختياري)</label>
+    <select id="subCustomer" aria-label="اختيار العميل الفرعي المرتبط"><option value="">بدون عميل فرعي</option></select>
+    <div id="subCustomerNewPanel" class="hidden">
+     <label for="subCustomerNewName">اسم العميل الفرعي الجديد</label>
+     <input id="subCustomerNewName" type="text" maxlength="100" autocomplete="off" placeholder="اكتب اسم العميل الفرعي"/>
+    </div>
+   </div>
   <button id="addCustomerButton" type="button" class="secondary" style="margin-top:8px">➕ إضافة عميل جديد</button>
   <div id="newCustomerPanel" class="hidden" style="margin-top:9px;border:1px solid #d8e4e8;border-radius:10px;padding:12px">
    <label for="newCustomerName">اسم العميل الجديد</label>
@@ -70,6 +81,8 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
    </div>
    <div><label for="treasury">الصندوق / الحساب</label><select id="treasury"><option value="">الافتراضي</option></select></div>
   </div>
+   <label for="paymentNotes">ملاحظات السداد (اختياري)</label>
+   <input id="paymentNotes" type="text" maxlength="1000" autocomplete="off" placeholder="مثال: رقم التحويل أو تفاصيل السداد"/>
  </div>
 
  <div class="panel">
@@ -88,7 +101,7 @@ label{display:block;font-size:12px;color:#3a5663;margin:12px 0 4px;font-weight:6
    <div><label for="discount">خصم الفاتورة (₪)</label><input id="discount" type="number" min="0" step=".01" value="0"/></div>
    <div><label for="paid">المبلغ المدفوع (₪)</label><input id="paid" type="number" min="0" step=".01" placeholder="تلقائي حسب السداد"/></div>
   </div>
-  <label for="notes">ملاحظات الفاتورة</label>
+  <label for="notes">ملاحظات الفاتورة (اختياري)</label>
   <textarea id="notes" rows="2" placeholder="ملاحظات عامة (اختياري)"></textarea>
   <div class="totals">
    <div><span>الإجمالي قبل الخصم</span><strong id="subtotal">₪ 0.00</strong></div>
