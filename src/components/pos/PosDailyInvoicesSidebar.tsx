@@ -98,8 +98,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
 }) => {
   const {
     invoices,
-    updateInvoice,
-    createPaymentVoucher,
+    createReceiptVoucherAtomic,
     treasuries,
     currencies,
     settings,
@@ -118,7 +117,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
   const [collectionAmount, setCollectionAmount] = useState<string>('');
   const [collectionMethod, setCollectionMethod] = useState<'cash' | 'bank_transfer'>('cash');
   const [collectionCurrencyCode, setCollectionCurrencyCode] = useState<string>(settings.baseCurrencyCode || 'ILS');
-  const [collectionTreasuryCode, setCollectionTreasuryCode] = useState<string>('1101');
+  const [collectionTreasuryCode, setCollectionTreasuryCode] = useState<string>('CASH-1101');
   const [collectionNotes, setCollectionNotes] = useState<string>('');
   const [isSuccessMessage, setIsSuccessMessage] = useState<string>('');
 
@@ -347,59 +346,46 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
     setCollectionAmount(rem > 0 ? String(rem) : '');
     setCollectionMethod('cash');
     setCollectionCurrencyCode(inv.currency || settings.baseCurrencyCode || 'ILS');
-    setCollectionTreasuryCode('1101');
+    setCollectionTreasuryCode('CASH-1101');
     setCollectionNotes(`دفعة تحصيل إضافية لفاتورة رقم ${inv.invoiceNumber}`);
   };
 
   // Execute Additional Collection
-  const handleExecuteCollection = () => {
+  const handleExecuteCollection = async () => {
     if (!collectingInvoice) return;
-
-    const amountNum = parseFloat(collectionAmount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      alert('الرجاء إدخال مبلغ تحصيل صحيح');
+    const amountNum = Number(collectionAmount);
+    if(!Number.isFinite(amountNum)||amountNum<=0||
+      amountNum>Number(collectingInvoice.remainingAmount??collectingInvoice.totalAmount-(collectingInvoice.paidAmount||0))+0.005){
+      alert('مبلغ التحصيل يجب أن يكون صحيحًا ولا يزيد عن المتبقي على الفاتورة.');
       return;
     }
-
-    const newPaid = Number(((collectingInvoice.paidAmount || 0) + amountNum).toFixed(2));
-    const newRemaining = Math.max(0, Number((collectingInvoice.totalAmount - newPaid).toFixed(2)));
-    const newStatus = newRemaining === 0 ? 'paid' : 'partial';
-
-    // Update invoice
-    updateInvoice(collectingInvoice.id, {
-      paidAmount: newPaid,
-      remainingAmount: newRemaining,
-      status: newStatus
-    });
-
-    // Create payment voucher receipt (سند قبض رسمي)
-    const partyId = collectingInvoice.customerId || 'pt-cust-1';
-    const partyName = collectingInvoice.customerName || 'عميل كاشير نقدي';
-
-    createPaymentVoucher({
-      voucherNumber: `RCT-ADD-${Date.now().toString().slice(-5)}`,
-      type: 'receipt',
-      date: new Date().toISOString().split('T')[0],
-      partyId,
-      partyName,
-      amount: amountNum,
-      paymentMethod: collectionMethod,
-      accountCode: collectionTreasuryCode,
-      description: `سند قبض وتحصيل دفعة لفاتورة #${collectingInvoice.invoiceNumber} - ${collectionNotes}`,
-      referenceInvoiceId: collectingInvoice.id,
-      currency: collectionCurrencyCode,
-      subCustomerId: collectingInvoice.subCustomerId,
-      subCustomerName: collectingInvoice.subCustomerName,
-      treasuryAccountCode: collectionTreasuryCode
-    });
-
-    posSound.playSuccessBeep();
-    setIsSuccessMessage(`تم تحصيل ${amountNum.toFixed(2)} بنجاح للفاتورة #${collectingInvoice.invoiceNumber}!`);
-    
-    setTimeout(() => {
-      setIsSuccessMessage('');
+    const partyId=collectingInvoice.customerId;
+    if(!partyId){alert('الفاتورة غير مرتبطة بمعرف عميل معتمد.');return;}
+    const party=parties.find(p=>p.id===partyId);
+    if(!party){alert('لم يُعثر على العميل المعتمد.');return;}
+    const rate=collectionCurrencyCode==='ILS'?1:
+      Number(currencies.find(c=>c.code===collectionCurrencyCode)?.rateAgainstBase||0);
+    if(!Number.isFinite(rate)||rate<=0){alert('سعر صرف العملة غير متاح.');return;}
+    try{
+      await createReceiptVoucherAtomic({
+        type:'receipt',
+        date:new Date().toISOString().slice(0,10),
+        partyId,partyName:party.name,partyType:'customer',
+        amount:amountNum,paymentMethod:collectionMethod,
+        treasuryAccountCode:collectionMethod==='cash'?'CASH-1101':collectionTreasuryCode,
+        accountCode:'1201',
+        description:'تحصيل إضافي لفاتورة '+collectingInvoice.invoiceNumber+' - '+collectionNotes,
+        referenceInvoiceId:collectingInvoice.id,
+        currency:collectionCurrencyCode,exchangeRate:rate,
+        subCustomerId:collectingInvoice.subCustomerId,
+        subCustomerName:collectingInvoice.subCustomerName
+      });
+      posSound.playSuccessBeep();
+      setIsSuccessMessage('تم تحصيل '+amountNum.toFixed(2)+' واعتماد سند القبض وقيده المحاسبي.');
       setCollectingInvoice(null);
-    }, 1200);
+    }catch(cause){
+      alert(cause instanceof Error?cause.message:'تعذر اعتماد القبض؛ لا توجد عملية معتمدة.');
+    }
   };
 
   // Compute Totals
@@ -1019,7 +1005,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
                   <label className="block font-bold text-slate-700 mb-1">طريقة السداد:</label>
                   <select
                     value={collectionMethod}
-                    onChange={e => setCollectionMethod(e.target.value as any)}
+                    onChange={e => {const method=e.target.value as 'cash'|'bank_transfer';setCollectionMethod(method);setCollectionTreasuryCode(method==='cash'?'CASH-1101':treasuries.find(t=>t.status==='active'&&t.accountCode!=='CASH-1101')?.accountCode||'');}}
                     className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold"
                   >
                     <option value="cash">نقدي (Cash)</option>
@@ -1052,7 +1038,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
                   onChange={e => setCollectionTreasuryCode(e.target.value)}
                   className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold"
                 >
-                  {treasuries.map(t => (
+                  {treasuries.filter(t=>t.status==='active'&&(collectionMethod==='cash'?t.accountCode==='CASH-1101':t.accountCode!=='CASH-1101')).map(t => (
                     <option key={t.id} value={t.accountCode}>
                       {t.name} - رصيد: {t.balance.toFixed(2)} ({t.currency || '₪'})
                     </option>
