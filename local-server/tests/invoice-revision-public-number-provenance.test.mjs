@@ -71,10 +71,19 @@ test('same-day unrelated public-number stock remains excluded only with complete
   /REVISION_(?:STOCK_BASELINE_MISMATCH|COST_BASELINE_MISMATCH|EXTRA_STOCK_MOVEMENT)/);
 });
 
-test('conflicting same-item public-number movement still fails closed',()=>{
+test('same-item conflicting cost with matching quantity still fails closed',()=>{
  const movements=stock().filter(x=>x.value.id!=='legacy-other-invoice');
- movements.push(movement('public-same-item-different-quantity','sticker',0.5,90,invoiceNumber));
- assert.throws(()=>run(movements),/REVISION_STOCK_BASELINE_MISMATCH/);
+ movements.push(movement('public-same-quantity-different-cost','sticker',0.87,91,invoiceNumber));
+ assert.throws(()=>run(movements),/REVISION_STOCK_COST_CHANGED_WITHOUT_REVALUATION/);
+});
+
+test('unowned public-number row with an entirely different quantity is not linked to a proven TEMP sale',()=>{
+ const movements=stock().filter(x=>x.value.id!=='legacy-other-invoice');
+ movements.push(movement('public-other-sale-quantity','sticker',23,90,invoiceNumber));
+ const result=run(movements);
+ assert.deepEqual(result.legacyForeignPublicNumberMovementIds,['public-other-sale-quantity']);
+ assert.equal(result.verifiedMovementIds.length,5);
+ assert.equal(result.expectedNextCOGSMinor,39400);
 });
 
 test('same-item exact duplicate remains quarantined for quantity edits',()=>{
