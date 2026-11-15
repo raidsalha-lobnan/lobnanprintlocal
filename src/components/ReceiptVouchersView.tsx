@@ -133,54 +133,14 @@ export const ReceiptVouchersView: React.FC = () => {
 
   return (
     <div className="space-y-5" dir="rtl">
-      {/* Top Header & Actions */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
-              <Receipt className="w-5 h-5" />
-            </span>
-            <h1 className="text-xl font-bold text-slate-800">سندات القبض (التحصيلات المالية)</h1>
-          </div>
-
+      {/* Header, search, filters and actions share one desktop row */}
+      <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex flex-wrap xl:flex-nowrap items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="p-1.5 bg-emerald-50 text-emerald-600 rounded-md"><Receipt className="w-4 h-4"/></span>
+          <h1 className="text-sm 2xl:text-base font-bold text-slate-800 whitespace-nowrap">سندات القبض (التحصيلات المالية)</h1>
         </div>
-
-        <button
-          onClick={() => {setEditingVoucher(null);setIsModalOpen(true)}}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>تحرير سند قبض جديد</span>
-        </button>
-      </div>
-
-      {/* Compact single-line KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0" title={`${receiptVouchers.length} سند قبض معتمد`}>
-          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">إجمالي المقبوضات المسجلة</span>
-          <strong className="text-sm font-mono font-bold text-emerald-600 whitespace-nowrap">{totalAmount.toLocaleString('ar-SA')} {settings.currency}</strong>
-          <span className="text-[10px] text-slate-400 truncate" title={`${receiptVouchers.length} سند قبض معتمد`}>({receiptVouchers.length} سند)</span>
-        </div>
-        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0">
-          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">مقبوضات اليوم</span>
-          <strong className="text-sm font-mono font-bold text-slate-800 whitespace-nowrap">{todayAmount.toLocaleString('ar-SA')} {settings.currency}</strong>
-          <span className="text-[10px] text-slate-400 truncate" title="سداد فواتير ودفعات جارية">سداد فواتير ودفعات جارية</span>
-        </div>
-        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0">
-          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">المقبوضات النقدية (الكاش)</span>
-          <strong className="text-sm font-mono font-bold text-slate-800 whitespace-nowrap">{cashTotal.toLocaleString('ar-SA')} {settings.currency}</strong>
-          <span className="text-[10px] text-slate-400 truncate" title="أودعت في صناديق الكاشير">أودعت في صناديق الكاشير</span>
-        </div>
-        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0">
-          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">المقبوضات البنكية والشيكات</span>
-          <strong className="text-sm font-mono font-bold text-blue-600 whitespace-nowrap">{bankTotal.toLocaleString('ar-SA')} {settings.currency}</strong>
-          <span className="text-[10px] text-slate-400 truncate" title="حوالات وشيكات تحت التحصيل">حوالات وشيكات تحت التحصيل</span>
-        </div>
-      </div>
-
-      {/* Compact search, explicit date scope and report actions */}
-      <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex flex-wrap items-center gap-2">
-        <div className="relative w-full sm:w-52 md:w-60 shrink-0">
+      <div className="flex flex-1 min-w-0 items-center gap-1.5 flex-wrap xl:flex-nowrap">
+        <div className="relative w-full sm:w-36 xl:w-40 2xl:w-52 shrink-0">
           <Search className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
           <input type="search" placeholder="بحث بالسند أو الاسم أو البيان"
             value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
@@ -216,14 +176,44 @@ export const ReceiptVouchersView: React.FC = () => {
         {(searchQuery||methodFilter!=='all'||dateMode!=='all')&&
           <button type="button" className="text-emerald-700 text-xs px-2 py-2"
             onClick={()=>{setSearchQuery('');setMethodFilter('all');setDateMode('all');setSelectedDay('');setFromDate('');setToDate('');setReportError('');}}>إلغاء الفلاتر</button>}
-        <div className="ms-auto flex items-center gap-2">
+        <div className="flex items-center gap-1.5 shrink-0">
           <span className="text-[11px] text-slate-500 whitespace-nowrap">{filteredVouchers.length} سند</span>
           <button type="button" onClick={printRegister}
-            className="flex items-center gap-1.5 rounded-md bg-blue-700 hover:bg-blue-800 text-white px-3 py-2 text-xs font-bold">
+            className="flex items-center gap-1 rounded-md bg-blue-700 hover:bg-blue-800 text-white px-2 py-2 text-[11px] font-bold whitespace-nowrap">
             <Printer size={15}/>طباعة كشف السندات
           </button>
         </div>
       </div>
+        <button type="button" onClick={() => {setEditingVoucher(null);setIsModalOpen(true)}}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-[11px] px-3 py-2 rounded-md flex items-center justify-center gap-1 shrink-0 whitespace-nowrap">
+          <Plus className="w-3.5 h-3.5"/>تحرير سند قبض جديد
+        </button>
+      </div>
+
+      {/* Compact single-line KPI cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0" title={`${receiptVouchers.length} سند قبض معتمد`}>
+          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">إجمالي المقبوضات المسجلة</span>
+          <strong className="text-sm font-mono font-bold text-emerald-600 whitespace-nowrap">{totalAmount.toLocaleString('ar-SA')} {settings.currency}</strong>
+          <span className="text-[10px] text-slate-400 truncate" title={`${receiptVouchers.length} سند قبض معتمد`}>({receiptVouchers.length} سند)</span>
+        </div>
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0">
+          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">مقبوضات اليوم</span>
+          <strong className="text-sm font-mono font-bold text-slate-800 whitespace-nowrap">{todayAmount.toLocaleString('ar-SA')} {settings.currency}</strong>
+          <span className="text-[10px] text-slate-400 truncate" title="سداد فواتير ودفعات جارية">سداد فواتير ودفعات جارية</span>
+        </div>
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0">
+          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">المقبوضات النقدية (الكاش)</span>
+          <strong className="text-sm font-mono font-bold text-slate-800 whitespace-nowrap">{cashTotal.toLocaleString('ar-SA')} {settings.currency}</strong>
+          <span className="text-[10px] text-slate-400 truncate" title="أودعت في صناديق الكاشير">أودعت في صناديق الكاشير</span>
+        </div>
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0">
+          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">المقبوضات البنكية والشيكات</span>
+          <strong className="text-sm font-mono font-bold text-blue-600 whitespace-nowrap">{bankTotal.toLocaleString('ar-SA')} {settings.currency}</strong>
+          <span className="text-[10px] text-slate-400 truncate" title="حوالات وشيكات تحت التحصيل">حوالات وشيكات تحت التحصيل</span>
+        </div>
+      </div>
+
       {reportError&&<div role="alert" className="text-rose-700 bg-rose-50 border border-rose-200 rounded p-2 text-xs">{reportError}</div>}
 
       {/* Vouchers Table */}
