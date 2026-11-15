@@ -22,7 +22,7 @@ const field='block text-[11px] text-slate-600 font-semibold mb-1';
 export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
  isOpen,onClose,defaultParty,defaultSubCustomerName='',defaultAmount=0,editingVoucher=null
 })=>{
- const {parties,employees,treasuries,currencies,settings,createPaymentVoucher,
+ const {parties,employees,treasuries,currencies,settings,createReceiptVoucherAtomic,
   amendReceiptVoucher,setSelectedVoucherForPrint}=useAccounting();
  const [targetType,setTargetType]=useState<TargetType>('customer');
  const [partyId,setPartyId]=useState('');
@@ -158,10 +158,12 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
      transferReference:paymentNote
     });
     if(!result.success)throw Error(result.message||'تعذّر تعديل سند القبض.');
-   }else createPaymentVoucher(newVoucher);
+   }else {
+     const confirmed=await createReceiptVoucherAtomic(newVoucher);
+     setSavedVoucher(confirmed);
+     if(print)setSelectedVoucherForPrint(confirmed);
+   }
    posSound.playSuccessBeep();
-   setSavedVoucher(newVoucher);
-   if(print)setSelectedVoucherForPrint(newVoucher);
    onClose();
   }catch(cause){
    setError(cause instanceof Error?cause.message:'تعذّر حفظ السند، لم تُثبت أي حركة.');
