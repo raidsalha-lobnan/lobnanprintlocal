@@ -404,6 +404,13 @@ function buildNewAtomicPosSale(input) {
     };
     journals.push(change("journalEntries", journal.id, journal));
     const cogs = money(stockMovements.reduce((s, m) => s + Number(m.value?.totalValue || 0), 0), "TOTAL_COGS");
+    invoice.costPostingEvidence = {
+      version: 1,
+      kind: cogs > 0 ? "posted_cogs" : sold.size > 0 ? "verified_zero_cost" : "non_stock_service",
+      physicalItemCount: sold.size,
+      totalCost: cogs,
+      source: "atomic_pos_stock_movements"
+    };
     if (cogs > 0) {
       const cogsId = stablePosJournalId("cogs", invoiceId);
       const cogsJournal = {
