@@ -43,6 +43,28 @@ export const UnifiedEmployeeStatementDocument: React.FC<Props> = ({
   ] as const;
   return (
     <>
+      <style>{`
+        /* Highlight the entire sales invoice heading, on screen and A4 print. */
+        .employee-sales-invoice-heading,
+        .employee-sales-invoice-heading > td {
+          background-color: #173b50 !important;
+          color: #ffffff !important;
+          font-weight: 700;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        .employee-sales-invoice-heading * {
+          color: #ffffff !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        .employee-sales-invoice-heading > td {
+          border-color: #68829a !important;
+        }
+        @media print {
+          .employee-sales-invoice-heading { break-inside: avoid; }
+        }
+      `}</style>
       <PrintHeader />
       <div className="border-b-2 border-slate-900 pb-2">
         <div className="statement-document-heading text-center font-bold text-base mb-1.5 mt-2 text-slate-900 leading-relaxed">
@@ -90,7 +112,7 @@ export const UnifiedEmployeeStatementDocument: React.FC<Props> = ({
                   .filter(Boolean).join(' — ');
                 return (
                   <React.Fragment key={row.id + '-' + index}>
-                    <tr className={index % 2 ? 'bg-slate-50/40' : 'bg-white'}>
+                    <tr className={row.type === 'invoice' ? 'employee-sales-invoice-heading' : index % 2 ? 'bg-slate-50/40' : 'bg-white'}>
                       <td className="text-center text-slate-500 font-sans border-l border-slate-300">{index + 1}</td>
                       <td className="text-center text-slate-700 whitespace-nowrap border-l border-slate-300">{formatDateDisplay(row.date)}</td>
                       <td className="font-sans text-slate-800 border-l border-slate-300">
@@ -134,7 +156,6 @@ export const UnifiedEmployeeStatementDocument: React.FC<Props> = ({
                                     <td className="border-l border-slate-200">
                                       <strong>{item.itemName}</strong>
                                       {(item.notes || item.description) && <span className="font-medium text-slate-600"> / {item.notes || item.description}</span>}
-                                      {item.itemCode && <span className="text-[9px] text-slate-500 font-mono"> ({item.itemCode})</span>}
                                     </td>
                                     <td className="text-center font-mono border-l border-slate-200">{displayDimension(item.length, hasVisibleInvoiceDimensions(item))}</td>
                                     <td className="text-center font-mono border-l border-slate-200">{displayDimension(item.width, hasVisibleInvoiceDimensions(item))}</td>
