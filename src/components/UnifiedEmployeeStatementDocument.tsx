@@ -111,37 +111,68 @@ export const UnifiedEmployeeStatementDocument: React.FC<Props> = ({
                       <td className="text-left font-black bg-slate-50 whitespace-nowrap">{number(row.runningBalance)}</td>
                     </tr>
                     {showItemDetails && !!row.items?.length && (
-                      <tr className="bg-slate-50/70">
-                        <td colSpan={6} className="p-1.5 print:p-1">
-                          <div className="text-[10px] font-semibold text-slate-700 mb-1">تفاصيل الأصناف / المسحوبات — {row.referenceNumber || row.typeLabel}</div>
-                          <table className="w-full border-collapse text-[10px] border border-slate-300">
-                            <thead className="bg-slate-100">
-                              <tr>
-                                <th className="border border-slate-300 p-1">الصنف والملاحظات</th>
-                                <th className="border border-slate-300 p-1">الطول</th>
-                                <th className="border border-slate-300 p-1">العرض</th>
-                                <th className="border border-slate-300 p-1">العدد</th>
-                                <th className="border border-slate-300 p-1">الكمية</th>
-                                <th className="border border-slate-300 p-1">السعر</th>
-                                <th className="border border-slate-300 p-1">الإجمالي</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {row.items.map((item, ii) => (
-                                <tr key={ii}>
-                                  <td className="border border-slate-300 p-1">
-                                    <b>{item.itemName}</b>{item.notes ? ' — ' + item.notes : ''}
-                                  </td>
-                                  <td className="border border-slate-300 p-1 text-center">{displayDimension(item.length, hasVisibleInvoiceDimensions(item))}</td>
-                                  <td className="border border-slate-300 p-1 text-center">{displayDimension(item.width, hasVisibleInvoiceDimensions(item))}</td>
-                                  <td className="border border-slate-300 p-1 text-center">{hasVisibleInvoiceDimensions(item) ? item.count || 1 : '—'}</td>
-                                  <td className="border border-slate-300 p-1 text-center">{item.quantity}</td>
-                                  <td className="border border-slate-300 p-1 text-left">{number(item.unitPrice)}</td>
-                                  <td className="border border-slate-300 p-1 text-left font-bold">{number(item.total)}</td>
+                      <tr className="bg-white print:bg-white print-allow-break">
+                        <td colSpan={6} className="p-0 border-b border-slate-300 print-allow-break report-subtable-cell">
+                          <div className="w-full bg-white print:border-none print:block">
+                            <table className="w-full text-right report-sub-table border-collapse">
+                              <thead>
+                                <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
+                                  <th className="text-center w-8 border-l border-slate-200">م</th>
+                                  <th className="border-l border-slate-200">الصنف والبيان</th>
+                                  <th className="text-center w-12 border-l border-slate-200">الطول</th>
+                                  <th className="text-center w-12 border-l border-slate-200">العرض</th>
+                                  <th className="text-center w-10 border-l border-slate-200">العدد</th>
+                                  <th className="text-center w-12 border-l border-slate-200">الكمية</th>
+                                  <th className="text-left w-16 border-l border-slate-200">السعر</th>
+                                  <th className="text-left w-18">الإجمالي</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody className="divide-y divide-slate-200">
+                                {row.items.map((item, ii) => (
+                                  <tr key={ii}>
+                                    <td className="text-center border-l border-slate-200 font-mono">{ii + 1}</td>
+                                    <td className="border-l border-slate-200">
+                                      <strong>{item.itemName}</strong>
+                                      {(item.notes || item.description) && <span className="font-medium text-slate-600"> / {item.notes || item.description}</span>}
+                                      {item.itemCode && <span className="text-[9px] text-slate-500 font-mono"> ({item.itemCode})</span>}
+                                    </td>
+                                    <td className="text-center font-mono border-l border-slate-200">{displayDimension(item.length, hasVisibleInvoiceDimensions(item))}</td>
+                                    <td className="text-center font-mono border-l border-slate-200">{displayDimension(item.width, hasVisibleInvoiceDimensions(item))}</td>
+                                    <td className="text-center font-mono border-l border-slate-200">{hasVisibleInvoiceDimensions(item) ? item.count || 1 : '—'}</td>
+                                    <td className="text-center font-mono border-l border-slate-200 font-bold">{item.quantity}</td>
+                                    <td className="text-left font-mono border-l border-slate-200">{number(item.unitPrice)}</td>
+                                    <td className="text-left font-mono font-bold">{number(item.total)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {row.type === 'invoice' && (
+                              <div className="invoice-financial-strip grid grid-cols-6 items-center gap-x-1 border-t border-slate-300 bg-white px-1 py-1 font-bold text-slate-900" dir="rtl">
+                                {([
+                                  ['قبل الخصم', row.subtotal ?? row.items.reduce((total,item)=>total+item.total,0)],
+                                  ['الخصم', row.discountTotal ?? 0],
+                                  ['الضريبة', row.taxAmount ?? 0],
+                                  ['الإجمالي', row.totalAmount ?? row.items.reduce((total,item)=>total+item.total,0)],
+                                  ['المدفوع', row.paidAmount ?? 0],
+                                  ['المتبقي', row.remainingAmount ?? ((row.totalAmount ?? 0)-(row.paidAmount ?? 0))]
+                                ] as [string,number][]).map(([label,amount]) => (
+                                  <span key={label} className="inline-flex items-center gap-1 whitespace-nowrap text-[9px]">
+                                    <span className="text-slate-600">{label}:</span>
+                                    <span className="font-mono">{number(amount)}</span>
+                                  </span>
+                                ))}
+                                {row.invoiceCurrency && row.invoiceCurrency !== 'ILS' && (
+                                  <span className="col-span-6 text-[9px] text-slate-500">قيم الفاتورة بعملة {row.invoiceCurrency}، بينما رصيد الموظف محتسب بالعملة الأساسية ₪</span>
+                                )}
+                                {row.additionalCharges !== undefined && row.additionalCharges > 0 && (
+                                  <span className="col-span-6 text-[9px] text-slate-600">إضافات الفاتورة: {number(row.additionalCharges)}</span>
+                                )}
+                                {row.invoiceNotes && (
+                                  <span className="col-span-6 text-[9px] font-normal text-slate-700">ملاحظات الفاتورة: {row.invoiceNotes}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )}
