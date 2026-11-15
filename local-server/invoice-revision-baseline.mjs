@@ -64,7 +64,42 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
  const cogsMinor=sumAccount(cogsJournals,'5101');
  if(cogsMinor<0||!Number.isSafeInteger(cogsMinor))
   throw new Error('REVISION_INVALID_POSTED_COST');
- const originalMovements=movements.filter(m=>originalMovement(m,invoice));
+ // A pre-atomic legacy sale can have two stock HISTORY rows for the same
+ // physical issue: one with the unique TEMP-<immutable invoice id>, and one
+ // re-imported under its public INV-#### number. The latter number was reused
+ // by unrelated earlier sales and is never reliable evidence of ownership.
+ // Keep both rows in the audit database. For a price-only revision we can
+ // safely use the unique TEMP row as cost/quantity evidence, because this
+ // revision never writes or revalues inventory. An actual quantity/warehouse
+ // revision with this duplication still requires a separate inventory audit.
+ const candidates=movements.filter(m=>originalMovement(m,invoice));
+ const trustedTemp=candidates.filter(row=>{
+  const m=value(row);
+  return m.referenceNumber==='TEMP-'+invoice.id &&
+   !m.sourceInvoiceId&&!m.referenceId;
+ });
+ const sameIssue=(a,b)=>{
+  const x=value(a),y=value(b);
+  return x.itemId===y.itemId&&x.date===y.date&&
+   Number(x.quantity)===Number(y.quantity)&&
+   Number(x.unitPrice)===Number(y.unitPrice)&&
+   minor(x.totalValue||0)===minor(y.totalValue||0);
+ };
+ const duplicateDisplayOnly=[];
+ const originalMovements=candidates.filter(row=>{
+  const m=value(row);
+  if(m.referenceNumber!==invoice.invoiceNumber||m.sourceInvoiceId||m.referenceId)
+   return true;
+  const matches=trustedTemp.filter(temp=>sameIssue(temp,row));
+  // Do not guess when there are multiple identical temporary movements.
+  if(matches.length!==1)return true;
+  duplicateDisplayOnly.push(row);
+  return false;
+ });
+ if(duplicateDisplayOnly.length&&
+    (plan.stockDeltas.length!==0||invoice.warehouse!==proposed.warehouse||
+     invoice.date!==proposed.date))
+  throw new Error('REVISION_LEGACY_DOUBLE_STOCK_REQUIRES_INVENTORY_AUDIT');
  const correctedMovements=movements.filter(m=>value(m).referenceType==='invoice_correction'&&
     value(m).sourceInvoiceId===invoice.id);
  for(const m of correctedMovements){
@@ -106,5 +141,8 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
  return {...plan,...finance,currentCOGSMinor:cogsMinor,
   expectedNextCOGSMinor:calculateNextCost(),costByItem:Object.fromEntries(costs),
   unpricedPhysicalIds,
-  verifiedMovementIds:[...originalMovements,...correctedMovements].map(r=>value(r).id)};
+  verifiedMovementIds:[...originalMovements,...correctedMovements].map(r=>value(r).id),
+  // Kept unchanged in the database; excluded solely from financial-only cost
+  // proof so a repeated public number cannot double the invoice's inventory.
+  legacyDuplicateDisplayMovementIds:duplicateDisplayOnly.map(r=>value(r).id)};
 }
