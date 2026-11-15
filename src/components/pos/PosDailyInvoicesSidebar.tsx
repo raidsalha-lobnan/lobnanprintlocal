@@ -98,6 +98,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
 }) => {
   const {
     invoices,
+    updateInvoice,
     createReceiptVoucherAtomic,
     treasuries,
     currencies,
