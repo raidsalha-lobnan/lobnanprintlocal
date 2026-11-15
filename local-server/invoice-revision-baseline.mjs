@@ -114,6 +114,27 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
    legacyDuplicateDisplayMovementIds:[]};
  }
 
+ // Legacy records sometimes have a valid COGS journal, but no stock
+ // movement with an immutable invoice ID (only reused display numbers).
+ // A financially sound price-only edit may change receivables/revenue while
+ // leaving historical COGS and all stock exactly untouched. This is NOT a
+ // substitute for tracing historical inventory or permission to edit qty.
+ const financialOnlyWithoutStockProof=cogs.length===1&&corrections.length===0&&
+  !provenStock&&unchangedPhysicalSale&&plan.stockDeltas.length===0&&
+  invoice.customerId===proposed.customerId&&
+  invoice.subCustomerId===proposed.subCustomerId&&
+  invoice.counterpartyType===proposed.counterpartyType&&
+  plan.paymentDeltaMinor===0&&
+  Object.keys(finance.paymentDeltas||{}).length===0;
+ if(financialOnlyWithoutStockProof)
+  return {...plan,...finance,currentCOGSMinor:cogsMinor,
+   expectedNextCOGSMinor:cogsMinor,costByItem:{},
+   unpricedPhysicalIds:[],verifiedMovementIds:[],
+   legacyCostReviewRequired:true,
+   legacyCostReviewReason:'UNVERIFIED_HISTORICAL_STOCK_SOURCE_FINANCIAL_ONLY',
+   legacyDuplicateDisplayMovementIds:[],
+   legacyForeignPublicNumberMovementIds:[]};
+
  // A pre-atomic legacy sale can have two stock HISTORY rows for the same
  // physical issue: one with the unique TEMP-<immutable invoice id>, and one
  // re-imported under its public INV-#### number. The latter number was reused
@@ -128,6 +149,30 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
   return m.referenceNumber==='TEMP-'+invoice.id &&
    !m.sourceInvoiceId&&!m.referenceId;
  });
+ // A recycled public INV-#### number is not proof of stock ownership.
+ // Exclude a different-item, display-number-only movement ONLY when the
+ // immutable TEMP-<invoice id> movements independently prove every physical
+ // invoice quantity AND the original COGS amount. Never delete the record.
+ const expectedPhysical=quantities(invoice.items);
+ const completeTempEvidence=(()=>{
+  if(corrections.length||cogs.length!==1||trustedTemp.length===0)return false;
+  const counted=new Map();
+  let totalCost=0;
+  try{
+   for(const row of trustedTemp){
+    const m=value(row),q=Number(m.quantity),price=Number(m.unitPrice);
+    if(m.type!=='out_sale'||m.date!==invoice.date||!expectedPhysical.has(m.itemId)||
+       !Number.isFinite(q)||q<=0||!Number.isFinite(price)||price<0||
+       minor(m.totalValue||0)!==minor(q*price))return false;
+    counted.set(m.itemId,(counted.get(m.itemId)||0)+q);
+    totalCost+=minor(m.totalValue||0);
+   }
+  }catch{return false;}
+  return totalCost===cogsMinor&&counted.size===expectedPhysical.size&&
+   [...expectedPhysical].every(([id,qty])=>
+    Math.abs((counted.get(id)||0)-qty)<0.000001);
+ })();
+ const unrelatedPublicNumberMovements=[];
  const sameIssue=(a,b)=>{
   const x=value(a),y=value(b);
   return x.itemId===y.itemId&&x.date===y.date&&
@@ -140,6 +185,23 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
   const m=value(row);
   if(m.referenceNumber!==invoice.invoiceNumber||m.sourceInvoiceId||m.referenceId)
    return true;
+  if(completeTempEvidence&&m.type==='out_sale'){
+   const expectedQty=expectedPhysical.get(m.itemId),movementQty=Number(m.quantity);
+   const sameItemTemp=trustedTemp.filter(t=>value(t).itemId===m.itemId);
+   const matchesTempQuantity=sameItemTemp.some(t=>
+    Math.abs(Number(value(t).quantity)-movementQty)<0.000001);
+   const matchesInvoiceQuantity=expectedQty!==undefined&&
+    Math.abs(expectedQty-movementQty)<0.000001;
+   // A different item OR a different quantity cannot be an additional
+   // physical issue of an invoice whose immutable TEMP rows already prove
+   // the entire original stock and COGS. Same-quantity conflicting cost
+   // remains ambiguous, and must fail closed as before.
+   if(expectedQty===undefined||(Number.isFinite(movementQty)&&movementQty>0&&
+      !matchesTempQuantity&&!matchesInvoiceQuantity)){
+    unrelatedPublicNumberMovements.push(row);
+    return false;
+   }
+  }
   const matches=trustedTemp.filter(temp=>sameIssue(temp,row));
   // Do not guess when there are multiple identical temporary movements.
   if(matches.length!==1)return true;
@@ -194,5 +256,7 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
   verifiedMovementIds:[...originalMovements,...correctedMovements].map(r=>value(r).id),
   // Kept unchanged in the database; excluded solely from financial-only cost
   // proof so a repeated public number cannot double the invoice's inventory.
-  legacyDuplicateDisplayMovementIds:duplicateDisplayOnly.map(r=>value(r).id)};
+  legacyDuplicateDisplayMovementIds:duplicateDisplayOnly.map(r=>value(r).id),
+  // Preserve each excluded unrelated stock event for independent audit.
+  legacyForeignPublicNumberMovementIds:unrelatedPublicNumberMovements.map(r=>value(r).id)};
 }
