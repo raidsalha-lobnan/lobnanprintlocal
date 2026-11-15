@@ -9382,7 +9382,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             description: voucherData.description || `سند صرف`
           },
           {
-            accountCode: cashBankCode,
+            // CASH-#### identifies the physical treasury, not a GL account.
+            // Credit 1101 for the sole cash box or 1102 for banks/wallets.
+            accountCode: ledgerCode,
             accountName: cashBankName,
             debit: 0,
             credit: baseAmount,
