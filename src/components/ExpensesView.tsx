@@ -45,9 +45,7 @@ export const ExpensesView: React.FC = () => {
     settings,
     expenses,
     addExpense,
-    deleteExpense,
-    createPaymentVoucher,
-    vouchers
+    deleteExpense
   } = useAccounting();
 
   // Filter accounts with type 'expense' (starts with 5)
@@ -145,18 +143,10 @@ export const ExpensesView: React.FC = () => {
       notes: modalNotes
     });
 
-    // Also register in vouchers as a payment voucher
-    createPaymentVoucher({
-      type: 'payment',
-      date: modalDate,
-      partyId: 'expense-party',
-      partyName: modalBeneficiary || selectedAcc.name,
-      amount: modalAmount,
-      paymentMethod: modalMethod,
-      accountCode: selectedAcc.code,
-      treasuryAccountCode: modalTreasuryCode,
-      description: `مصروف تشغيلي: ${selectedAcc.name} - ${modalNotes}`
-    });
+    // addExpense already posts the expense journal and treasury withdrawal.
+    // A second createPaymentVoucher here posted the SAME expenditure again,
+    // doubling the cash outflow and the expense in the general ledger.
+    // Keep the expense's own PV-EXP voucherNumber / journalEntryId as evidence.
 
     setIsModalOpen(false);
     setModalAmount(0);
