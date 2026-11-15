@@ -39,7 +39,7 @@ export function verifiedReceiptCustomerBalance(params:{
   if(!entries.some(j=>j.referenceType==='pos_invoice'))return null;
   let ar=0;
   for(const j of entries){
-   if(j.referenceType==='invoice_correction'&&
+   if(String(j.referenceType)==='invoice_correction'&&
     (!(j as JournalEntry & {approvedRevision?:boolean}).approvedRevision||
      !(j as JournalEntry & {internalCorrection?:boolean}).internalCorrection))return null;
    const debits=j.lines.reduce((s,l)=>s+(cents(l.debit)||0),0);
