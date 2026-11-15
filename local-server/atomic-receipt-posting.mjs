@@ -1,4 +1,5 @@
 import {InputError} from './sync-domain.mjs';
+import {proveCustomerBalanceBeforeReceipt} from './verified-receipt-balance.mjs';
 
 const round=(n)=>Math.round(n*100)/100;
 function cents(value,field){
@@ -79,7 +80,10 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
    (!cash&&treasury.value.type==='cash_box')||
    liquid.value.type!=='asset'||receivable.value.type!=='asset')
    throw new InputError('RECEIPT_TARGET_ACCOUNT_INVALID',409);
- const oldBalance=Number(treasury.value.balance),partyBalance=Number(party.value.balance);
+ const oldBalance=Number(treasury.value.balance);
+ const cachedPartyBalance=Number(party.value.balance);
+ const provenPartyBalance=await proveCustomerBalanceBeforeReceipt(client,workspace,party,voucher.id);
+ const partyBalance=provenPartyBalance===null?cachedPartyBalance:provenPartyBalance;
  if(!Number.isFinite(oldBalance)||!Number.isFinite(partyBalance))
   throw new InputError('RECEIPT_BALANCE_BASELINE_INVALID',422);
  const currency=String(voucher.currency||'ILS');
@@ -127,7 +131,18 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
   {entity:'treasuries',row:treasury,value:{...treasury.value,balance,
     currencyBalances:{...held,[currency]:currencyBalance},
     transactions:[tx,...existingTx]}},
-  {entity:'parties',row:party,value:{...party.value,balance:plus(partyBalance,-base)}},
+  {entity:'parties',row:party,value:{
+   ...party.value,balance:plus(partyBalance,-base),
+   ...(provenPartyBalance!==null&&Math.abs(cachedPartyBalance-provenPartyBalance)>0.005?{
+    balanceReconciliations:[...(Array.isArray(party.value.balanceReconciliations)?
+     party.value.balanceReconciliations:[]),{
+      id:'receipt-proven-baseline-'+voucher.id,
+      at:now,reason:'VERIFIED_INVOICES_AND_PRIOR_RECEIPTS',
+      previousBalance:cachedPartyBalance,provenBalance:provenPartyBalance,
+      postedToGeneralLedger:false,originalDocumentsUnchanged:true
+    }]
+   }:{})
+  }},
   {entity:'accounts',row:liquid,value:{...liquid.value,balance:plus(liquid.value.balance,base)}},
   {entity:'accounts',row:receivable,value:{...receivable.value,balance:plus(receivable.value.balance,-base)}}
  ];
