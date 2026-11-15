@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Party } from '../../types';
+import { sortPartiesByCode, comparePartiesByCode } from '../../utils/partyUtils';
 import {
   Search,
   User,
@@ -71,7 +72,7 @@ export const PosCustomerSearchInput: React.FC<PosCustomerSearchInputProps> = ({
 
   // Strictly sanitize customer list: sub-customers must NEVER appear with main customers
   const sanitizedCustomers = useMemo(() => {
-    return (customers || []).filter(c => !c.isSubCustomer);
+    return sortPartiesByCode((customers || []).filter(c => !c.isSubCustomer));
   }, [customers]);
 
   // Find the selected customer object if any
@@ -132,7 +133,7 @@ export const PosCustomerSearchInput: React.FC<PosCustomerSearchInputProps> = ({
         return { customer: cust, score };
       })
       .filter((item): item is { customer: Party; score: number } => item !== null)
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => b.score - a.score || comparePartiesByCode(a.customer, b.customer))
       .map(item => item.customer);
 
     return scoredList;
