@@ -24,6 +24,7 @@ import {
   Truck
 } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
+import { sortPartiesByCode } from '../utils/partyUtils';
 import { PrintJobOrder, PrintOrderStatus, InvoiceItem, LineAttachment } from '../types';
 import { isSquareMeterUnit } from '../utils/unitsOfMeasure';
 import { matchKeyboardShortcut } from '../utils/keyboardShortcuts';
@@ -407,12 +408,12 @@ export const NewPrintOrderView: React.FC<NewPrintOrderViewProps> = ({
 
   // Registered Customers List Only (الزبائن)
   const registeredCustomers = useMemo(() => {
-    return parties.filter(p => p.type === 'customer' || p.type === 'both');
+    return sortPartiesByCode(parties.filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer));
   }, [parties]);
 
   // Registered Suppliers List (الموردين)
   const registeredSuppliers = useMemo(() => {
-    return parties.filter(p => p.type === 'supplier' || p.type === 'both');
+    return sortPartiesByCode(parties.filter(p => (p.type === 'supplier' || p.type === 'both') && !p.isSubCustomer));
   }, [parties]);
 
   // Options list based on targetType (زبون - مورد - موظف)
