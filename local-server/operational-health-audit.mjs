@@ -1,3 +1,4 @@
+import {assessFinancialChains} from './financial-chain-audit.mjs';
 /**
  * Read-only preflight of the accounting workspace.
  * Never auto-fix financial postings, delete pending commands, or derive ownership
@@ -103,14 +104,14 @@ export async function runWorkspaceReadOnlyAudit(pool,workspace){
   try{
     await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const entities={};
-    for(const entity of ['invoices','journalEntries','stockMovements','parties','inventory','printOrders','employees','accounts','treasuries','vouchers','users','roles','settings','warehouses']){
+    for(const entity of ['invoices','journalEntries','stockMovements','parties','inventory','printOrders','employees','accounts','treasuries','vouchers','users','roles','settings','warehouses','payrollSheets','employeeAdvances','employeeDeductions','employeeIncentives','purchases','expenses','purchaseReturns','salesReturns','debtClearings']){
       entities[entity]=(await client.query('SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity=$2',[workspace,entity])).rows;
     }
     const records=assessWorkspaceRecords(entities);
     const commandStats=(await client.query("SELECT count(*)::int AS committed_commands, count(DISTINCT command_id)::int AS distinct_commands FROM sync_commands WHERE workspace=$1",[workspace])).rows[0];
     const eventStats=(await client.query("SELECT count(*)::bigint AS count, max(sequence)::bigint AS max_sequence FROM sync_events WHERE workspace=$1",[workspace])).rows[0];
     await client.query('COMMIT');
-    return {...records,commandStats,eventStats};
+    return {...records,financialChains:assessFinancialChains(entities),commandStats,eventStats};
   }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error}
   finally{client.release()}
 }
