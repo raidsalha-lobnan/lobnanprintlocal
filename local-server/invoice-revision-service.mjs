@@ -198,6 +198,11 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
    ((inv.employeeId&&inv.employeeId===inv.customerId)||
     /^emp-/.test(inv.customerId||'')?'employee':'customer');
   const originalType=counterpartyType(invoice),nextType=counterpartyType(proposed);
+  // Employee and supplier settlement requires the dedicated counterparty
+  // payment workflow. Never generate a customer receipt against account 1201.
+  if((originalType!=='customer'||nextType!=='customer')&&
+      Object.keys(plan.paymentDeltas||{}).length>0)
+   throw new InputError('NON_CUSTOMER_INVOICE_PAYMENT_REQUIRES_COUNTERPARTY_SETTLEMENT',409);
   // Employee receivables are computed by the employee subledger. Never
   // create fictitious employee rows inside 'parties'.
   if(!legacyRecovery){
