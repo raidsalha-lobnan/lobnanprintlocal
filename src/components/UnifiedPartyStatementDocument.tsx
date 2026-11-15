@@ -36,7 +36,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
   partyStatement, isCustomer, settings, clientDisplayName, fromDate, toDate,
   showItemDetails, showImageThumbnailsInStatement, setPreviewModalImage, filterType = 'all',
 }) => {
-  const partyTafqeet = tafqeet(partyStatement.closingBalance, 'شيكل', 'أغورة');
+  const partyTafqeet = tafqeet(Math.abs(partyStatement.closingBalance), 'شيكل', 'أغورة');
   const displayedPartyRows = partyStatement.rows.filter(row =>
     filterType === 'debit' ? row.debit > 0 : filterType === 'credit' ? row.credit > 0 : true
   );
@@ -476,7 +476,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                       <span>{Math.abs(partyStatement.closingBalance).toFixed(2)}</span>
                       <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
                       <span className="text-[9.5px] font-sans font-bold">
-                        ({isCustomer ? (partyStatement.closingBalance > 0 ? 'مدين' : partyStatement.closingBalance < 0 ? 'دائن' : 'متزن') : (partyStatement.closingBalance > 0 ? 'دائن' : partyStatement.closingBalance < 0 ? 'مدين' : 'متزن')})
+                        ({partyStatement.closingBalance > 0 ? 'مدين' : partyStatement.closingBalance < 0 ? 'دائن' : 'متزن'})
                       </span>
                     </div>
                   </div>
@@ -487,7 +487,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                   <div className="flex items-center justify-between text-[10.5px] mb-0.5">
                     <span className="font-bold text-slate-700">المبلغ كتابة وتفقيطاً:</span>
                     <span className="font-bold text-slate-900 font-mono text-[11px]">
-                      الرصيد الإجمالي ({isCustomer ? (partyStatement.closingBalance > 0 ? 'مدين' : partyStatement.closingBalance < 0 ? 'دائن' : 'متزن') : (partyStatement.closingBalance > 0 ? 'دائن' : partyStatement.closingBalance < 0 ? 'مدين' : 'متزن')}): {Math.abs(partyStatement.closingBalance).toFixed(2)} {settings.currency}
+                      الرصيد الإجمالي ({partyStatement.closingBalance > 0 ? 'مدين' : partyStatement.closingBalance < 0 ? 'دائن' : 'متزن'}): {Math.abs(partyStatement.closingBalance).toFixed(2)} {settings.currency}
                     </span>
                   </div>
                   <div className="text-[10.5px] font-semibold text-slate-800 bg-slate-50 p-1 rounded border border-slate-200 font-arabic">
