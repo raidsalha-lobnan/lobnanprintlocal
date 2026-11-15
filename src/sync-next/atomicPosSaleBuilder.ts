@@ -243,8 +243,15 @@ export function buildNewAtomicPosSale(input:Inputs):{posting:AtomicInvoicePostin
         accountName:'Payment collected',debit:paidBase,credit:0
       });
     }
+    // Credit sales belong to the counterparty's own subledger:
+    // customers -> AR, employees -> employee receivables,
+    // suppliers -> debit AP (reduces our payable to that supplier).
+    const debtorAccount=type==='employee'?'1104':type==='supplier'?'2101':'1201';
     if(baseOutstanding)debitLines.push({
-      accountCode:'1201',accountName:'Accounts receivable',debit:baseOutstanding,credit:0
+      accountCode:debtorAccount,
+      accountName:type==='employee'?'Employee receivable':
+        type==='supplier'?'Supplier settlement':'Accounts receivable',
+      debit:baseOutstanding,credit:0
     });
     const credits:JournalEntry['lines']=[];
     if(baseRevenue)credits.push({accountCode:'4101',accountName:'Sales revenue',debit:0,credit:baseRevenue});

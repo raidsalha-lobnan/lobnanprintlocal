@@ -42,9 +42,15 @@ export function validateJournal(value) {
   for(const x of value.lines) {
     const key=x.accountId||x.accountCode;
     if(!validId(key))throw new InputError('INVALID_JOURNAL_ACCOUNT');
+    // The minor-unit values are authoritative only if they agree with any
+    // human-readable amounts supplied alongside them. Otherwise a client
+    // could validate one amount while reports and posting read another.
     const md=x.debitMinor!==undefined?x.debitMinor:minor(x.debit);
     const mc=x.creditMinor!==undefined?x.creditMinor:minor(x.credit);
     if(!Number.isSafeInteger(md)||!Number.isSafeInteger(mc)||md<0||mc<0||(md>0&&mc>0)||(md===0&&mc===0)) throw new InputError('INVALID_JOURNAL_LINE');
+    if((x.debitMinor!==undefined&&x.debit!==undefined&&minor(x.debit)!==md)||
+       (x.creditMinor!==undefined&&x.credit!==undefined&&minor(x.credit)!==mc))
+      throw new InputError('JOURNAL_MINOR_AMOUNT_MISMATCH');
     d+=md; c+=mc;
   }
   if(!Number.isSafeInteger(d)||!Number.isSafeInteger(c)||d===0||d!==c)throw new InputError('UNBALANCED_JOURNAL');

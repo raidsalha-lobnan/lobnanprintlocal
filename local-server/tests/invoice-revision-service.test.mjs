@@ -30,7 +30,16 @@ const fixture=(options={})=>{
   ...invoice,customerId:'emp1',counterpartyType:'employee',counterpartyId:'emp1',employeeId:'emp1'
  }:options.missingWarehouse?{...invoice,warehouse:undefined}:invoice;
  const records={
-  journalEntries:options.missingJournals?[]:options.duplicate?[...originalJournals,j('duplicate','pos_invoice',8)]:originalJournals,
+  journalEntries:options.missingJournals?[]:options.duplicate?[...originalJournals,j('duplicate','pos_invoice',8)]:
+   options.employee?[...originalJournals,{
+    record_id:'employee-source-reclass',version:1,value:{
+     id:'employee-source-reclass',referenceId:'i66',
+     referenceType:'counterparty_reclassification',employeeId:'emp1',
+     sourceInvoiceNumber:'INV-0066',
+     lines:[{accountCode:'1104',debit:50.4,credit:0},
+            {accountCode:'1201',debit:0,credit:50.4}]
+    }
+   }]:originalJournals,
   stockMovements:movements,
   parties:[{id:'cust',version:31,value:{id:'cust',balance:1246.4}}],
   inventory:[{id:'paper',version:1,value:{id:'paper',stockQuantity:400,
@@ -103,7 +112,9 @@ test('employee invoice correction updates posted invoice and journal without inv
   {...req,commandId:'employee-revision',proposed:proposal},'admin',access);
  assert.equal(f.commands,1);
  assert.equal(result.changes.find(c=>c.entity==='invoices').value.customerId,'emp1');
- assert.equal(result.changes.find(c=>c.entity==='journalEntries'&&c.value.correctionKind==='financial').value.lines[0].debit,0.6);
+ const correction=result.changes.find(c=>c.entity==='journalEntries'&&c.value.correctionKind==='financial');
+ assert.equal(correction.value.lines.find(l=>l.accountCode==='1104').debit,0.6);
+ assert.equal(correction.value.lines.some(l=>l.accountCode==='1201'),false);
  assert.equal(result.changes.filter(c=>c.entity==='parties').length,0);
 });
 

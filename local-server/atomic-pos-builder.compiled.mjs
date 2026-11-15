@@ -381,9 +381,10 @@ function buildNewAtomicPosSale(input) {
         credit: 0
       });
     }
+    const debtorAccount = type === "employee" ? "1104" : type === "supplier" ? "2101" : "1201";
     if (baseOutstanding) debitLines.push({
-      accountCode: "1201",
-      accountName: "Accounts receivable",
+      accountCode: debtorAccount,
+      accountName: type === "employee" ? "Employee receivable" : type === "supplier" ? "Supplier settlement" : "Accounts receivable",
       debit: baseOutstanding,
       credit: 0
     });

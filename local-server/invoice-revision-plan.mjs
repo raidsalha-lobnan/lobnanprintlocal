@@ -78,8 +78,15 @@ export function planInvoiceRevision(original,edited){
  const oldParty=original.subCustomerId||original.customerId||null;
  const newParty=edited.subCustomerId||edited.customerId||null;
  const customerBalanceChanges=[];
- if(oldParty)customerBalanceChanges.push({partyId:oldParty,amountMinor:-oldOutstanding});
- if(newParty)customerBalanceChanges.push({partyId:newParty,amountMinor:newOutstanding});
+ const isEmployee=inv=>inv.counterpartyType==='employee'||
+   (!inv.counterpartyType&&((inv.employeeId&&inv.employeeId===inv.customerId)||
+   /^emp-/.test(inv.customerId||'')));
+ // Employee debt belongs to the employee subledger; never fabricate a
+ // customer/party balance update for a real employee record.
+ if(oldParty&&!isEmployee(original))
+   customerBalanceChanges.push({partyId:oldParty,amountMinor:-oldOutstanding});
+ if(newParty&&!isEmployee(edited))
+   customerBalanceChanges.push({partyId:newParty,amountMinor:newOutstanding});
  const grouped=new Map();
  for(const row of customerBalanceChanges)
   grouped.set(row.partyId,(grouped.get(row.partyId)||0)+row.amountMinor);

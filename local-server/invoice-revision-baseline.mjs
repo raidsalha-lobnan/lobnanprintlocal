@@ -43,11 +43,28 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
  const sales=linked.filter(j=>value(j).referenceType==='pos_invoice');
  const cogs=linked.filter(j=>value(j).referenceType==='cogs');
  const corrections=linked.filter(j=>value(j).referenceType==='invoice_correction');
+ const reclasses=linked.filter(j=>value(j).referenceType==='counterparty_reclassification');
+ // A confirmed historical employee invoice was initially posted to 1201.
+ // The signed 1104/1201 reclassification is part of the finance baseline:
+ // never treat it as a second sale, payment, or revenue correction.
+ if(reclasses.length){
+  if(reclasses.length!==1 || invoice.counterpartyType!=='employee' &&
+     !(invoice.employeeId===invoice.customerId || /^emp-/.test(invoice.customerId||'')))
+   throw new Error('REVISION_RECLASSIFICATION_UNVERIFIED');
+  const e=value(reclasses[0]),a=e.lines||[];
+  if(e.referenceId!==invoice.id||e.employeeId!==invoice.customerId||
+     e.sourceInvoiceNumber!==invoice.invoiceNumber||a.length!==2||
+     a[0].accountCode!=='1104'||a[1].accountCode!=='1201'||
+     Number(a[0].credit||0)!==0||Number(a[1].debit||0)!==0||
+     minor(a[0].debit)!==minor(a[1].credit)||
+     minor(a[0].debit)<=0)
+   throw new Error('REVISION_RECLASSIFICATION_UNVERIFIED');
+ }
  // Imported invoices may have more than one historic posting. Do not
  // accept the duplicates until signed correction journals reconcile their
  // combined NET posting to the latest authoritative invoice. The account
  // reconciliation and stock/COGS checks below are mandatory.
- if(!sales.length||linked.length!==sales.length+cogs.length+corrections.length)
+ if(!sales.length||linked.length!==sales.length+cogs.length+corrections.length+reclasses.length)
   throw new Error('REVISION_REQUIRES_RECONCILED_JOURNAL_HISTORY');
  if((sales.length>1||cogs.length>1)&&corrections.length===0)
   throw new Error('REVISION_DUPLICATE_HISTORY_NEEDS_APPROVED_CORRECTION');
@@ -58,7 +75,7 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
      !['revenue','financial','cogs'].includes(v.correctionKind))
    throw new Error('REVISION_UNVERIFIED_CORRECTION_JOURNAL');
  }
- const financialJournals=[...sales,...corrections.filter(j=>value(j).correctionKind!=='cogs')];
+ const financialJournals=[...sales,...corrections.filter(j=>value(j).correctionKind!=='cogs'),...reclasses];
  const finance=financialDelta(invoice,proposed,accountMap(financialJournals));
  const cogsJournals=[...cogs,...corrections.filter(j=>value(j).correctionKind==='cogs')];
  const cogsMinor=sumAccount(cogsJournals,'5101');

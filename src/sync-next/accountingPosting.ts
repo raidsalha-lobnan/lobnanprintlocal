@@ -55,7 +55,8 @@ export function buildAtomicPosting(
       !Number.isSafeInteger(line.creditMinor) ||
       line.debitMinor < 0 ||
       line.creditMinor < 0 ||
-      (line.debitMinor > 0 && line.creditMinor > 0)
+      (line.debitMinor > 0 && line.creditMinor > 0) ||
+      (line.debitMinor === 0 && line.creditMinor === 0)
     ) {
       throw new Error('Invalid journal amount');
     }
@@ -91,17 +92,25 @@ export function buildAtomicPosting(
     lines: input.lines.map(l => ({ ...l }))
   };
 
-  return [
-    {
-      entity: input.documentEntity,
-      id: input.documentId,
-      value: document
-    },
-    {
-      entity: 'journalEntries',
-      id: input.journalId,
-      value: journal
-    },
+  if (!Array.isArray(input.movements)) {
+    throw new Error('Invalid posting movements');
+  }
+  // Prevent a caller from inserting two versions of the same record into a
+  // single atomic command (including overwriting the journal/document).
+  const changes: ProposedChange[] = [
+    { entity: input.documentEntity, id: input.documentId, value: document },
+    { entity: 'journalEntries', id: input.journalId, value: journal },
     ...input.movements
   ];
+  const keys = new Set<string>();
+  for (const change of changes) {
+    if (!change || typeof change.entity !== 'string' ||
+        typeof change.id !== 'string' || !change.id) {
+      throw new Error('Invalid posting change');
+    }
+    const key = change.entity + '\\u001f' + change.id;
+    if (keys.has(key)) throw new Error('Duplicate record in atomic posting');
+    keys.add(key);
+  }
+  return changes;
 }

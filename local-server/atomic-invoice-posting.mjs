@@ -86,12 +86,20 @@ export function validateAtomicInvoicePosting(command){
     validateJournal(entry.value);
   }
   const revenueLines=revenue[0].value.lines;
+  // Resolve the destination from the immutable invoice counterparty type,
+  // never from a client-supplied free-text name.
+  const type=invoice.counterpartyType||'customer';
+  const debtorCode=type==='employee'?'1104':type==='supplier'?'2101':'1201';
+  if(!['customer','employee','supplier'].includes(type))
+    fail('ATOMIC_POSTING_COUNTERPARTY_TYPE_INVALID');
   let credited=0,debited=0,arDebited=0;
   const credits={revenue:0,delivery:0,tax:0};
   for(const line of revenueLines){
     const d=cents(line.debit??0),c=cents(line.credit??0);
     debited+=d;credited+=c;
-    if(line.accountCode==='1201')arDebited+=d-c;
+    if(line.accountCode===debtorCode)arDebited+=d-c;
+    else if(['1201','1104','2101'].includes(line.accountCode) && (d||c))
+      fail('ATOMIC_POSTING_WRONG_COUNTERPARTY_ACCOUNT');
     if(c){
       if(line.accountCode==='4101') credits.revenue+=c;
       else if(line.accountCode==='2104') credits.delivery+=c;
@@ -154,7 +162,6 @@ export function validateAtomicInvoicePosting(command){
        cents(l[0].debit??0)!==cost||cents(l[1].credit??0)!==cost)
       fail('ATOMIC_POSTING_COGS_MISMATCH');
   }
-  const type=invoice.counterpartyType||'customer';
   const debtor=invoice.subCustomerId||invoice.customerId;
   if(partyUpdates.length>1)fail('ATOMIC_POSTING_UNRELATED_PARTY_UPDATE');
   if(partyUpdates.length&&(!partyUpdates[0].value||partyUpdates[0].id!==debtor))
