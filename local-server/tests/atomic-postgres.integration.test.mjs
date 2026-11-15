@@ -61,20 +61,12 @@ test('real isolated PostgreSQL: atomic financial sale commit, retry and rollback
   assert.equal(records.filter(x=>x.entity==='stockMovements').length,1);
   assert.equal(await svc.head(workspace),2);
 
-  // Device B has the same old cached inventory/party versions. PostgreSQL
-  // must roll the whole invoice back rather than accept a partial posting.
+  // Device B has the same old cached balances. Authoritative POS commits
+  // rebase stock and party effects against PostgreSQL inside the transaction
+  // instead of failing for independent, non-conflicting incoming sales.
   const stale=sale('inv-pos-real2',1,10,10);stale.workspaceId=workspace;
-  await assert.rejects(svc.push(workspace,stale),/VERSION_CONFLICT/);
-  records=(await svc.bootstrap(workspace)).records;
-  assert.equal(records.filter(x=>x.entity==='invoices').length,1);
-  assert.equal(records.filter(x=>x.entity==='journalEntries').length,2);
-  assert.equal(records.filter(x=>x.entity==='stockMovements').length,1);
-  assert.equal(records.find(x=>x.entity==='inventory').value.stockQuantity,8);
-  assert.equal(await svc.head(workspace),2);
-
-  // Rebuild the same pending business sale from the authoritative records.
-  const refreshed=sale('inv-pos-real2',2,8,30);refreshed.workspaceId=workspace;
-  await svc.push(workspace,refreshed);
+  const secondReceipt=await svc.push(workspace,stale);
+  assert.deepEqual(await svc.push(workspace,stale),secondReceipt);
   records=(await svc.bootstrap(workspace)).records;
   assert.equal(records.filter(x=>x.entity==='invoices').length,2);
   assert.equal(records.filter(x=>x.entity==='journalEntries').length,4);
@@ -82,6 +74,18 @@ test('real isolated PostgreSQL: atomic financial sale commit, retry and rollback
   assert.equal(records.find(x=>x.entity==='inventory').value.stockQuantity,6);
   assert.equal(records.find(x=>x.entity==='parties').value.balance,50);
   assert.equal(await svc.head(workspace),3);
+
+  // An invalid third sale must not leave behind invoice, journal, stock,
+  // customer-balance, or cursor changes.
+  const invalid=sale('inv-pos-invalid',3,6,50);invalid.workspaceId=workspace;
+  invalid.changes[1].value.lines[0].debit=21;
+  await assert.rejects(svc.push(workspace,invalid),/UNBALANCED_JOURNAL/);
+  records=(await svc.bootstrap(workspace)).records;
+  assert.equal(records.filter(x=>x.entity==='invoices').length,2);
+  assert.equal(records.filter(x=>x.entity==='journalEntries').length,4);
+  assert.equal(records.find(x=>x.entity==='inventory').value.stockQuantity,6);
+  assert.equal(await svc.head(workspace),3);
+
   // A new temporary sub-customer is created with an official SUB serial
   // inside the *same* transaction as its first credit invoice.
   const childId='pt-sub-inv-pos-real3';
