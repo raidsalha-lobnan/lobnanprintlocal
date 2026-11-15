@@ -176,6 +176,53 @@ export const UnifiedEmployeeStatementDocument: React.FC<Props> = ({
                         </td>
                       </tr>
                     )}
+                    {showItemDetails && row.payrollDetails && (
+                      <tr className="bg-white print:bg-white print-allow-break">
+                        <td colSpan={6} className="p-0 border-b border-slate-300 report-subtable-cell">
+                          <table className="w-full text-right report-sub-table border-collapse">
+                            <thead>
+                              <tr className="bg-slate-100 text-slate-800 font-bold">
+                                <th className="w-8 text-center border-l border-slate-200">م</th>
+                                <th className="border-l border-slate-200">تفاصيل مسير الراتب المعتمد</th>
+                                <th className="text-left w-24 border-l border-slate-200">استحقاق (+)</th>
+                                <th className="text-left w-24 border-l border-slate-200">استقطاع / صرف (-)</th>
+                                <th className="text-right">البيان</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 text-[10px]">
+                              {([
+                                ['الراتب الأساسي',row.payrollDetails.basicSalary,0,'استحقاق معتمد'],
+                                ['البدلات',row.payrollDetails.allowances,0,'بدلات الموظف'],
+                                ['الحوافز والمكافآت',row.payrollDetails.incentives,0,'حوافز معتمدة ضمن المسير'],
+                                ['الخصومات والجزاءات',0,row.payrollDetails.deductions,'استقطاعات مسير الراتب'],
+                                ['صرف صافي الراتب',0,row.payrollDetails.netSalary,'مبلغ الراتب المصروف فعليًا'],
+                                ['السلف المستقطعة سابقًا',0,0,
+                                  'للعلم فقط: '+number(row.payrollDetails.advancesDeducted)+
+                                  ' — السلفة سُجلت عند صرفها، فلا تُخصم من رصيد الموظف مرة ثانية']
+                              ] as [string,number,number,string][]).filter(([label,plus,minus]) =>
+                                plus!==0 || minus!==0 || label==='الراتب الأساسي' ||
+                                (label==='السلف المستقطعة سابقًا' && row.payrollDetails!.advancesDeducted>0)
+                              ).map(([label,plus,minus,description],ii) => (
+                                <tr key={label}>
+                                  <td className="text-center font-mono border-l border-slate-200">{ii+1}</td>
+                                  <td className="border-l border-slate-200 font-bold">{label}</td>
+                                  <td className="text-left font-mono border-l border-slate-200 text-purple-800">{plus ? number(plus) : '—'}</td>
+                                  <td className="text-left font-mono border-l border-slate-200 text-rose-800">{minus ? number(minus) : '—'}</td>
+                                  <td className="text-slate-600 font-sans">{description}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div className="invoice-financial-strip bg-slate-50 border-t border-slate-200 flex flex-wrap justify-between gap-x-3 gap-y-1 p-1.5 text-[10px] font-bold">
+                            <span>فترة المسير: {row.payrollDetails.period || '—'}</span>
+                            <span>إجمالي المستحقات: {number(row.payrollDetails.basicSalary+row.payrollDetails.allowances+row.payrollDetails.incentives)} {settings.currency}</span>
+                            <span>إجمالي الخصومات: {number(row.payrollDetails.deductions)} {settings.currency}</span>
+                            <span>سلف سابقة مقتطعة: {number(row.payrollDetails.advancesDeducted)} {settings.currency}</span>
+                            <span>صافي المصروف: {number(row.payrollDetails.netSalary)} {settings.currency}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   </React.Fragment>
                 );
               })}
