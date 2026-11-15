@@ -229,6 +229,13 @@ export class SyncService {
               existingEntryId:existing.rows[0].record_id});
         }
         if(change.entity==='invoices' && val) {
+          // Historical provenance can only be created by the audited server
+          // migration, never supplied or changed by a device sync command.
+          if(actual===0&&val.legacyStockBasis)
+            throw new InputError('LEGACY_STOCK_BASIS_SERVER_ONLY',409);
+          if(old?.value?.legacyStockBasis&&
+             JSON.stringify(old.value.legacyStockBasis)!==JSON.stringify(val.legacyStockBasis))
+            throw new InputError('LEGACY_STOCK_BASIS_IMMUTABLE',409);
           // Sales targets are namespace-qualified: customer/supplier/employee.
           // Historical invoices with no explicit target type remain intact.
           await validateInvoiceCounterparty(client,workspace,val);
