@@ -12,6 +12,7 @@ import {APPROVED_CATALOG_MIGRATION_ID,preserveApprovedCatalogSettings} from './a
 import {applySettingsFieldPatch,isSettingsFieldPatch} from './settings-field-patch.mjs';
 import {assertTreasuryCodeIdentity,assertUniqueTreasuryCode} from './treasury-code-guard.mjs';
 import {validateNewFinancialTreasuries} from './treasury-routing-guard.mjs';
+import {postNewCustomerReceipt} from './atomic-receipt-posting.mjs';
 import {forbidRetiredLegacyPrintResurrection} from './retired-legacy-print-guard.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
@@ -68,6 +69,8 @@ export class SyncService {
       // Legacy browser balance auto-reconciliation used to send ALL 71 party
       // snapshots as independent writes. Never let stale bulk snapshots replace
       // authoritative party balances, even if their versions still match.
+      if(command.changes.some(c=>c.entity==='vouchers'&&c.expectedVersion===0&&c.value?.type==='receipt') && command.changes.length!==1)
+        throw new InputError('RECEIPT_SERVER_ATOMIC_POSTING_REQUIRES_SINGLE_VOUCHER',422);
       const partyOnlyBulk=command.changes.length>10 &&
         command.changes.every(change=>change.entity==='parties');
       if(partyOnlyBulk) throw new InputError('BULK_PARTY_SNAPSHOT_REJECTED_USE_LEDGER_RECONCILIATION',409);
@@ -83,6 +86,8 @@ export class SyncService {
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
         if(['journalEntries','printOrders','debtClearings'].includes(change.entity))
           await forbidRetiredLegacyPrintResurrection(client,workspace,change);
+        if(change.entity==='journalEntries'&&actual===0&&change.value?.referenceType==='receipt')
+          throw new InputError('RECEIPT_JOURNAL_IS_SERVER_MANAGED',409);
         const isFieldPatch=change.entity==='settings'&&isSettingsFieldPatch(change.value);
         // A NEW atomic invoice may be based on an older version of an
         // existing stock item or debtor. Rebase only these two derived effects
@@ -242,6 +247,14 @@ export class SyncService {
             } else val=preserveOfficialInvoiceFields(old?.value,val);
           }
         }
+        if(change.entity==='vouchers' && old?.value?.type==='receipt' &&
+          ['amount','baseAmount','currency','exchangeRate','partyId','treasuryAccountCode','accountCode'].some(key=>
+            JSON.stringify(old.value[key]??null)!==JSON.stringify(val?.[key]??null))){
+          const posted=await client.query(
+            "SELECT 1 FROM sync_records WHERE workspace=$1 AND entity='journalEntries' AND value->>'referenceId'=$2 LIMIT 1",
+            [workspace,change.id]);
+          if(posted.rows.length)throw new InputError('RECEIPT_FINANCIAL_AMEND_REQUIRES_SERVER_LEDGER_REVISION',409);
+        }
         // Enforce selected CASH-#### on every newly posted financial document,
         // regardless of device/browser version. Cash is always CASH-1101;
         // noncash must identify an existing noncash treasury explicitly.
@@ -250,6 +263,8 @@ export class SyncService {
         if(actual===0) await client.query('INSERT INTO sync_records(workspace,entity,record_id,version,value) VALUES($1,$2,$3,$4,$5)',[workspace,change.entity,change.id,1,val]);
         else await client.query('UPDATE sync_records SET version=$4,value=$5,updated_at=now() WHERE workspace=$1 AND entity=$2 AND record_id=$3',[workspace,change.entity,change.id,actual+1,val]);
         applied.push({entity:change.entity,id:change.id,value:val,version:actual+1});
+        if(change.entity==='vouchers'&&actual===0&&val?.type==='receipt')
+          await postNewCustomerReceipt(client,workspace,val,applied);
       }
       const nextSequence=Number(ws.rows[0].next_sequence)+1;
       const receipt={commandId:command.id,changes:applied};
