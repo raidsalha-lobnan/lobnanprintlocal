@@ -1,6 +1,36 @@
 import { Party } from '../types';
 
 /**
+ * Consistent UI ordering for customers/suppliers and their autocomplete options.
+ * PostgreSQL and IndexedDB do not guarantee insertion/return order: a legacy
+ * CUST-0034 record can arrive ahead of CUST-0001 unless we sort by the actual
+ * immutable business code. This never changes IDs, balances or persistence.
+ */
+export function comparePartiesByCode(
+  a: {code?: string; name?: string},
+  b: {code?: string; name?: string}
+): number {
+  const ca = String(a.code || '').trim();
+  const cb = String(b.code || '').trim();
+  if (!ca && cb) return 1;
+  if (ca && !cb) return -1;
+  const ma = /^([A-Za-z]+)[-_]?(\d+)$/.exec(ca);
+  const mb = /^([A-Za-z]+)[-_]?(\d+)$/.exec(cb);
+  if (ma && mb && ma[1].toUpperCase() === mb[1].toUpperCase()) {
+    const n = Number(ma[2]) - Number(mb[2]);
+    if (n) return n;
+  }
+  const codeOrder = ca.localeCompare(cb, 'en', {numeric: true, sensitivity: 'base'});
+  if (codeOrder) return codeOrder;
+  return String(a.name || '').localeCompare(String(b.name || ''), 'ar', {numeric: true});
+}
+
+export function sortPartiesByCode<T extends {code?: string; name?: string}>(items: readonly T[]): T[] {
+  return [...items].sort(comparePartiesByCode);
+}
+
+
+/**
  * دالة توليد الرقم التسلسلي الآلي للعملاء والموردين
  * - يصدر الرقم تلقائياً من البرنامج بنظام تسلسلي يبدأ من 0001 (مثل CUST-0001 للعملاء و SUPP-0001 للموردين)
  * - غير قابل للتعديل أو التكرار نهائياً
