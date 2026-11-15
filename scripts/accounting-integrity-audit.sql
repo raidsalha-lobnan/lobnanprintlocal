@@ -96,26 +96,44 @@ WITH ar AS (
 SELECT 'AR_VS_CUSTOMER_SUBLEDGERS',ar.total::text || ' vs ' || parties.total::text,
  ar.total-parties.total FROM ar CROSS JOIN parties;
 
--- Per-customer explanation, not an automatic update. Openings need independent evidence.
-WITH invoice_debt AS(
- SELECT value->>'customerId' id,
- SUM(COALESCE((value->>'baseTotalAmount')::numeric,(value->>'totalAmount')::numeric,0)) value
- FROM sync_records WHERE workspace='lobnan_main' AND entity='invoices' GROUP BY 1
-), receipts AS (
- SELECT value->>'partyId' id,SUM(COALESCE((value->>'baseAmount')::numeric,0)) paid
- FROM sync_records WHERE workspace='lobnan_main' AND entity='vouchers'
- AND value->>'type'='receipt' GROUP BY 1
+-- Per-customer allocation of the ACTUAL 1201 journal lines.
+-- Includes invoice corrections and payments in their existing journal direction.
+-- Opening balances are disclosed separately; never post a balancing entry automatically.
+WITH sales_ar AS (
+ SELECT COALESCE(NULLIF(i.value->>'subCustomerId',''),i.value->>'customerId') party_id,
+ SUM(COALESCE((l->>'debit')::numeric,0)-COALESCE((l->>'credit')::numeric,0)) amount
+ FROM sync_records j
+ JOIN sync_records i ON i.workspace=j.workspace AND i.entity='invoices'
+  AND i.record_id=j.value->>'referenceId'
+ CROSS JOIN LATERAL jsonb_array_elements(j.value->'lines') l
+ WHERE j.workspace='lobnan_main' AND j.entity='journalEntries'
+  AND j.value->>'referenceType' IN('pos_invoice','invoice_correction')
+  AND l->>'accountCode'='1201'
+ GROUP BY 1
+), receipts_ar AS (
+ SELECT v.value->>'partyId' party_id,
+ SUM(COALESCE((l->>'debit')::numeric,0)-COALESCE((l->>'credit')::numeric,0)) amount
+ FROM sync_records j
+ JOIN sync_records v ON v.workspace=j.workspace AND v.entity='vouchers'
+  AND v.record_id=j.value->>'referenceId'
+ CROSS JOIN LATERAL jsonb_array_elements(j.value->'lines') l
+ WHERE j.workspace='lobnan_main' AND j.entity='journalEntries'
+  AND j.value->>'referenceType'='receipt' AND l->>'accountCode'='1201'
+ GROUP BY 1
+), posted AS (
+ SELECT party_id,SUM(amount) total FROM(
+  SELECT * FROM sales_ar UNION ALL SELECT * FROM receipts_ar
+ ) e GROUP BY 1
 )
 SELECT 'CUSTOMER_DETAIL_DIFF_' || p.value->>'code',
- COALESCE(p.value->>'name','') || ' (invoices minus receipts vs card)',
- ROUND(COALESCE(i.value,0)-COALESCE(v.paid,0)-
+ COALESCE(p.value->>'name','') || ' (journal allocation vs customer card)',
+ ROUND(COALESCE(posted.total,0)+COALESCE((p.value->>'openingBalance')::numeric,0)-
  COALESCE((p.value->>'balance')::numeric,0),2)
-FROM sync_records p LEFT JOIN invoice_debt i ON i.id=p.record_id
- LEFT JOIN receipts v ON v.id=p.record_id
+FROM sync_records p LEFT JOIN posted ON posted.party_id=p.record_id
 WHERE p.workspace='lobnan_main' AND p.entity='parties'
-AND ABS(COALESCE(i.value,0)-COALESCE(v.paid,0)-
+AND ABS(COALESCE(posted.total,0)+COALESCE((p.value->>'openingBalance')::numeric,0)-
  COALESCE((p.value->>'balance')::numeric,0))>0.005
-ORDER BY ABS(COALESCE(i.value,0)-COALESCE(v.paid,0)-
+ORDER BY ABS(COALESCE(posted.total,0)+COALESCE((p.value->>'openingBalance')::numeric,0)-
  COALESCE((p.value->>'balance')::numeric,0)) DESC;
 
 -- Stock cross-check, negative inventory is allowed; quantity mismatches aren't.
