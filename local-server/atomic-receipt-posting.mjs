@@ -119,6 +119,7 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
    value:{...linkedInvoice.value,
     paidAmount:plus(linkedInvoice.value.paidAmount||0,amount),
     basePaidAmount:plus(linkedInvoice.value.basePaidAmount||0,base),
+    receiptVoucherTotalBase:plus(linkedInvoice.value.receiptVoucherTotalBase||0,base),
     remainingAmount:plus(linkedInvoice.value.remainingAmount,-amount),
     baseRemainingAmount:plus(linkedInvoice.value.baseRemainingAmount??linkedInvoice.value.baseTotalAmount??linkedInvoice.value.totalAmount,-base),
     status:plus(linkedInvoice.value.remainingAmount,-amount)<=0.005?'paid':'partial'}
