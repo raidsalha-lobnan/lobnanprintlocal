@@ -3,6 +3,7 @@ import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import { ReceiptVoucherModal } from './pos/ReceiptVoucherModal';
 import {resolveReceiptRoute,sumReceiptRoutes} from '../utils/receiptRouting';
+import {printReceiptRegister} from '../utils/printReceiptRegister';
 import type {PaymentVoucher} from '../types';
 import {
   Receipt,
@@ -41,8 +42,11 @@ export const ReceiptVouchersView: React.FC = () => {
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<'all' | 'cash' | 'bank_transfer' | 'cheque'>('all');
+  const [dateMode,setDateMode] = useState<'all'|'day'|'range'>('all');
+  const [selectedDay,setSelectedDay] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [reportError,setReportError] = useState('');
 
   // Modal open
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -54,8 +58,9 @@ export const ReceiptVouchersView: React.FC = () => {
       const method=resolveReceiptRoute(v,treasuries);
       if(methodFilter !== 'all' && (methodFilter==='cash'?method!=='cash':
          methodFilter==='cheque'?method!=='cheque':!['bank_transfer','wallet'].includes(method))) return false;
-      if (fromDate && v.date < fromDate) return false;
-      if (toDate && v.date > toDate) return false;
+      if (dateMode==='day' && selectedDay && v.date!==selectedDay) return false;
+      if (dateMode==='range' && fromDate && v.date < fromDate) return false;
+      if (dateMode==='range' && toDate && v.date > toDate) return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -66,7 +71,7 @@ export const ReceiptVouchersView: React.FC = () => {
       }
       return true;
     }).sort((a, b) => b.date.localeCompare(a.date));
-  }, [receiptVouchers,treasuries, methodFilter, fromDate, toDate, searchQuery]);
+  }, [receiptVouchers,treasuries, methodFilter, dateMode, selectedDay, fromDate, toDate, searchQuery]);
 
   // Statistics
   const todayIso = new Date().toISOString().split('T')[0];
@@ -75,6 +80,24 @@ export const ReceiptVouchersView: React.FC = () => {
   const routedTotals=sumReceiptRoutes(receiptVouchers,treasuries);
   const cashTotal=routedTotals.cash;
   const bankTotal=routedTotals.noncash;
+
+  const reportPeriod=dateMode==='all'?'جميع التواريخ':dateMode==='day'
+    ?(selectedDay?'يوم '+selectedDay:'جميع التواريخ'):
+    (fromDate&&toDate?'من '+fromDate+' إلى '+toDate:
+      fromDate?'من '+fromDate:toDate?'حتى '+toDate:'جميع التواريخ');
+  const printRegister=()=>{
+    setReportError('');
+    if(dateMode==='range'&&fromDate&&toDate&&fromDate>toDate){
+      setReportError('تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.');return;
+    }
+    try {
+      printReceiptRegister(filteredVouchers,{
+        settings,treasuries,periodLabel:reportPeriod,query:searchQuery,
+        methodLabel:methodFilter==='all'?'كل طرق القبض':
+          methodFilter==='cash'?'نقدًا':methodFilter==='cheque'?'شيكات':'بنكي ومحافظ'
+      });
+    }catch(error){setReportError(error instanceof Error?error.message:'تعذر طباعة الكشف.');}
+  };
 
   const getMethodBadge = (method: string) => {
     switch (method) {
@@ -155,59 +178,53 @@ export const ReceiptVouchersView: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3 flex-1 min-w-[260px]">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="بحث برقم السند، اسم العميل، البيان..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
-            <select
-              value={methodFilter}
-              onChange={e => setMethodFilter(e.target.value as any)}
-              className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 focus:outline-none"
-            >
-              <option value="all">كل طرق الدفع</option>
-              <option value="cash">نقداً (كاش)</option>
-              <option value="bank_transfer">تحويل بنكي</option>
-              <option value="cheque">شيك</option>
-            </select>
-          </div>
+      {/* Compact search, explicit date scope and report actions */}
+      <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-52 md:w-60 shrink-0">
+          <Search className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input type="search" placeholder="بحث بالسند أو الاسم أو البيان"
+            value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
+            className="w-full pl-2 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"/>
         </div>
-
-        <div className="flex items-center gap-2 text-xs text-slate-600">
-          <span className="text-[11px] text-slate-400">من:</span>
-          <DateInput value={fromDate} onChange={e => setFromDate(e.target.value)}
-            className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none"
-          />
-          <span className="text-[11px] text-slate-400">إلى:</span>
-          <DateInput value={toDate} onChange={e => setToDate(e.target.value)}
-            className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none"
-          />
-          {(searchQuery || methodFilter !== 'all' || fromDate || toDate) && (
-            <button
-              onClick={() => {
-                setSearchQuery('');
-                setMethodFilter('all');
-                setFromDate('');
-                setToDate('');
-              }}
-              className="text-emerald-600 hover:text-emerald-700 text-[11px] font-medium px-2 py-1"
-            >
-              إلغاء الفلاتر
-            </button>
-          )}
+        <select value={methodFilter}
+          onChange={e=>setMethodFilter(e.target.value as typeof methodFilter)}
+          className="bg-slate-50 border border-slate-200 rounded-md px-2 py-2 text-xs">
+          <option value="all">كل طرق القبض</option>
+          <option value="cash">نقدًا (كاش)</option>
+          <option value="bank_transfer">بنكي / محفظة</option>
+          <option value="cheque">شيك</option>
+        </select>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-medium text-slate-600">التاريخ</span>
+          <select value={dateMode} onChange={e=>setDateMode(e.target.value as typeof dateMode)}
+            className="bg-slate-50 border border-slate-200 rounded-md px-2 py-2 text-xs">
+            <option value="all">الكل</option>
+            <option value="day">يوم محدد</option>
+            <option value="range">فترة</option>
+          </select>
+        </div>
+        {dateMode==='day'&&<DateInput value={selectedDay} onChange={e=>setSelectedDay(e.target.value)}
+          className="bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-xs"/>}
+        {dateMode==='range'&&<div className="flex items-center gap-1.5 text-xs">
+          <span className="text-slate-500">من</span>
+          <DateInput value={fromDate} onChange={e=>setFromDate(e.target.value)}
+            className="bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-xs"/>
+          <span className="text-slate-500">إلى</span>
+          <DateInput value={toDate} onChange={e=>setToDate(e.target.value)}
+            className="bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-xs"/>
+        </div>}
+        {(searchQuery||methodFilter!=='all'||dateMode!=='all')&&
+          <button type="button" className="text-emerald-700 text-xs px-2 py-2"
+            onClick={()=>{setSearchQuery('');setMethodFilter('all');setDateMode('all');setSelectedDay('');setFromDate('');setToDate('');setReportError('');}}>إلغاء الفلاتر</button>}
+        <div className="ms-auto flex items-center gap-2">
+          <span className="text-[11px] text-slate-500 whitespace-nowrap">{filteredVouchers.length} سند</span>
+          <button type="button" onClick={printRegister}
+            className="flex items-center gap-1.5 rounded-md bg-blue-700 hover:bg-blue-800 text-white px-3 py-2 text-xs font-bold">
+            <Printer size={15}/>طباعة كشف السندات
+          </button>
         </div>
       </div>
+      {reportError&&<div role="alert" className="text-rose-700 bg-rose-50 border border-rose-200 rounded p-2 text-xs">{reportError}</div>}
 
       {/* Vouchers Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
