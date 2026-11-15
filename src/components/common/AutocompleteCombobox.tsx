@@ -15,6 +15,7 @@ import {
   Barcode
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
+import { comparePartiesByCode, sortPartiesByCode } from '../../utils/partyUtils';
 
 export interface ComboboxOption {
   id: string;
@@ -183,7 +184,8 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
   const filteredItems = useMemo(() => {
     const rawQuery = inputText.trim();
     if (!rawQuery) {
-      return items.slice(0, 40);
+      return (entityType === 'customer' || entityType === 'supplier' || entityType === 'party'
+        ? sortPartiesByCode(items) : items).slice(0, 40);
     }
 
     const normQuery = normalizeText(rawQuery);
@@ -209,9 +211,9 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
         return { item, score };
       })
       .filter((entry): entry is { item: ComboboxOption; score: number } => entry !== null)
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => b.score - a.score || ((entityType === 'customer' || entityType === 'supplier' || entityType === 'party') ? comparePartiesByCode(a.item, b.item) : 0))
       .map(entry => entry.item);
-  }, [items, inputText]);
+  }, [items, inputText, entityType]);
 
   // Check if typed text already exists exactly
   const exactMatchExists = useMemo(() => {
