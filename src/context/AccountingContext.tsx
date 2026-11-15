@@ -9231,7 +9231,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if(row.entity==='journalEntries')setJournalEntries(prev=>[row.value as unknown as JournalEntry,...prev.filter(v=>v.id!==row.id)]);
       if(row.entity==='treasuries')setTreasuries(prev=>prev.map(t=>t.id===row.id?row.value as unknown as Treasury:t));
       if(row.entity==='parties')setParties(prev=>prev.map(p=>p.id===row.id?row.value as unknown as Party:p));
-      if(row.entity==='accounts')setAccounts(prev=>prev.map(a=>a.id===row.id?row.value as unknown as Account:a));
+      if(row.entity==='accounts')setAccounts(prev=>prev.map(a=>a.code===row.value?.code?row.value as unknown as Account:a));
+      if(row.entity==='invoices')setInvoices(prev=>prev.map(inv=>inv.id===row.id?row.value as unknown as Invoice:inv));
     }
     return saved.value as unknown as PaymentVoucher;
   };
