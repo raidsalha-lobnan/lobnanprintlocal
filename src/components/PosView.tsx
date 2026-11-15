@@ -25,7 +25,7 @@ import { PosFavoritesSidebar } from './pos/PosFavoritesSidebar';
 import { posSound } from '../utils/audio';
 import { useHardwareBarcodeScanner } from '../utils/useBarcodeScanner';
 import { matchItemByBarcode } from '../utils/barcodeGenerator';
-import { findPartyByCodeOrNumber, isCashCustomerParty } from '../utils/partyUtils';
+import { findPartyByCodeOrNumber, isCashCustomerParty, sortPartiesByCode } from '../utils/partyUtils';
 import { getAvailableUnitsOfMeasure, isSquareMeterUnit } from '../utils/unitsOfMeasure';
 import { isDimensionalInvoiceItem } from '../utils/invoiceDimensions';
 import {invoiceEditSignature} from '../utils/invoiceEditSignature';
@@ -490,9 +490,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
   const savedPosDraft = useMemo(() => getInitialPosDraft(), []);
 
   // Customer & Invoice Header State (Strictly main customers, sub-customers are completely separate)
-  const customers = useMemo(() => parties.filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer), [parties]);
-  const suppliers = useMemo(() => parties.filter(p => p.type === 'supplier' || p.type === 'both'), [parties]);
-  const defaultCustomer = customers.find(c => c.name.includes('وقف فلسطين') || c.name.includes('أبو يوسف')) || customers[0];
+  const customers = useMemo(() => sortPartiesByCode(parties.filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer)), [parties]);
+  const suppliers = useMemo(() => sortPartiesByCode(parties.filter(p => (p.type === 'supplier' || p.type === 'both') && !p.isSubCustomer)), [parties]);
 
   // الطرف المستهدف في الكاشير: عميل أو مورد أو موظف
   const [posTargetType, setPosTargetType] = useState<'customer' | 'supplier' | 'employee'>(() => {
