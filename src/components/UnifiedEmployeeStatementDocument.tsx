@@ -37,9 +37,9 @@ export const UnifiedEmployeeStatementDocument: React.FC<Props> = ({
     : statement.closingBalance < 0 ? 'مستحق على الموظف' : 'خالص';
   const summary = [
     ['رصيد سابق', statement.openingBalance],
-    ['إجمالي الاستحقاقات (+)', statement.totalEntitlements],
-    ['إجمالي المنصرف والخصم (-)', statement.totalPaid],
-    ['الرصيد الختامي', Math.abs(statement.closingBalance)]
+    ['استحقاقات', statement.totalEntitlements],
+    ['خصومات', statement.totalPaid],
+    ['رصيد', Math.abs(statement.closingBalance)]
   ] as const;
   return (
     <>
