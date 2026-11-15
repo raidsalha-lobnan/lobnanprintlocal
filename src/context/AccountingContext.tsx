@@ -451,6 +451,7 @@ interface AccountingContextType {
   
   vouchers: PaymentVoucher[];
   createPaymentVoucher: (voucher: Omit<PaymentVoucher, 'id' | 'voucherNumber'>) => void;
+  createReceiptVoucherAtomic: (voucher: Omit<PaymentVoucher, 'id' | 'voucherNumber'>) => Promise<PaymentVoucher>;
   updatePaymentVoucher: (id: string, updates: Partial<PaymentVoucher>) => void;
   amendReceiptVoucher: (id: string, baseline: PaymentVoucher, updates: EditableReceipt) => Promise<{success:boolean;message?:string}>;
   deletePaymentVoucher: (id: string) => void;
@@ -9163,7 +9164,2101 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
+  /**
+   * Customer receipt creation is only confirmed after one PostgreSQL commit.
+   * The server owns the journal, treasury movement and card balances; never
+   * derive additional independent browser writes for the same receipt.
+   */
+  const createReceiptVoucherAtomic = async (
+    draft:Omit<PaymentVoucher,'id'|'voucherNumber'>
+  ):Promise<PaymentVoucher>=>{
+    if(draft.type!=='receipt')throw Error('هذه العملية مخصصة لسندات القبض فقط.');
+    if(draft.partyType==='supplier'||draft.partyType==='employee')
+      throw Error('قبض الموردين والموظفين يحتاج حساب تسوية معتمدًا مختلفًا.');
+    const config=getLocalSyncConfig();
+    const remote=new LocalHttpSyncTransport(config.url,config.token,config.workspace);
+    const snapshot=await remote.fetchAuthoritativeBootstrap();
+    const voucherRows=snapshot.records.filter(r=>r.entity==='vouchers'&&r.value);
+    const year=String(draft.date||new Date().toISOString().slice(0,10)).slice(0,4);
+    let max=0;
+    for(const row of voucherRows){
+      const match=new RegExp('^RCT-'+year+'-(\\\\d+)
+    const id = 'vch-' + Date.now();
+    const prefix = voucherData.type === 'receipt' ? 'RCT' : 'PAY';
+    const currentYear = new Date().getFullYear();
+    const yearPrefix = `${prefix}-${currentYear}-`;
+    let maxSeq = 0;
+    vouchers.forEach(v => {
+      if (v.voucherNumber && v.voucherNumber.startsWith(yearPrefix)) {
+        const seq = parseInt(v.voucherNumber.substring(yearPrefix.length), 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      }
+    });
+    let nextSeq = Math.max(vouchers.length + 1, maxSeq + 1);
+    let voucherNumber = `${yearPrefix}${String(nextSeq).padStart(4, '0')}`;
+    while (vouchers.some(v => v.voucherNumber === voucherNumber)) {
+      nextSeq++;
+      voucherNumber = `${yearPrefix}${String(nextSeq).padStart(4, '0')}`;
+    }
+
+    const curr = voucherData.currency || 'ILS';
+    const currInfo = currencies.find(c => c.code === curr);
+    const rate = voucherData.exchangeRate !== undefined
+      ? voucherData.exchangeRate
+      : (curr === 'ILS' ? 1.0 : (currInfo?.rateAgainstBase || 1.0));
+    const symbol = voucherData.currencySymbol || (curr === 'ILS' ? '₪' : (currInfo?.symbol || curr));
+    const actualAmount = voucherData.amount;
+    const baseAmount = voucherData.baseAmount !== undefined
+      ? voucherData.baseAmount
+      : Number((actualAmount * rate).toFixed(2));
+
+    // Validate exact treasury before creating voucher, journal or changing balance.
+    const voucherTreasuryKind = voucherData.paymentMethod === 'cash' ? 'cash' : 'noncash';
+    const targetTreasury = requiredTreasury(treasuries,voucherTreasuryKind,voucherData.treasuryAccountCode);
+    const cashBankCode = targetTreasury.accountCode;
+    const ledgerCode = ledgerAccountForTreasury(voucherTreasuryKind);
+    const newVoucher: PaymentVoucher = {
+      ...voucherData,
+      treasuryAccountCode: cashBankCode,
+      id,
+      voucherNumber,
+      currency: curr,
+      currencySymbol: symbol,
+      exchangeRate: rate,
+      baseAmount
+    };
+
+    setVouchers(prev => {
+      const next = [newVoucher, ...prev];
+      broadcastEntityChange('vouchers', next);
+      pushToServerSync('vouchers', newVoucher);
+      return next;
+    });
+
+    // Direct cloud save
+    setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(err => {
+      console.warn('Direct cloud save voucher notice:', err);
+    });
+
+    const cashBankName = targetTreasury ? targetTreasury.name : (voucherData.paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)');
+    const effectiveAccountCode = voucherData.accountCode || (voucherData.type === 'receipt' ? '1201' : '2101');
+
+    if (voucherData.type === 'receipt') {
+      // Ledger debit uses account 1101/1102, not the CASH-#### treasury ID.
+      addJournalEntry({
+        date: voucherData.date,
+        description: `سند قبض ${voucherNumber} من ${voucherData.partyName} (${actualAmount.toLocaleString()} ${symbol} معادل ${baseAmount.toLocaleString()} ₪)`,
+        referenceType: 'receipt',
+        referenceId: id,
+        lines: [
+          {
+            accountCode: ledgerCode,
+            accountName: cashBankName,
+            debit: baseAmount,
+            credit: 0,
+            description: voucherData.description || `سند قبض نقدي`
+          },
+          {
+            accountCode: effectiveAccountCode,
+            accountName: 'العملاء والذمم المدينة',
+            debit: 0,
+            credit: baseAmount,
+            description: `تسديد من العميل ${voucherData.partyName}`
+          }
+        ]
+      });
+
+      // Update Treasury actual currency balance!
+      adjustTreasuryBalance(
+        cashBankCode,
+        actualAmount,
+        `سند قبض ${voucherNumber} من ${voucherData.partyName}`,
+        'receipt',
+        id,
+        {
+          currency: curr,
+          currencySymbol: symbol,
+          exchangeRate: rate,
+          voucherNumber,
+          partyName: voucherData.partyName,
+          date: voucherData.date
+        }
+      );
+
+      // Decrease customer debit balance (in base currency ILS)
+      if (voucherData.partyId) {
+        setParties(prev => prev.map(p => {
+          if (p.id === voucherData.partyId) {
+            const updatedP = { ...p, balance: Number((p.balance - baseAmount).toFixed(2)) };
+            setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+            return updatedP;
+          }
+          return p;
+        }));
+      }
+    } else {
+      // Payment voucher: Debit Expense / Supplier, Credit Cash/Bank (in base currency ILS)
+      addJournalEntry({
+        date: voucherData.date,
+        description: `سند صرف ${voucherNumber} إلى ${voucherData.partyName} (${actualAmount.toLocaleString()} ${symbol} معادل ${baseAmount.toLocaleString()} ₪)`,
+        referenceType: 'payment',
+        referenceId: id,
+        lines: [
+          {
+            accountCode: effectiveAccountCode,
+            accountName: effectiveAccountCode.startsWith('5') ? 'مصروفات تشغيلية' : 'الموردون والذمم الدائنة',
+            debit: baseAmount,
+            credit: 0,
+            description: voucherData.description || `سند صرف`
+          },
+          {
+            accountCode: cashBankCode,
+            accountName: cashBankName,
+            debit: 0,
+            credit: baseAmount,
+            description: `صرف من ${cashBankName}`
+          }
+        ]
+      });
+
+      // Update Treasury actual currency balance!
+      adjustTreasuryBalance(
+        cashBankCode,
+        -actualAmount,
+        `سند صرف ${voucherNumber} إلى ${voucherData.partyName}`,
+        'payment',
+        id,
+        {
+          currency: curr,
+          currencySymbol: symbol,
+          exchangeRate: rate,
+          voucherNumber,
+          partyName: voucherData.partyName,
+          date: voucherData.date
+        }
+      );
+
+      // If supplier, adjust supplier balance (increases toward 0, reducing debt in ILS)
+      if (voucherData.partyId) {
+        setParties(prev => prev.map(p => {
+          if (p.id === voucherData.partyId) {
+            const updatedP = { ...p, balance: Number((p.balance + baseAmount).toFixed(2)) };
+            setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+            return updatedP;
+          }
+          return p;
+        }));
+      }
+    }
+  };
+
+  const updatePaymentVoucher = (id: string, updates: Partial<PaymentVoucher>) => {
+    let finalVoucher: PaymentVoucher | null = null;
+    setVouchers(prev => prev.map(v => {
+      if (v.id !== id) return v;
+      // Do not allow changing unique voucherNumber
+      const { voucherNumber: _ignored, ...allowed } = updates;
+      finalVoucher = { ...v, ...allowed };
+      return finalVoucher;
+    }));
+    if (finalVoucher) {
+      setDoc(doc(db, 'vouchers', id), cleanDocForFirestore(finalVoucher)).catch(() => {});
+    }
+  };
+
+  /** PostgreSQL-authoritative grouped receipt amendment (one transaction). */
+  const amendReceiptVoucher = async (id:string,baseline:PaymentVoucher,updates:EditableReceipt):Promise<{success:boolean;message?:string}> => {
+    try {
+      const config=getLocalSyncConfig();
+      const transport=new LocalHttpSyncTransport(config.url,config.token,config.workspace);
+      const snapshot=await transport.fetchAuthoritativeBootstrap();
+      const command=buildReceiptAmendment(snapshot.records,id,baseline,updates,'receipt-amend-'+crypto.randomUUID());
+      const receipt=await transport.push(command);
+      if(!Array.isArray(receipt.changes)||!receipt.changes.some(row=>row.entity==='vouchers'&&row.id===id))
+        throw Error('لم يؤكد الخادم تحديث سند القبض.');
+      for(const row of receipt.changes){
+        if(!row.value)continue;
+        if(row.entity==='vouchers'){
+          const updated=row.value as unknown as PaymentVoucher;
+          setVouchers(prev=>prev.map(v=>v.id===row.id?updated:v));
+        }
+        if(row.entity==='treasuries'){
+          const updated=row.value as unknown as Treasury;
+          setTreasuries(prev=>prev.map(t=>t.id===row.id?updated:t));
+        }
+        if(row.entity==='parties'){
+          const updated=row.value as unknown as Party;
+          setParties(prev=>prev.map(p=>p.id===row.id?updated:p));
+        }
+      }
+      return {success:true};
+    }catch(error){
+      console.error('RECEIPT_ATOMIC_AMEND_FAILED',error);
+      return {success:false,message:error instanceof Error?error.message:'تعذّر حفظ سند القبض؛ لم تُعدّل أي أرصدة.'};
+    }
+  };
+  const deletePaymentVoucher = (id: string) => {
+    let remainingVouchers: PaymentVoucher[] = [];
+    setVouchers(prev => {
+      remainingVouchers = prev.filter(v => v.id !== id);
+      pushDeltaToServer('vouchers', 'delete', { id, _deleted: true });
+      broadcastEntityChange('vouchers', remainingVouchers);
+      return remainingVouchers;
+    });
+    registerDeletedDoc('vouchers', id);
+    deleteDoc(doc(db, 'vouchers', id)).catch(() => {});
+
+    // Audit and purge linked transactions from treasuries and recalculate balances
+    setTreasuries(prevTreasuries => {
+      const auditedTreasuries = auditAndRecalculateTreasuries(prevTreasuries, invoices, remainingVouchers, undefined, purchases, expenses);
+      try { localStorage.setItem(`${STORAGE_KEY}_treasuries`, JSON.stringify(auditedTreasuries)); } catch {}
+      pushToServerSync('treasuries', auditedTreasuries);
+      broadcastEntityChange('treasuries', auditedTreasuries);
+      auditedTreasuries.forEach(t => {
+        setDoc(doc(db, 'treasuries', t.id), cleanDocForFirestore(t)).catch(() => {});
+      });
+      return auditedTreasuries;
+    });
+  };
+
+  const deletePurchaseInvoice = (id: string) => {
+    setPurchases(prev => {
+      const next = prev.filter(p => p.id !== id);
+      pushDeltaToServer('purchases', 'delete', { id, _deleted: true });
+      broadcastEntityChange('purchases', next);
+      return next;
+    });
+    registerDeletedDoc('purchases', id);
+    deleteDoc(doc(db, 'purchases', id)).catch(() => {});
+  };
+
+  const createPurchaseReturn = (returnData: Omit<PurchaseReturn, 'id' | 'returnNumber' | 'createdAt'>): PurchaseReturn => {
+    const id = 'prn-' + Date.now();
+    const curYear = new Date().getFullYear();
+    const prnPrefix = `PRN-${curYear}-`;
+    let maxPrnSeq = 0;
+    purchaseReturns.forEach(r => {
+      if (r.returnNumber && r.returnNumber.startsWith(prnPrefix)) {
+        const seq = parseInt(r.returnNumber.substring(prnPrefix.length), 10);
+        if (!isNaN(seq) && seq > maxPrnSeq) maxPrnSeq = seq;
+      }
+    });
+    let nextPrnSeq = maxPrnSeq + 1;
+    let returnNumber = `${prnPrefix}${String(nextPrnSeq).padStart(4, '0')}`;
+    while (purchaseReturns.some(r => r.returnNumber === returnNumber)) {
+      nextPrnSeq++;
+      returnNumber = `${prnPrefix}${String(nextPrnSeq).padStart(4, '0')}`;
+    }
+    const today = returnData.date || new Date().toISOString().split('T')[0];
+    const exchangeRate = returnData.exchangeRate || 1.0;
+    const baseTotalAmount = Number((returnData.totalAmount * exchangeRate).toFixed(2));
+    const baseSubtotal = Number((returnData.subtotal * exchangeRate).toFixed(2));
+    const baseTaxAmount = Number((returnData.taxAmount * exchangeRate).toFixed(2));
+
+    const newReturn: PurchaseReturn = {
+      ...returnData,
+      id,
+      returnNumber,
+      date: today,
+      createdAt: today,
+      currency: returnData.currency || settings.baseCurrencyCode || 'ILS',
+      currencySymbol: returnData.currencySymbol || settings.currency || '₪',
+      exchangeRate
+    };
+
+    setPurchaseReturns(prev => [newReturn, ...prev]);
+
+    // Direct cloud save
+    setDoc(doc(db, 'purchaseReturns', newReturn.id), cleanDocForFirestore(newReturn)).catch(err => {
+      console.warn('Direct cloud save purchase return notice:', err);
+    });
+
+    // 1. Deduct stock quantity from inventory (returning goods to supplier)
+    const retMovementTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setInventory(prev => prev.map(it => {
+      const match = returnData.items.find(i => i.itemId === it.id);
+      if (match) {
+        const oldQty = it.stockQuantity;
+        const newQty = Math.max(0, oldQty - match.quantity);
+        addStockMovement({
+          itemId: it.id,
+          itemCode: it.code,
+          itemName: it.name,
+          category: it.category,
+          date: today,
+          time: retMovementTime,
+          type: 'out_return',
+          quantity: match.quantity,
+          balanceBefore: oldQty,
+          balanceAfter: newQty,
+          unitPrice: it.purchasePrice,
+          totalValue: match.quantity * it.purchasePrice,
+          referenceType: 'return',
+          referenceNumber: returnNumber,
+          reason: `مردودات مشتريات إلى المورد (${returnData.supplierName})`,
+          performedBy: 'أمين المستودع'
+        });
+        const updatedItem = {
+          ...it,
+          stockQuantity: newQty,
+          lastMovementDate: today
+        };
+        setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
+        return updatedItem;
+      }
+      return it;
+    }));
+
+    // 2. Adjust supplier balance or treasury
+    const cashBankCode = returnData.settlementType === 'cash_refund' ? '1101' : '1102';
+    const cashBankName = returnData.settlementType === 'cash_refund' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)';
+
+    const journalLines = [
+      {
+        accountCode: returnData.settlementType === 'credit_balance' ? '2101' : cashBankCode,
+        accountName: returnData.settlementType === 'credit_balance' ? 'الموردون والذمم الدائنة' : cashBankName,
+        debit: baseTotalAmount,
+        credit: 0,
+        description: returnData.settlementType === 'credit_balance'
+          ? `تخفيض مديونية المورد ${returnData.supplierName} بموجب مردودات مشتريات ${returnNumber}`
+          : `استرداد نقدي/بنكي لقيمة مردودات مشتريات ${returnNumber}`
+      },
+      {
+        accountCode: '1302',
+        accountName: 'مخزون خامات وأوراق المطبعة',
+        debit: 0,
+        credit: baseSubtotal,
+        description: `رد خامات إلى المورد بموجب مرتجع ${returnNumber}`
+      },
+      ...(baseTaxAmount > 0 ? [{
+        accountCode: '2103',
+        accountName: 'أمانات ضريبة القيمة المضافة المستحقة (VAT)',
+        debit: 0,
+        credit: baseTaxAmount,
+        description: `عكس ضريبة مدخلات مشتريات مردودة`
+      }] : [])
+    ];
+
+    if (returnData.settlementType === 'credit_balance') {
+      // Reduce supplier debt (supplier balance is negative, so adding increases it toward 0)
+      setParties(prev => prev.map(p => {
+        if (p.id === returnData.supplierId) {
+          const updatedP = { ...p, balance: p.balance + baseTotalAmount };
+          setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+          return updatedP;
+        }
+        return p;
+      }));
+    } else {
+      // Refund to cash/bank treasury
+      adjustTreasuryBalance(
+        returnData.treasuryAccountCode || cashBankCode,
+        baseTotalAmount,
+        `استرداد مرتجع مشتريات ${returnNumber} من المورد ${returnData.supplierName}`,
+        'manual',
+        id
+      );
+    }
+
+    addJournalEntry({
+      date: today,
+      description: `إشعار مدين / مردودات مشتريات رقم ${returnNumber} للمورد ${returnData.supplierName}`,
+      referenceType: 'purchase_return',
+      referenceId: id,
+      lines: journalLines
+    });
+
+    return newReturn;
+  };
+
+  const deletePurchaseReturn = (id: string) => {
+    setPurchaseReturns(prev => {
+      const next = prev.filter(r => r.id !== id);
+      pushDeltaToServer('purchaseReturns', 'delete', { id, _deleted: true });
+      return next;
+    });
+    registerDeletedDoc('purchaseReturns', id);
+    deleteDoc(doc(db, 'purchaseReturns', id)).catch(() => {});
+  };
+
+  const createSalesReturn = (returnData: Omit<SalesReturn, 'id' | 'returnNumber' | 'createdAt'>): SalesReturn => {
+    const id = 'srn-' + Date.now();
+    const curYear = new Date().getFullYear();
+    const srPrefix = `SR-${curYear}-`;
+    let maxSrSeq = 0;
+    salesReturns.forEach(r => {
+      if (r.returnNumber && r.returnNumber.startsWith(srPrefix)) {
+        const seq = parseInt(r.returnNumber.substring(srPrefix.length), 10);
+        if (!isNaN(seq) && seq > maxSrSeq) maxSrSeq = seq;
+      }
+    });
+    let nextSrSeq = maxSrSeq + 1;
+    let returnNumber = `${srPrefix}${String(nextSrSeq).padStart(4, '0')}`;
+    while (salesReturns.some(r => r.returnNumber === returnNumber)) {
+      nextSrSeq++;
+      returnNumber = `${srPrefix}${String(nextSrSeq).padStart(4, '0')}`;
+    }
+    const today = returnData.date || new Date().toISOString().split('T')[0];
+    const exchangeRate = returnData.exchangeRate || 1.0;
+    const baseTotalAmount = Number((returnData.totalAmount * exchangeRate).toFixed(2));
+    const baseSubtotal = Number((returnData.subtotal * exchangeRate).toFixed(2));
+    const baseTaxAmount = Number((returnData.taxAmount * exchangeRate).toFixed(2));
+
+    const newReturn: SalesReturn = {
+      ...returnData,
+      id,
+      returnNumber,
+      date: today,
+      createdAt: today,
+      currency: returnData.currency || settings.baseCurrencyCode || 'ILS',
+      currencySymbol: returnData.currencySymbol || settings.currency || '₪',
+      exchangeRate,
+      branchId: returnData.branchId || activeBranchId
+    };
+
+    setSalesReturns(prev => [newReturn, ...prev]);
+
+    // Direct cloud save
+    setDoc(doc(db, 'salesReturns', newReturn.id), cleanDocForFirestore(newReturn)).catch(err => {
+      console.warn('Direct cloud save sales return notice:', err);
+    });
+
+    // 1. Return stock quantity back to inventory (adding returned goods to stock)
+    const retMovementTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    setInventory(prev => prev.map(it => {
+      const match = returnData.items.find(i => i.itemId === it.id);
+      if (match) {
+        const oldQty = it.stockQuantity;
+        const newQty = oldQty + match.quantity;
+        addStockMovement({
+          itemId: it.id,
+          itemCode: it.code,
+          itemName: it.name,
+          category: it.category,
+          date: today,
+          time: retMovementTime,
+          type: 'in_return',
+          quantity: match.quantity,
+          balanceBefore: oldQty,
+          balanceAfter: newQty,
+          unitPrice: it.price,
+          totalValue: match.quantity * it.price,
+          referenceType: 'return',
+          referenceNumber: returnNumber,
+          reason: `مردودات مبيعات من العميل (${returnData.customerName})`,
+          performedBy: currentUser?.fullName || 'الكاشير'
+        });
+        const updatedItem = {
+          ...it,
+          stockQuantity: newQty,
+          lastMovementDate: today
+        };
+        setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
+        return updatedItem;
+      }
+      return it;
+    }));
+
+    // 2. Adjust customer balance or refund from treasury
+    const cashBankCode = returnData.settlementType === 'cash_refund' ? '1101' : '1102';
+    const cashBankName = returnData.settlementType === 'cash_refund' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)';
+
+    const journalLines = [
+      {
+        accountCode: '4101',
+        accountName: 'مردودات ومسموحات المبيعات',
+        debit: baseSubtotal,
+        credit: 0,
+        description: `إثبات مردودات مبيعات بموجب مرتجع ${returnNumber} للعميل ${returnData.customerName}`
+      },
+      ...(baseTaxAmount > 0 ? [{
+        accountCode: '2103',
+        accountName: 'أمانات ضريبة القيمة المضافة المستحقة (VAT)',
+        debit: baseTaxAmount,
+        credit: 0,
+        description: `عكس ضريبة مخرجات مبيعات مردودة`
+      }] : []),
+      {
+        accountCode: returnData.settlementType === 'credit_balance' ? '1201' : cashBankCode,
+        accountName: returnData.settlementType === 'credit_balance' ? 'العملاء والمدينون' : cashBankName,
+        debit: 0,
+        credit: baseTotalAmount,
+        description: returnData.settlementType === 'credit_balance'
+          ? `تخفيض مديونية العميل ${returnData.customerName} بموجب إشعار دائن ${returnNumber}`
+          : `استرداد نقدي/بنكي للعميل بموجب مرتجع مبيعات ${returnNumber}`
+      }
+    ];
+
+    if (returnData.settlementType === 'credit_balance') {
+      setParties(prev => prev.map(p => {
+        if (p.id === returnData.customerId) {
+          const updatedP = { ...p, balance: Number((p.balance - baseTotalAmount).toFixed(2)) };
+          setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+          return updatedP;
+        }
+        return p;
+      }));
+    } else {
+      adjustTreasuryBalance(
+        returnData.treasuryAccountCode || cashBankCode,
+        -baseTotalAmount,
+        `استرداد مرتجع مبيعات ${returnNumber} للعميل ${returnData.customerName}`,
+        'manual',
+        id
+      );
+    }
+
+    addJournalEntry({
+      date: today,
+      description: `إشعار دائن / مردودات مبيعات رقم ${returnNumber} للعميل ${returnData.customerName}`,
+      referenceType: 'sales_return',
+      referenceId: id,
+      lines: journalLines
+    });
+
+    return newReturn;
+  };
+
+  const deleteSalesReturn = (id: string) => {
+    setSalesReturns(prev => {
+      const next = prev.filter(r => r.id !== id);
+      pushDeltaToServer('salesReturns', 'delete', { id, _deleted: true });
+      return next;
+    });
+    registerDeletedDoc('salesReturns', id);
+    deleteDoc(doc(db, 'salesReturns', id)).catch(() => {});
+  };
+
+  const [lastBackupInfo, setLastBackupInfo] = useState<{ timestamp: string; filename: string; totalRecords?: number } | null>(() => {
+    try {
+      const saved = localStorage.getItem(`${STORAGE_KEY}_last_backup_info`);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const exportDataJSON = async (): Promise<{ success: boolean; filename: string; totalRecords: number; message: string; data?: any }> => {
+    // 1. Authoritative Snapshot: Exactly 100% of what is currently on screen & active in the system
+    const cleanInvoices = Array.isArray(invoices) ? invoices : [];
+    const cleanParties = Array.isArray(parties) ? parties : [];
+    const cleanInventory = Array.isArray(inventory) ? inventory : [];
+    const cleanAccounts = Array.isArray(accounts) ? accounts : [];
+    const cleanTreasuries = Array.isArray(treasuries) ? treasuries : [];
+    const cleanVouchers = Array.isArray(vouchers) ? vouchers : [];
+    const cleanPurchases = Array.isArray(purchases) ? purchases : [];
+    const cleanPurchaseReturns = Array.isArray(purchaseReturns) ? purchaseReturns : [];
+    const cleanSalesReturns = Array.isArray(salesReturns) ? salesReturns : [];
+    const cleanJournalEntries = Array.isArray(journalEntries) ? journalEntries : [];
+    const cleanStockMovements = Array.isArray(stockMovements) ? stockMovements : [];
+    const cleanExpenses = Array.isArray(expenses) ? expenses : [];
+    const cleanEmployees = Array.isArray(employees) ? employees : [];
+    const cleanEmployeeAdvances = Array.isArray(employeeAdvances) ? employeeAdvances : [];
+    const cleanEmployeeDeductions = Array.isArray(employeeDeductions) ? employeeDeductions : [];
+    const cleanEmployeeIncentives = Array.isArray(employeeIncentives) ? employeeIncentives : [];
+    const cleanPayrollSheets = Array.isArray(payrollSheets) ? payrollSheets : [];
+    const cleanPrintOrders = Array.isArray(printOrders) ? printOrders : [];
+    const cleanDebtClearings = Array.isArray(debtClearings) ? debtClearings : [];
+    const cleanCompanies = Array.isArray(companies) ? companies : [];
+    const cleanBranches = Array.isArray(branches) ? branches : [];
+    const cleanWarehouses = Array.isArray(warehouses) ? warehouses : [];
+    const cleanWarehouseOperations = Array.isArray(warehouseOperations) ? warehouseOperations : [];
+    const cleanRoles = Array.isArray(roles) ? roles : [];
+    const cleanUsers = Array.isArray(users) ? users : [];
+    const cleanDailyEntrySheets = dailyEntrySheets || {};
+
+    const fullSnapshot: Record<string, any[]> = {
+      invoices: cleanInvoices,
+      parties: cleanParties,
+      inventory: cleanInventory,
+      accounts: cleanAccounts,
+      treasuries: cleanTreasuries,
+      vouchers: cleanVouchers,
+      purchases: cleanPurchases,
+      purchaseReturns: cleanPurchaseReturns,
+      salesReturns: cleanSalesReturns,
+      journalEntries: cleanJournalEntries,
+      stockMovements: cleanStockMovements,
+      expenses: cleanExpenses,
+      employees: cleanEmployees,
+      employeeAdvances: cleanEmployeeAdvances,
+      employeeDeductions: cleanEmployeeDeductions,
+      employeeIncentives: cleanEmployeeIncentives,
+      payrollSheets: cleanPayrollSheets,
+      printOrders: cleanPrintOrders,
+      debtClearings: cleanDebtClearings,
+      companies: cleanCompanies,
+      branches: cleanBranches,
+      warehouses: cleanWarehouses,
+      warehouseOperations: cleanWarehouseOperations,
+      roles: cleanRoles,
+      users: cleanUsers
+    };
+
+    // 2. Local-only export without remote writes
+
+    // 3. Calculate total records matching exactly what is active on the screen
+    const totalRecords =
+      cleanInvoices.length +
+      cleanParties.length +
+      cleanInventory.length +
+      cleanAccounts.length +
+      cleanTreasuries.length +
+      cleanVouchers.length +
+      cleanPurchases.length +
+      cleanPurchaseReturns.length +
+      cleanSalesReturns.length +
+      cleanJournalEntries.length +
+      cleanStockMovements.length +
+      cleanExpenses.length +
+      cleanEmployees.length +
+      cleanEmployeeAdvances.length +
+      cleanEmployeeDeductions.length +
+      cleanEmployeeIncentives.length +
+      cleanPayrollSheets.length +
+      cleanPrintOrders.length +
+      cleanDebtClearings.length +
+      cleanCompanies.length +
+      cleanBranches.length +
+      cleanWarehouses.length +
+      cleanWarehouseOperations.length +
+      cleanRoles.length +
+      cleanUsers.length +
+      Object.keys(cleanDailyEntrySheets).length;
+
+    const fullBackup = {
+      appTitle: 'برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان',
+      systemName: 'برنامج الأيهم المحاسبي لإدارة المطابع والمكتبات ونقاط البيع',
+      version: '2.5.0',
+      backupSource: 'لقطة تصدير محلية؛ يلزم مطابقة بيانات السحابة قبل اعتمادها',
+      isPostgresServerConfirmed: false,
+      exportedAt: new Date().toISOString(),
+      exportedBy: currentUser?.fullName || currentUser?.username || 'مدير النظام',
+      statsSummary: {
+        totalRecords,
+        invoicesCount: cleanInvoices.length,
+        partiesCount: cleanParties.length,
+        inventoryCount: cleanInventory.length,
+        treasuriesCount: cleanTreasuries.length,
+        vouchersCount: cleanVouchers.length,
+        purchasesCount: cleanPurchases.length,
+        salesReturnsCount: cleanSalesReturns.length,
+        purchaseReturnsCount: cleanPurchaseReturns.length,
+        journalEntriesCount: cleanJournalEntries.length,
+        expensesCount: cleanExpenses.length,
+        employeesCount: cleanEmployees.length,
+        dailyEntrySheetsCount: Object.keys(cleanDailyEntrySheets).length,
+        printOrdersCount: cleanPrintOrders.length,
+        warehouseOperationsCount: cleanWarehouseOperations.length
+      },
+      settings,
+      accounts: cleanAccounts,
+      journalEntries: cleanJournalEntries,
+      inventory: cleanInventory,
+      stockMovements: cleanStockMovements,
+      parties: cleanParties,
+      employees: cleanEmployees,
+      employeeAdvances: cleanEmployeeAdvances,
+      employeeDeductions: cleanEmployeeDeductions,
+      employeeIncentives: cleanEmployeeIncentives,
+      payrollSheets: cleanPayrollSheets,
+      printOrders: cleanPrintOrders,
+      invoices: cleanInvoices,
+      purchases: cleanPurchases,
+      purchaseReturns: cleanPurchaseReturns,
+      salesReturns: cleanSalesReturns,
+      vouchers: cleanVouchers,
+      treasuries: cleanTreasuries,
+      companies: cleanCompanies,
+      branches: cleanBranches,
+      warehouses: cleanWarehouses,
+      warehouseOperations: cleanWarehouseOperations,
+      roles: cleanRoles,
+      users: cleanUsers,
+      debtClearings: cleanDebtClearings,
+      expenses: cleanExpenses,
+      dailyEntrySheets: cleanDailyEntrySheets
+    };
+
+    try {
+      const blob = new Blob([JSON.stringify(fullBackup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const nowIso = new Date().toISOString();
+      const datePart = nowIso.split('T')[0];
+      const timePart = nowIso.split('T')[1].replace(/[:.]/g, '-').slice(0, 8);
+      const filename = `نسخة_احتياطية_كاملة_فيربيس_لبنان_${datePart}_${timePart}.json`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        a.remove();
+        URL.revokeObjectURL(url);
+      }, 100);
+
+      const backupRecord = {
+        timestamp: nowIso,
+        filename,
+        totalRecords
+      };
+      setLastBackupInfo(backupRecord);
+      try {
+        localStorage.setItem(`${STORAGE_KEY}_last_backup_info`, JSON.stringify(backupRecord));
+      } catch (e) {
+        console.warn('Could not save last_backup_info to localStorage', e);
+      }
+
+      return {
+        success: true,
+        filename,
+        totalRecords,
+        data: fullBackup,
+        message: `تم إنشاء وتحميل نسخة احتياطية كاملة 100% مطابقة للشاشة وفيربيس (${totalRecords} سجل) بنجاح!`
+      };
+    } catch (exportErr: any) {
+      console.error('Error generating JSON backup blob:', exportErr);
+      return {
+        success: false,
+        filename: '',
+        totalRecords,
+        data: fullBackup,
+        message: 'حدث خطأ أثناء تصدير الملف: ' + (exportErr?.message || 'خطأ غير معروف')
+      };
+    }
+  };
+
+  const performDatabaseZeroing = (options: DatabaseZeroingOptions): ZeroingExecutionResult => {
+    // 1. Restriction to System Admin only ("التصفير مقيد بمدير النظام فقط")
+    const isSystemAdmin =
+      currentUser?.roleId === 'role-admin' ||
+      currentUser?.roleName === 'مدير النظام' ||
+      currentUser?.username === 'admin' ||
+      (currentUser?.email && auth.currentUser?.email === currentUser.email);
+
+    if (!isSystemAdmin) {
+      return {
+        success: false,
+        message: 'عفواً، عملية تصفير قاعدة البيانات مقيدة بصلاحية مدير النظام فقط!',
+        summary: {
+          deletedInvoices: 0,
+          deletedPurchases: 0,
+          deletedSalesReturns: 0,
+          deletedPurchaseReturns: 0,
+          deletedVouchers: 0,
+          deletedJournalEntries: 0,
+          deletedPrintOrders: 0,
+          deletedStockMovements: 0,
+          deletedWarehouseOperations: 0,
+          deletedDebtClearings: 0,
+          deletedExpenses: 0,
+          deletedEmployees: 0,
+          deletedPayrollSheets: 0,
+          deletedEmployeeAdvances: 0,
+          deletedEmployeeDeductions: 0,
+          deletedEmployeeIncentives: 0,
+          deletedPayrollRecords: 0,
+          deletedManualParties: 0,
+          zeroedPartyBalances: 0,
+          zeroedInventoryStocks: 0,
+          deletedManualItems: 0,
+          deletedManualWarehouses: 0,
+          zeroedTreasuries: 0,
+          deletedManualTreasuries: 0,
+          zeroedAccounts: 0
+        },
+        executedAt: new Date().toISOString(),
+        executedBy: currentUser?.fullName || currentUser?.username || 'مستخدم'
+      };
+    }
+
+    const isTargetDate = (dateStr?: string) => {
+      if (options.scope === 'all') return true;
+      if (!dateStr) return true;
+      const clean = dateStr.split('T')[0];
+      if (options.scope === 'from_date') {
+        return clean >= (options.fromDate || options.cutoffDate);
+      }
+      if (options.scope === 'date_range') {
+        return clean >= (options.fromDate || '1900-01-01') && clean <= options.cutoffDate;
+      }
+      return clean <= options.cutoffDate;
+    };
+
+    const summary = {
+      deletedInvoices: 0,
+      deletedPurchases: 0,
+      deletedSalesReturns: 0,
+      deletedPurchaseReturns: 0,
+      deletedVouchers: 0,
+      deletedJournalEntries: 0,
+      deletedPrintOrders: 0,
+      deletedStockMovements: 0,
+      deletedWarehouseOperations: 0,
+      deletedDebtClearings: 0,
+      deletedExpenses: 0,
+      deletedEmployees: 0,
+      deletedPayrollSheets: 0,
+      deletedEmployeeAdvances: 0,
+      deletedEmployeeDeductions: 0,
+      deletedEmployeeIncentives: 0,
+      deletedPayrollRecords: 0,
+      deletedManualParties: 0,
+      zeroedPartyBalances: 0,
+      zeroedInventoryStocks: 0,
+      deletedManualItems: 0,
+      deletedManualWarehouses: 0,
+      zeroedTreasuries: 0,
+      deletedManualTreasuries: 0,
+      zeroedAccounts: 0
+    };
+
+    // Track all deleted IDs across collections to purge from Firestore
+    const deletedDocMap: Record<string, string[]> = {
+      invoices: [],
+      purchases: [],
+      salesReturns: [],
+      purchaseReturns: [],
+      vouchers: [],
+      journalEntries: [],
+      printOrders: [],
+      stockMovements: [],
+      warehouseOperations: [],
+      payrollSheets: [],
+      employeeAdvances: [],
+      employeeDeductions: [],
+      employeeIncentives: [],
+      employees: [],
+      debtClearings: [],
+      expenses: [],
+      parties: [],
+      inventory: [],
+      warehouses: [],
+      treasuries: []
+    };
+
+    // 1. Invoices (فواتير المبيعات ونقاط البيع)
+    if (options.resetInvoices) {
+      setInvoices(prev => {
+        const toKeep: Invoice[] = [];
+        prev.forEach(inv => {
+          if (isTargetDate(inv.date)) {
+            deletedDocMap.invoices.push(inv.id);
+          } else {
+            toKeep.push(inv);
+          }
+        });
+        summary.deletedInvoices = deletedDocMap.invoices.length;
+        return toKeep;
+      });
+    }
+
+    // 2. Purchases (فواتير المشتريات ومشتريات الخامات)
+    if (options.resetPurchases) {
+      setPurchases(prev => {
+        const toKeep: PurchaseInvoice[] = [];
+        prev.forEach(pur => {
+          if (isTargetDate(pur.date)) {
+            deletedDocMap.purchases.push(pur.id);
+          } else {
+            toKeep.push(pur);
+          }
+        });
+        summary.deletedPurchases = deletedDocMap.purchases.length;
+        return toKeep;
+      });
+    }
+
+    // 3. Sales Returns (مردودات المبيعات)
+    if (options.resetSalesReturns) {
+      setSalesReturns(prev => {
+        const toKeep: SalesReturn[] = [];
+        prev.forEach(r => {
+          if (isTargetDate(r.date)) {
+            deletedDocMap.salesReturns.push(r.id);
+          } else {
+            toKeep.push(r);
+          }
+        });
+        summary.deletedSalesReturns = deletedDocMap.salesReturns.length;
+        return toKeep;
+      });
+    }
+
+    // 4. Purchase Returns (مردودات المشتريات)
+    if (options.resetPurchaseReturns) {
+      setPurchaseReturns(prev => {
+        const toKeep: PurchaseReturn[] = [];
+        prev.forEach(r => {
+          if (isTargetDate(r.date)) {
+            deletedDocMap.purchaseReturns.push(r.id);
+          } else {
+            toKeep.push(r);
+          }
+        });
+        summary.deletedPurchaseReturns = deletedDocMap.purchaseReturns.length;
+        return toKeep;
+      });
+    }
+
+    // 5. Vouchers (سندات القبض والصرف)
+    if (options.resetVouchers) {
+      setVouchers(prev => {
+        const toKeep: PaymentVoucher[] = [];
+        prev.forEach(v => {
+          if (isTargetDate(v.date)) {
+            deletedDocMap.vouchers.push(v.id);
+          } else {
+            toKeep.push(v);
+          }
+        });
+        summary.deletedVouchers = deletedDocMap.vouchers.length;
+        return toKeep;
+      });
+    }
+
+    // 6. Journal Entries (قيود اليومية وحركات الحسابات)
+    if (options.resetJournalEntries) {
+      setJournalEntries(prev => {
+        const toKeep: JournalEntry[] = [];
+        prev.forEach(je => {
+          if (isTargetDate(je.date)) {
+            deletedDocMap.journalEntries.push(je.id);
+          } else {
+            toKeep.push(je);
+          }
+        });
+        summary.deletedJournalEntries = deletedDocMap.journalEntries.length;
+        return toKeep;
+      });
+    }
+
+    // 7. Print Orders (أوامر تشغيل المطبعة والورشة)
+    if (options.resetPrintOrders) {
+      setPrintOrders(prev => {
+        const toKeep: PrintJobOrder[] = [];
+        prev.forEach(po => {
+          if (isTargetDate(po.createdAt || po.deliveryDate)) {
+            deletedDocMap.printOrders.push(po.id);
+          } else {
+            toKeep.push(po);
+          }
+        });
+        summary.deletedPrintOrders = deletedDocMap.printOrders.length;
+        return toKeep;
+      });
+
+      // Clear workshop status on invoices without deleting the actual sales invoices
+      if (!options.resetInvoices) {
+        setInvoices(prev => prev.map(inv => {
+          if (inv.workflowStatus && inv.workflowStatus !== 'new' && inv.workflowStatus !== 'delivered' && isTargetDate(inv.date)) {
+            return {
+              ...inv,
+              workflowStatus: 'delivered',
+              isWorkshopVisible: false
+            };
+          }
+          return inv;
+        }));
+      }
+    }
+
+    // 8. Stock Movements (حركات المخزون: صرف، قبض/توريد، جرد وتعديل، بيع وشراء، تبديل ومناقلات)
+    if (options.resetStockMovements) {
+      setStockMovements(prev => {
+        const toKeep: StockMovement[] = [];
+        prev.forEach(sm => {
+          if (isTargetDate(sm.date)) {
+            deletedDocMap.stockMovements.push(sm.id);
+          } else {
+            toKeep.push(sm);
+          }
+        });
+        summary.deletedStockMovements = deletedDocMap.stockMovements.length;
+        return toKeep;
+      });
+    }
+
+    // 9. Warehouse Operations (عمليات وأذونات المستودعات)
+    if (options.resetWarehouseOperations) {
+      setWarehouseOperations(prev => {
+        const toKeep: WarehouseOperation[] = [];
+        prev.forEach(wo => {
+          if (isTargetDate(wo.date)) {
+            deletedDocMap.warehouseOperations.push(wo.id);
+          } else {
+            toKeep.push(wo);
+          }
+        });
+        summary.deletedWarehouseOperations = deletedDocMap.warehouseOperations.length;
+        return toKeep;
+      });
+    }
+
+    // 9.5. Debt Clearings (المقاصات وتسوية الديون)
+    if (options.resetDebtClearings !== false) {
+      setDebtClearings(prev => {
+        const toKeep: DebtClearingRecord[] = [];
+        prev.forEach(dc => {
+          if (isTargetDate(dc.date || dc.createdAt)) {
+            deletedDocMap.debtClearings.push(dc.id);
+          } else {
+            toKeep.push(dc);
+          }
+        });
+        summary.deletedDebtClearings = deletedDocMap.debtClearings.length;
+        return toKeep;
+      });
+    }
+
+    // 9.6. Expenses & Operating Costs (المصروفات والمصاريف التشغيلية)
+    if (options.resetExpenses !== false) {
+      setExpenses(prev => {
+        const toKeep: ExpenseItem[] = [];
+        prev.forEach(exp => {
+          if (isTargetDate(exp.date || exp.createdAt)) {
+            deletedDocMap.expenses.push(exp.id);
+          } else {
+            toKeep.push(exp);
+          }
+        });
+        summary.deletedExpenses = deletedDocMap.expenses.length;
+        return toKeep;
+      });
+    }
+
+    // 10. Payroll, Advances, Deductions & Incentives (مسيرات الرواتب، السلف، الخصومات والمكافآت)
+    if (options.resetPayroll) {
+      setPayrollSheets(prev => {
+        const toKeep: PayrollSheet[] = [];
+        prev.forEach(ps => {
+          if (isTargetDate(ps.createdAt)) {
+            deletedDocMap.payrollSheets.push(ps.id);
+          } else {
+            toKeep.push(ps);
+          }
+        });
+        summary.deletedPayrollSheets = deletedDocMap.payrollSheets.length;
+        summary.deletedPayrollRecords += summary.deletedPayrollSheets;
+        return toKeep;
+      });
+
+      setEmployeeAdvances(prev => {
+        const toKeep: EmployeeAdvance[] = [];
+        prev.forEach(ea => {
+          if (isTargetDate(ea.date)) {
+            deletedDocMap.employeeAdvances.push(ea.id);
+          } else {
+            toKeep.push(ea);
+          }
+        });
+        summary.deletedEmployeeAdvances = deletedDocMap.employeeAdvances.length;
+        summary.deletedPayrollRecords += summary.deletedEmployeeAdvances;
+        return toKeep;
+      });
+
+      setEmployeeDeductions(prev => {
+        const toKeep: EmployeeDeduction[] = [];
+        prev.forEach(ed => {
+          if (isTargetDate(ed.date)) {
+            deletedDocMap.employeeDeductions.push(ed.id);
+          } else {
+            toKeep.push(ed);
+          }
+        });
+        summary.deletedEmployeeDeductions = deletedDocMap.employeeDeductions.length;
+        summary.deletedPayrollRecords += summary.deletedEmployeeDeductions;
+        return toKeep;
+      });
+
+      setEmployeeIncentives(prev => {
+        const toKeep: EmployeeIncentive[] = [];
+        prev.forEach(ei => {
+          if (isTargetDate(ei.date)) {
+            deletedDocMap.employeeIncentives.push(ei.id);
+          } else {
+            toKeep.push(ei);
+          }
+        });
+        summary.deletedEmployeeIncentives = deletedDocMap.employeeIncentives.length;
+        summary.deletedPayrollRecords += summary.deletedEmployeeIncentives;
+        return toKeep;
+      });
+    }
+
+    // 10.5. Employees (أسماء وسجلات الموظفين بالكامل)
+    if (options.resetEmployees) {
+      setEmployees(prev => {
+        const toKeep: Employee[] = [];
+        prev.forEach(emp => {
+          if (isTargetDate(emp.joinDate || emp.createdAt || '2000-01-01')) {
+            deletedDocMap.employees.push(emp.id);
+          } else {
+            toKeep.push(emp);
+          }
+        });
+        summary.deletedEmployees = deletedDocMap.employees.length;
+        return toKeep;
+      });
+    }
+
+    // 11. Parties (العملاء والموردين)
+    if (options.resetManualParties || options.zeroPartyBalances) {
+      setParties(prev => {
+        const kept: Party[] = [];
+        prev.forEach(p => {
+          // العميل النقدي لا يمسح
+          if (p.code === 'CUST-0001' || p.name === 'عميل نقدي' || p.name === 'عميل كاشير نقدي' || p.name === 'زبون عام') {
+            kept.push(p);
+            return;
+          }
+          const partyDate = p.openingBalanceDate || (p as any).createdAt || '2000-01-01';
+          if (options.resetManualParties && isTargetDate(partyDate)) {
+            deletedDocMap.parties.push(p.id);
+            summary.deletedManualParties++;
+          } else {
+            kept.push(p);
+          }
+        });
+        // تصفير المبالغ والذمم المدينة والدائنة
+        return kept.map(p => {
+          if (options.zeroPartyBalances && p.balance !== 0) summary.zeroedPartyBalances++;
+          return options.zeroPartyBalances ? { ...p, balance: 0, openingBalance: 0 } : p;
+        });
+      });
+    }
+
+    // 12. Inventory & Stock Cards (الأصناف والكرتات المخزنية والكميات)
+    setInventory(prev => {
+      const kept: InventoryItem[] = [];
+      prev.forEach(item => {
+        const itemDate = item.lastMovementDate || (item as any).createdAt || '2000-01-01';
+        if (options.resetManualInventoryItems && isTargetDate(itemDate)) {
+          deletedDocMap.inventory.push(item.id);
+          summary.deletedManualItems++;
+        } else {
+          kept.push(item);
+        }
+      });
+      // تصفير كميات المخزون بالكامل في كافة المستودعات
+      if (options.zeroInventoryStock) {
+        return kept.map(item => {
+          if (item.stockQuantity !== 0) summary.zeroedInventoryStocks++;
+          return {
+            ...item,
+            stockQuantity: 0,
+            warehouseStocks: {}
+          };
+        });
+      }
+      return kept;
+    });
+
+    // 13. Warehouses (المستودعات الإضافية)
+    setWarehouses(prev => {
+      const kept: Warehouse[] = [];
+      prev.forEach(w => {
+        // المستودع الرئيسي لا يمسح
+        if (w.id === 'wh-1' || w.name.includes('الرئيسي') || w.code === 'WH-01') {
+          kept.push(w);
+          return;
+        }
+        const wDate = w.createdAt || '2000-01-01';
+        if (isTargetDate(wDate)) {
+          deletedDocMap.warehouses.push(w.id);
+          summary.deletedManualWarehouses++;
+        } else {
+          kept.push(w);
+        }
+      });
+      return kept;
+    });
+
+    // 14. Treasuries (الصناديق والخزنات)
+    setTreasuries(prev => {
+      const kept: Treasury[] = [];
+      prev.forEach(t => {
+        // الصندوق النقدي لا يمسح ولكن يصفر
+        if (t.id === 'treasury-cash-main' || t.name.includes('النقدي') || t.accountCode === '1101') {
+          kept.push(t);
+          return;
+        }
+        const tDate = t.createdAt || '2000-01-01';
+        if (isTargetDate(tDate)) {
+          deletedDocMap.treasuries.push(t.id);
+          summary.deletedManualTreasuries++;
+        } else {
+          kept.push(t);
+        }
+      });
+
+      return kept.map(t => {
+        if (t.id === 'treasury-cash-main' || t.name.includes('النقدي') || t.accountCode === '1101') {
+          summary.zeroedTreasuries++;
+          return {
+            ...t,
+            balance: 0,
+            currencyBalances: { ILS: 0, USD: 0, JOD: 0 },
+            transactions: []
+          };
+        }
+        return t;
+      });
+    });
+
+    // 15. Accounts (شجرة الحسابات)
+    setAccounts(prev => {
+      summary.zeroedAccounts = prev.length;
+      return prev.map(a => ({ ...a, balance: 0 }));
+    });
+
+    // Execute direct Firestore deletion batch for all removed document IDs & persist cutoffs
+    try {
+      // 1. Persist in accounting_deleted_docs so any future hydration filters them out permanently
+      const existingDel = JSON.parse(localStorage.getItem('accounting_deleted_docs') || '[]');
+      for (const [colName, ids] of Object.entries(deletedDocMap)) {
+        for (const id of ids) {
+          existingDel.push({ col: colName, id: String(id), time: Date.now() });
+        }
+      }
+      localStorage.setItem('accounting_deleted_docs', JSON.stringify(existingDel.slice(-10000)));
+
+      // 2. Persist zeroed cutoffs
+      const currentCutoffs = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_zeroed_cutoffs`) || '{}');
+      for (const colName of Object.keys(deletedDocMap)) {
+        currentCutoffs[colName] = {
+          scope: options.scope,
+          cutoffDate: options.cutoffDate || new Date().toISOString().split('T')[0],
+          timestamp: Date.now()
+        };
+      }
+      localStorage.setItem(`${STORAGE_KEY}_zeroed_cutoffs`, JSON.stringify(currentCutoffs));
+    } catch (e) {
+      console.warn('Error saving zeroing deleted docs to storage:', e);
+    }
+
+    (async () => {
+      try {
+        let deleteCount = 0;
+        let deleteBatch = writeBatch(db);
+        const batchPromises: Promise<void>[] = [];
+
+        for (const [colName, ids] of Object.entries(deletedDocMap)) {
+          for (const id of ids) {
+            deleteBatch.delete(doc(db, colName, String(id)));
+            deleteCount++;
+            if (deleteCount % 400 === 0) {
+              batchPromises.push(deleteBatch.commit());
+              deleteBatch = writeBatch(db);
+            }
+          }
+        }
+        if (deleteCount % 400 !== 0 && deleteCount > 0) {
+          batchPromises.push(deleteBatch.commit());
+        }
+        await Promise.all(batchPromises);
+
+        // Also query Firestore directly for any collections zeroed with scope === 'all' to delete orphaned documents
+        if (options.scope === 'all') {
+          for (const colName of ['invoices', 'printOrders', 'salesReturns', 'stockMovements']) {
+            try {
+              const snap = await getDocs(collection(db, colName));
+              if (!snap.empty) {
+                let purgeBatch = writeBatch(db);
+                let purgeCount = 0;
+                for (const d of snap.docs) {
+                  purgeBatch.delete(d.ref);
+                  purgeCount++;
+                  if (purgeCount % 400 === 0) {
+                    await purgeBatch.commit();
+                    purgeBatch = writeBatch(db);
+                  }
+                }
+                if (purgeCount % 400 !== 0 && purgeCount > 0) {
+                  await purgeBatch.commit();
+                }
+              }
+            } catch (err) {
+              console.warn(`Purge leftover in ${colName} notice:`, err);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Direct Firestore delete batch note:', err);
+      }
+    })();
+
+    // Invalidate legacy local sync hashes; server acknowledgements remain authoritative
+    try {
+      localStorage.removeItem('accounting_synced_hashes');
+      localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
+      localStorage.setItem(`${STORAGE_KEY}_last_zeroed_at`, new Date().toISOString());
+    } catch (e) {
+      console.error('Error updating zeroing storage flags:', e);
+    }
+
+    // Trigger immediate cloud synchronization to Firestore
+    setTimeout(() => {
+      if (syncToServerRef.current) {
+        syncToServerRef.current(true).catch(err => {
+          console.error('Server sync after zeroing failed:', err);
+        });
+      }
+    }, 100);
+
+    return {
+      success: true,
+      message: 'تم تصفير الأصناف وفواتير المبيعات وكافة العمليات المرتبطة بها بنجاح وتحديث قاعدة البيانات سحابياً ومحلياً.',
+      summary,
+      executedAt: new Date().toISOString(),
+      executedBy: currentUser?.fullName || currentUser?.username || 'مدير النظام'
+    };
+  };
+
+  const importDataJSON = async (jsonString: string, includeSettings = true, keepTelegramSettings = true, keepFacilitySettings = true): Promise<boolean> => {
+    try {
+      const parsed = JSON.parse(jsonString);
+      const data = parsed?.data || parsed?.snapshot || parsed?.fullBackup || parsed;
+      if (data && typeof data === 'object' && (data.invoices || data.accounts || data.inventory || data.parties || data.settings || data.treasuries)) {
+        let finalSettings = { ...settings };
+        if (!keepFacilitySettings && data.settings) {
+            finalSettings = { ...data.settings };
+            if (keepTelegramSettings) {
+              finalSettings.telegramConfig = settings.telegramConfig;
+            }
+            setSettings(finalSettings);
+        } else if (keepFacilitySettings && data.settings && keepTelegramSettings === false) {
+           finalSettings = { ...settings };
+           finalSettings.telegramConfig = data.settings.telegramConfig;
+           setSettings(finalSettings);
+        }
+
+        const ensureUniqueIdsAndTimestamps = (arr: any[], prefix: string) => {
+          if (!Array.isArray(arr)) return [];
+          const nowIso = new Date().toISOString();
+          return arr.map((item, idx) => {
+            if (!item || typeof item !== 'object') return item;
+            const rawId = item.id ? String(item.id).replace(/\//g, '_') : `${prefix}-${Date.now()}-${idx}-${Math.floor(Math.random() * 10000)}`;
+            const cleanId = rawId.trim();
+            const updatedAt = item.updatedAt || item.createdAt || nowIso;
+            const createdAt = item.createdAt || updatedAt;
+            const newItem = { ...item, id: cleanId, createdAt, updatedAt };
+            delete newItem._deleted;
+            delete newItem.deletedAt;
+            return newItem;
+          });
+        };
+
+        // Standardize all imported entities with guaranteed UUIDs & timestamps
+        if (data.accounts) data.accounts = ensureUniqueIdsAndTimestamps(data.accounts, 'acc');
+        if (data.journalEntries) data.journalEntries = ensureUniqueIdsAndTimestamps(data.journalEntries, 'je');
+        if (data.inventory) data.inventory = ensureUniqueIdsAndTimestamps(data.inventory, 'inv-item');
+        if (data.stockMovements) data.stockMovements = ensureUniqueIdsAndTimestamps(data.stockMovements, 'sm');
+        if (data.parties) data.parties = ensureUniqueIdsAndTimestamps(data.parties, 'party');
+        if (data.employees) data.employees = ensureUniqueIdsAndTimestamps(data.employees, 'emp');
+        if (data.employeeAdvances) data.employeeAdvances = ensureUniqueIdsAndTimestamps(data.employeeAdvances, 'adv');
+        if (data.employeeDeductions) data.employeeDeductions = ensureUniqueIdsAndTimestamps(data.employeeDeductions, 'ded');
+        if (data.employeeIncentives) data.employeeIncentives = ensureUniqueIdsAndTimestamps(data.employeeIncentives, 'inc');
+        if (data.payrollSheets) data.payrollSheets = ensureUniqueIdsAndTimestamps(data.payrollSheets, 'pay');
+        if (data.printOrders) data.printOrders = ensureUniqueIdsAndTimestamps(data.printOrders, 'pord');
+        if (data.invoices) data.invoices = ensureUniqueIdsAndTimestamps(data.invoices, 'inv');
+        if (data.purchases) data.purchases = ensureUniqueIdsAndTimestamps(data.purchases, 'pur');
+        if (data.purchaseReturns) data.purchaseReturns = ensureUniqueIdsAndTimestamps(data.purchaseReturns, 'pur-ret');
+        if (data.salesReturns) data.salesReturns = ensureUniqueIdsAndTimestamps(data.salesReturns, 'sal-ret');
+        if (data.vouchers) data.vouchers = ensureUniqueIdsAndTimestamps(data.vouchers, 'vch');
+        if (data.debtClearings) data.debtClearings = ensureUniqueIdsAndTimestamps(data.debtClearings, 'dc');
+        if (data.expenses) data.expenses = ensureUniqueIdsAndTimestamps(data.expenses, 'exp');
+        if (data.warehouseOperations) data.warehouseOperations = ensureUniqueIdsAndTimestamps(data.warehouseOperations, 'wo');
+        if (data.treasuries) data.treasuries = ensureUniqueIdsAndTimestamps(data.treasuries, 'tr');
+        if (data.roles) data.roles = ensureUniqueIdsAndTimestamps(data.roles, 'role');
+        if (data.users) data.users = ensureUniqueIdsAndTimestamps(data.users, 'usr');
+        if (data.companies) data.companies = ensureUniqueIdsAndTimestamps(data.companies, 'cmp');
+        if (data.branches) data.branches = ensureUniqueIdsAndTimestamps(data.branches, 'br');
+        if (data.warehouses) data.warehouses = ensureUniqueIdsAndTimestamps(data.warehouses, 'wh');
+
+        if (includeSettings) {
+          if (data.roles) setRoles(data.roles);
+          if (data.users) setUsers(data.users);
+          if (data.companies) setCompanies(data.companies);
+          if (data.branches) setBranches(data.branches);
+          if (data.warehouses) setWarehouses(data.warehouses);
+        }
+        if (data.accounts) setAccounts(data.accounts);
+        if (data.journalEntries) setJournalEntries(data.journalEntries);
+        if (data.inventory) setInventory(data.inventory);
+        if (data.stockMovements) setStockMovements(data.stockMovements);
+        if (data.parties) setParties(data.parties);
+        if (data.employees) setEmployees(data.employees);
+        if (data.employeeAdvances) setEmployeeAdvances(data.employeeAdvances);
+        if (data.employeeDeductions) setEmployeeDeductions(data.employeeDeductions);
+        if (data.employeeIncentives) setEmployeeIncentives(data.employeeIncentives);
+        if (data.payrollSheets) setPayrollSheets(data.payrollSheets);
+        if (data.printOrders) setPrintOrders(data.printOrders);
+        if (data.invoices) setInvoices(data.invoices);
+        if (data.purchases) setPurchases(data.purchases);
+        if (data.purchaseReturns) setPurchaseReturns(data.purchaseReturns);
+        if (data.salesReturns) setSalesReturns(data.salesReturns);
+        if (data.vouchers) setVouchers(data.vouchers);
+        if (data.debtClearings) setDebtClearings(data.debtClearings);
+        if (data.expenses) setExpenses(data.expenses);
+        if (data.warehouseOperations) setWarehouseOperations(data.warehouseOperations);
+        if (data.treasuries) setTreasuries(data.treasuries);
+
+        // Synchronously write all imported records to localStorage
+        localStorage.setItem(`${STORAGE_KEY}_settings`, JSON.stringify(finalSettings));
+        if (includeSettings) {
+          if (data.roles) localStorage.setItem(`${STORAGE_KEY}_roles`, JSON.stringify(data.roles));
+          if (data.users) localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(data.users));
+          if (data.companies) localStorage.setItem(`${STORAGE_KEY}_companies`, JSON.stringify(data.companies));
+          if (data.branches) localStorage.setItem(`${STORAGE_KEY}_branches`, JSON.stringify(data.branches));
+          if (data.warehouses) localStorage.setItem(`${STORAGE_KEY}_warehouses`, JSON.stringify(data.warehouses));
+        }
+
+        if (data.accounts) localStorage.setItem(`${STORAGE_KEY}_accounts`, JSON.stringify(data.accounts));
+        if (data.journalEntries) localStorage.setItem(`${STORAGE_KEY}_journals`, JSON.stringify(data.journalEntries));
+        if (data.inventory) localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(data.inventory));
+        if (data.stockMovements) localStorage.setItem(`${STORAGE_KEY}_stockMovements`, JSON.stringify(data.stockMovements));
+        if (data.parties) localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(data.parties));
+        if (data.employees) localStorage.setItem(`${STORAGE_KEY}_employees`, JSON.stringify(data.employees));
+        if (data.employeeAdvances) localStorage.setItem(`${STORAGE_KEY}_advances`, JSON.stringify(data.employeeAdvances));
+        if (data.employeeDeductions) localStorage.setItem(`${STORAGE_KEY}_deductions`, JSON.stringify(data.employeeDeductions));
+        if (data.employeeIncentives) localStorage.setItem(`${STORAGE_KEY}_incentives`, JSON.stringify(data.employeeIncentives));
+        if (data.payrollSheets) localStorage.setItem(`${STORAGE_KEY}_payrollSheets`, JSON.stringify(data.payrollSheets));
+        if (data.printOrders) localStorage.setItem(`${STORAGE_KEY}_printOrders`, JSON.stringify(data.printOrders));
+        if (data.invoices) localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(data.invoices));
+        if (data.purchases) localStorage.setItem(`${STORAGE_KEY}_purchases`, JSON.stringify(data.purchases));
+        if (data.purchaseReturns) localStorage.setItem(`${STORAGE_KEY}_purchaseReturns`, JSON.stringify(data.purchaseReturns));
+        if (data.salesReturns) localStorage.setItem(`${STORAGE_KEY}_salesReturns`, JSON.stringify(data.salesReturns));
+        if (data.vouchers) localStorage.setItem(`${STORAGE_KEY}_vouchers`, JSON.stringify(data.vouchers));
+        if (data.debtClearings) localStorage.setItem(`${STORAGE_KEY}_debt_clearings`, JSON.stringify(data.debtClearings));
+        if (data.expenses) localStorage.setItem(`${STORAGE_KEY}_expenses`, JSON.stringify(data.expenses));
+        if (data.warehouseOperations) localStorage.setItem(`${STORAGE_KEY}_warehouse_operations`, JSON.stringify(data.warehouseOperations));
+        if (data.treasuries) localStorage.setItem(`${STORAGE_KEY}_treasuries`, JSON.stringify(data.treasuries));
+        if (data.dailyEntrySheets && typeof data.dailyEntrySheets === 'object') {
+          setDailyEntrySheets(data.dailyEntrySheets);
+          localStorage.setItem(`${STORAGE_KEY}_daily_entry_sheets`, JSON.stringify(data.dailyEntrySheets));
+        }
+
+        // Clear previous deletion tracking and advance delta time so old Firestore polling won't re-inject old records
+        localStorage.removeItem('accounting_deleted_docs');
+        const nowTs = Date.now();
+        localStorage.setItem('accounting_last_firestore_delta_time', String(nowTs));
+        localStorage.setItem('accounting_last_seen_seq', String(nowTs));
+        localStorage.setItem('accounting_database_imported_at', String(nowTs));
+
+        // Overwrite backend Express server state at /api/sync/replace-database so server polling stays 100% matched
+        try {
+          await fetch('/api/sync/replace-database', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data })
+          });
+        } catch (e) {
+          console.warn('Replace server database route notice:', e);
+        }
+
+        // Broadcast cross-tab and in-tab live notifications
+        window.dispatchEvent(new CustomEvent('accounting_database_updated'));
+        if (syncChannelRef.current) {
+          try {
+            syncChannelRef.current.postMessage({
+              type: 'DATABASE_IMPORTED',
+              payload: { timestamp: nowTs }
+            });
+          } catch {}
+        }
+
+        // Direct push to Firestore cloud database in isolated per-collection batches
+        try {
+          // 1. Critical Priority: Invoices push
+          const importedInvoices = Array.isArray(data.invoices) ? data.invoices : [];
+          if (importedInvoices.length > 0) {
+            let invBatch = writeBatch(db);
+            let invOp = 0;
+            for (const inv of importedInvoices) {
+              if (!inv || !inv.id) continue;
+              const docId = String(inv.id).replace(/\//g, '_');
+              const cleanInv = cleanDocForFirestore(inv);
+              if (cleanInv) {
+                invBatch.set(doc(db, 'invoices', docId), cleanInv, { merge: true });
+                invOp++;
+                if (invOp % 250 === 0) {
+                  await invBatch.commit();
+                  invBatch = writeBatch(db);
+                }
+              }
+            }
+            if (invOp % 250 !== 0 && invOp > 0) {
+              await invBatch.commit();
+            }
+          }
+
+          // 2. Supporting entities push in dedicated batches
+          const otherCols: Record<string, any[]> = {
+            parties: Array.isArray(data.parties) ? data.parties : [],
+            inventory: Array.isArray(data.inventory) ? data.inventory : [],
+            treasuries: Array.isArray(data.treasuries) ? data.treasuries : [],
+            accounts: Array.isArray(data.accounts) ? data.accounts : [],
+            vouchers: Array.isArray(data.vouchers) ? data.vouchers : [],
+            printOrders: Array.isArray(data.printOrders) ? data.printOrders : [],
+            purchases: Array.isArray(data.purchases) ? data.purchases : [],
+            purchaseReturns: Array.isArray(data.purchaseReturns) ? data.purchaseReturns : [],
+            salesReturns: Array.isArray(data.salesReturns) ? data.salesReturns : [],
+            journalEntries: Array.isArray(data.journalEntries) ? data.journalEntries : [],
+            stockMovements: Array.isArray(data.stockMovements) ? data.stockMovements : [],
+            expenses: Array.isArray(data.expenses) ? data.expenses : [],
+            employees: Array.isArray(data.employees) ? data.employees : [],
+            employeeAdvances: Array.isArray(data.employeeAdvances) ? data.employeeAdvances : [],
+            employeeDeductions: Array.isArray(data.employeeDeductions) ? data.employeeDeductions : [],
+            employeeIncentives: Array.isArray(data.employeeIncentives) ? data.employeeIncentives : [],
+            payrollSheets: Array.isArray(data.payrollSheets) ? data.payrollSheets : [],
+            debtClearings: Array.isArray(data.debtClearings) ? data.debtClearings : [],
+            companies: Array.isArray(data.companies) ? data.companies : [],
+            branches: Array.isArray(data.branches) ? data.branches : [],
+            warehouses: Array.isArray(data.warehouses) ? data.warehouses : [],
+            warehouseOperations: Array.isArray(data.warehouseOperations) ? data.warehouseOperations : [],
+            roles: Array.isArray(data.roles) ? data.roles : [],
+            users: Array.isArray(data.users) ? data.users : []
+          };
+
+          for (const [colName, items] of Object.entries(otherCols)) {
+            if (items.length === 0) continue;
+            try {
+              let batch = writeBatch(db);
+              let op = 0;
+              for (let idx = 0; idx < items.length; idx++) {
+                const item = items[idx];
+                if (!item) continue;
+                const rawId = item.id ? String(item.id) : `${colName}_${idx}`;
+                const docId = rawId.replace(/\//g, '_');
+                const cleanItem = cleanDocForFirestore(item);
+                if (cleanItem) {
+                  batch.set(doc(db, colName, docId), cleanItem, { merge: true });
+                  op++;
+                  if (op % 250 === 0) {
+                    await batch.commit();
+                    batch = writeBatch(db);
+                  }
+                }
+              }
+              if (op % 250 !== 0 && op > 0) {
+                await batch.commit();
+              }
+            } catch (colErr) {
+              console.warn(`Notice pushing collection ${colName}:`, colErr);
+            }
+          }
+
+          if (data.dailyEntrySheets && typeof data.dailyEntrySheets === 'object') {
+            for (const [dateKey, sheetData] of Object.entries(data.dailyEntrySheets)) {
+              if (!sheetData) continue;
+              try {
+                const docId = String(dateKey).replace(/\//g, '_');
+                const cleanSheet = cleanDocForFirestore({ date: dateKey, ...(sheetData as any) });
+                await setDoc(doc(db, 'dailyEntrySheets', docId), cleanSheet, { merge: true });
+              } catch {}
+            }
+          }
+
+          if (finalSettings) {
+            try {
+              const cleanSettings = cleanDocForFirestore(finalSettings);
+              await setDoc(doc(db, 'settings', 'global'), cleanSettings, { merge: true });
+            } catch {}
+          }
+
+          const newHashes: Record<string, string> = {};
+          safeSetSyncedHashes(newHashes);
+          localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'false');
+          const timeStr = new Date().toLocaleTimeString('en-US');
+          setLastServerSyncTime(timeStr);
+          setLastSyncTime(timeStr);
+          setHasUnsyncedChanges(false);
+          setPendingSyncCount(0);
+          localStorage.setItem(`${STORAGE_KEY}_last_sync`, timeStr);
+        } catch (cloudErr) {
+          console.warn('Direct cloud push after import caught notice, marking for sync:', cloudErr);
+          localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
+        }
+
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const resetAllData = async () => {
+    if (window.confirm('هذا سيقوم بتصفير شامل لقاعدة البيانات على السيرفر والسحابة وعلى كافة الأجهزة. هل أنت متأكد؟')) {
+      // 1. Wipe Cloud Firestore transactional collections
+      try {
+        const collectionsToWipe = ['invoices', 'deletedInvoices', 'printOrders', 'stockMovements', 'vouchers', 'purchases', 'dailyEntrySheets'];
+        for (const colName of collectionsToWipe) {
+          const snap = await getDocs(collection(db, colName));
+          if (!snap.empty) {
+            const batch = writeBatch(db);
+            snap.docs.forEach(d => batch.delete(doc(db, colName, d.id)));
+            await batch.commit();
+          }
+        }
+      } catch (cloudErr) {
+        console.warn('Notice during cloud Firestore wipe:', cloudErr);
+      }
+
+      // 2. Call server to wipe sync data
+      await fetch('/api/sync/hard-reset', { method: 'POST' }).catch(console.error);
+
+      // 3. Clear all local storage keys
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith(STORAGE_KEY) || key.includes('accounting_') || key.includes('pos_')) {
+          localStorage.removeItem(key);
+        }
+      });
+      
+      // Reload to force fresh start
+      window.location.reload();
+    }
+  };
+
+  // Calculate live stats
+  const cashAcc = accounts.find(a => a.code === '1101');
+  const bankAcc = accounts.find(a => a.code === '1105') || accounts.find(a => a.code === '1102');
+  const customerAcc = accounts.find(a => a.code === '1201');
+  const supplierAcc = accounts.find(a => a.code === '2101');
+
+  const cashTreasuriesList = treasuries.filter(t => t.type === 'cash_box' || t.isDefault || t.accountCode === '1101');
+  const bankTreasuriesList = treasuries.filter(t => t.type !== 'cash_box' && !t.isDefault && t.accountCode !== '1101');
+
+  const liveCashBalance = Math.round(cashTreasuriesList.reduce((sum, t) => sum + (t.balance || 0), 0) * 100) / 100;
+  const liveBankBalance = Math.round(bankTreasuriesList.reduce((sum, t) => sum + (t.balance || 0), 0) * 100) / 100;
+
+  const totalRevAccs = accounts.filter(a => a.type === 'revenue').reduce((acc, a) => acc + a.balance, 0);
+  const totalExpAccs = accounts.filter(a => a.type === 'expense').reduce((acc, a) => acc + a.balance, 0);
+
+  const printRevAcc = accounts.find(a => a.code === '4102')?.balance || 0;
+  const bookRevAcc = (accounts.find(a => a.code === '4101')?.balance || 0) + (accounts.find(a => a.code === '4103')?.balance || 0);
+
+  const inventoryTotalValue = inventory.reduce((acc, it) => acc + (it.stockQuantity * it.purchasePrice), 0);
+  const lowStockCount = inventory.filter(it => it.category !== 'copy_scan' && it.stockQuantity <= it.minAlertQuantity).length;
+  const pendingPrintJobs = invoices.filter(inv => {
+    if (inv.workflowStatus === 'delivered' || inv.status === 'delivered' || inv.workflowStatus === 'completed') return false;
+    const s = inv.workflowStatus;
+    return s === 'design' || s === 'designing' || s === 'pending_approval' || s === 'print_external' || s === 'in_progress_external' || s === 'print_internal' || s === 'in_progress_internal' || s === 'in_progress' || s === 'printing' || s === 'finishing' || s === 'ready';
+  }).length;
+
+  const activeEmployees = employees.filter(e => e.status === 'active');
+  const estimatedMonthlyPayroll = activeEmployees.reduce((sum, e) => {
+    const totalWage = (e.salaryAmount || 0) + (e.allowances || 0);
+    if (e.salaryType === 'monthly') return sum + totalWage;
+    if (e.salaryType === 'weekly') return sum + Math.round(totalWage * 4.33);
+    if (e.salaryType === 'daily') return sum + Math.round(totalWage * 26);
+    return sum + totalWage;
+  }, 0);
+
+  const pendingAdvancesTotal = employeeAdvances.filter(a => a.status === 'pending').reduce((s, a) => s + a.amount, 0);
+  const pendingDeductionsTotal = employeeDeductions.filter(d => d.status === 'pending').reduce((s, d) => s + d.amount, 0);
+  const pendingIncentivesTotal = employeeIncentives.filter(i => i.status === 'pending').reduce((s, i) => s + i.amount, 0);
+  const exceededCreditLimitCount = parties.filter(p => p.type !== 'supplier' && p.creditLimit && p.balance > p.creditLimit).length;
+
+  const todayIsoDate = new Date().toISOString().split('T')[0];
+  const todaySales = invoices
+    .filter(inv => inv?.date && inv.date.startsWith(todayIsoDate))
+    .reduce((sum, inv) => sum + (inv.totalAmount || (inv as any).total || 0), 0);
+
+  const stats = {
+    totalRevenue: totalRevAccs,
+    printRevenue: printRevAcc,
+    bookstoreRevenue: bookRevAcc,
+    netProfit: totalRevAccs - totalExpAccs,
+    cashBalance: liveCashBalance,
+    bankBalance: liveBankBalance,
+    customerReceivables: customerAcc ? customerAcc.balance : 0,
+    supplierPayables: supplierAcc ? supplierAcc.balance : 0,
+    inventoryTotalValue: Math.round(inventoryTotalValue),
+    pendingPrintJobs,
+    lowStockCount,
+    totalEmployeesCount: employees.length,
+    activeEmployeesCount: activeEmployees.length,
+    estimatedMonthlyPayroll,
+    pendingAdvancesTotal,
+    pendingDeductionsTotal,
+    pendingIncentivesTotal,
+    payrollSheetsCount: payrollSheets.length,
+    draftPayrollSheetsCount: payrollSheets.filter(s => s.status === 'draft').length,
+    totalTreasuriesBalance: treasuries.reduce((sum, t) => sum + (t.balance || 0), 0),
+    treasuriesCount: treasuries.length,
+    exceededCreditLimitCount,
+    purchaseReturnsCount: purchaseReturns.length,
+    salesReturnsCount: salesReturns.length,
+    todaySales
+  };
+
+  
+  const seedLocalDatabaseDemo = () => {
+    try {
+      try { localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(invoices)); } catch {}
+      try { localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(parties)); } catch {}
+      try { localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(inventory)); } catch {}
+      try { localStorage.setItem(`${STORAGE_KEY}_accounts`, JSON.stringify(accounts)); } catch {}
+      try { localStorage.setItem(`${STORAGE_KEY}_treasuries`, JSON.stringify(treasuries)); } catch {}
+      try { localStorage.setItem(`${STORAGE_KEY}_vouchers`, JSON.stringify(vouchers)); } catch {}
+      
+      return {
+        success: true,
+        message: `تم التأكد من تجهيز قاعدة البيانات المحلية وتحديث المحفوظات (${invoices.length} فاتورة مبيعات جاهزة محلياً)`,
+        count: invoices.length
+      };
+    } catch (e: any) {
+      return { success: false, message: 'حدث خطأ أثناء تجهيز البيانات المحلية: ' + e.message, count: 0 };
+    }
+  };
+
+  const exportLocalDatabaseJSON = () => {
+    return exportDataJSON();
+  };
+
+  const importLocalDatabaseJSON = async (jsonData: any): Promise<{ success: boolean; message: string }> => {
+    try {
+      if (!jsonData || typeof jsonData !== 'object') {
+        return { success: false, message: 'صيغة ملف النسخة الاحتياطية غير صحيحة' };
+      }
+      const jsonString = JSON.stringify(jsonData);
+      const success = await importDataJSON(jsonString, true, true, true);
+      if (success) {
+        return { success: true, message: 'تمت استعادة وتحديث قاعدة البيانات بالكامل سحابياً ومحلياً وسيرفر بنجاح!' };
+      } else {
+        return { success: false, message: 'فشل تطبيق ملف النسخة الاحتياطية' };
+      }
+    } catch (err: any) {
+      return { success: false, message: 'حدث خطأ أثناء استعادة البيانات: ' + err.message };
+    }
+  };
+
+  // Read-only diagnostic. Never replace all customer balances from stale browsers.
+  const reconcileAllPartyBalances = (): { updatedCount: number; mismatchedCount: number } => {
+    const mismatchedCount = parties.reduce((count, party) => {
+      const projected = calculatePartyTrueBalance(
+        party, invoices, vouchers, purchases, purchaseReturns,
+        salesReturns, printOrders, journalEntries, debtClearings
+      );
+      const stored = Number((party.balance || 0).toFixed(2));
+      return count + (Math.abs(stored - projected) >= 0.01 ? 1 : 0);
+    }, 0);
+    if (mismatchedCount > 0) {
+      console.warn('BALANCE_AUDIT_ONLY: central reconciliation required, no writes performed',
+        { mismatchedCount });
+    }
+    return { updatedCount: 0, mismatchedCount };
+  };
+
+  // No automatic balance overwrites on load, invoice count changes or browser catch-up.
+  // Only server-led, audited transactions may update financial balances.
+
+  const forcePushAndPullSync = async (): Promise<{ success: boolean; message: string; invoicesCount: number }> => {
+    try {
+      const res = await forceSyncNow();
+      return {
+        success: res.success,
+        message: res.message,
+        invoicesCount: invoices.length
+      };
+    } catch (e: any) {
+      return {
+        success: false,
+        message: e?.message || 'حدث خطأ أثناء المزامنة',
+        invoicesCount: invoices.length
+      };
+    }
+  };
+
+return (
+    <AccountingContext.Provider
+      value={{
+        isLocalOnlyMode,
+        toggleLocalOnlyMode,
+        seedLocalDatabaseDemo,
+        exportLocalDatabaseJSON,
+        importLocalDatabaseJSON,
+        settings,
+        updateSettings,
+        accounts,
+        addAccount,
+        updateAccount,
+        treasuries,
+        addTreasury,
+        updateTreasury,
+        deleteTreasury,
+        transferBetweenTreasuries,
+        depositIntoTreasury,
+        withdrawFromTreasury,
+        executeTreasuryOperation,
+        adjustTreasuryBalance,
+        journalEntries,
+        addJournalEntry,
+        inventory,
+        addInventoryItem,
+        deleteInventoryItem,
+        updateInventoryItem,
+        adjustStock,
+        stockMovements,
+        addStockMovement,
+        parties,
+        addParty,
+        updateParty,
+        deleteParty,
+        selectedPartyForStatement,
+        setSelectedPartyForStatement,
+        reconcileAllPartyBalances,
+        selectedEmployeeForStatement,
+        setSelectedEmployeeForStatement,
+        debtClearings,
+        addDebtClearing,
+        updateDebtClearing,
+        deleteDebtClearing,
+        expenses,
+        addExpense,
+        deleteExpense,
+        employees,
+        addEmployee,
+        updateEmployee,
+        deleteEmployee,
+        payEmployeeSalary,
+        employeeAdvances,
+        addEmployeeAdvance,
+        cancelEmployeeAdvance,
+        employeeDeductions,
+        addEmployeeDeduction,
+        cancelEmployeeDeduction,
+        employeeIncentives,
+        addEmployeeIncentive,
+        cancelEmployeeIncentive,
+        payrollSheets,
+        createDraftPayrollSheet,
+        updateDraftPayrollSheet,
+        deleteDraftPayrollSheet,
+        approveAndDisbursePayrollSheet,
+        unapprovePayrollSheet,
+        selectedPayrollSheetForPrint,
+        setSelectedPayrollSheetForPrint,
+        printOrders,
+        createPrintOrder,
+        updatePrintOrderStatus,
+        updatePrintOrder,
+        collectPrintOrderPayment,
+        deletePrintOrder,
+        deleteMultiplePrintOrders,
+        deleteAllPrintOrders,
+        invoices,
+        createPosSale,
+        postPosSaleOnline,
+        addPosInvoice,
+        addPosInvoiceOnline,
+        updateInvoice,
+        deleteInvoice,
+        deleteAllSalesInvoicesAndRelatedData,
+        resetInvoicesAndKeepTreasury1101,
+        renumberInvoicesToOne,
+        deletedInvoices,
+        restoreDeletedInvoice,
+        permanentlyDeleteInvoice,
+        recoverInvoicesFromAllBackups,
+        getInvoiceDeleteAuditLogs,
+        addInvoiceTechnicalNote,
+        addInvoiceItemAttachment,
+        updateInvoiceItemAttachment,
+        removeInvoiceItemAttachment,
+        startInvoicePrinting,
+        finishInvoicePrinting,
+        deliverInvoice,
+        purchases,
+        createPurchaseInvoice,
+        deletePurchaseInvoice,
+        selectedPurchaseForPrint,
+        setSelectedPurchaseForPrint,
+        purchaseReturns,
+        createPurchaseReturn,
+        deletePurchaseReturn,
+        selectedReturnForPrint,
+        setSelectedReturnForPrint,
+        salesReturns,
+        createSalesReturn,
+        deleteSalesReturn,
+        selectedSalesReturnForPrint,
+        setSelectedSalesReturnForPrint,
+        vouchers,
+        createPaymentVoucher,
+        createReceiptVoucherAtomic,
+        updatePaymentVoucher,
+        amendReceiptVoucher,
+        deletePaymentVoucher,
+        selectedVoucherForPrint,
+        setSelectedVoucherForPrint,
+        currencies,
+        updateCurrencies,
+        updateCurrencyRate,
+        fetchLiveRates,
+        sqlServerConfig,
+        updateSqlServerConfig,
+        generateSqlBackup,
+        downloadSqlBackup,
+        syncWithCoordinator,
+        isOnline,
+        lastSyncTime,
+        isServerSyncing,
+        lastServerSyncTime,
+        hasUnsyncedChanges,
+        pendingSyncCount,
+        lastLocalSaveTime,
+        syncToServer,
+        forceSyncNow,
+        forcePushAndPullSync,
+        importMasterDatabaseSnapshot,
+        unifiedRepository,
+        syncCoordinatorState,
+        openConflictModal,
+        closeConflictModal,
+        isConflictModalOpen,
+        activeTab,
+        setActiveTab,
+        goBack,
+        canGoBack,
+        editingPosInvoiceId,
+        setEditingPosInvoiceId,
+        selectedInvoiceForPrint,
+        setSelectedInvoiceForPrint,
+        directPrintOptions,
+        setDirectPrintOptions,
+        selectedInvoiceForLifecycle,
+        setSelectedInvoiceForLifecycle,
+        selectedJobForPrint,
+        setSelectedJobForPrint,
+        lastBackupInfo,
+        exportDataJSON,
+        importDataJSON,
+        resetAllData,
+        performDatabaseZeroing,
+        companies,
+        activeCompanyId,
+        setActiveCompanyId,
+        addCompany,
+        updateCompany,
+        deleteCompany,
+        branches,
+        activeBranchId,
+        setActiveBranchId,
+        addBranch,
+        updateBranch,
+        deleteBranch,
+        getActiveBranch,
+        warehouses,
+        activeWarehouseId,
+        setActiveWarehouseId,
+        addWarehouse,
+        updateWarehouse,
+        deleteWarehouse,
+        getWarehousesForBranch,
+        getWarehouseStock,
+        warehouseOperations,
+        addWarehouseOperation,
+        roles,
+        addRole,
+        updateRole,
+        deleteRole,
+        users,
+        currentUserId,
+        setCurrentUserId,
+        currentUser,
+        getCurrentUser,
+        addUser,
+        updateUser,
+        deleteUser,
+        hasPermission,
+        canAccessBranch,
+        getAllowedBranchesForUser,
+        getItemPriceForCustomer,
+        getCurrentUserPricePolicy,
+        dailyEntrySheets,
+        getDailyEntrySheet,
+        saveDailyEntrySheet,
+        saveDailyEntryRow,
+        deleteDailyEntrySheet,
+        getAllDailyEntryDates,
+        markDailyEntryRowsApproved,
+        acquireDailyEntryRowLock,
+        releaseDailyEntryRowLock,
+        forceReleaseDailyEntryRowLock,
+        stats
+      }}
+    >
+      {children}
+    </AccountingContext.Provider>
+  );
+};
+
+export const useAccounting = () => {
+  const context = useContext(AccountingContext);
+  if (!context) {
+    throw new Error('useAccounting must be used within an AccountingProvider');
+  }
+  return context;
+};
+).exec(String(row.value?.voucherNumber||''));
+      if(match)max=Math.max(max,Number(match[1]));
+    }
+    const seq=max+1;
+    const serial='RCT-'+year+'-'+String(seq).padStart(4,'0');
+    const treasuryCode=draft.paymentMethod==='cash'
+      ?MAIN_CASH_TREASURY_CODE:canonicalTreasuryCode(draft.treasuryAccountCode);
+    const target=snapshot.records.find(r=>r.entity==='treasuries'&&r.value?.accountCode===treasuryCode);
+    const party=snapshot.records.find(r=>r.entity==='parties'&&r.id===draft.partyId&&r.value);
+    if(!target||!party)throw Error('العميل أو الصندوق غير موجود في قاعدة PostgreSQL المعتمدة.');
+    if(target.value?.status!=='active')throw Error('الصندوق غير فعال.');
+    if(draft.paymentMethod==='cash'&&target.value?.type!=='cash_box')
+      throw Error('النقدي للصندوق الرئيسي فقط.');
+    if(draft.paymentMethod!=='cash'&&target.value?.type==='cash_box')
+      throw Error('اختر صندوقًا بنكيًا أو محفظة.');
+    const amount=Number(draft.amount);
+    const rate=Number(draft.exchangeRate||1);
+    const base=Number((amount*rate).toFixed(2));
+    if(!Number.isFinite(amount)||amount<=0||!Number.isFinite(rate)||rate<=0||
+       Math.abs(amount*100-Math.round(amount*100))>0.00001)
+      throw Error('مبلغ القبض أو سعر الصرف غير صحيح.');
+    const id='vch-'+crypto.randomUUID();
+    const voucher:PaymentVoucher={
+      ...draft,id,voucherNumber:serial,
+      partyType:'customer',partyName:String(party.value?.name),
+      accountCode:'1201',treasuryAccountCode:treasuryCode,
+      currency:draft.currency||'ILS',exchangeRate:rate,baseAmount:base
+    };
+    const commandId='receipt-post-'+crypto.randomUUID();
+    const receipt=await remote.push({
+      id:commandId,workspaceId:config.workspace,
+      changes:[{entity:'vouchers',id,expectedVersion:0,
+        value:JSON.parse(JSON.stringify(voucher)) as JsonObject}],
+      createdAt:Date.now(),attempts:0,retryAt:0,status:'pending'
+    });
+    const changed=Array.isArray(receipt.changes)?receipt.changes:[];
+    const saved=changed.find(row=>row.entity==='vouchers'&&row.id===id&&row.value);
+    const journal=changed.find(row=>row.entity==='journalEntries'&&row.value?.referenceId===id);
+    const treasuryChanged=changed.some(row=>row.entity==='treasuries'&&row.value?.accountCode===treasuryCode);
+    const partyChanged=changed.some(row=>row.entity==='parties'&&row.id===draft.partyId);
+    const accountsChanged=changed.filter(row=>row.entity==='accounts');
+    if(!saved||!journal||!treasuryChanged||!partyChanged||accountsChanged.length!==2)
+      throw Error('لم يؤكد الخادم ترحيل السند والقيود والصندوق والذمم كاملة. افحص المزامنة قبل إعادة المحاولة.');
+    for(const row of changed){
+      if(!row.value)continue;
+      if(row.entity==='vouchers')setVouchers(prev=>[row.value as unknown as PaymentVoucher,...prev.filter(v=>v.id!==row.id)]);
+      if(row.entity==='journalEntries')setJournalEntries(prev=>[row.value as unknown as JournalEntry,...prev.filter(v=>v.id!==row.id)]);
+      if(row.entity==='treasuries')setTreasuries(prev=>prev.map(t=>t.id===row.id?row.value as unknown as Treasury:t));
+      if(row.entity==='parties')setParties(prev=>prev.map(p=>p.id===row.id?row.value as unknown as Party:p));
+      if(row.entity==='accounts')setAccounts(prev=>prev.map(a=>a.id===row.id?row.value as unknown as Account:a));
+    }
+    return saved.value as unknown as PaymentVoucher;
+  };
+
   const createPaymentVoucher = (voucherData: Omit<PaymentVoucher, 'id' | 'voucherNumber'>) => {
+    if(voucherData.type==='receipt')throw Error('استخدم الترحيل الذري لسند القبض؛ الحفظ المنفصل ممنوع.');
     const id = 'vch-' + Date.now();
     const prefix = voucherData.type === 'receipt' ? 'RCT' : 'PAY';
     const currentYear = new Date().getFullYear();
