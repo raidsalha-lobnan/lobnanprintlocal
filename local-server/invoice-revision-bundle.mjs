@@ -49,6 +49,9 @@ export function buildVerifiedInvoiceRevisionBundle({
    changedDimensions[field]={previous:invoice[field]??null,current:proposed[field]??null};
  }
  const amended={...invoice,...proposed,id:invoice.id,invoiceNumber:invoice.invoiceNumber,
+  // Historical stock provenance is immutable server-side accounting evidence.
+  // The browser may edit invoice lines but cannot replace the origin record.
+  ...(invoice.legacyStockBasis?{legacyStockBasis:invoice.legacyStockBasis}:{}),
   isOfficial:true,isAccountingPosted:true,postedAt:invoice.postedAt,
   updatedAt:now,
   statusHistory:[...(invoice.statusHistory||[]),{
