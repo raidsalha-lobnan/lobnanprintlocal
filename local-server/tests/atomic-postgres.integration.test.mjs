@@ -42,7 +42,12 @@ test('real isolated PostgreSQL: atomic financial sale commit, retry and rollback
     record('parties','main',{id:'main',code:'CUST-0002',name:'Main Customer',
      type:'customer',balance:10}),
     record('inventory','paper',{id:'paper',code:'PRI-0001',name:'Paper',
-     category:'print_raw',stockQuantity:10,purchasePrice:4})
+     category:'print_raw',stockQuantity:10,purchasePrice:4}),
+    ...[
+      ['1201','asset'],['4101','revenue'],['5101','expense'],['1301','asset']
+    ].map(([code,type])=>record('accounts','account-'+code,{
+      id:'account-'+code,code,name:'Test '+code,type,balance:0
+    }))
    ]
   });
   const first=sale('inv-pos-real1',1,10,10);first.workspaceId=workspace;
