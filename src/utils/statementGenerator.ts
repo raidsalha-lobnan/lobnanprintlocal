@@ -853,6 +853,15 @@ export function generateEmployeeStatement(params: {
 
   const allTx: RawEmpTx[] = [];
 
+  // An approved payroll is the source of its salary expense, incentives,
+  // deductions and net disbursement. The employee history is a secondary
+  // receipt, not another salary payment on top of that payroll.
+  const approvedPayrolls = payrollSheets.filter(sheet=>sheet.status==='approved');
+  const approvedPayrollIds = new Set(approvedPayrolls.map(sheet=>sheet.id));
+  const approvedPayrollVoucherNumbers = new Set(
+    approvedPayrolls.map(sheet=>sheet.voucherNumber).filter(Boolean)
+  );
+
   const empId = (employee.id || '').trim();
   const empCode = (employee.code || '').trim();
   const empName = (employee.name || '').trim();
@@ -897,6 +906,8 @@ export function generateEmployeeStatement(params: {
 
   // 1. Employee Payment History (سجل المدفوعات في ملف الموظف)
   (employee.paymentHistory || []).forEach(record => {
+    if (record.type !== 'advance' && record.voucherNumber &&
+        approvedPayrollVoucherNumbers.has(record.voucherNumber)) return;
     if (record.type === 'advance') {
       allTx.push({
         id: record.id,
@@ -934,7 +945,7 @@ export function generateEmployeeStatement(params: {
 
   // 2. Employee Advances from Context (سلف الموظفين)
   advances.forEach(adv => {
-    if (adv.status !== 'cancelled') {
+    if (adv.status !== 'cancelled' && adv.disbursedImmediately) {
       const matches = isMatched(adv.employeeId, adv.employeeName, adv.reason) || adv.employeeId === empId;
       if (matches) {
         const exists = allTx.some(t => t.id === adv.id || (t.date === adv.date && t.advance === adv.amount));
@@ -959,7 +970,10 @@ export function generateEmployeeStatement(params: {
 
   // 3. Employee Deductions (الخصومات والجزاءات)
   deductions.forEach(ded => {
-    if (ded.status !== 'cancelled') {
+    // A pending deduction is not an approved payroll reduction. Once used
+    // in a salary sheet the approved payroll already contains its effect.
+    if (ded.status === 'deducted' &&
+        (!ded.payrollSheetId || !approvedPayrollIds.has(ded.payrollSheetId))) {
       const matches = isMatched(ded.employeeId, ded.employeeName, ded.reason) || ded.employeeId === empId;
       if (matches) {
         allTx.push({
@@ -981,6 +995,8 @@ export function generateEmployeeStatement(params: {
 
   // 4. Employee Incentives (المكافآت والحوافز)
   incentives.forEach(inc => {
+    if (inc.status !== 'paid' ||
+        (inc.payrollSheetId && approvedPayrollIds.has(inc.payrollSheetId))) return;
     const matches = isMatched(inc.employeeId, inc.employeeName, inc.reason) || inc.employeeId === empId;
     if (matches) {
       allTx.push({
