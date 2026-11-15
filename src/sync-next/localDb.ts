@@ -976,6 +976,36 @@ export class LocalSyncDb {
           replaced++;
         }
       }
+      // A complete PostgreSQL bootstrap is authoritative for deletions too.
+      // Previously we only inserted/updated rows; deleted server records remained
+      // indefinitely in IndexedDB and reappeared on employee/accounting screens.
+      // Preserve the entire local outbox (including conflicts/rejections) and
+      // avoid removing the local baseline of any record with an unresolved edit.
+      // Those edits can be reviewed and resolved independently.
+      const outbox = await request(tx.objectStore(OUTBOX).getAll()) as SyncCommand[];
+      const locallyTouched = new Set<string>();
+      for (const cmd of outbox) {
+        for (const change of cmd.changes) locallyTouched.add(recordKey(change.entity, change.id));
+      }
+      const oldRows = await request(records.getAll()) as StoredRecord[];
+      const removed: Array<{entity: string; id: string; previous: StoredRecord}> = [];
+      for (const prior of oldRows) {
+        if (seen.has(prior.key) || locallyTouched.has(prior.key)) continue;
+        // Don't interpret a snapshot from behind this device's local cursor
+        // as an authoritative deletion.
+        if (storedCursor && compareCursor(storedCursor.value, serverCursor) > 0) continue;
+        records.delete(prior.key);
+        removed.push({entity:prior.entity,id:prior.id,previous:prior});
+        replaced++;
+      }
+      if (removed.length) {
+        receipts.put({
+          id: 'server-deletion-reconciliation-' + crypto.randomUUID(),
+          resolution: 'AUTHORITATIVE_POSTGRES_DELETION',
+          restoredAt: new Date().toISOString(),
+          removedRecords: removed
+        });
+      }
       if (divergent.length) {
         receipts.put({
           id: 'server-baseline-reconciliation-' + crypto.randomUUID(),
