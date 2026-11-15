@@ -6,6 +6,7 @@ import type {Party,PaymentVoucher} from '../../types';
 import {X,Receipt,Check,Printer,Info} from 'lucide-react';
 import {posSound} from '../../utils/audio';
 import {MAIN_CASH_TREASURY_CODE} from '../../utils/treasuryCodes';
+import {sortPartiesByCode} from '../../utils/partyUtils';
 
 type TargetType='customer'|'supplier'|'employee';
 interface ReceiptVoucherModalProps {
@@ -50,9 +51,9 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
   if(targetType==='employee')return employees.map(e=>({
    id:e.id,code:e.code,name:e.name
   }));
-  return parties.filter(p=>!p.isSubCustomer&&(
+  return sortPartiesByCode(parties.filter(p=>!p.isSubCustomer&&(
    targetType==='customer'?p.type==='customer'||p.type==='both':
-   p.type==='supplier'||p.type==='both')).map(p=>({
+   p.type==='supplier'||p.type==='both'))).map(p=>({
     id:p.id,code:p.code,name:p.name
    }));
  },[parties,employees,targetType]);
