@@ -35,6 +35,7 @@ import { generateAccountStatement, generateEmployeeStatement, StatementRow } fro
 import { tafqeetArabic } from '../utils/tafqeet';
 import { PrintHeader } from './common/PrintHeader';
 import { UnifiedPartyStatementDocument } from './UnifiedPartyStatementDocument';
+import { UnifiedEmployeeStatementDocument } from './UnifiedEmployeeStatementDocument';
 import { OfficialStamp } from './common/OfficialStamp';
 import { ReportSignatures } from './common/ReportSignatures';
 import { AutocompleteCombobox, ComboboxOption } from './common/AutocompleteCombobox';
@@ -580,7 +581,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   // -------------------------------------------------------------
   const employeeStatementData = useMemo(() => {
     const emp = employees.find(e => e.id === selectedEmpId);
-    if (!emp) return { employee: null, rows: [], totalDue: 0, totalPaid: 0, netBalance: 0 };
+    if (!emp) return { employee: null, statement: null, rows: [], totalDue: 0, totalPaid: 0, netBalance: 0 };
 
     const statement = generateEmployeeStatement({
       employee: emp,
@@ -611,6 +612,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
     return {
       employee: emp,
+      statement,
       rows: mappedRows,
       totalDue: statement.totalDue,
       totalPaid: statement.totalPaid,
@@ -1675,151 +1677,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
       {/* 7. كشف حساب تفصيلي موظف */}
       {/* ========================================================================= */}
       {activeReport === 'employee_statement' && (
-        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
-          {/* 1. ترويسة كشف الحساب المعتمدة */}
-          <PrintHeader />
-          <div className="text-center font-bold text-base mb-1 mt-2 text-slate-900 leading-relaxed border-b-2 border-slate-900 pb-2">
-            كشف حساب موظف:{' '}
-            <span className="text-purple-900">
-              {employeeStatementData.employee?.name || 'غير محدد'}
-            </span>
-            <div className="text-xs text-slate-600 mt-0.5 font-semibold">
-              من تاريخ: <span className="font-mono">{fromDate || 'بداية العمل'}</span>{' '}
-              إلى تاريخ: <span className="font-mono">{toDate || 'تاريخ اليوم'}</span>
-            </div>
-          </div>
-
-          {/* 3. جدول الحركات المالي المفصل للموظف */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-right report-table border-collapse">
-              <thead className="bg-slate-800 text-white font-semibold border-b">
-                <tr>
-                  <th className="text-center w-8 min-w-8">م</th>
-                  <th className="text-center w-20 min-w-20">التاريخ</th>
-                  <th>البيان والشرح والتفاصيل</th>
-                  <th className="text-left w-24 min-w-24 whitespace-nowrap">استحقاق (+)</th>
-                  <th className="text-left w-24 min-w-24 whitespace-nowrap">منصرف (-)</th>
-                  <th className="text-left w-28 min-w-28 whitespace-nowrap">الرصيد المتبقي</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {employeeStatementData.rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-6 text-center text-slate-400 font-bold">
-                      لا توجد حركات مسجلة لهذا الموظف خلال الفترة المحددة
-                    </td>
-                  </tr>
-                ) : (
-                  employeeStatementData.rows.map((row: any, idx: number) => (
-                    <tr
-                      key={idx}
-                      className={`hover:bg-slate-50/80 transition-colors ${
-                        idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'
-                      }`}
-                    >
-                      <td className="text-center text-slate-500 font-mono">
-                        {idx + 1}
-                      </td>
-                      <td className="font-mono text-slate-700 text-center whitespace-nowrap">
-                        {row.date}
-                      </td>
-                      <td>
-                        <div className="font-bold text-slate-900 leading-tight flex flex-wrap items-center gap-1">
-                          <span className="text-slate-900 font-bold">{row.type}</span>
-                          {row.refNumber && (
-                            <>
-                              <span className="text-slate-400 font-normal">-</span>
-                              <span className="font-mono font-bold text-slate-800">{row.refNumber}</span>
-                            </>
-                          )}
-                          {row.description && (
-                            <>
-                              <span className="text-slate-400 font-normal">-</span>
-                              <span className="text-slate-700 font-medium">{row.description}</span>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                      <td className="font-mono font-bold text-purple-700 text-left whitespace-nowrap">
-                        {row.dueAmount > 0 ? row.dueAmount.toFixed(2) : '-'}
-                      </td>
-                      <td className="font-mono font-bold text-rose-700 text-left whitespace-nowrap">
-                        {row.paidAmount > 0 ? row.paidAmount.toFixed(2) : '-'}
-                      </td>
-                      <td className="font-mono font-black text-slate-900 text-left bg-slate-50/70 whitespace-nowrap">
-                        {row.runningBalance.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-              <tfoot className="bg-slate-100 font-bold border-t border-slate-300 text-slate-900">
-                <tr>
-                  <td colSpan={3} className="text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
-                  <td className="text-left font-mono text-purple-800 font-black whitespace-nowrap">
-                    {employeeStatementData.totalDue.toFixed(2)}
-                  </td>
-                  <td className="text-left font-mono text-rose-800 font-black whitespace-nowrap">
-                    {employeeStatementData.totalPaid.toFixed(2)}
-                  </td>
-                  <td className="text-left font-mono text-slate-900 font-black bg-slate-200/80 whitespace-nowrap">
-                    {employeeStatementData.netBalance.toFixed(2)} {settings.currency}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          {/* 4. ملخص نهاية الكشف بعد الجدول بتنسيق رسمي ومضغوط */}
-          <div className="mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300">
-            <div className="grid grid-cols-3 gap-1.5 text-xs">
-              {/* 1. إجمالي استحقاقات الفترة */}
-              <div className="bg-white border border-purple-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
-                <span className="font-bold text-purple-900 text-[11px] whitespace-nowrap">إجمالي المستحقات:</span>
-                <div className="font-black font-mono text-purple-700 text-xs flex items-center gap-1 whitespace-nowrap">
-                  <span>{employeeStatementData.totalDue.toFixed(2)}</span>
-                  <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
-                </div>
-              </div>
-
-              {/* 2. إجمالي المنصرف والمسدد للفترة */}
-              <div className="bg-white border border-rose-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
-                <span className="font-bold text-rose-900 text-[11px] whitespace-nowrap">إجمالي المنصرف:</span>
-                <div className="font-black font-mono text-rose-700 text-xs flex items-center gap-1 whitespace-nowrap">
-                  <span>{employeeStatementData.totalPaid.toFixed(2)}</span>
-                  <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
-                </div>
-              </div>
-
-              {/* 3. الإجمالي */}
-              <div className={`bg-white border rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs ${
-                employeeStatementData.netBalance > 0
-                  ? 'border-purple-400 bg-purple-50/20'
-                  : employeeStatementData.netBalance < 0
-                  ? 'border-rose-400 bg-rose-50/20'
-                  : 'border-slate-300'
-              }`}>
-                <span className="font-bold text-slate-900 text-[11px] whitespace-nowrap">
-                  الإجمالي:
-                </span>
-                <div className={`font-black font-mono text-xs flex items-center gap-1 whitespace-nowrap ${
-                  employeeStatementData.netBalance > 0
-                    ? 'text-purple-800'
-                    : employeeStatementData.netBalance < 0
-                    ? 'text-rose-800'
-                    : 'text-slate-700'
-                }`}>
-                  <span>{Math.abs(employeeStatementData.netBalance).toFixed(2)}</span>
-                  <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
-                  <span className="text-[10px] font-sans font-bold">
-                    ({employeeStatementData.netBalance > 0 ? 'دائن' : employeeStatementData.netBalance < 0 ? 'مدين' : 'متزن'})
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          {/* Signatures */}
-          <ReportSignatures rightLabel="المحاسب المسؤول" centerLabel="توقيع واستلام الموظف" leftLabel="المدير العام والاعتماد" />
+        <div className="report-a4-container bg-white p-4 sm:p-6 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          {employeeStatementData.statement ? (
+            <UnifiedEmployeeStatementDocument
+              statement={employeeStatementData.statement}
+              settings={settings}
+              fromDate={fromDate}
+              toDate={toDate}
+              showItemDetails={true}
+            />
+          ) : (
+            <div className="text-center text-slate-500 p-8">اختر موظفًا لعرض كشف حسابه التفصيلي.</div>
+          )}
         </div>
       )}
 
