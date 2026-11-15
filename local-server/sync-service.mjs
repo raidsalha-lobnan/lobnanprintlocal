@@ -278,7 +278,7 @@ export class SyncService {
       // Project the four (or more) GL account cards from authoritative posted
       // journal lines before recording the one atomic sync event.
       // This also repairs proven cached-account lag from earlier POS saves.
-      await synchronizeAtomicSaleAccountCards(client,workspace,command,applied);
+      await synchronizeAtomicSaleAccountCards(client,workspace,command,applied,authorizedRevisionInvoiceId);
       // A POS journal that already debits 1101/1102 must also have matching
       // cash/bank treasury movement(s). No second revenue/receipt journal.
       await settleAtomicPosPaymentTreasuries(client,workspace,command,applied);
