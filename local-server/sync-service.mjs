@@ -231,7 +231,7 @@ export class SyncService {
         if(change.entity==='invoices' && val) {
           // Historical provenance can only be created by the audited server
           // migration, never supplied or changed by a device sync command.
-          if(actual===0&&val.legacyStockBasis)
+          if(val.legacyStockBasis&&!old?.value?.legacyStockBasis)
             throw new InputError('LEGACY_STOCK_BASIS_SERVER_ONLY',409);
           if(old?.value?.legacyStockBasis&&
              JSON.stringify(old.value.legacyStockBasis)!==JSON.stringify(val.legacyStockBasis))
