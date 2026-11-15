@@ -5,6 +5,17 @@ CREATE TABLE IF NOT EXISTS sync_workspaces (
   next_invoice bigint NOT NULL DEFAULT 0 CHECK(next_invoice>=0),
   created_at timestamptz NOT NULL DEFAULT now()
 );
+-- Permanent tombstones for removed, never-approved legacy financial data.
+-- Old offline devices must not recreate a retired journal or source record.
+CREATE TABLE IF NOT EXISTS sync_retired_legacy_records (
+  workspace text NOT NULL REFERENCES sync_workspaces(id),
+  entity text NOT NULL,
+  record_id text NOT NULL,
+  reason text NOT NULL DEFAULT '',
+  retired_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(workspace,entity,record_id)
+);
+
 CREATE TABLE IF NOT EXISTS sync_records (
   workspace text NOT NULL REFERENCES sync_workspaces(id),
   entity text NOT NULL,
