@@ -279,7 +279,12 @@ export function generateAccountStatement(params: {
       });
 
       // Immediate payment received on invoice (سداد فوري - مقبوضات)
-      const paidInInv = inv.basePaidAmount !== undefined ? inv.basePaidAmount : (inv.paidAmount || 0);
+      // Atomic linked receipts are already displayed separately as voucher rows.
+      // Remove their recorded share from the invoice's aggregate paid amount,
+      // preserving any payment taken immediately at invoice issuance.
+      const rawPaid=inv.basePaidAmount !== undefined ? inv.basePaidAmount : (inv.paidAmount || 0);
+      const linkedAtomicPaid=Number((inv as Invoice & {receiptVoucherTotalBase?:number}).receiptVoucherTotalBase||0);
+      const paidInInv=Math.max(0,Number((Number(rawPaid)-linkedAtomicPaid).toFixed(2)));
       if (paidInInv > 0) {
         const pmtMethodLabel =
           inv.paymentMethod === 'cash' ? 'نقداً (الصندوق)' :
