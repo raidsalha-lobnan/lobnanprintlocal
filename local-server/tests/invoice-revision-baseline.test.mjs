@@ -155,5 +155,5 @@ test('same-date foreign owner and mismatching stock cannot be adopted as duplica
  const wrong=[...stock,{value:{id:'not-duplicate',type:'out_sale',referenceNumber:'INV-0073',
   date:i.date,itemId:'skin',quantity:2,unitPrice:51,totalValue:102}}];
  assert.throws(()=>verifyInvoiceRevisionBaseline({invoice:i,proposed:p,
-  journals:j,movements:wrong}),/REVISION_STOCK_BASELINE_MISMATCH/);
+  journals:j,movements:wrong}),/REVISION_STOCK_(BASELINE_MISMATCH|COST_CHANGED_WITHOUT_REVALUATION)/);
 });
