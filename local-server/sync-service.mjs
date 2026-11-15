@@ -16,6 +16,7 @@ import {postNewCustomerReceipt} from './atomic-receipt-posting.mjs';
 import {synchronizeAtomicSaleAccountCards} from './atomic-pos-account-cache.mjs';
 import {settleAtomicPosPaymentTreasuries} from './atomic-pos-treasury-settlement.mjs';
 import {forbidRetiredLegacyPrintResurrection} from './retired-legacy-print-guard.mjs';
+import {assertNoLegacyStockResurrection} from './legacy-stock-history-guard.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
   constructor(pool) {this.pool=pool;}
@@ -114,6 +115,10 @@ export class SyncService {
             [workspace,itemId]);
           val=authoritativeAtomicStockMovement(command,change,stock.rows[0]?.value||null);
         }
+        assertNoLegacyStockResurrection({
+          entity:change.entity,oldRecord:old||null,proposed:val,
+          recordId:change.id,actualVersion:actual
+        });
         // Journal entries and stock movements are permanent accounting
         // evidence. New corrections must append new records, never rewrite a
         // previously committed record (including an old client resubmission).
