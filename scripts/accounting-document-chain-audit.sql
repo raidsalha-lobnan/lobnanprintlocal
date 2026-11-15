@@ -20,13 +20,16 @@ WHERE workspace='lobnan_main' AND entity='invoices'
 GROUP BY entity,value->>'invoiceNumber' HAVING COUNT(*)>1;
 
 -- Sales must reference existing parties, including any selected subcustomer.
-SELECT 'INVOICE_MISSING_CUSTOMER' AS finding,i.record_id AS document_id,
+SELECT 'INVOICE_MISSING_COUNTERPARTY' AS finding,i.record_id AS document_id,
        i.value->>'customerId' AS referenced_id
 FROM sync_records i LEFT JOIN sync_records p
   ON p.workspace=i.workspace AND p.entity='parties'
  AND p.record_id=i.value->>'customerId'
+LEFT JOIN sync_records e
+  ON e.workspace=i.workspace AND e.entity='employees'
+ AND e.record_id=i.value->>'customerId'
 WHERE i.workspace='lobnan_main' AND i.entity='invoices'
-  AND p.record_id IS NULL
+  AND p.record_id IS NULL AND e.record_id IS NULL
 UNION ALL
 SELECT 'INVOICE_MISSING_SUBCUSTOMER',i.record_id,i.value->>'subCustomerId'
 FROM sync_records i LEFT JOIN sync_records p
