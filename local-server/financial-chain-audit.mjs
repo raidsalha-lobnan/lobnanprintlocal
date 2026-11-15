@@ -153,6 +153,70 @@ export function assessFinancialChains(data){
    report('VOUCHER_TREASURY_MISSING','vouchers',voucherId,
     {voucher:v.voucherNumber,treasury:v.treasuryAccountCode},'high');
  }
+ // Individual customer-card reconciliation is allowed only when complete
+ // invoice, receipt and treasury evidence exists, with no competing document
+ // types or parent/child allocations. Never substitute the customer cache as
+ // proof of cash payments, and never treat a negative balance as an error.
+ const receiptsByParty=new Map(),invoicesByParty=new Map();
+ for(const r of invoices){
+  const i=val(r),key=i.customerId;
+  if(key){const a=invoicesByParty.get(key)||[];a.push(r);invoicesByParty.set(key,a)}
+ }
+ for(const r of vouchers){
+  const v=val(r),key=v.partyId;
+  if(key){const a=receiptsByParty.get(key)||[];a.push(r);receiptsByParty.set(key,a)}
+ }
+ const external=[...read('purchases'),...read('purchaseReturns'),
+  ...read('salesReturns'),...read('debtClearings'),...read('expenses')];
+ for(const row of parties){
+  const p=val(row),pid=id(row);
+  if(p.type!=='customer'||p.code==='CUST-0001'||p.isSubCustomer||
+    Number(p.openingBalance||0)!==0||p.payments?.length||
+    p.receiptHistory?.length||p.paymentHistory?.length||
+    parties.some(ch=>val(ch).isSubCustomer&&
+      (val(ch).parentPartyId===pid||val(ch).parentCustomerId===pid))||
+    external.some(d=>['partyId','customerId','supplierId','counterpartyId'].some(k=>val(d)[k]===pid))||
+    read('printOrders').some(d=>val(d).customerId===pid))continue;
+  const owned=invoicesByParty.get(pid)||[];
+  if(!owned.length)continue;
+  let due=0,verified=true;
+  for(const r of owned){
+   const i=val(r),v=cents(i.baseTotalAmount??i.totalAmount);
+   if(i.isAccountingPosted!==true||i.subCustomerId||i.counterpartyType&&i.counterpartyType!=='customer'||
+     ![undefined,'ILS','₪'].includes(i.currency)||Number(i.exchangeRate||1)!==1||
+     v===null||v<0||cents(i.remainingAmount)!==v||
+     Number(i.paidAmount||0)!==0||Number(i.basePaidAmount||0)!==0){verified=false;break}
+   const matched=(journalsByReference.get(id(r))||[]).filter(j=>
+     ['pos_invoice','invoice_correction'].includes(val(j).referenceType));
+   if(matched.filter(j=>val(j).referenceType==='pos_invoice').length!==1){verified=false;break}
+   const ar=matched.flatMap(lines).reduce((n,l)=>n+
+     (l.accountCode==='1201'?(cents(l.debit??0)||0)-(cents(l.credit??0)||0):0),0);
+   if(ar!==v){verified=false;break}
+   due+=v;
+  }
+  if(!verified)continue;
+  for(const r of receiptsByParty.get(pid)||[]){
+   const v=val(r),amount=cents(v.baseAmount??v.amount);
+   if(v.type!=='receipt'||v.relatedDocId||v.referenceInvoiceId||v.subCustomerId||
+     ![undefined,'ILS'].includes(v.currency)||Number(v.exchangeRate||1)!==1||
+     amount===null||amount<=0){verified=false;break}
+   const matched=(journalsByReference.get(id(r))||[]).filter(j=>val(j).referenceType==='receipt');
+   if(matched.length!==1){verified=false;break}
+   const ar=lines(matched[0]).reduce((n,l)=>n+
+    (l.accountCode==='1201'?(cents(l.credit??0)||0)-(cents(l.debit??0)||0):0),0);
+   if(ar!==amount){verified=false;break}
+   const tx=treasuryMovements.get(id(r))||[];
+   if(tx.length!==1||val(tx[0].treasury).accountCode!==v.treasuryAccountCode||
+     cents(tx[0].movement.baseAmount??tx[0].movement.amount)!==amount){verified=false;break}
+   due-=amount;
+  }
+  if(!verified)continue;
+  const stored=cents(p.balance);
+  if(stored!==null&&stored!==due)report('CUSTOMER_CARD_DISCREPANCY','parties',pid,
+   {code:p.code,stored:money(stored),fromPostedDocuments:money(due),
+    diff:money(stored-due),sourceInvoices:owned.length,
+    sourceReceipts:(receiptsByParty.get(pid)||[]).length},'high');
+ }
  for(const r of purchases){
   const v=val(r),pid=v.supplierId||v.counterpartyId;
   if(pid&&!partiesById.has(pid))report('PURCHASE_SUPPLIER_NOT_FOUND','purchases',id(r),pid,'high');
