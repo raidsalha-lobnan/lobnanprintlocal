@@ -114,6 +114,27 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
    legacyDuplicateDisplayMovementIds:[]};
  }
 
+ // Legacy records sometimes have a valid COGS journal, but no stock
+ // movement with an immutable invoice ID (only reused display numbers).
+ // A financially sound price-only edit may change receivables/revenue while
+ // leaving historical COGS and all stock exactly untouched. This is NOT a
+ // substitute for tracing historical inventory or permission to edit qty.
+ const financialOnlyWithoutStockProof=cogs.length===1&&corrections.length===0&&
+  !provenStock&&unchangedPhysicalSale&&plan.stockDeltas.length===0&&
+  invoice.customerId===proposed.customerId&&
+  invoice.subCustomerId===proposed.subCustomerId&&
+  invoice.counterpartyType===proposed.counterpartyType&&
+  plan.paymentDeltaMinor===0&&
+  Object.keys(finance.paymentDeltas||{}).length===0;
+ if(financialOnlyWithoutStockProof)
+  return {...plan,...finance,currentCOGSMinor:cogsMinor,
+   expectedNextCOGSMinor:cogsMinor,costByItem:{},
+   unpricedPhysicalIds:[],verifiedMovementIds:[],
+   legacyCostReviewRequired:true,
+   legacyCostReviewReason:'UNVERIFIED_HISTORICAL_STOCK_SOURCE_FINANCIAL_ONLY',
+   legacyDuplicateDisplayMovementIds:[],
+   legacyForeignPublicNumberMovementIds:[]};
+
  // A pre-atomic legacy sale can have two stock HISTORY rows for the same
  // physical issue: one with the unique TEMP-<immutable invoice id>, and one
  // re-imported under its public INV-#### number. The latter number was reused
