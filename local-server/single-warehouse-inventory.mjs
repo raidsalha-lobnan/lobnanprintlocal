@@ -89,8 +89,10 @@ export function normalizeSingleWarehouseInventory({
    warehouseStocks:{[legacyKeys[0]]:nextStock}
   }:{})
  };
+ // Compare the OLD mirror to the OLD authoritative quantity. Comparing
+ // to nextStock would flag every legitimate sale/receipt as a reconciliation.
  const oldMismatch=[oldCache,oldRegisteredCache].some(x=>x!==null&&
-  Math.abs(x-nextStock)>0.000001);
+  Math.abs(x-number(original??0))>0.000001);
  if(oldMismatch){
   nextValue.inventoryBalanceReconciliations=[
    ...(next.inventoryBalanceReconciliations||[]),
