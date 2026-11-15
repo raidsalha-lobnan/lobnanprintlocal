@@ -81,3 +81,52 @@ test('new inventory with no opening stock stays at zero without creating a recei
  assert.deepEqual(next.warehouseStock,{'wh-1':0});
  assert.equal(next.warehouseStocks,undefined);
 });
+
+test('two verified labels of the same registered warehouse are folded into ONE audit-backed cache',()=>{
+ const previous={id:'item-P9',stockQuantity:294,
+  warehouseStocks:{'المخزن الرئيسي':4,'المستودع الرئيسي':886},
+  warehouseStock:{'wh-1':294}};
+ const updated=normalizeSingleWarehouseInventory({
+  previous,next:{...previous,stockQuantity:293},
+  warehouseId:'wh-1',warehouseName:'المستودع الرئيسي',
+  commandId:'sale-new',now:'2026-11-15T18:00:00Z',atomicSale:true
+ });
+ assert.equal(updated.stockQuantity,293);
+ assert.deepEqual(updated.warehouseStocks,{'المستودع الرئيسي':293});
+ assert.deepEqual(updated.warehouseStock,{'wh-1':293});
+ const proof=updated.inventoryBalanceReconciliations.at(-1);
+ assert.deepEqual(proof.historicalPresentationCaches,previous.warehouseStocks);
+ assert.equal(proof.noSyntheticOpeningStock,true);
+ assert.equal(proof.noAdditionalStockMovement,true);
+ assert.equal(proof.stockMovementDelta,-1);
+ assert.equal(updated.warehouseCacheReconciliationRequired,undefined);
+ const unchangedAfterNext=normalizeSingleWarehouseInventory({
+  previous:updated,next:{...updated,stockQuantity:292},
+  warehouseId:'wh-1',warehouseName:'المستودع الرئيسي',
+  commandId:'sale-next',now:'2026-11-15T18:02:00Z',atomicSale:true
+ });
+ assert.deepEqual(unchangedAfterNext.warehouseStocks,{'المستودع الرئيسي':292});
+ assert.deepEqual(unchangedAfterNext.warehouseStock,{'wh-1':292});
+ assert.equal(unchangedAfterNext.inventoryBalanceReconciliations.length,1,
+  'history retained once without creating repeated alias corrections');
+});
+
+test('two unknown warehouse labels cannot be silently folded into one',()=>{
+ const previous={id:'item-unknown',stockQuantity:10,
+  warehouseStocks:{OtherDepot:30,'المستودع الرئيسي':20}};
+ assert.throws(()=>normalizeSingleWarehouseInventory({
+  previous,next:{...previous,stockQuantity:9},
+  warehouseId:'wh-1',warehouseName:'المستودع الرئيسي',
+  commandId:'unknown',now:'2026-11-15T18:00:00Z'
+ }),/SINGLE_WAREHOUSE_UNVERIFIED_LEGACY_KEYS/);
+});
+
+test('two known aliases remain quarantined if registered warehouse name is not independently proven',()=>{
+ const previous={id:'item-unproven',stockQuantity:10,
+  warehouseStocks:{'المخزن الرئيسي':4,'المستودع الرئيسي':50}};
+ assert.throws(()=>normalizeSingleWarehouseInventory({
+  previous,next:{...previous,stockQuantity:9},
+  warehouseId:'wh-1',
+  commandId:'no-name',now:'2026-11-15T18:00:00Z'
+ }),/SINGLE_WAREHOUSE_UNVERIFIED_LEGACY_KEYS/);
+});

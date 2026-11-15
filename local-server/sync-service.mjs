@@ -80,7 +80,7 @@ export class SyncService {
       const applied=[];
       const hasInventoryUpdate=command.changes.some(change=>change.entity==='inventory');
       const warehouses=hasInventoryUpdate?(await client.query(
-        "SELECT record_id AS id FROM sync_records WHERE workspace=$1 AND entity='warehouses'",
+        "SELECT record_id AS id,value->>'name' AS name FROM sync_records WHERE workspace=$1 AND entity='warehouses'",
         [workspace])).rows:[];
       const singleWarehouseId=warehouses.length===1?warehouses[0].id:null;
       for(const change of command.changes) {
@@ -172,6 +172,7 @@ export class SyncService {
         if(change.entity==='inventory'&&singleWarehouseId){
           val=normalizeSingleWarehouseInventory({
             previous:old?.value,next:val,warehouseId:singleWarehouseId,
+            warehouseName:warehouses[0].name,
             commandId:command.id,now:new Date().toISOString(),
             atomicSale:(!!command.atomicInvoiceId||trustedMiniPurchase)&&change.expectedVersion>0
           });
