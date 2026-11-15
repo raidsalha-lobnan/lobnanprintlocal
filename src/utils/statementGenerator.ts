@@ -753,7 +753,7 @@ export interface EmployeeStatementRow {
   notes?: string;
   invoiceNotes?: string;
   items?: StatementItemDetail[];
-}  subtotal?: number;
+  subtotal?: number;
   discountTotal?: number;
   taxAmount?: number;
   additionalCharges?: number;
@@ -761,7 +761,7 @@ export interface EmployeeStatementRow {
   paidAmount?: number;
   remainingAmount?: number;
   invoiceCurrency?: string;
-
+}
 
 export interface EmployeeStatementResult {
   employee: Employee;
