@@ -89,3 +89,71 @@ test('a second paid-off credit invoice edit builds on approved deltas, not origi
  assert.equal(result.expectedNextCOGSMinor,1400);
  assert.deepEqual(result.stockDeltas,[]);
 });
+
+test('invoice 73 public-number duplicate is not double-counted for price-only amendment',()=>{
+ const original={
+  id:'inv-pos-1794135084876-00quw',invoiceNumber:'INV-0073',date:'2026-11-08',
+  isOfficial:true,warehouse:'المستودع الرئيسي - الكتب والمطبوعات الجاهزة',
+  customerId:'school-42',currency:'ILS',paymentMethod:'credit',
+  totalAmount:4702.5,baseTotalAmount:4702.5,subtotal:4702.5,paidAmount:0,
+  items:[
+   {itemId:'skin',category:'print_raw',quantity:6,unitPrice:150,total:900},
+   {itemId:'skin',category:'print_raw',quantity:29.25,unitPrice:130,total:3802.5}
+  ]
+ };
+ const proposed={...original,totalAmount:4942.5,baseTotalAmount:4942.5,
+  subtotal:4942.5,items:[{...original.items[0],unitPrice:190,total:1140},original.items[1]]};
+ const sale={value:{id:'sale-73',referenceType:'pos_invoice',referenceId:original.id,
+  lines:[{accountCode:'1201',debit:4702.5,credit:0},{accountCode:'4101',debit:0,credit:4702.5}]}};
+ const cost={value:{id:'cost-73',referenceType:'cogs',referenceId:original.id,
+  lines:[{accountCode:'5101',debit:3172.5,credit:0},{accountCode:'1301',debit:0,credit:3172.5}]}};
+ const stock=[
+  {value:{id:'legacy-nov1',type:'out_sale',date:'2026-11-01',referenceNumber:'INV-0073',
+   itemId:'other',quantity:1,unitPrice:1,totalValue:1}},
+  {value:{id:'temp-73',type:'out_sale',date:'2026-11-08',
+   referenceNumber:'TEMP-'+original.id,itemId:'skin',quantity:35.25,
+   unitPrice:90,totalValue:3172.5}},
+  {value:{id:'public-number-duplicate-73',type:'out_sale',date:'2026-11-08',
+   referenceNumber:'INV-0073',itemId:'skin',quantity:35.25,
+   unitPrice:90,totalValue:3172.5}}
+ ];
+ const result=verifyInvoiceRevisionBaseline({invoice:original,proposed,
+  journals:[sale,cost],movements:stock});
+ assert.equal(result.totalDeltaMinor,24000);
+ assert.equal(result.currentCOGSMinor,317250);
+ assert.equal(result.expectedNextCOGSMinor,317250);
+ assert.deepEqual(result.stockDeltas,[]);
+ assert.deepEqual(result.verifiedMovementIds,['temp-73']);
+ assert.deepEqual(result.legacyDuplicateDisplayMovementIds,['public-number-duplicate-73']);
+ assert.deepEqual(result.accountDeltas,{'1201':24000,'4101':-24000});
+ // Quantity corrections are NOT approved from ambiguous historical stock.
+ const changedQuantity={...proposed,items:[
+  proposed.items[0],{...proposed.items[1],quantity:30,total:3900}],
+  totalAmount:5040,baseTotalAmount:5040,subtotal:5040};
+ assert.throws(()=>verifyInvoiceRevisionBaseline({invoice:original,
+  proposed:changedQuantity,journals:[sale,cost],movements:stock}),
+  /REVISION_LEGACY_DOUBLE_STOCK_REQUIRES_INVENTORY_AUDIT/);
+});
+
+test('same-date foreign owner and mismatching stock cannot be adopted as duplicate proof',()=>{
+ const i={id:'one',date:'2026-11-08',invoiceNumber:'INV-0073',
+  isOfficial:true,warehouse:'main',totalAmount:180,paidAmount:0,
+  items:[{itemId:'skin',category:'print_raw',quantity:2,unitPrice:90,total:180}]};
+ const p={...i,totalAmount:190,items:[{...i.items[0],unitPrice:95,total:190}]};
+ const j=[{value:{referenceType:'pos_invoice',referenceId:i.id,lines:[
+  {accountCode:'1201',debit:180,credit:0},{accountCode:'4101',debit:0,credit:180}]}},
+ {value:{referenceType:'cogs',referenceId:i.id,lines:[
+  {accountCode:'5101',debit:100,credit:0},{accountCode:'1301',debit:0,credit:100}]}}];
+ const stock=[{value:{id:'temp',type:'out_sale',referenceNumber:'TEMP-one',
+  date:i.date,itemId:'skin',quantity:2,unitPrice:50,totalValue:100}},
+ {value:{id:'foreign',type:'out_sale',referenceNumber:'INV-0073',sourceInvoiceId:'other',
+  date:i.date,itemId:'skin',quantity:2,unitPrice:50,totalValue:100}}];
+ const ok=verifyInvoiceRevisionBaseline({invoice:i,proposed:p,
+  journals:j,movements:stock});
+ assert.deepEqual(ok.legacyDuplicateDisplayMovementIds,[]);
+ assert.deepEqual(ok.verifiedMovementIds,['temp']);
+ const wrong=[...stock,{value:{id:'not-duplicate',type:'out_sale',referenceNumber:'INV-0073',
+  date:i.date,itemId:'skin',quantity:2,unitPrice:51,totalValue:102}}];
+ assert.throws(()=>verifyInvoiceRevisionBaseline({invoice:i,proposed:p,
+  journals:j,movements:wrong}),/REVISION_STOCK_BASELINE_MISMATCH/);
+});
