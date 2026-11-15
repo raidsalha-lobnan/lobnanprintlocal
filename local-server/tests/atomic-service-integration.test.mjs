@@ -35,6 +35,28 @@ class PgFake{
   else if(sql.startsWith("SELECT value FROM sync_records WHERE workspace=$1 AND entity='inventory'")){
    const v=s.records.get(key(p[0],'inventory',p[1]));if(v)rows.push({value:v.value});
   }
+  else if(sql.startsWith("SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='accounts'")){
+   for(const accountCode of p[1]){
+    const type=['1201','1301','1101','1102'].includes(accountCode)?'asset':
+      ['4101','4102','2103','2104'].includes(accountCode)?'revenue':'expense';
+    const recId='account-'+accountCode,k=key(p[0],'accounts',recId);
+    if(!s.records.has(k))s.records.set(k,{workspace:p[0],entity:'accounts',
+      record_id:recId,version:1,value:{code:accountCode,type,balance:0}});
+    rows.push(s.records.get(k));
+   }
+  }
+  else if(sql.startsWith("SELECT l->>'accountCode' code, SUM(")){
+   const totals=new Map();
+   for(const rec of s.records.values()){
+    if(rec.workspace!==p[0]||rec.entity!=='journalEntries')continue;
+    for(const line of rec.value?.lines||[]){
+     if(!p[1].includes(line.accountCode))continue;
+     totals.set(line.accountCode,(totals.get(line.accountCode)||0)+
+       Number(line.debit||0)-Number(line.credit||0));
+    }
+   }
+   for(const [code,signed] of totals)rows.push({code,signed});
+  }
   else if(sql.startsWith('SELECT version,value FROM sync_records')){const v=s.records.get(key(p[0],p[1],p[2]));if(v)rows.push(v);}
   else if(sql.startsWith('SELECT 1 FROM sync_retired_legacy_records')){}
   else if(sql.startsWith('SELECT record_id FROM sync_records')){
