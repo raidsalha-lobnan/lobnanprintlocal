@@ -31,7 +31,7 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
    throw new InputError('RECEIPT_DATE_OR_SERIAL_INVALID',422);
  if(!voucher.id||!voucher.partyId||!voucher.partyName||voucher.partyType==='supplier'||
     voucher.partyType==='employee'||voucher.accountCode!=='1201'||
-    voucher.referenceInvoiceId||voucher.relatedDocId||voucher.relatedDocType)
+    voucher.relatedDocId||voucher.relatedDocType)
    throw new InputError('RECEIPT_ONLY_CUSTOMER_ON_ACCOUNT_USE_SETTLEMENT_FOR_INVOICE',422);
  const code=String(voucher.treasuryAccountCode||'');
  const cash=code==='CASH-1101';
@@ -55,6 +55,22 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
  ]);
  if(rows.some(x=>x.rows.length!==1))throw new InputError('RECEIPT_LINKED_RECORD_NOT_UNIQUE',409);
  const [party,treasury,liquid,receivable]=rows.map(x=>x.rows[0]);
+ let linkedInvoice=null;
+ if(voucher.referenceInvoiceId){
+  const linked=await client.query(
+   "SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='invoices' AND record_id=$2 FOR UPDATE",
+   [workspace,voucher.referenceInvoiceId]);
+  if(linked.rows.length!==1)throw new InputError('RECEIPT_LINKED_INVOICE_NOT_FOUND',409);
+  linkedInvoice=linked.rows[0];
+  const inv=linkedInvoice.value;
+  const total=Number(inv.totalAmount),paid=Number(inv.paidAmount||0);
+  const remaining=Number(inv.remainingAmount??round(total-paid));
+  if(!Number.isFinite(total)||!Number.isFinite(paid)||!Number.isFinite(remaining)||
+     inv.customerId!==voucher.partyId||String(inv.currency||'ILS')!==String(voucher.currency||'ILS')||
+     Math.abs(round(total-paid)-remaining)>0.01||
+     amountMinor/100>remaining+0.005||remaining<=0)
+   throw new InputError('RECEIPT_LINKED_INVOICE_AMOUNT_OR_PARTY_MISMATCH',409);
+ }
  if(!['customer','both'].includes(party.value.type)||party.value.isSubCustomer||
   party.value.code==='CUST-0001'||party.value.name!==voucher.partyName)
    throw new InputError('RECEIPT_CUSTOMER_NOT_AUTHORIZED',409);
@@ -98,6 +114,15 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
     description:'تسديد من '+voucher.partyName+' بموجب '+voucher.voucherNumber}
   ]};
  const updates=[
+  ...(linkedInvoice?[{
+   entity:'invoices',row:linkedInvoice,
+   value:{...linkedInvoice.value,
+    paidAmount:plus(linkedInvoice.value.paidAmount||0,amount),
+    basePaidAmount:plus(linkedInvoice.value.basePaidAmount||0,base),
+    remainingAmount:plus(linkedInvoice.value.remainingAmount,-amount),
+    baseRemainingAmount:plus(linkedInvoice.value.baseRemainingAmount??linkedInvoice.value.baseTotalAmount??linkedInvoice.value.totalAmount,-base),
+    status:plus(linkedInvoice.value.remainingAmount,-amount)<=0.005?'paid':'partial'}
+  }]:[]),
   {entity:'treasuries',row:treasury,value:{...treasury.value,balance,
     currencyBalances:{...held,[currency]:currencyBalance},
     transactions:[tx,...existingTx]}},
