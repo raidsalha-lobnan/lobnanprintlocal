@@ -119,9 +119,7 @@ export const ReceiptVouchersView: React.FC = () => {
             </span>
             <h1 className="text-xl font-bold text-slate-800">سندات القبض (التحصيلات المالية)</h1>
           </div>
-          <p className="text-[10px] text-slate-400 font-light mt-1">
-            إدارة وتحرير وطباعة سندات القبض المالية للعملاء وإيداع المبالغ بالصناديق والحسابات البنكية مع الترحيل المحاسبي التلقائي
-          </p>
+
         </div>
 
         <button
@@ -133,50 +131,27 @@ export const ReceiptVouchersView: React.FC = () => {
         </button>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] text-slate-400 font-light font-medium block">إجمالي المقبوضات المسجلة</span>
-          <div className="flex items-baseline gap-2 mt-1">
-            <strong className="text-xl font-mono font-bold text-emerald-600">
-              {totalAmount.toLocaleString('ar-SA')}
-            </strong>
-            <span className="text-xs text-slate-400">{settings.currency}</span>
-          </div>
-          <span className="text-[10px] text-slate-400 mt-1 block">{receiptVouchers.length} سند قبض معتمد</span>
+      {/* Compact single-line KPI cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0" title={`${receiptVouchers.length} سند قبض معتمد`}>
+          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">إجمالي المقبوضات المسجلة</span>
+          <strong className="text-sm font-mono font-bold text-emerald-600 whitespace-nowrap">{totalAmount.toLocaleString('ar-SA')} {settings.currency}</strong>
+          <span className="text-[10px] text-slate-400 truncate" title={`${receiptVouchers.length} سند قبض معتمد`}>({receiptVouchers.length} سند)</span>
         </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] text-slate-400 font-light font-medium block">مقبوضات اليوم</span>
-          <div className="flex items-baseline gap-2 mt-1">
-            <strong className="text-xl font-mono font-bold text-slate-800">
-              {todayAmount.toLocaleString('ar-SA')}
-            </strong>
-            <span className="text-xs text-slate-400">{settings.currency}</span>
-          </div>
-          <span className="text-[10px] text-emerald-600 mt-1 block">سداد فواتير ودفعات جارية</span>
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0">
+          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">مقبوضات اليوم</span>
+          <strong className="text-sm font-mono font-bold text-slate-800 whitespace-nowrap">{todayAmount.toLocaleString('ar-SA')} {settings.currency}</strong>
+          <span className="text-[10px] text-slate-400 truncate" title="سداد فواتير ودفعات جارية">سداد فواتير ودفعات جارية</span>
         </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] text-slate-400 font-light font-medium block">المقبوضات النقدية (الكاش)</span>
-          <div className="flex items-baseline gap-2 mt-1">
-            <strong className="text-xl font-mono font-bold text-slate-800">
-              {cashTotal.toLocaleString('ar-SA')}
-            </strong>
-            <span className="text-xs text-slate-400">{settings.currency}</span>
-          </div>
-          <span className="text-[10px] text-slate-400 mt-1 block">أودعت في صناديق الكاشير</span>
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0">
+          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">المقبوضات النقدية (الكاش)</span>
+          <strong className="text-sm font-mono font-bold text-slate-800 whitespace-nowrap">{cashTotal.toLocaleString('ar-SA')} {settings.currency}</strong>
+          <span className="text-[10px] text-slate-400 truncate" title="أودعت في صناديق الكاشير">أودعت في صناديق الكاشير</span>
         </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] text-slate-400 font-light font-medium block">المقبوضات البنكية والشيكات</span>
-          <div className="flex items-baseline gap-2 mt-1">
-            <strong className="text-xl font-mono font-bold text-blue-600">
-              {bankTotal.toLocaleString('ar-SA')}
-            </strong>
-            <span className="text-xs text-slate-400">{settings.currency}</span>
-          </div>
-          <span className="text-[10px] text-slate-400 mt-1 block">حوالات وشيكات تحت التحصيل</span>
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2 min-w-0">
+          <span className="text-[11px] text-slate-600 font-medium whitespace-nowrap">المقبوضات البنكية والشيكات</span>
+          <strong className="text-sm font-mono font-bold text-blue-600 whitespace-nowrap">{bankTotal.toLocaleString('ar-SA')} {settings.currency}</strong>
+          <span className="text-[10px] text-slate-400 truncate" title="حوالات وشيكات تحت التحصيل">حوالات وشيكات تحت التحصيل</span>
         </div>
       </div>
 
