@@ -3493,6 +3493,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
   // Keyboard Shortcuts (Ctrl+S, Alt+C, F2, F9, F10 and custom button shortcuts)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // The receipt dialog owns Ctrl+N/Ctrl+S while open. Never save or
+      // replace an invoice underneath it (this listener uses window capture).
+      if (document.querySelector('[data-receipt-voucher-modal="true"]')) return;
       // While editing master data in a POS dialog, shortcut keys must never
       // save, clear, or replace the invoice running underneath the dialog.
       if (partyDialog || isQuickAddOpen || isDraftQueueOpen) {
