@@ -40,7 +40,7 @@ const fixture=(options={})=>{
             {accountCode:'1201',debit:0,credit:50.4}]
     }
    }]:originalJournals,
-  stockMovements:movements,
+  stockMovements:options.unprovenStock?[]:movements,
   parties:[{id:'cust',version:31,value:{id:'cust',balance:1246.4}}],
   inventory:[{id:'paper',version:1,value:{id:'paper',stockQuantity:400,
    warehouseStocks:{main:options.ambiguous?760:400}}},
@@ -116,6 +116,25 @@ test('employee invoice correction updates posted invoice and journal without inv
  assert.equal(correction.value.lines.find(l=>l.accountCode==='1104').debit,0.6);
  assert.equal(correction.value.lines.some(l=>l.accountCode==='1201'),false);
  assert.equal(result.changes.filter(c=>c.entity==='parties').length,0);
+});
+
+test('unproven historical stock: actual server revision changes revenue only and keeps posted COGS',async()=>{
+ const f=fixture({unprovenStock:true});
+ const proposal={...invoice,subtotal:51.08,totalAmount:51.08,baseTotalAmount:51.08,
+  items:[{...invoice.items[0],unitPrice:0.21,total:14.28},...invoice.items.slice(1)]};
+ const result=await revisePostedInvoice(f.svc,'lobnan_main',{
+  ...req,commandId:'legacy-financial-only-66',proposed:proposal
+ },'admin',access);
+ assert.equal(f.commands,1);
+ const changed=result.changes;
+ assert.equal(changed.find(c=>c.entity==='invoices').value.totalAmount,51.08);
+ assert.equal(changed.filter(c=>c.entity==='stockMovements').length,0);
+ assert.equal(changed.filter(c=>c.entity==='inventory').length,0);
+ assert.equal(changed.filter(c=>c.entity==='journalEntries'&&c.value.correctionKind==='cogs').length,0);
+ const financial=changed.find(c=>c.entity==='journalEntries'&&c.value.correctionKind==='financial');
+ assert.ok(financial);
+ assert.equal(financial.value.lines.find(l=>l.accountCode==='1201').debit,0.68);
+ assert.equal(changed.find(c=>c.entity==='parties').value.balance,1247.08);
 });
 
 test('unchanged invoice with irreconcilable legacy journals returns an authoritative no-op without postings',async()=>{

@@ -292,15 +292,23 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
      {itemId:item.itemId});
   }
   if(!legacyRecovery){
-   for(const id of plan.unpricedPhysicalIds||[]){
-    const stock=inventoryById.get(id)?.value;
-    const price=Number(stock?.purchasePrice);
-    if(!stock||!Number.isFinite(price)||price<0)
-     throw new InputError('INVOICE_REVISION_NEW_ITEM_COST_NOT_VERIFIED',409,{itemId:id});
-    plan.costByItem[id]=price;
+   if(plan.legacyCostReviewRequired===true&&plan.stockDeltas.length===0&&
+      invoice.date===proposed.date&&invoice.warehouse===proposed.warehouse){
+    // The original cost is backed by its posted journal, not by historical
+    // public-number stock rows or today's replacement purchase prices.
+    // A price-only amendment must never revalue or synthesize inventory/COGS.
+    plan.expectedNextCOGSMinor=plan.currentCOGSMinor;
+   }else{
+    for(const id of plan.unpricedPhysicalIds||[]){
+     const stock=inventoryById.get(id)?.value;
+     const price=Number(stock?.purchasePrice);
+     if(!stock||!Number.isFinite(price)||price<0)
+      throw new InputError('INVOICE_REVISION_NEW_ITEM_COST_NOT_VERIFIED',409,{itemId:id});
+     plan.costByItem[id]=price;
+    }
+    plan.expectedNextCOGSMinor=proposed.items.filter(isPhysical).reduce(
+     (sum,item)=>sum+minor(Number(item.quantity)*plan.costByItem[item.itemId]),0);
    }
-   plan.expectedNextCOGSMinor=proposed.items.filter(isPhysical).reduce(
-    (sum,item)=>sum+minor(Number(item.quantity)*plan.costByItem[item.itemId]),0);
   }
   const treasuryCodes=Object.keys(plan.paymentDeltas||{}).filter(
    code=>plan.paymentDeltas[code]!==0);
