@@ -14,6 +14,7 @@ import {assertTreasuryCodeIdentity,assertUniqueTreasuryCode} from './treasury-co
 import {validateNewFinancialTreasuries} from './treasury-routing-guard.mjs';
 import {postNewCustomerReceipt} from './atomic-receipt-posting.mjs';
 import {synchronizeAtomicSaleAccountCards} from './atomic-pos-account-cache.mjs';
+import {settleAtomicPosPaymentTreasuries} from './atomic-pos-treasury-settlement.mjs';
 import {forbidRetiredLegacyPrintResurrection} from './retired-legacy-print-guard.mjs';
 function parseRows(rows) { return rows.map(r=>({key:r.entity+'\u001f'+r.record_id,entity:r.entity,id:r.record_id,version:Number(r.version),value:r.value})); }
 export class SyncService {
@@ -271,6 +272,9 @@ export class SyncService {
       // journal lines before recording the one atomic sync event.
       // This also repairs proven cached-account lag from earlier POS saves.
       await synchronizeAtomicSaleAccountCards(client,workspace,command,applied);
+      // A POS journal that already debits 1101/1102 must also have matching
+      // cash/bank treasury movement(s). No second revenue/receipt journal.
+      await settleAtomicPosPaymentTreasuries(client,workspace,command,applied);
       const nextSequence=Number(ws.rows[0].next_sequence)+1;
       const receipt={commandId:command.id,changes:applied};
       await client.query('UPDATE sync_workspaces SET next_sequence=$2,next_invoice=$3 WHERE id=$1',[workspace,nextSequence,nextInvoice]);
