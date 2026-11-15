@@ -19,14 +19,23 @@ const signFor=type=>type==='asset'||type==='expense'?1:
  * idempotent at the journal level because SyncService enforces command IDs.
  * Telegram mini receipts manage their account cards separately.
  */
-export async function synchronizeAtomicSaleAccountCards(client,workspace,command,applied){
- if(!command?.atomicInvoiceId||command.miniSaleSettlement===true)return 0;
- const sale=applied.find(x=>x.entity==='invoices'&&x.id===command.atomicInvoiceId);
+export async function synchronizeAtomicSaleAccountCards(client,workspace,command,applied,authorizedRevisionInvoiceId=null){
+ // A posted invoice revision is a trusted, server-only transaction. It
+ // creates delta journals rather than a second sale, but the same GL cards
+ // must be reprojected before publishing the atomic sync event.
+ const revision=typeof authorizedRevisionInvoiceId==='string'&&authorizedRevisionInvoiceId.length>0;
+ const invoiceId=revision?authorizedRevisionInvoiceId:command?.atomicInvoiceId;
+ if(!invoiceId||command?.miniSaleSettlement===true)return 0;
+ const sale=applied.find(x=>x.entity==='invoices'&&x.id===invoiceId);
  if(!sale?.value?.isAccountingPosted)return 0;
  const entries=applied.filter(x=>x.entity==='journalEntries'&&
-  x.value?.referenceId===command.atomicInvoiceId&&
-  ['pos_invoice','cogs'].includes(x.value?.referenceType));
- if(entries.length<1)throw new InputError('ATOMIC_POS_JOURNAL_EVIDENCE_MISSING',409);
+  x.value?.referenceId===invoiceId&&
+  (revision?x.value?.referenceType==='invoice_correction':
+   ['pos_invoice','cogs'].includes(x.value?.referenceType)));
+ if(entries.length<1){
+  if(revision)return 0; // Notes-only amendment has no new financial posting.
+  throw new InputError('ATOMIC_POS_JOURNAL_EVIDENCE_MISSING',409);
+ }
  const codes=new Set(),newDeltas=new Map();
  for(const entry of entries){
   for(const line of entry.value.lines||[]){
@@ -66,7 +75,8 @@ export async function synchronizeAtomicSaleAccountCards(client,workspace,command
    value.ledgerBalanceReconciliations=[
     ...(Array.isArray(row.value.ledgerBalanceReconciliations)?
       row.value.ledgerBalanceReconciliations:[]),
-    {id:'gl-reprojection-'+command.atomicInvoiceId+'-'+code,
+    {id:'gl-reprojection-'+invoiceId+'-'+code+
+      (revision?'-'+String(command.id||'revision'):''),
      at:now,previousBalance:cached,provenBalanceBeforeSale:priorExpected,
      provenBalanceAfterSale:expected,historicalCacheDifference:previousDrift,
      sourceInvoiceId:command.atomicInvoiceId,
