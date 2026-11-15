@@ -10,7 +10,7 @@ import {InputError} from './sync-domain.mjs';
 const legacyPrintJournalTypes=new Set(['print_order','print_order_void_reversal']);
 
 export async function forbidRetiredLegacyPrintResurrection(client,workspace,change){
- if(!['printOrders','journalEntries','debtClearings'].includes(change.entity))return;
+ if(!['printOrders','journalEntries','debtClearings','employeeAdvances','employeeDeductions','employeeIncentives'].includes(change.entity))return;
  if(change.entity==='debtClearings'&&change.value?.clearingNumber==='CLR-2026-001')
   throw new InputError('RETIRED_FAKE_CLEARING_NUMBER_RESERVED',409);
  if(change.entity==='journalEntries'&&
