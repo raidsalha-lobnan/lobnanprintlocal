@@ -194,7 +194,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     const q = customerNameInput.trim().toLowerCase();
 
     if (partyTypeMode === 'customer') {
-      const allCustomers = sortPartiesByCode(parties.filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer));
+      const allCustomers = sortPartiesByCode<Party>(parties.filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer));
       if (!q || q === 'زبون نقدي / عام') {
         return allCustomers.slice(0, 12);
       }
@@ -206,7 +206,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     }
 
     if (partyTypeMode === 'supplier') {
-      const allSuppliers = sortPartiesByCode(parties.filter(p => (p.type === 'supplier' || p.type === 'both') && !p.isSubCustomer));
+      const allSuppliers = sortPartiesByCode<Party>(parties.filter(p => (p.type === 'supplier' || p.type === 'both') && !p.isSubCustomer));
       if (!q) {
         return allSuppliers.slice(0, 12);
       }
