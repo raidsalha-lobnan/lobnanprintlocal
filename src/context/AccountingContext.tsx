@@ -1303,9 +1303,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(grouped.expenses) && (canonical || grouped.expenses.length > 0)) setExpenses(prev => unchanged(prev, grouped.expenses) ? prev : grouped.expenses);
             if (Array.isArray(grouped.purchaseReturns) && (canonical || grouped.purchaseReturns.length > 0)) setPurchaseReturns(prev => unchanged(prev, grouped.purchaseReturns) ? prev : grouped.purchaseReturns);
             if (Array.isArray(grouped.salesReturns) && (canonical || grouped.salesReturns.length > 0)) setSalesReturns(prev => unchanged(prev, grouped.salesReturns) ? prev : grouped.salesReturns);
-            if (Array.isArray(grouped.employeeAdvances) && (canonical || grouped.employeeAdvances.length > 0)) setEmployeeAdvances(prev => unchanged(prev, grouped.employeeAdvances) ? prev : grouped.employeeAdvances);
-            if (Array.isArray(grouped.employeeDeductions) && (canonical || grouped.employeeDeductions.length > 0)) setEmployeeDeductions(prev => unchanged(prev, grouped.employeeDeductions) ? prev : grouped.employeeDeductions);
-            if (Array.isArray(grouped.employeeIncentives) && (canonical || grouped.employeeIncentives.length > 0)) setEmployeeIncentives(prev => unchanged(prev, grouped.employeeIncentives) ? prev : grouped.employeeIncentives);
+            if (Array.isArray(grouped.employeeAdvances) && (canonical || grouped.employeeAdvances.length > 0)) setEmployeeAdvances(prev => {
+              const verified=withoutRetiredEmployeeSamples(grouped.employeeAdvances, 'adv-1');
+              return unchanged(prev,verified) ? prev : verified;
+            });
+            if (Array.isArray(grouped.employeeDeductions) && (canonical || grouped.employeeDeductions.length > 0)) setEmployeeDeductions(prev => {
+              const verified=withoutRetiredEmployeeSamples(grouped.employeeDeductions, 'ded-1');
+              return unchanged(prev,verified) ? prev : verified;
+            });
+            if (Array.isArray(grouped.employeeIncentives) && (canonical || grouped.employeeIncentives.length > 0)) setEmployeeIncentives(prev => {
+              const verified=withoutRetiredEmployeeSamples(grouped.employeeIncentives, 'inc-1');
+              return unchanged(prev,verified) ? prev : verified;
+            });
             if (Array.isArray(grouped.payrollSheets) && (canonical || grouped.payrollSheets.length > 0)) setPayrollSheets(prev => unchanged(prev, grouped.payrollSheets) ? prev : grouped.payrollSheets);
             if (Array.isArray(grouped.debtClearings) && (canonical || grouped.debtClearings.length > 0)) setDebtClearings(prev => unchanged(prev, grouped.debtClearings) ? prev : grouped.debtClearings);
             if (Array.isArray(grouped.warehouseOperations) && (canonical || grouped.warehouseOperations.length > 0)) setWarehouseOperations(prev => unchanged(prev, grouped.warehouseOperations) ? prev : grouped.warehouseOperations);
@@ -1600,16 +1609,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   });
 
+  // Historic test rows were retired on the authoritative PostgreSQL server.
+  // Never resurrect those exact immutable IDs from local browser persistence.
+  const withoutRetiredEmployeeSamples = <T extends {id:string}>(rows:T[], retiredId:string):T[] =>
+    rows.filter(row=>row?.id!==retiredId);
+
   const [employeeAdvances, setEmployeeAdvances] = useState<EmployeeAdvance[]>(() => {
-    return safeLoadArray(`${STORAGE_KEY}_advances`, initialEmployeeAdvances);
+    return withoutRetiredEmployeeSamples(safeLoadArray(`${STORAGE_KEY}_advances`, initialEmployeeAdvances), 'adv-1');
   });
 
   const [employeeDeductions, setEmployeeDeductions] = useState<EmployeeDeduction[]>(() => {
-    return safeLoadArray(`${STORAGE_KEY}_deductions`, initialEmployeeDeductions);
+    return withoutRetiredEmployeeSamples(safeLoadArray(`${STORAGE_KEY}_deductions`, initialEmployeeDeductions), 'ded-1');
   });
 
   const [employeeIncentives, setEmployeeIncentives] = useState<EmployeeIncentive[]>(() => {
-    return safeLoadArray(`${STORAGE_KEY}_incentives`, initialEmployeeIncentives);
+    return withoutRetiredEmployeeSamples(safeLoadArray(`${STORAGE_KEY}_incentives`, initialEmployeeIncentives), 'inc-1');
   });
 
   const [payrollSheets, setPayrollSheets] = useState<PayrollSheet[]>(() => {
@@ -10645,9 +10659,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (data.stockMovements) setStockMovements(data.stockMovements);
         if (data.parties) setParties(data.parties);
         if (data.employees) setEmployees(data.employees);
-        if (data.employeeAdvances) setEmployeeAdvances(data.employeeAdvances);
-        if (data.employeeDeductions) setEmployeeDeductions(data.employeeDeductions);
-        if (data.employeeIncentives) setEmployeeIncentives(data.employeeIncentives);
+        if (data.employeeAdvances) setEmployeeAdvances(withoutRetiredEmployeeSamples(data.employeeAdvances, 'adv-1'));
+        if (data.employeeDeductions) setEmployeeDeductions(withoutRetiredEmployeeSamples(data.employeeDeductions, 'ded-1'));
+        if (data.employeeIncentives) setEmployeeIncentives(withoutRetiredEmployeeSamples(data.employeeIncentives, 'inc-1'));
         if (data.payrollSheets) setPayrollSheets(data.payrollSheets);
         if (data.printOrders) setPrintOrders(data.printOrders);
         if (data.invoices) setInvoices(data.invoices);
