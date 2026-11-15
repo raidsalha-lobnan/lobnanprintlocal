@@ -1,13 +1,14 @@
-import React,{useEffect,useMemo,useState} from 'react';
+import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {DateInput} from '../common/DateInput';
 import {AutocompleteCombobox} from '../common/AutocompleteCombobox';
 import {useAccounting} from '../../context/AccountingContext';
 import type {Party,PaymentVoucher} from '../../types';
-import {X,Receipt,Check,Printer,Info} from 'lucide-react';
+import {X,Receipt,Check,Printer,Info,Plus,ChevronLeft,ChevronRight} from 'lucide-react';
 import {posSound} from '../../utils/audio';
 import {MAIN_CASH_TREASURY_CODE} from '../../utils/treasuryCodes';
 import {sortPartiesByCode} from '../../utils/partyUtils';
 import {verifiedReceiptCustomerBalance} from '../../utils/verifiedReceiptBalance';
+import {orderedReceiptVouchers,receiptVoucherPosition,receiptVoucherShortcut} from '../../utils/receiptVoucherNavigation';
 
 type TargetType='customer'|'supplier'|'employee';
 interface ReceiptVoucherModalProps {
@@ -43,6 +44,13 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
  const [saving,setSaving]=useState(false);
  const [error,setError]=useState('');
  const [savedVoucher,setSavedVoucher]=useState<PaymentVoucher|null>(null);
+ // The voucher shown in this dialog may differ from the one that originally
+ // opened it. Navigation never mutates or persists an unsaved draft.
+ const [currentVoucher,setCurrentVoucher]=useState<PaymentVoucher|null>(editingVoucher);
+ const receiptRegister=useMemo(()=>orderedReceiptVouchers(vouchers),[vouchers]);
+ const navigation=receiptVoucherPosition(receiptRegister,currentVoucher?.id||null);
+ const saveShortcutRef=useRef<()=>void>(()=>{});
+ const newShortcutRef=useRef<()=>void>(()=>{});
 
  const noncash=useMemo(()=>treasuries.filter(t=>t.status!=='inactive'&&
   t.accountCode!==MAIN_CASH_TREASURY_CODE&&t.type!=='cash_box'&&
@@ -89,20 +97,19 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
  const rebate=moneyInput(discount);
  const remaining=displayBalance===null?null:m(displayBalance-entered*Number(rate||1)-rebate*Number(rate||1));
 
- useEffect(()=>{
-  if(!isOpen)return;
+ const showVoucher=(existing:PaymentVoucher|null,blank=false)=>{
+  setCurrentVoucher(existing);
   setSaving(false);setError('');setSavedVoucher(null);
-  const existing=editingVoucher;
   const chosen:TargetType=existing?.employeeId?'employee':
    existing?.partyType||(
     existing&&parties.find(p=>p.id===existing.partyId)?.type==='supplier'
     ?'supplier':'customer');
   setTargetType(chosen);
-  setPartyId(existing?.employeeId||existing?.partyId||defaultParty?.id||'');
-  setSubName(existing?.subCustomerName||defaultSubCustomerName);
+  setPartyId(existing?.employeeId||existing?.partyId||(!blank?defaultParty?.id:'')||'');
+  setSubName(existing?.subCustomerName||(!blank?defaultSubCustomerName:''));
   setDate(existing?.date||today());
-  setNote(existing?.description||'تسديد كامل الحساب');
-  const value=existing?.amount??defaultAmount;
+  setNote(existing?.description||(blank?'':'تسديد كامل الحساب'));
+  const value=existing?.amount??(blank?0:defaultAmount);
   setAmount(value>0?String(value):'');
   const wasCash=existing?(existing.treasuryAccountCode||existing.accountCode)===MAIN_CASH_TREASURY_CODE:true;
   setPaymentRoute(wasCash?'cash':'bank');
@@ -111,13 +118,45 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
   setDiscount('0');
   setBankCode(!wasCash?(existing?.treasuryAccountCode||existing?.accountCode||''):'');
   setPaymentNote(existing?.transferReference||existing?.paymentNotes||'');
+ };
+ useEffect(()=>{
+  if(isOpen)showVoucher(editingVoucher);
  },[isOpen,editingVoucher,defaultParty,defaultSubCustomerName,defaultAmount,settings.baseCurrencyCode]);
+
+ // Capture shortcuts only while this dialog is open, before page-level
+ // shortcuts can save or reset an underlying invoice.
+ useEffect(()=>{
+  if(!isOpen)return;
+  const onKeyDown=(event:KeyboardEvent)=>{
+   if(event.repeat)return;
+   const action=receiptVoucherShortcut(event);
+   if(!action)return;
+   event.preventDefault();
+   event.stopPropagation();
+   event.stopImmediatePropagation();
+   if(action==='new')newShortcutRef.current();
+   else saveShortcutRef.current();
+  };
+  window.addEventListener('keydown',onKeyDown,{capture:true});
+  return ()=>window.removeEventListener('keydown',onKeyDown,{capture:true});
+ },[isOpen]);
+
  useEffect(()=>{
   setBankCode(previous=>noncash.some(t=>t.accountCode===previous)?previous:
    (noncash[0]?.accountCode||''));
  },[noncash]);
 
  if(!isOpen)return null;
+ const openFreshVoucher=()=>{
+  if(saving)return;
+  // Discard changes in memory only; no amend/create API call is made.
+  showVoucher(null,true);
+ };
+ const browseReceipts=(direction:'previous'|'next')=>{
+  if(saving)return;
+  const next=direction==='previous'?navigation.previous:navigation.next;
+  if(next)showVoucher(next);
+ };
  const switchTarget=(type:TargetType)=>{
   if(type===targetType)return;
   setTargetType(type);setPartyId('');setSubName('');setError('');
@@ -152,7 +191,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
   if(!treasury){setError('الصندوق غير معرّف أو غير متاح.');return;}
   const method:PaymentVoucher['paymentMethod']=typeCode===MAIN_CASH_TREASURY_CODE?
    'cash':treasury.type==='digital_wallet'?'e_wallet':'bank_transfer';
-  const current=editingVoucher;
+  const current=currentVoucher;
   if(current&&targetType!==(
    current.partyType||(
     parties.find(p=>p.id===current.partyId)?.type==='supplier'?'supplier':'customer'
@@ -193,13 +232,35 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
    setError(cause instanceof Error?cause.message:'تعذّر حفظ السند، لم تُثبت أي حركة.');
   }finally{setSaving(false);}
  };
+ newShortcutRef.current=openFreshVoucher;
+ saveShortcutRef.current=()=>{void submit(false);};
  return (
- <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 text-xs text-slate-800" dir="rtl">
+ <div data-receipt-voucher-modal="true" className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 text-xs text-slate-800" dir="rtl">
   <section className="w-full max-w-6xl bg-white border border-slate-300 rounded-2xl shadow-2xl overflow-hidden">
    <header className="flex items-center justify-between gap-3 px-5 py-3 bg-[#163e6a] text-white">
     <div className="flex items-center gap-2"><Receipt size={20}/>
-     <div><h2 className="font-bold text-base">{editingVoucher?'تعديل سند القبض':'إضافة سند قبض جديد'}</h2>
+     <div><h2 className="font-bold text-base">{currentVoucher?'تعديل سند القبض':'إضافة سند قبض جديد'}</h2>
       <p className="text-[11px] text-blue-100">ربط الجهة والسداد بالصناديق المعتمدة</p></div>
+    </div>
+    <div className="flex items-center gap-2 mr-auto flex-wrap">
+     <button type="button" disabled={saving} onClick={openFreshVoucher}
+      title="سند جديد دون حفظ التعديلات الحالية (Ctrl+N)" aria-keyshortcuts="Control+N"
+      className="flex items-center gap-1.5 rounded-md bg-blue-600 hover:bg-blue-500 px-3 py-2 font-bold disabled:opacity-50">
+      <Plus size={15}/>جديد <kbd dir="ltr" className="text-[10px] text-blue-100">Ctrl+N</kbd>
+     </button>
+     <div className="flex items-center gap-1 rounded-md bg-blue-950/35 px-1.5 py-1" aria-label="التنقل بين سندات القبض المحفوظة">
+      <button type="button" aria-label="السند السابق" title="السابق" disabled={saving||!navigation.previous}
+       onClick={()=>browseReceipts('previous')}
+       className="p-1.5 rounded hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed"><ChevronRight size={17}/></button>
+      <span className="min-w-[65px] text-center font-bold tabular-nums" dir="ltr" aria-live="polite"
+       data-testid="receipt-voucher-counter">{navigation.position} / {navigation.total}</span>
+      <button type="button" aria-label="السند التالي" title="التالي" disabled={saving||!navigation.next}
+       onClick={()=>browseReceipts('next')}
+       className="p-1.5 rounded hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed"><ChevronLeft size={17}/></button>
+     </div>
+     <span className="text-[11px] text-blue-100 font-semibold" dir="ltr">
+      {currentVoucher?.voucherNumber||'سند جديد'}
+     </span>
     </div>
     <button onClick={onClose} type="button" aria-label="إغلاق" className="p-1.5 rounded-lg hover:bg-blue-900/40"><X size={20}/></button>
    </header>
@@ -313,7 +374,11 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
      <button disabled={saving} onClick={()=>void submit(true)} type="button"
       className="flex items-center gap-2 bg-blue-100 text-blue-800 font-bold rounded-md px-5 py-2.5 disabled:opacity-50"><Printer size={16}/>حفظ وطباعة</button>
      <button disabled={saving} onClick={()=>void submit(false)} type="button"
-      className="flex items-center gap-2 bg-emerald-600 text-white font-bold rounded-md px-6 py-2.5 disabled:opacity-50"><Check size={16}/>{saving?'جارٍ الحفظ...':editingVoucher?'حفظ التعديل':'اعتماد سند القبض'}</button>
+      aria-keyshortcuts="Control+S" title="حفظ السند (Ctrl+S)"
+      className="flex items-center gap-2 bg-emerald-600 text-white font-bold rounded-md px-6 py-2.5 disabled:opacity-50">
+      <Check size={16}/>{saving?'جارٍ الحفظ...':currentVoucher?'حفظ التعديل':'اعتماد سند القبض'}
+      <kbd dir="ltr" className="text-[10px] font-normal opacity-90">Ctrl+S</kbd>
+     </button>
     </div>
    </footer>
   </section>
