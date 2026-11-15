@@ -736,6 +736,17 @@ export function generateAccountStatement(params: {
 // EMPLOYEE FINANCIAL STATEMENT GENERATOR (كشف مالي تفصيلي للموظف)
 // ----------------------------------------------------------------------
 
+export interface EmployeePayrollBreakdown {
+  basicSalary: number;
+  allowances: number;
+  incentives: number;
+  deductions: number;
+  advancesDeducted: number;
+  netSalary: number;
+  period: string;
+  status: 'approved';
+}
+
 export interface EmployeeStatementRow {
   id: string;
   date: string;
@@ -761,6 +772,7 @@ export interface EmployeeStatementRow {
   paidAmount?: number;
   remainingAmount?: number;
   invoiceCurrency?: string;
+  payrollDetails?: EmployeePayrollBreakdown;
 }
 
 export interface EmployeeStatementResult {
@@ -836,6 +848,7 @@ export function generateEmployeeStatement(params: {
     paidAmount?: number;
     remainingAmount?: number;
     invoiceCurrency?: string;
+    payrollDetails?: EmployeePayrollBreakdown;
   }
 
   const allTx: RawEmpTx[] = [];
@@ -1237,35 +1250,51 @@ export function generateEmployeeStatement(params: {
     });
   });
 
-  // 9. Payroll Sheets (مسيرات الرواتب)
+  // 9. Only approved salary sheets are financial evidence. A draft cannot
+  // create a payable balance in an official employee statement.
   (payrollSheets || []).forEach(sheet => {
+    if (sheet.status !== 'approved') return;
     const sheetItems = (sheet as any).items || (sheet as any).lines || [];
     const line = sheetItems.find((l: any) =>
-      isMatched(l.employeeId, l.employeeName, l.notes) || (empCode && l.employeeCode?.toLowerCase() === empCode.toLowerCase())
+      l.employeeId === empId || (empCode && l.employeeCode?.toLowerCase() === empCode.toLowerCase())
     );
+    if (!line || line.isIncluded === false) return;
 
-    if (line) {
-      const sheetDate = sheet.createdAt || sheet.disbursedAt || (sheet as any).periodMonth || '2026-09-01';
-      const isApproved = sheet.status === 'approved';
-      const basic = Number(line.basicSalary || 0);
-      const allowances = Number(line.allowances || line.allowancesTotal || 0);
-      const deduct = Number(line.deductions || line.deductionsTotal || 0);
-      const net = Number(line.netSalary || (basic + allowances - deduct));
+    const sheetDate = String(sheet.disbursedAt || sheet.createdAt || '').slice(0, 10);
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(sheetDate)) return;
+    const basicSalary = Number(line.basicSalary || 0);
+    const allowances = Number(line.allowances || line.allowancesTotal || 0);
+    const payrollIncentives = Number(line.incentives || 0);
+    const payrollDeductions = Number(line.deductions || line.deductionsTotal || 0);
+    const advancesDeducted = Number(line.advancesDeducted || 0);
+    const gross = basicSalary + allowances + payrollIncentives;
+    const expectedNet = Math.round((gross - payrollDeductions - advancesDeducted) * 100) / 100;
+    const netSalary = line.netSalary === undefined ? expectedNet : Number(line.netSalary);
+    if ([basicSalary,allowances,payrollIncentives,payrollDeductions,advancesDeducted,netSalary]
+        .some(value => !Number.isFinite(value) || value < 0)) return;
 
-      allTx.push({
-        id: `payroll-${sheet.id}-${empId}`,
-        date: sheetDate,
-        refNum: sheet.sheetNumber || `SHT-${sheet.id.slice(0, 6)}`,
-        type: 'payroll_sheet',
-        typeLabel: isApproved ? 'مسير راتب معتمد' : 'مسودة مسير راتب',
-        description: `مسير راتب شهر ${sheet.period || (sheet as any).periodMonth || ''} (أساسي: ${basic.toFixed(2)} + بدلات: ${allowances.toFixed(2)}${deduct > 0 ? ` - استقطاعات: ${deduct.toFixed(2)}` : ''})`,
-        entitlement: basic + allowances,
-        advance: 0,
-        deduction: deduct,
-        disbursement: isApproved ? net : 0,
-        period: sheet.period
-      });
-    }
+    // An advance was already deducted when originally disbursed in this
+    // employee ledger. Keep its later salary offset informational only.
+    // Subtracting it again in the pay-slip row would double-charge the employee.
+    allTx.push({
+      id: `payroll-${sheet.id}-${empId}`,
+      date: sheetDate,
+      refNum: sheet.sheetNumber || `SHT-${sheet.id.slice(0, 6)}`,
+      type: 'payroll_sheet',
+      typeLabel: 'مسير راتب معتمد',
+      description: `راتب ${sheet.period || ''} — مستحقات وصرف معتمد`,
+      entitlement: gross,
+      advance: 0,
+      deduction: payrollDeductions,
+      disbursement: netSalary,
+      period: sheet.period,
+      payrollDetails: {
+        basicSalary, allowances, incentives: payrollIncentives,
+        deductions: payrollDeductions, advancesDeducted, netSalary,
+        period: String(sheet.period || ''),
+        status: 'approved'
+      }
+    });
   });
 
   // 10. Debt Clearings (تسويات الديون ومقاصة الحسابات)
@@ -1412,7 +1441,8 @@ export function generateEmployeeStatement(params: {
       totalAmount: tx.totalAmount,
       paidAmount: tx.paidAmount,
       remainingAmount: tx.remainingAmount,
-      invoiceCurrency: tx.invoiceCurrency
+      invoiceCurrency: tx.invoiceCurrency,
+      payrollDetails: tx.payrollDetails
     });
   });
 
