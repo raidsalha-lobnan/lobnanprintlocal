@@ -3774,17 +3774,6 @@ const getInitialPosDraft = (): PosFullDraftData => {
                 <span>تفاصيل الفاتورة</span>
               </button>
 
-              {/* زر مسودات فواتير OneDrive / Excel - يفتح الشاشة المخصصة الكاملة */}
-              <button
-                type="button"
-                onClick={() => setIsDraftQueueOpen(true)}
-                className="h-8 px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-600 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
-                title="فتح الشاشة المخصصة لإدارة واستيراد مسودات الفواتير من Excel و OneDrive وتعديلها واعتمادها بالتتابع"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
-                <span>مسودات Excel / OneDrive</span>
-              </button>
-
               {/* زر سجل فواتير اليوم (مرفوع لشريط الأزرار العلوي) */}
               <button
                 type="button"
@@ -3805,22 +3794,6 @@ const getInitialPosDraft = (): PosFullDraftData => {
               >
                 <Search className="w-3.5 h-3.5 text-indigo-200" />
                 <span>سجل المبيعات</span>
-              </button>
-
-              {/* زر سلة الفواتير المحذوفة */}
-              <button
-                type="button"
-                onClick={() => setIsDeletedInvoicesOpen(true)}
-                className="h-8 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
-                title="سلة فواتير المبيعات المحذوفة - استعراض وتعديل واسترجاع الفواتير المحذوفة فوراً"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-amber-200" />
-                <span>الفواتير المحذوفة</span>
-                {(deletedInvoices?.length || 0) > 0 && (
-                  <span className="bg-amber-300 text-slate-950 text-[10px] font-black px-1.5 py-0.2 rounded-full font-mono">
-                    {deletedInvoices.length}
-                  </span>
-                )}
               </button>
 
               {/* زر تخصيص الشاشة ومصمم الواجهة */}
