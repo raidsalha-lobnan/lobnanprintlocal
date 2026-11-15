@@ -7,6 +7,7 @@ import {X,Receipt,Check,Printer,Info} from 'lucide-react';
 import {posSound} from '../../utils/audio';
 import {MAIN_CASH_TREASURY_CODE} from '../../utils/treasuryCodes';
 import {sortPartiesByCode} from '../../utils/partyUtils';
+import {verifiedReceiptCustomerBalance} from '../../utils/verifiedReceiptBalance';
 
 type TargetType='customer'|'supplier'|'employee';
 interface ReceiptVoucherModalProps {
@@ -24,7 +25,9 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
  isOpen,onClose,defaultParty,defaultSubCustomerName='',defaultAmount=0,editingVoucher=null
 })=>{
  const {parties,employees,treasuries,currencies,settings,createReceiptVoucherAtomic,
-  amendReceiptVoucher,setSelectedVoucherForPrint}=useAccounting();
+  amendReceiptVoucher,setSelectedVoucherForPrint,
+  invoices,vouchers,journalEntries,purchases,purchaseReturns,salesReturns,
+  printOrders,debtClearings}=useAccounting();
  const [targetType,setTargetType]=useState<TargetType>('customer');
  const [partyId,setPartyId]=useState('');
  const [subName,setSubName]=useState('');
@@ -60,7 +63,27 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
  const selected=partyChoices.find(p=>p.id===partyId);
  const selectedParty=parties.find(p=>p.id===partyId);
  const subCustomers=parties.filter(p=>p.isSubCustomer&&p.parentPartyId===partyId);
- const displayBalance=targetType==='employee'?null:Number(selectedParty?.balance||0);
+ const verifiedBalance=useMemo(()=>{
+  if(!selectedParty||targetType!=='customer')return null;
+  const pid=selectedParty.id;
+  const otherDocs=purchases.some(d=>d.supplierId===pid)||
+   purchaseReturns.some(d=>d.supplierId===pid)||
+   salesReturns.some(d=>d.customerId===pid)||
+   debtClearings.some(d=>d.customerId===pid||d.supplierId===pid)||
+   printOrders.some(d=>d.customerId===pid&&d.status==='delivered'&&
+    !invoices.some(inv=>inv.printJobId===d.id||inv.id===d.associatedInvoiceId))||
+   parties.some(d=>d.isSubCustomer&&d.parentPartyId===pid);
+  return verifiedReceiptCustomerBalance({
+   party:selectedParty,invoices,vouchers,journalEntries,treasuries,
+   hasOtherDocuments:otherDocs
+  });
+ },[selectedParty,targetType,invoices,vouchers,journalEntries,treasuries,
+  purchases,purchaseReturns,salesReturns,printOrders,debtClearings,parties]);
+ const storedBalance=targetType==='employee'?null:Number(selectedParty?.balance||0);
+ const displayBalance=targetType==='employee'?null:
+  verifiedBalance!==null?verifiedBalance:storedBalance;
+ const hasCachedBalanceMismatch=storedBalance!==null&&verifiedBalance!==null&&
+  Math.abs(storedBalance-verifiedBalance)>0.005;
  const symbol=currencies.find(c=>c.code===currency)?.symbol||settings.currency||'₪';
  const entered=moneyInput(amount);
  const rebate=moneyInput(discount);
@@ -227,10 +250,14 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
      <div><label className={field}>خصم</label><input type="number" min="0" step="0.01"
       className={box+' font-mono'} value={discount} onChange={e=>setDiscount(e.target.value)}/></div>
      <div className="rounded-md bg-blue-50 px-3 py-2 border border-blue-200 text-blue-800">
-      <span className="block text-[11px] font-semibold">الرصيد المسجل قبل القبض</span>
+      <span className="block text-[11px] font-semibold">{verifiedBalance!==null?'الرصيد المثبت بالفواتير والسندات':'الرصيد المسجل قبل القبض'}</span>
       <span className="font-bold text-sm tabular-nums">{selected?(displayBalance===null?'لا يوجد رصيد أستاذ معتمد':m(displayBalance).toFixed(2)+' ₪'):'اختر الجهة لعرض الرصيد'}</span>
      </div>
     </div>
+    {hasCachedBalanceMismatch&&
+     <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+      تنبيه: رصيد بطاقة العميل المسجل ({storedBalance?.toFixed(2)} ₪) يختلف عن الرصيد المثبت بالفواتير والسندات ({verifiedBalance?.toFixed(2)} ₪). لا يُعتمد الرصيد القديم للتحصيل.
+     </div>}
 
     <div className="bg-white border border-slate-200 rounded-lg p-3">
      <div className="grid grid-cols-1 md:grid-cols-[minmax(220px,.85fr)_minmax(200px,1.2fr)_minmax(200px,1fr)] gap-3 items-end">
