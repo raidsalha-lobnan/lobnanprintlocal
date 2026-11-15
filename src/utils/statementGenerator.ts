@@ -753,7 +753,15 @@ export interface EmployeeStatementRow {
   notes?: string;
   invoiceNotes?: string;
   items?: StatementItemDetail[];
-}
+}  subtotal?: number;
+  discountTotal?: number;
+  taxAmount?: number;
+  additionalCharges?: number;
+  totalAmount?: number;
+  paidAmount?: number;
+  remainingAmount?: number;
+  invoiceCurrency?: string;
+
 
 export interface EmployeeStatementResult {
   employee: Employee;
@@ -820,6 +828,14 @@ export function generateEmployeeStatement(params: {
     notes?: string;
     invoiceNotes?: string;
     items?: StatementItemDetail[];
+    subtotal?: number;
+    discountTotal?: number;
+    taxAmount?: number;
+    additionalCharges?: number;
+    totalAmount?: number;
+    paidAmount?: number;
+    remainingAmount?: number;
+    invoiceCurrency?: string;
   }
 
   const allTx: RawEmpTx[] = [];
@@ -1073,14 +1089,22 @@ export function generateEmployeeStatement(params: {
         entitlement: 0,
         advance: 0,
         deduction: 0,
-        disbursement: inv.totalAmount,
+        disbursement: inv.baseTotalAmount ?? inv.totalAmount,
         notes: inv.notes,
         invoiceNotes: inv.notes,
+        subtotal: inv.subtotal,
+        discountTotal: inv.discountTotal,
+        taxAmount: inv.taxAmount,
+        additionalCharges: inv.additionalCharges,
+        totalAmount: inv.totalAmount,
+        paidAmount: inv.paidAmount,
+        remainingAmount: inv.remainingAmount,
+        invoiceCurrency: inv.currency || 'ILS',
         items: mappedItems
       });
 
       // If immediate payment was made on this invoice at checkout, credit the employee
-      const paidVal = inv.paidAmount || 0;
+      const paidVal = inv.basePaidAmount ?? inv.paidAmount ?? 0;
       if (paidVal > 0) {
         allTx.push({
           id: `${inv.id}-pmt`,
@@ -1128,6 +1152,14 @@ export function generateEmployeeStatement(params: {
         disbursement: 0,
         notes: inv.notes,
         invoiceNotes: inv.notes,
+        subtotal: inv.subtotal,
+        discountTotal: inv.discountTotal,
+        taxAmount: inv.taxAmount,
+        additionalCharges: inv.additionalCharges,
+        totalAmount: inv.totalAmount,
+        paidAmount: inv.paidAmount,
+        remainingAmount: inv.remainingAmount,
+        invoiceCurrency: inv.currency || 'ILS',
         items: mappedItems
       });
     }
@@ -1254,28 +1286,34 @@ export function generateEmployeeStatement(params: {
     }
   });
 
-  // 11. Journal Entries (قيود اليومية العامة المرتبطة بالموظف)
+  // 11. Explicitly authorized employee advance adjustments ONLY.
+  // A journal line mentioning an employee's name is NOT an employee posting.
+  // Ordinary sale/COGS journals belong to the invoice and the general ledger;
+  // showing them again here duplicates the invoice in the employee balance.
   (journalEntries || []).forEach(entry => {
-    const empLines = (entry.lines || []).filter(l =>
-      isMatched(undefined, l.accountName, `${l.description || ''} ${entry.description || ''}`)
-    );
-
-    empLines.forEach((line, idx) => {
-      // Ensure we don't duplicate lines already created via payment voucher or advance
-      if (entry.referenceId && allTx.some(t => t.id === entry.referenceId)) return;
-
-      allTx.push({
-        id: `${entry.id}-${idx}`,
-        date: entry.date,
-        refNum: entry.entryNumber || `JV-${entry.id.slice(0, 6)}`,
-        type: 'journal_entry',
-        typeLabel: 'قيد يومية تسوية',
-        description: line.description || entry.description || 'قيد محاسبي مسجل على حساب الموظف',
-        entitlement: line.credit || 0,
-        advance: 0,
-        deduction: 0,
-        disbursement: line.debit || 0
-      });
+    if(entry.referenceType !== 'manual' || entry.referenceId !== empId) return;
+    // 1104: employee advances/receivables. Other account lines (sales,
+    // revenue, inventory, expense) must never mutate employee subledgers.
+    const employeeAdvanceLines = (entry.lines || []).filter(line =>
+      line.accountCode === '1104');
+    if(!employeeAdvanceLines.length) return;
+    if(allTx.some(tx => tx.id === entry.id || tx.refNum === entry.entryNumber)) return;
+    const advanceDebit = employeeAdvanceLines.reduce((sum,line) =>
+      sum + Number(line.debit || 0),0);
+    const advanceCredit = employeeAdvanceLines.reduce((sum,line) =>
+      sum + Number(line.credit || 0),0);
+    if(advanceDebit === 0 && advanceCredit === 0) return;
+    allTx.push({
+      id: entry.id,
+      date: entry.date,
+      refNum: entry.entryNumber,
+      type: 'journal_entry',
+      typeLabel: 'تسوية يدوية معتمدة لسلفة موظف',
+      description: entry.description || 'تسوية سلفة مرتبطة بمعرف الموظف',
+      entitlement: advanceCredit,
+      advance: 0,
+      deduction: 0,
+      disbursement: advanceDebit
     });
   });
 
@@ -1364,7 +1402,17 @@ export function generateEmployeeStatement(params: {
       runningBalance: running,
       paymentMethod: tx.paymentMethod,
       period: tx.period,
-      notes: tx.notes
+      notes: tx.notes,
+      invoiceNotes: tx.invoiceNotes,
+      items: tx.items,
+      subtotal: tx.subtotal,
+      discountTotal: tx.discountTotal,
+      taxAmount: tx.taxAmount,
+      additionalCharges: tx.additionalCharges,
+      totalAmount: tx.totalAmount,
+      paidAmount: tx.paidAmount,
+      remainingAmount: tx.remainingAmount,
+      invoiceCurrency: tx.invoiceCurrency
     });
   });
 
