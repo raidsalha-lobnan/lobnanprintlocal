@@ -186,8 +186,17 @@ export class UnifiedRepository {
     ];
     // One consistent committed record/outbox snapshot across all screen entities.
     const grouped = await this.local.listVisibleGrouped(supported);
+    // Exact IDs of old demo records permanently deleted from PostgreSQL.
+    // A stale offline outbox must not make them visible as real payroll entries.
+    const retiredDemo: Partial<Record<EntityName,string>> = {
+      employeeAdvances:'adv-1',
+      employeeDeductions:'ded-1',
+      employeeIncentives:'inc-1'
+    };
     return Object.fromEntries(supported.map(entity => [
-      entity, (grouped[entity] ?? []).map(record => record.value).filter(Boolean)
+      entity, (grouped[entity] ?? [])
+        .filter(record => record.id!==retiredDemo[entity])
+        .map(record => record.value).filter(Boolean)
     ]));
   }
 }
