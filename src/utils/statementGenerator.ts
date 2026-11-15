@@ -1261,7 +1261,7 @@ export function generateEmployeeStatement(params: {
     if (!line || line.isIncluded === false) return;
 
     const sheetDate = String(sheet.disbursedAt || sheet.createdAt || '').slice(0, 10);
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(sheetDate)) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(sheetDate)) return;
     const basicSalary = Number(line.basicSalary || 0);
     const allowances = Number(line.allowances || line.allowancesTotal || 0);
     const payrollIncentives = Number(line.incentives || 0);
@@ -1346,43 +1346,10 @@ export function generateEmployeeStatement(params: {
     });
   });
 
-  // 12. Contractual Monthly Salary Entitlements (لو لم يوجد مسير راتب مسجل لهذا الشهر)
-  const hireYear = Math.max(2023, parseInt((employee.hireDate || '2024-01-01').split('-')[0], 10) || 2024);
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
-
-  for (let y = hireYear; y <= currentYear; y++) {
-    const maxM = (y === currentYear) ? currentMonth : 12;
-    for (let m = 1; m <= maxM; m++) {
-      const monthStr = `${y}-${String(m).padStart(2, '0')}`;
-      const accrualDate = `${monthStr}-28`;
-
-      // Check if a payroll sheet already covers this period
-      const hasPayrollForMonth = allTx.some(t => t.type === 'payroll_sheet' && t.period && t.period.includes(monthStr));
-
-      if (!hasPayrollForMonth && accrualDate >= (employee.hireDate || '2020-01-01')) {
-        const salaryBase = Number(employee.salaryAmount || 0);
-        const allowances = Number(employee.allowances || 0);
-        const totalMonthSalary = salaryBase + allowances;
-
-        if (totalMonthSalary > 0) {
-          allTx.push({
-            id: `accrual-${empId}-${monthStr}`,
-            date: accrualDate,
-            refNum: `SAL-${monthStr}`,
-            type: 'salary_accrual',
-            typeLabel: 'راتب شهري تعاقدي',
-            description: `استحقاق راتب شهر ${monthStr} (أساسي: ${salaryBase.toFixed(2)}${allowances > 0 ? ` + بدلات: ${allowances.toFixed(2)}` : ''})`,
-            entitlement: totalMonthSalary,
-            advance: 0,
-            deduction: 0,
-            disbursement: 0,
-            period: monthStr
-          });
-        }
-      }
-    }
-  }
+  // Contractual salary is a rule for creating future payroll, not a posted
+  // entitlement. Never synthesize SAL-YYYY-MM movements from the employee's
+  // salaryAmount: they lack an approved payroll document and would invent debt.
+  // Real salary lines are included above ONLY from approved payroll sheets.
 
   // Sort chronologically
   allTx.sort((a, b) => a.date.localeCompare(b.date));
