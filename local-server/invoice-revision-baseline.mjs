@@ -128,6 +128,30 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
   return m.referenceNumber==='TEMP-'+invoice.id &&
    !m.sourceInvoiceId&&!m.referenceId;
  });
+ // A recycled public INV-#### number is not proof of stock ownership.
+ // Exclude a different-item, display-number-only movement ONLY when the
+ // immutable TEMP-<invoice id> movements independently prove every physical
+ // invoice quantity AND the original COGS amount. Never delete the record.
+ const expectedPhysical=quantities(invoice.items);
+ const completeTempEvidence=(()=>{
+  if(corrections.length||cogs.length!==1||trustedTemp.length===0)return false;
+  const counted=new Map();
+  let totalCost=0;
+  try{
+   for(const row of trustedTemp){
+    const m=value(row),q=Number(m.quantity),price=Number(m.unitPrice);
+    if(m.type!=='out_sale'||m.date!==invoice.date||!expectedPhysical.has(m.itemId)||
+       !Number.isFinite(q)||q<=0||!Number.isFinite(price)||price<0||
+       minor(m.totalValue||0)!==minor(q*price))return false;
+    counted.set(m.itemId,(counted.get(m.itemId)||0)+q);
+    totalCost+=minor(m.totalValue||0);
+   }
+  }catch{return false;}
+  return totalCost===cogsMinor&&counted.size===expectedPhysical.size&&
+   [...expectedPhysical].every(([id,qty])=>
+    Math.abs((counted.get(id)||0)-qty)<0.000001);
+ })();
+ const unrelatedPublicNumberMovements=[];
  const sameIssue=(a,b)=>{
   const x=value(a),y=value(b);
   return x.itemId===y.itemId&&x.date===y.date&&
@@ -140,6 +164,10 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
   const m=value(row);
   if(m.referenceNumber!==invoice.invoiceNumber||m.sourceInvoiceId||m.referenceId)
    return true;
+  if(completeTempEvidence&&m.type==='out_sale'&&!expectedPhysical.has(m.itemId)){
+   unrelatedPublicNumberMovements.push(row);
+   return false;
+  }
   const matches=trustedTemp.filter(temp=>sameIssue(temp,row));
   // Do not guess when there are multiple identical temporary movements.
   if(matches.length!==1)return true;
@@ -194,5 +222,7 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
   verifiedMovementIds:[...originalMovements,...correctedMovements].map(r=>value(r).id),
   // Kept unchanged in the database; excluded solely from financial-only cost
   // proof so a repeated public number cannot double the invoice's inventory.
-  legacyDuplicateDisplayMovementIds:duplicateDisplayOnly.map(r=>value(r).id)};
+  legacyDuplicateDisplayMovementIds:duplicateDisplayOnly.map(r=>value(r).id),
+  // Preserve each excluded unrelated stock event for independent audit.
+  legacyForeignPublicNumberMovementIds:unrelatedPublicNumberMovements.map(r=>value(r).id)};
 }
