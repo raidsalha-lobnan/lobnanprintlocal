@@ -164,9 +164,22 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
   const m=value(row);
   if(m.referenceNumber!==invoice.invoiceNumber||m.sourceInvoiceId||m.referenceId)
    return true;
-  if(completeTempEvidence&&m.type==='out_sale'&&!expectedPhysical.has(m.itemId)){
-   unrelatedPublicNumberMovements.push(row);
-   return false;
+  if(completeTempEvidence&&m.type==='out_sale'){
+   const expectedQty=expectedPhysical.get(m.itemId),movementQty=Number(m.quantity);
+   const sameItemTemp=trustedTemp.filter(t=>value(t).itemId===m.itemId);
+   const matchesTempQuantity=sameItemTemp.some(t=>
+    Math.abs(Number(value(t).quantity)-movementQty)<0.000001);
+   const matchesInvoiceQuantity=expectedQty!==undefined&&
+    Math.abs(expectedQty-movementQty)<0.000001;
+   // A different item OR a different quantity cannot be an additional
+   // physical issue of an invoice whose immutable TEMP rows already prove
+   // the entire original stock and COGS. Same-quantity conflicting cost
+   // remains ambiguous, and must fail closed as before.
+   if(expectedQty===undefined||(Number.isFinite(movementQty)&&movementQty>0&&
+      !matchesTempQuantity&&!matchesInvoiceQuantity)){
+    unrelatedPublicNumberMovements.push(row);
+    return false;
+   }
   }
   const matches=trustedTemp.filter(temp=>sameIssue(temp,row));
   // Do not guess when there are multiple identical temporary movements.
