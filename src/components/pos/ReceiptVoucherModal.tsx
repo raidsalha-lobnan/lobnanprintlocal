@@ -8,6 +8,7 @@ import {posSound} from '../../utils/audio';
 import {MAIN_CASH_TREASURY_CODE} from '../../utils/treasuryCodes';
 import {sortPartiesByCode} from '../../utils/partyUtils';
 import {verifiedReceiptCustomerBalance} from '../../utils/verifiedReceiptBalance';
+import {receiptSettlementPreview} from '../../utils/receiptSettlementPreview';
 import {orderedReceiptVouchers,receiptVoucherPosition,receiptVoucherShortcut} from '../../utils/receiptVoucherNavigation';
 
 type TargetType='customer'|'supplier'|'employee';
@@ -87,7 +88,8 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
   });
  },[selectedParty,targetType,invoices,vouchers,journalEntries,treasuries,
   purchases,purchaseReturns,salesReturns,printOrders,debtClearings,parties]);
- const storedBalance=targetType==='employee'?null:Number(selectedParty?.balance||0);
+ const storedBalance=selectedParty&&targetType!=='employee'?
+  Number(selectedParty.balance):null;
  const displayBalance=targetType==='employee'?null:
   verifiedBalance!==null?verifiedBalance:storedBalance;
  const hasCachedBalanceMismatch=storedBalance!==null&&verifiedBalance!==null&&
@@ -95,7 +97,17 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
  const symbol=currencies.find(c=>c.code===currency)?.symbol||settings.currency||'₪';
  const entered=moneyInput(amount);
  const rebate=moneyInput(discount);
- const remaining=displayBalance===null?null:m(displayBalance-entered*Number(rate||1)-rebate*Number(rate||1));
+ // Current party balances ALREADY contain the saved receipt. Reconstruct
+ // the amount before that receipt first, then replace its impact once.
+ const settlement=receiptSettlementPreview({
+  currentBalance:displayBalance,
+  selectedPartyId:partyId,
+  existingReceipt:currentVoucher,
+  amount:entered,
+  exchangeRate:Number(rate),
+  discount:rebate
+ });
+ const remaining=settlement?.after??null;
 
  const showVoucher=(existing:PaymentVoucher|null,blank=false)=>{
   setCurrentVoucher(existing);
@@ -311,10 +323,20 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
      <div><label className={field}>خصم</label><input type="number" min="0" step="0.01"
       className={box+' font-mono'} value={discount} onChange={e=>setDiscount(e.target.value)}/></div>
      <div className="rounded-md bg-blue-50 px-3 py-2 border border-blue-200 text-blue-800">
-      <span className="block text-[11px] font-semibold">{verifiedBalance!==null?'الرصيد المثبت بالفواتير والسندات':'الرصيد المسجل قبل القبض'}</span>
-      <span className="font-bold text-sm tabular-nums">{selected?(displayBalance===null?'لا يوجد رصيد أستاذ معتمد':m(displayBalance).toFixed(2)+' ₪'):'اختر الجهة لعرض الرصيد'}</span>
+      <span className="block text-[11px] font-semibold">الرصيد قبل هذا السند</span>
+      <span className="font-bold text-sm tabular-nums" data-testid="receipt-balance-before">
+       {selected?(settlement===null?'—':settlement.before.toFixed(2)+' ₪'):'اختر الجهة لعرض الرصيد'}
+      </span>
+      {currentVoucher&&settlement&&
+       <span className="block text-[10px] mt-0.5 text-blue-700">
+        يشمل إعادة أثر القبض الأصلي ({settlement.priorReceiptBase.toFixed(2)} ₪) للحساب فقط
+       </span>}
      </div>
     </div>
+    {rebate>0&&
+     <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+      الخصم غير معتمد للترحيل حاليًا؛ لن يظهر رصيد متوقع حتى تصبح التسوية قابلة للحفظ.
+     </div>}
     {hasCachedBalanceMismatch&&
      <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
       تنبيه: رصيد بطاقة العميل المسجل ({storedBalance?.toFixed(2)} ₪) يختلف عن الرصيد المثبت بالفواتير والسندات ({verifiedBalance?.toFixed(2)} ₪). لا يُعتمد الرصيد القديم للتحصيل.
@@ -359,7 +381,14 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
       <strong className="text-slate-900 mr-1">{Number.isFinite(entered)?entered.toFixed(2):'—'} {symbol}</strong>
      </span>
      <span className="font-semibold text-slate-600">الرصيد بعد التسوية:
-      <strong className="text-emerald-700 mr-1">{remaining===null?'—':remaining.toFixed(2)+' ₪'}</strong>
+      <strong className="text-emerald-700 mr-1" data-testid="receipt-balance-after">
+       {remaining===null?'—':remaining.toFixed(2)+' ₪'}
+      </strong>
+      {currentVoucher&&settlement&&
+       <small className="block text-[10px] text-slate-500 font-normal">
+        {settlement.deltaFromCurrent===0?'لا تغيير على الرصيد الحالي':
+         'فرق التعديل عن الرصيد الحالي: '+settlement.deltaFromCurrent.toFixed(2)+' ₪'}
+       </small>}
      </span>
     </div>
     {error&&<div role="alert" className="bg-rose-50 p-2.5 border border-rose-200 text-rose-700 font-medium rounded-md">{error}</div>}
