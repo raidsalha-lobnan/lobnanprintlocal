@@ -157,3 +157,50 @@ test('same-date foreign owner and mismatching stock cannot be adopted as duplica
  assert.throws(()=>verifyInvoiceRevisionBaseline({invoice:i,proposed:p,
   journals:j,movements:wrong}),/REVISION_STOCK_(BASELINE_MISMATCH|COST_CHANGED_WITHOUT_REVALUATION)/);
 });
+test('legacy sale with missing COGS and no proven stock may change only price, never inventory',()=>{
+ const old={
+  id:'inv-pos-legacy-26',invoiceNumber:'INV-0026',date:'2026-11-04',
+  warehouse:'main',isOfficial:true,currency:'ILS',
+  totalAmount:10,baseTotalAmount:10,paidAmount:0,subtotal:10,
+  customerId:'customer-1',items:[{
+   itemId:'cardboard-1',category:'print_raw',quantity:10,
+   unitPrice:1,total:10,unit:'piece',length:1,width:1,count:1,hasDimensions:false
+  }]
+ };
+ const next={...old,totalAmount:12,baseTotalAmount:12,subtotal:12,
+  items:[{...old.items[0],unitPrice:1.2,total:12}]};
+ const onlySales=[{value:{id:'legacy-revenue-26',referenceType:'pos_invoice',
+  referenceId:old.id,lines:[
+   {accountCode:'1201',debit:10,credit:0},
+   {accountCode:'4101',debit:0,credit:10}
+  ]}}];
+ const result=verifyInvoiceRevisionBaseline({
+  invoice:old,proposed:next,journals:onlySales,movements:[]
+ });
+ assert.equal(result.legacyCostReviewRequired,true);
+ assert.equal(result.currentCOGSMinor,0);
+ assert.equal(result.expectedNextCOGSMinor,0);
+ assert.deepEqual(result.stockDeltas,[]);
+ assert.deepEqual(result.accountDeltas,{'1201':200,'4101':-200});
+ assert.deepEqual(result.verifiedMovementIds,[]);
+ const bigger={...next,items:[{...next.items[0],quantity:11,total:13.2}],
+  totalAmount:13.2,baseTotalAmount:13.2,subtotal:13.2};
+ assert.throws(()=>verifyInvoiceRevisionBaseline({
+  invoice:old,proposed:bigger,journals:onlySales,movements:[]
+ }),/REVISION_STOCK_BASELINE_MISMATCH/);
+});
+test('legacy missing-cost price-only path never bypasses invalid original AR or sales journals',()=>{
+ const old={
+  id:'missing-cost-invoice',invoiceNumber:'INV-0042',date:'2026-11-04',
+  warehouse:'main',isOfficial:true,currency:'ILS',
+  totalAmount:20,baseTotalAmount:20,paidAmount:0,subtotal:20,
+  items:[{itemId:'paper',category:'print_raw',quantity:10,unitPrice:2,total:20}]
+ };
+ const edited={...old,totalAmount:21,baseTotalAmount:21,subtotal:21,
+  items:[{...old.items[0],unitPrice:2.1,total:21}]};
+ const bad=[{value:{referenceType:'pos_invoice',referenceId:old.id,
+  lines:[{accountCode:'1201',debit:19,credit:0},{accountCode:'4101',debit:0,credit:19}]}}];
+ assert.throws(()=>verifyInvoiceRevisionBaseline({
+  invoice:old,proposed:edited,journals:bad,movements:[]
+ }),/REVISION_POSTED_ACCOUNT_MISMATCH/);
+});
