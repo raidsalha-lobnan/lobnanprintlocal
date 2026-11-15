@@ -64,11 +64,11 @@ test('INV-0091 price/quantity edit proceeds when immutable TEMP stock exactly pr
 
 test('same-day unrelated public-number stock remains excluded only with complete proof',()=>{
  assert.throws(()=>run(stock().filter(x=>x.value.id!=='temp-a3')),
-  /REVISION_STOCK_(BASELINE_MISMATCH|COST_BASELINE_MISMATCH|EXTRA_STOCK_MOVEMENT)/);
+  /REVISION_(?:STOCK_BASELINE_MISMATCH|COST_BASELINE_MISMATCH|EXTRA_STOCK_MOVEMENT)/);
  const j=journals();j[1].value.lines[0].debit=392;
  j[1].value.lines[1].credit=392;
  assert.throws(()=>run(stock(),j),
-  /REVISION_STOCK_(BASELINE_MISMATCH|COST_BASELINE_MISMATCH|EXTRA_STOCK_MOVEMENT)/);
+  /REVISION_(?:STOCK_BASELINE_MISMATCH|COST_BASELINE_MISMATCH|EXTRA_STOCK_MOVEMENT)/);
 });
 
 test('conflicting same-item public-number movement still fails closed',()=>{
