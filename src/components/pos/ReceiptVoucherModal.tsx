@@ -3,7 +3,7 @@ import {DateInput} from '../common/DateInput';
 import {AutocompleteCombobox} from '../common/AutocompleteCombobox';
 import {useAccounting} from '../../context/AccountingContext';
 import type {Party,PaymentVoucher} from '../../types';
-import {X,Receipt,Check,Printer,Wallet,CreditCard,Info} from 'lucide-react';
+import {X,Receipt,Check,Printer,Info} from 'lucide-react';
 import {posSound} from '../../utils/audio';
 import {MAIN_CASH_TREASURY_CODE} from '../../utils/treasuryCodes';
 
@@ -33,8 +33,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
  const [currency,setCurrency]=useState(settings.baseCurrencyCode||'ILS');
  const [rate,setRate]=useState('1');
  const [discount,setDiscount]=useState('0');
- const [cash,setCash]=useState('');
- const [bank,setBank]=useState('');
+ const [paymentRoute,setPaymentRoute]=useState<'cash'|'bank'>('cash');
  const [bankCode,setBankCode]=useState('');
  const [paymentNote,setPaymentNote]=useState('');
  const [saving,setSaving]=useState(false);
@@ -62,7 +61,6 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
  const subCustomers=parties.filter(p=>p.isSubCustomer&&p.parentPartyId===partyId);
  const displayBalance=targetType==='employee'?null:Number(selectedParty?.balance||0);
  const symbol=currencies.find(c=>c.code===currency)?.symbol||settings.currency||'₪';
- const collected=moneyInput(cash)+moneyInput(bank);
  const entered=moneyInput(amount);
  const rebate=moneyInput(discount);
  const remaining=displayBalance===null?null:m(displayBalance-entered*Number(rate||1)-rebate*Number(rate||1));
@@ -83,8 +81,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
   const value=existing?.amount??defaultAmount;
   setAmount(value>0?String(value):'');
   const wasCash=existing?(existing.treasuryAccountCode||existing.accountCode)===MAIN_CASH_TREASURY_CODE:true;
-  setCash(value>0&&wasCash?String(value):'');
-  setBank(value>0&&!wasCash?String(value):'');
+  setPaymentRoute(wasCash?'cash':'bank');
   setCurrency(existing?.currency||settings.baseCurrencyCode||'ILS');
   setRate(String(existing?.exchangeRate||1));
   setDiscount('0');
@@ -101,20 +98,13 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
   if(type===targetType)return;
   setTargetType(type);setPartyId('');setSubName('');setError('');
  };
- const updateAmount=(value:string)=>{
-  setAmount(value);
-  if(!moneyInput(bank)){setCash(value);}
- };
+
  const submit=async(print=false)=>{
   if(saving)return;
   setError('');
   if(!selected){setError('اختر الجهة واسم صاحب السند من السجلات المعتمدة.');return;}
-  if(!(Number.isFinite(entered)&&entered>0)||
-     !(Number.isFinite(collected)&&collected>0)){
+  if(!(Number.isFinite(entered)&&entered>0)){
    setError('يجب إدخال مبلغ قبض صحيح أكبر من صفر.');return;
-  }
-  if(Math.abs(entered-collected)>0.005){
-   setError('إجمالي مبلغ القبض يجب أن يساوي النقدي + البنكي.');return;
   }
   if(!Number.isFinite(rebate)||rebate<0){
    setError('قيمة الخصم غير صحيحة.');return;
@@ -130,13 +120,10 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
     'اختيار الموظف جاهز؛ يلزم حساب ذمم أو سلف الموظفين المعتمد قبل ترحيل قبض الموظف.':
     'اختيار المورد جاهز؛ يلزم مسار تسوية ذمم الموردين المعتمد قبل إثبات قبض من مورد، لتجنب عكس أرصدة الموردين خطأً.');return;
   }
-  if(moneyInput(cash)>0&&moneyInput(bank)>0){
-   setError('القبض المختلط يتطلب اعتماد الحفظ الذري للسطرين. لن يتم إنشاء سندين منفصلين أو تسجيل مبلغ مكرر.');return;
-  }
-  if(moneyInput(bank)>0&&!selectedBank){
+  if(paymentRoute==='bank'&&!selectedBank){
    setError('اختر صندوقًا بنكيًا أو محفظة للجزء غير النقدي.');return;
   }
-  const typeCode=moneyInput(cash)>0?MAIN_CASH_TREASURY_CODE:bankCode;
+  const typeCode=paymentRoute==='cash'?MAIN_CASH_TREASURY_CODE:bankCode;
   const treasury=treasuries.find(t=>t.accountCode===typeCode);
   if(!treasury){setError('الصندوق غير معرّف أو غير متاح.');return;}
   const method:PaymentVoucher['paymentMethod']=typeCode===MAIN_CASH_TREASURY_CODE?
@@ -159,7 +146,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
    currency,currencySymbol:symbol,exchangeRate:appliedRate,
    subCustomerName:subName||undefined,
    paymentNotes:paymentNote.trim()||undefined,
-   transferReference:moneyInput(bank)>0?paymentNote.trim()||undefined:undefined
+   transferReference:paymentRoute==='bank'?paymentNote.trim()||undefined:undefined
   };
   setSaving(true);
   try {
@@ -226,7 +213,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
 
     <div className="grid grid-cols-2 md:grid-cols-[1.3fr_1fr_0.85fr_0.85fr_1.35fr] gap-2 items-end">
      <div><label className={field}>المبلغ المقبوض</label>
-      <input type="number" min="0" step="0.01" value={amount} onChange={e=>updateAmount(e.target.value)}
+      <input type="number" min="0" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)}
        placeholder="0.00" className={box+' font-mono font-bold text-base text-blue-800'}/></div>
      <div><label className={field}>العملة</label><select className={box} value={currency}
       onChange={e=>{setCurrency(e.target.value);setRate(String(currencies.find(c=>c.code===e.target.value)?.rateAgainstBase||1));}}>
@@ -243,32 +230,39 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
     </div>
 
     <div className="bg-white border border-slate-200 rounded-lg p-3">
-     <div className="grid grid-cols-1 md:grid-cols-[.75fr_1.9fr_1.35fr] gap-3 items-end">
-      <div><label className={field}>نقدًا — {MAIN_CASH_TREASURY_CODE}</label>
-       <div className="relative"><input type="number" step="0.01" min="0"
-        className={box+' font-mono text-emerald-800 font-bold'} value={cash}
-        onChange={e=>setCash(e.target.value)} placeholder="0.00"/>
-        <Wallet size={14} className="absolute left-2.5 top-2.5 text-emerald-600"/></div>
-      </div>
-      <div className="grid grid-cols-[minmax(100px,.8fr)_minmax(170px,1.4fr)] items-end gap-2">
-       <div><label className={field}>بنكي</label>
-        <input type="number" min="0" step="0.01" className={box+' font-mono font-bold text-blue-800'}
-         value={bank} onChange={e=>setBank(e.target.value)} placeholder="0.00"/></div>
-       <div><label className={field}>الصندوق / المحفظة</label>
-        <select value={bankCode} onChange={e=>setBankCode(e.target.value)} className={box}>
-         <option value="">اختر الصندوق</option>
-         {noncash.map(t=><option key={t.id} value={t.accountCode}>{t.accountCode} — {t.name}</option>)}
-        </select></div>
+     <div className="grid grid-cols-1 md:grid-cols-[minmax(220px,.85fr)_minmax(200px,1.2fr)_minmax(200px,1fr)] gap-3 items-end">
+      <fieldset className="flex items-center gap-4 min-h-[38px]" aria-label="طريقة القبض">
+       <legend className={field}>طريقة القبض</legend>
+       <label className="flex items-center gap-2 cursor-pointer font-bold text-emerald-800">
+        <input type="checkbox" checked={paymentRoute==='cash'}
+         onChange={()=>setPaymentRoute('cash')} className="w-4 h-4 accent-emerald-700"/>
+        نقدًا
+       </label>
+       <label className="flex items-center gap-2 cursor-pointer font-bold text-blue-800">
+        <input type="checkbox" checked={paymentRoute==='bank'}
+         onChange={()=>setPaymentRoute('bank')} className="w-4 h-4 accent-blue-700"/>
+        بنكي
+       </label>
+      </fieldset>
+      <div><label className={field}>الصندوق / المحفظة</label>
+       <select value={paymentRoute==='bank'?bankCode:''}
+        onChange={e=>setBankCode(e.target.value)} disabled={paymentRoute!=='bank'}
+        className={box+' disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed'}>
+        <option value="">{paymentRoute==='bank'?'اختر الصندوق':'غير مطلوب للنقدي'}</option>
+        {noncash.map(t=><option key={t.id} value={t.accountCode}>{t.accountCode} — {t.name}</option>)}
+       </select>
       </div>
       <div><label className={field}>إيصال / ملاحظة الدفع</label>
-       <input className={box} value={paymentNote} onChange={e=>setPaymentNote(e.target.value)}
-        placeholder="رقم الإيصال أو تفاصيل التحويل"/></div>
+       <input className={box+' disabled:bg-slate-100 disabled:text-slate-400'}
+        value={paymentRoute==='bank'?paymentNote:''} disabled={paymentRoute!=='bank'}
+        onChange={e=>setPaymentNote(e.target.value)} placeholder="رقم الإيصال أو تفاصيل التحويل"/>
+      </div>
      </div>
     </div>
 
     <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-100 border border-slate-200 p-2.5 rounded-md">
-     <span className="font-semibold text-slate-600">إجمالي النقدي والبنكي:
-      <strong className="text-blue-800 mr-1">{Number.isFinite(collected)?m(collected).toFixed(2):'—'} {symbol}</strong>
+     <span className="font-semibold text-slate-600">طريقة القبض:
+      <strong className="text-blue-800 mr-1">{paymentRoute==='cash'?'نقدًا':'بنكي'}</strong>
      </span>
      <span className="font-semibold text-slate-600">المبلغ المطلوب:
       <strong className="text-slate-900 mr-1">{Number.isFinite(entered)?entered.toFixed(2):'—'} {symbol}</strong>
@@ -280,7 +274,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
     {error&&<div role="alert" className="bg-rose-50 p-2.5 border border-rose-200 text-rose-700 font-medium rounded-md">{error}</div>}
     {savedVoucher&&<div className="text-emerald-700 font-semibold">تم تأكيد السند {savedVoucher.voucherNumber}</div>}
     <div className="text-[11px] text-slate-500 flex items-center gap-1"><Info size={13}/>
-     النقدي للصندوق الرئيسي حصراً؛ غير النقدي حسب الصندوق. حالات الخصم والقبض المختلط والموظفين تُحمى من الترحيل غير المكتمل.
+     المبلغ يُدخل مرة واحدة؛ اختر نقدًا أو بنكيًا فقط. النقدي للصندوق الرئيسي، والبنكي يتطلب اختيار الصندوق. الخصومات وقبض الموردين والموظفين تُحمى من الترحيل غير المكتمل.
     </div>
    </div>
    <footer className="px-4 py-3 flex items-center justify-between bg-white border-t border-slate-200 gap-3">
