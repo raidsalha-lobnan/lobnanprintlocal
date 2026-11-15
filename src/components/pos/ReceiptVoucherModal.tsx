@@ -1,449 +1,298 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { DateInput } from '../../components/common/DateInput';
-import { useAccounting } from '../../context/AccountingContext';
-import { Party, PaymentVoucher } from '../../types';
-import { X, Receipt, Check, Printer, DollarSign, Calendar, Landmark, User, FileText } from 'lucide-react';
-import { posSound } from '../../utils/audio';
-import { AutocompleteCombobox } from '../common/AutocompleteCombobox';
+import React,{useEffect,useMemo,useState} from 'react';
+import {DateInput} from '../common/DateInput';
+import {AutocompleteCombobox} from '../common/AutocompleteCombobox';
+import {useAccounting} from '../../context/AccountingContext';
+import type {Party,PaymentVoucher} from '../../types';
+import {X,Receipt,Check,Printer,Wallet,CreditCard,Info} from 'lucide-react';
+import {posSound} from '../../utils/audio';
+import {MAIN_CASH_TREASURY_CODE} from '../../utils/treasuryCodes';
 
+type TargetType='customer'|'supplier'|'employee';
 interface ReceiptVoucherModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  defaultParty?: Party | null;
-  defaultSubCustomerName?: string;
-  defaultAmount?: number;
-  editingVoucher?: PaymentVoucher | null;
+ isOpen:boolean;onClose:()=>void;defaultParty?:Party|null;
+ defaultSubCustomerName?:string;defaultAmount?:number;
+ editingVoucher?:PaymentVoucher|null;
 }
+const m=(value:number)=>Number(value.toFixed(2));
+const today=()=>new Date().toISOString().slice(0,10);
+const moneyInput=(value:string)=>{const amount=Number(value||0);return Number.isFinite(amount)?amount:NaN;};
+const box='bg-white border border-slate-300 rounded-md px-2.5 py-2 w-full text-xs text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200';
+const field='block text-[11px] text-slate-600 font-semibold mb-1';
 
-export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
-  isOpen,
-  onClose,
-  defaultParty,
-  defaultSubCustomerName = '',
-  defaultAmount = 0,
-  editingVoucher = null
-}) => {
-  const {
-    parties,
-    treasuries,
-    currencies,
-    settings,
-    createPaymentVoucher,
-    amendReceiptVoucher,
-    setSelectedVoucherForPrint
-  } = useAccounting();
+export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
+ isOpen,onClose,defaultParty,defaultSubCustomerName='',defaultAmount=0,editingVoucher=null
+})=>{
+ const {parties,employees,treasuries,currencies,settings,createPaymentVoucher,
+  amendReceiptVoucher,setSelectedVoucherForPrint}=useAccounting();
+ const [targetType,setTargetType]=useState<TargetType>('customer');
+ const [partyId,setPartyId]=useState('');
+ const [subName,setSubName]=useState('');
+ const [date,setDate]=useState(today());
+ const [note,setNote]=useState('تسديد كامل الحساب');
+ const [amount,setAmount]=useState('');
+ const [currency,setCurrency]=useState(settings.baseCurrencyCode||'ILS');
+ const [rate,setRate]=useState('1');
+ const [discount,setDiscount]=useState('0');
+ const [cash,setCash]=useState('');
+ const [bank,setBank]=useState('');
+ const [bankCode,setBankCode]=useState('');
+ const [paymentNote,setPaymentNote]=useState('');
+ const [saving,setSaving]=useState(false);
+ const [error,setError]=useState('');
+ const [savedVoucher,setSavedVoucher]=useState<PaymentVoucher|null>(null);
 
-  const [selectedPartyId, setSelectedPartyId] = useState<string>('');
-  const [subCustomerName, setSubCustomerName] = useState<string>('');
-  const [amount, setAmount] = useState<string>('');
-  const [currencyCode, setCurrencyCode] = useState<string>(settings.baseCurrencyCode || 'ILS');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank_transfer' | 'cheque' | 'e_wallet'>('cash');
-  const [treasuryCode, setTreasuryCode] = useState<string>('CASH-1101');
-  const [voucherDate, setVoucherDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [description, setDescription] = useState<string>('دفعة سداد حساب من العميل');
-  const [transferReference, setTransferReference] = useState<string>('');
-  const [chequeNumber, setChequeNumber] = useState<string>('');
-  const [chequeBank, setChequeBank] = useState<string>('');
-  const [chequeDueDate, setChequeDueDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [createdVoucher, setCreatedVoucher] = useState<PaymentVoucher | null>(null);
-  const [saving,setSaving]=useState(false);
-  const [saveError,setSaveError]=useState('');
+ const noncash=useMemo(()=>treasuries.filter(t=>t.status!=='inactive'&&
+  t.accountCode!==MAIN_CASH_TREASURY_CODE&&t.type!=='cash_box'&&
+  (!t.currency||t.currency===currency)).sort((a,b)=>
+   String(a.accountCode||'').localeCompare(String(b.accountCode||''),'en',{numeric:true})),
+  [treasuries,currency]);
+ const selectedBank=noncash.find(t=>t.accountCode===bankCode);
+ const partyChoices=useMemo(()=>{
+  if(targetType==='employee')return employees.map(e=>({
+   id:e.id,code:e.code,name:e.name
+  }));
+  return parties.filter(p=>!p.isSubCustomer&&(
+   targetType==='customer'?p.type==='customer'||p.type==='both':
+   p.type==='supplier'||p.type==='both')).map(p=>({
+    id:p.id,code:p.code,name:p.name
+   }));
+ },[parties,employees,targetType]);
+ const selected=partyChoices.find(p=>p.id===partyId);
+ const selectedParty=parties.find(p=>p.id===partyId);
+ const subCustomers=parties.filter(p=>p.isSubCustomer&&p.parentPartyId===partyId);
+ const displayBalance=targetType==='employee'?null:Number(selectedParty?.balance||0);
+ const symbol=currencies.find(c=>c.code===currency)?.symbol||settings.currency||'₪';
+ const collected=moneyInput(cash)+moneyInput(bank);
+ const entered=moneyInput(amount);
+ const rebate=moneyInput(discount);
+ const remaining=displayBalance===null?null:m(displayBalance-entered*Number(rate||1)-rebate*Number(rate||1));
 
-  // Active currency
-  const activeCurrency = useMemo(() => {
-    return currencies.find(c => c.code === currencyCode) || currencies.find(c => c.isBase) || {
-      code: 'ILS',
-      symbol: '₪',
-      rateAgainstBase: 1.0
-    };
-  }, [currencies, currencyCode]);
+ useEffect(()=>{
+  if(!isOpen)return;
+  setSaving(false);setError('');setSavedVoucher(null);
+  const existing=editingVoucher;
+  const chosen:TargetType=existing?.employeeId?'employee':
+   existing?.partyType||(
+    existing&&parties.find(p=>p.id===existing.partyId)?.type==='supplier'
+    ?'supplier':'customer');
+  setTargetType(chosen);
+  setPartyId(existing?.employeeId||existing?.partyId||defaultParty?.id||'');
+  setSubName(existing?.subCustomerName||defaultSubCustomerName);
+  setDate(existing?.date||today());
+  setNote(existing?.description||'تسديد كامل الحساب');
+  const value=existing?.amount??defaultAmount;
+  setAmount(value>0?String(value):'');
+  const wasCash=existing?(existing.treasuryAccountCode||existing.accountCode)===MAIN_CASH_TREASURY_CODE:true;
+  setCash(value>0&&wasCash?String(value):'');
+  setBank(value>0&&!wasCash?String(value):'');
+  setCurrency(existing?.currency||settings.baseCurrencyCode||'ILS');
+  setRate(String(existing?.exchangeRate||1));
+  setDiscount('0');
+  setBankCode(!wasCash?(existing?.treasuryAccountCode||existing?.accountCode||''):'');
+  setPaymentNote(existing?.transferReference||existing?.paymentNotes||'');
+ },[isOpen,editingVoucher,defaultParty,defaultSubCustomerName,defaultAmount,settings.baseCurrencyCode]);
+ useEffect(()=>{
+  setBankCode(previous=>noncash.some(t=>t.accountCode===previous)?previous:
+   (noncash[0]?.accountCode||''));
+ },[noncash]);
 
-  // Filter treasuries matching payment method and currency when possible
-  const matchingTreasuries = useMemo(() => {
-    return treasuries.filter(t => t.status!=='inactive' &&
-      (!t.currency || t.currency===currencyCode) &&
-      (paymentMethod==='cash'?t.accountCode==='CASH-1101'&&t.type==='cash_box':
-       paymentMethod==='e_wallet'?t.type==='digital_wallet':
-       paymentMethod==='cheque'?t.type==='bank_account'||t.type==='bank_app':
-       t.accountCode!=='CASH-1101'&&t.type!=='cash_box'));
-  }, [treasuries, currencyCode,paymentMethod]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setSaveError('');
-      setSaving(false);
-      if(editingVoucher){
-        setSelectedPartyId(editingVoucher.partyId);
-        setSubCustomerName(editingVoucher.subCustomerName||'');
-        setAmount(String(editingVoucher.amount));
-        setCurrencyCode(editingVoucher.currency||'ILS');
-        setPaymentMethod(editingVoucher.paymentMethod==='e_wallet'||editingVoucher.paymentMethod==='electronic'?'e_wallet':
-          editingVoucher.paymentMethod==='cheque'?'cheque':
-          editingVoucher.treasuryAccountCode==='CASH-1101'?'cash':'bank_transfer');
-        setTreasuryCode(editingVoucher.treasuryAccountCode||editingVoucher.accountCode);
-        setVoucherDate(editingVoucher.date);
-        setDescription(editingVoucher.description||'');
-        setTransferReference(editingVoucher.transferReference||'');
-        setChequeNumber(editingVoucher.chequeNumber||'');
-        setChequeBank(editingVoucher.chequeBank||'');
-        setChequeDueDate(editingVoucher.chequeDueDate||editingVoucher.date);
-        setCreatedVoucher(null);
-        return;
-      }
-      setPaymentMethod('cash');
-      setTreasuryCode('CASH-1101');
-      if (defaultParty) {
-        setSelectedPartyId(defaultParty.id);
-      } else if (parties.length > 0) {
-        const firstCust = parties.find(p => p.type === 'customer' || p.type === 'both');
-        if (firstCust) setSelectedPartyId(firstCust.id);
-      }
-
-      setSubCustomerName(defaultSubCustomerName);
-      if (defaultAmount > 0) {
-        setAmount(String(defaultAmount));
-      } else {
-        setAmount('');
-      }
-
-      setCurrencyCode(settings.baseCurrencyCode || 'ILS');
-      setTransferReference('');
-      setChequeNumber('');
-      setChequeBank('');
-      setChequeDueDate(new Date().toISOString().split('T')[0]);
-      setCreatedVoucher(null);
-    }
-  }, [isOpen, editingVoucher,defaultParty,defaultSubCustomerName,defaultAmount,parties,settings.baseCurrencyCode]);
-
-  // Update default treasury when currency or payment method changes
-  useEffect(() => {
-    if (!isOpen)return;
-    setTreasuryCode(old=>matchingTreasuries.some(t=>t.accountCode===old)?old:
-      (matchingTreasuries[0]?.accountCode||''));
-  }, [isOpen,matchingTreasuries]);
-
-  if (!isOpen) return null;
-
-  const currentParty = parties.find(p => p.id === selectedPartyId);
-
-  const handleSubmit = async (andPrint = false) => {
-    if(saving)return;
-    setSaveError('');
-    const amtNum = parseFloat(amount);
-    if (isNaN(amtNum) || amtNum <= 0) {
-      alert('يرجى إدخال مبلغ سند صحيح');
-      return;
-    }
-
-    if(!currentParty){setSaveError('اختر العميل المسجل في سند القبض.');return;}
-    const selectedTreasury=matchingTreasuries.find(t=>t.accountCode===treasuryCode);
-    if(!selectedTreasury){setSaveError('اختر صندوقًا صالحًا لطريقة القبض.');return;}
-    const correctMethod:PaymentVoucher['paymentMethod']=treasuryCode==='CASH-1101'?'cash':
-      paymentMethod==='cheque'?'cheque':selectedTreasury.type==='digital_wallet'?'e_wallet':'bank_transfer';
-    const partyName=currentParty.name;
-    const rate = activeCurrency.rateAgainstBase || 1.0;
-    const baseAmt = Number((amtNum * rate).toFixed(2));
-
-    const voucherNumber = `RCT-${Date.now().toString().slice(-6)}`;
-    const newVoucher: PaymentVoucher = {
-      id: `vch-${Date.now()}`,
-      voucherNumber,
-      type: 'receipt',
-      date: voucherDate,
-      partyId: selectedPartyId,
-      partyName,
-      amount: amtNum,
-      paymentMethod:correctMethod,
-      accountCode: '1201',
-      description: description.trim() || 'دفعة سداد حساب من العميل',
-      currency: currencyCode,
-      currencySymbol: activeCurrency.symbol,
-      exchangeRate: rate,
-      baseAmount: baseAmt,
-      subCustomerName: subCustomerName.trim() || undefined,
-      treasuryAccountCode: treasuryCode,
-      transferReference: correctMethod === 'bank_transfer' ? transferReference.trim() || undefined : undefined,
-      chequeNumber: correctMethod === 'cheque' ? chequeNumber.trim() || undefined : undefined,
-      chequeBank: correctMethod === 'cheque' ? chequeBank.trim() || undefined : undefined,
-      chequeDueDate: correctMethod === 'cheque' ? chequeDueDate : undefined
-    };
-
-    if(editingVoucher){
-      setSaving(true);
-      const result=await amendReceiptVoucher(editingVoucher.id,editingVoucher,{
-        partyId:selectedPartyId,date:voucherDate,description:description.trim(),
-        amount:amtNum,currency:currencyCode,exchangeRate:rate,
-        paymentMethod:correctMethod,treasuryAccountCode:treasuryCode,
-        subCustomerName:subCustomerName.trim(),transferReference:transferReference.trim(),
-        chequeNumber:chequeNumber.trim(),chequeBank:chequeBank.trim(),
-        chequeDueDate
-      });
-      setSaving(false);
-      if(!result.success){setSaveError(result.message||'تعذر تعديل السند.');return;}
-      posSound.playSuccessBeep();
-      if(andPrint)setSelectedVoucherForPrint({...newVoucher,id:editingVoucher.id,
-        voucherNumber:editingVoucher.voucherNumber});
-      onClose();
-      return;
-    }
-    try {createPaymentVoucher(newVoucher);}
-    catch(error){setSaveError(error instanceof Error?error.message:'تعذر حفظ السند.');return;}
-    posSound.playSuccessBeep();
-
-    if (andPrint) {
-      if (setSelectedVoucherForPrint) {
-        setSelectedVoucherForPrint(newVoucher);
-      }
-      onClose();
-    } else {
-      setCreatedVoucher(newVoucher);
-      setTimeout(() => {
-        onClose();
-      }, 1000);
-    }
+ if(!isOpen)return null;
+ const switchTarget=(type:TargetType)=>{
+  if(type===targetType)return;
+  setTargetType(type);setPartyId('');setSubName('');setError('');
+ };
+ const updateAmount=(value:string)=>{
+  setAmount(value);
+  if(!moneyInput(bank)){setCash(value);}
+ };
+ const submit=async(print=false)=>{
+  if(saving)return;
+  setError('');
+  if(!selected){setError('اختر الجهة واسم صاحب السند من السجلات المعتمدة.');return;}
+  if(!(Number.isFinite(entered)&&entered>0)||
+     !(Number.isFinite(collected)&&collected>0)){
+   setError('يجب إدخال مبلغ قبض صحيح أكبر من صفر.');return;
+  }
+  if(Math.abs(entered-collected)>0.005){
+   setError('إجمالي مبلغ القبض يجب أن يساوي النقدي + البنكي.');return;
+  }
+  if(!Number.isFinite(rebate)||rebate<0){
+   setError('قيمة الخصم غير صحيحة.');return;
+  }
+  if(!Number.isFinite(Number(rate))||Number(rate)<=0){
+   setError('سعر الصرف يجب أن يكون أكبر من صفر.');return;
+  }
+  if(rebate>0){
+   setError('حقل الخصم جاهز؛ لا يمكن ترحيل خصم قبل اعتماد حساب الخصومات وقيوده المحاسبية.');return;
+  }
+  if(targetType==='employee'||targetType==='supplier'){
+   setError(targetType==='employee'?
+    'اختيار الموظف جاهز؛ يلزم حساب ذمم أو سلف الموظفين المعتمد قبل ترحيل قبض الموظف.':
+    'اختيار المورد جاهز؛ يلزم مسار تسوية ذمم الموردين المعتمد قبل إثبات قبض من مورد، لتجنب عكس أرصدة الموردين خطأً.');return;
+  }
+  if(moneyInput(cash)>0&&moneyInput(bank)>0){
+   setError('القبض المختلط يتطلب اعتماد الحفظ الذري للسطرين. لن يتم إنشاء سندين منفصلين أو تسجيل مبلغ مكرر.');return;
+  }
+  if(moneyInput(bank)>0&&!selectedBank){
+   setError('اختر صندوقًا بنكيًا أو محفظة للجزء غير النقدي.');return;
+  }
+  const typeCode=moneyInput(cash)>0?MAIN_CASH_TREASURY_CODE:bankCode;
+  const treasury=treasuries.find(t=>t.accountCode===typeCode);
+  if(!treasury){setError('الصندوق غير معرّف أو غير متاح.');return;}
+  const method:PaymentVoucher['paymentMethod']=typeCode===MAIN_CASH_TREASURY_CODE?
+   'cash':treasury.type==='digital_wallet'?'e_wallet':'bank_transfer';
+  const current=editingVoucher;
+  if(current&&targetType!==(
+   current.partyType||(
+    parties.find(p=>p.id===current.partyId)?.type==='supplier'?'supplier':'customer'
+   ))){
+   setError('تغيير جهة سند معتمد يتطلب تسوية مصدّقة للمستند الأصلي.');return;
+  }
+  const appliedRate=Number(rate);
+  const newVoucher:PaymentVoucher={
+   id:current?.id||('vch-'+Date.now()),
+   voucherNumber:current?.voucherNumber||('RCT-'+Date.now().toString().slice(-6)),
+   type:'receipt',date,partyId,partyName:selected.name,
+   partyType:targetType,amount:entered,baseAmount:m(entered*appliedRate),
+   paymentMethod:method,accountCode:targetType==='supplier'?'2101':'1201',
+   treasuryAccountCode:typeCode,description:note.trim()||'قبض وتسديد حساب',
+   currency,currencySymbol:symbol,exchangeRate:appliedRate,
+   subCustomerName:subName||undefined,
+   paymentNotes:paymentNote.trim()||undefined,
+   transferReference:moneyInput(bank)>0?paymentNote.trim()||undefined:undefined
   };
-
-  return (
-    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3 text-slate-800 text-xs" dir="rtl">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="bg-[#1f4a7c] text-white px-5 py-3.5 flex items-center justify-between border-b border-[#143254]">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-emerald-500 text-white rounded-xl shadow-xs">
-              <Receipt className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm text-white">{editingVoucher ? ("تعديل سند القبض " + editingVoucher.voucherNumber) : "إضافة سند قبض جديد"}</h3>
-              <p className="text-[11px] text-blue-200">استلام وتحصيل نقدية / بنكي وإيداعها في الصندوق</p>
-            </div>
-          </div>
-
-          <button
-            onClick={onClose}
-            className="p-1.5 text-blue-200 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Content Body */}
-        <div className="p-4 space-y-3.5">
-          {/* Party Selection & Sub-Customer */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex flex-col">
-              <label className="block font-bold text-slate-700 mb-1">العميل المستلم منه (الحساب الرئيسي):</label>
-              <AutocompleteCombobox
-                items={parties
-                  .filter(p => !p.isSubCustomer && (p.type === 'customer' || p.type === 'both'))
-                  .map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    code: p.code,
-                    badge: p.balance ? `رصيد: ${p.balance.toFixed(2)}` : undefined
-                  }))
-                }
-                selectedId={selectedPartyId}
-                value={currentParty?.name || ''}
-                entityType="customer"
-                placeholder="ابحث عن العميل..."
-                onSelect={(opt) => setSelectedPartyId(opt.id)}
-                className="flex-1"
-                inputClassName="py-1.5 font-semibold text-xs"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">اسم الزبون الفرعي (اختياري):</label>
-              <input
-                type="text"
-                value={subCustomerName}
-                onChange={e => setSubCustomerName(e.target.value)}
-                placeholder="اسم فرعي أو رقم هاتف..."
-                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs"
-              />
-            </div>
-          </div>
-
-          {/* Amount & Currency */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
-            <div className="md:col-span-2">
-              <label className="block font-bold text-slate-700 mb-1">المبلغ المقبوض:</label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full bg-white border border-slate-300 rounded-lg pr-3 pl-12 py-2 font-mono font-black text-base text-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                />
-                <span className="absolute left-3 top-2.5 font-bold text-slate-500 font-mono">
-                  {activeCurrency.symbol}
-                </span>
-              </div>
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">العملة:</label>
-              <select
-                value={currencyCode}
-                onChange={e => setCurrencyCode(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-2 py-2 font-bold text-xs"
-              >
-                {currencies.map(c => (
-                  <option key={c.code} value={c.code}>
-                    {c.name} ({c.symbol})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Payment Method & Treasury */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">طريقة القبض:</label>
-              <select
-                value={paymentMethod}
-                onChange={e => setPaymentMethod(e.target.value as any)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-xs"
-              >
-                <option value="cash">نقداً (في الصندوق)</option>
-                <option value="bank_transfer">تحويل بنكي / إيداع</option>
-                <option value="e_wallet">محفظة إلكترونية</option>
-                <option value="cheque">شيك مصرفي</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                الصندوق / الخزنة المستلمة ({currencyCode}):
-              </label>
-              <select
-                value={treasuryCode}
-                onChange={e => setTreasuryCode(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-xs"
-              >
-                {matchingTreasuries.map(t => (
-                  <option key={t.id} value={t.accountCode || t.id}>
-                    {t.name} ({t.currency || '₪'})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Bank Transfer Details */}
-          {paymentMethod === 'bank_transfer' && (
-            <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200">
-              <label className="block font-bold text-blue-900 mb-1">رقم الحوالة / المرجع البنكي (اختياري):</label>
-              <input
-                type="text"
-                value={transferReference}
-                onChange={e => setTransferReference(e.target.value)}
-                placeholder="مثال: REF-983724"
-                className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1.5 text-xs font-mono"
-              />
-            </div>
-          )}
-
-          {/* Cheque Details */}
-          {paymentMethod === 'cheque' && (
-            <div className="bg-amber-50/70 p-3 rounded-xl border border-amber-200 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <div>
-                <label className="block font-bold text-amber-900 mb-1">رقم الشيك:</label>
-                <input
-                  type="text"
-                  value={chequeNumber}
-                  onChange={e => setChequeNumber(e.target.value)}
-                  placeholder="رقم الشيك"
-                  className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-amber-900 mb-1">البنك المسحوب عليه:</label>
-                <input
-                  type="text"
-                  value={chequeBank}
-                  onChange={e => setChequeBank(e.target.value)}
-                  placeholder="اسم البنك"
-                  className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-amber-900 mb-1">تاريخ الاستحقاق:</label>
-                <DateInput value={chequeDueDate} onChange={e => setChequeDueDate(e.target.value)}
-                  className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Date & Statement Description */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">تاريخ السند:</label>
-              <DateInput value={voucherDate} onChange={e => setVoucherDate(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block font-bold text-slate-700 mb-1">البيان والشرح:</label>
-              <input
-                type="text"
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                placeholder="سداد حساب أو دفعة..."
-                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs"
-              />
-            </div>
-          </div>
-
-          {saveError && <div role="alert" className="bg-rose-50 border border-rose-200 rounded-lg p-2 text-rose-700 font-semibold">{saveError}</div>}
-          {/* Created Alert */}
-          {createdVoucher && (
-            <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 p-2.5 rounded-xl font-bold text-center flex items-center justify-center gap-1.5">
-              <Check className="w-4 h-4" />
-              <span>تم إصدار وحفظ سند القبض رقم #{createdVoucher.voucherNumber} بنجاح!</span>
-            </div>
-          )}
-        </div>
-
-        {/* Footer Actions */}
-        <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl text-slate-700 font-bold cursor-pointer"
-          >
-            إلغاء
-          </button>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleSubmit(true)}
-              disabled={saving}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <Printer className="w-4 h-4" />
-              <span>{editingVoucher ? 'حفظ التعديل والطباعة' : 'حفظ وطباعة السند'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleSubmit(false)}
-              disabled={saving}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <Check className="w-4 h-4" />
-              <span>{saving ? 'جارٍ الحفظ...' : editingVoucher ? 'حفظ التعديل' : 'حفظ السند'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
+  setSaving(true);
+  try {
+   if(current){
+    const result=await amendReceiptVoucher(current.id,current,{
+     partyId,date,description:newVoucher.description,amount:entered,currency,
+     exchangeRate:appliedRate,paymentMethod:method,
+     treasuryAccountCode:typeCode,subCustomerName:subName,
+     transferReference:paymentNote
+    });
+    if(!result.success)throw Error(result.message||'تعذّر تعديل سند القبض.');
+   }else createPaymentVoucher(newVoucher);
+   posSound.playSuccessBeep();
+   setSavedVoucher(newVoucher);
+   if(print)setSelectedVoucherForPrint(newVoucher);
+   onClose();
+  }catch(cause){
+   setError(cause instanceof Error?cause.message:'تعذّر حفظ السند، لم تُثبت أي حركة.');
+  }finally{setSaving(false);}
+ };
+ return (
+ <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 text-xs text-slate-800" dir="rtl">
+  <section className="w-full max-w-6xl bg-white border border-slate-300 rounded-2xl shadow-2xl overflow-hidden">
+   <header className="flex items-center justify-between gap-3 px-5 py-3 bg-[#163e6a] text-white">
+    <div className="flex items-center gap-2"><Receipt size={20}/>
+     <div><h2 className="font-bold text-base">{editingVoucher?'تعديل سند القبض':'إضافة سند قبض جديد'}</h2>
+      <p className="text-[11px] text-blue-100">ربط الجهة والسداد بالصناديق المعتمدة</p></div>
     </div>
-  );
+    <button onClick={onClose} type="button" aria-label="إغلاق" className="p-1.5 rounded-lg hover:bg-blue-900/40"><X size={20}/></button>
+   </header>
+   <div className="p-4 space-y-3 bg-slate-50/70">
+    <div className="grid grid-cols-1 md:grid-cols-[230px_120px_minmax(210px,1fr)_175px_145px] items-end gap-2">
+     <div><label className={field}>الجهة</label><div className="flex bg-white border border-slate-300 rounded-md p-0.5 gap-0.5">
+      {([['customer','عميل'],['supplier','مورد'],['employee','موظف']] as const).map(([key,name])=>
+       <button key={key} type="button" onClick={()=>switchTarget(key)}
+        className={'flex-1 px-1 py-2 rounded text-xs font-bold '+(targetType===key?'bg-blue-700 text-white':'text-slate-500 hover:bg-slate-100')}>{name}</button>)}
+     </div></div>
+     <div><label className={field}>الكود</label><input readOnly value={selected?.code||''} placeholder="—" className={box+' text-center bg-slate-100 font-mono font-semibold'}/></div>
+     <div><label className={field}>اسم {targetType==='employee'?'الموظف':targetType==='supplier'?'المورد':'العميل'}</label>
+      <AutocompleteCombobox
+       items={partyChoices.map(item=>({id:item.id,name:item.name,code:item.code}))}
+       selectedId={partyId} value={selected?.name||''}
+       entityType={targetType==='employee'?'employee':targetType==='supplier'?'supplier':'customer'}
+       placeholder="ابحث بالاسم أو الكود واختر..."
+       onSelect={item=>{setPartyId(item.id);setSubName('');}}
+       inputClassName="py-2 text-xs font-semibold" className="w-full"
+      />
+     </div>
+     <div><label className={field}>الاسم الفرعي</label>
+      {subCustomers.length>0?<select className={box} value={subName} onChange={e=>setSubName(e.target.value)}>
+       <option value="">بدون اسم فرعي</option>
+       {subCustomers.map(p=><option value={p.name} key={p.id}>{p.name}</option>)}
+      </select>:<input className={box} value={subName} onChange={e=>setSubName(e.target.value)} placeholder="اختياري"/>}
+     </div>
+     <div><label className={field}>التاريخ</label>
+      <DateInput value={date} onChange={e=>setDate(e.target.value)} className={box+' font-mono'}/>
+     </div>
+    </div>
+
+    <div><label className={field}>ملاحظة القبض</label>
+     <input className={box} value={note} onChange={e=>setNote(e.target.value)}
+      placeholder="تسديد كامل الحساب، دفعة على الحساب..."/>
+    </div>
+
+    <div className="grid grid-cols-2 md:grid-cols-[1.3fr_1fr_0.85fr_0.85fr_1.35fr] gap-2 items-end">
+     <div><label className={field}>المبلغ المقبوض</label>
+      <input type="number" min="0" step="0.01" value={amount} onChange={e=>updateAmount(e.target.value)}
+       placeholder="0.00" className={box+' font-mono font-bold text-base text-blue-800'}/></div>
+     <div><label className={field}>العملة</label><select className={box} value={currency}
+      onChange={e=>{setCurrency(e.target.value);setRate(String(currencies.find(c=>c.code===e.target.value)?.rateAgainstBase||1));}}>
+      {currencies.map(c=><option value={c.code} key={c.code}>{c.name} ({c.code})</option>)}
+     </select></div>
+     <div><label className={field}>سعر الصرف</label><input type="number" min="0.0001" step="any"
+      className={box+' font-mono'} value={rate} onChange={e=>setRate(e.target.value)}/></div>
+     <div><label className={field}>خصم</label><input type="number" min="0" step="0.01"
+      className={box+' font-mono'} value={discount} onChange={e=>setDiscount(e.target.value)}/></div>
+     <div className="rounded-md bg-blue-50 px-3 py-2 border border-blue-200 text-blue-800">
+      <span className="block text-[11px] font-semibold">الرصيد المسجل قبل القبض</span>
+      <span className="font-bold text-sm tabular-nums">{selected?(displayBalance===null?'لا يوجد رصيد أستاذ معتمد':m(displayBalance).toFixed(2)+' ₪'):'اختر الجهة لعرض الرصيد'}</span>
+     </div>
+    </div>
+
+    <div className="bg-white border border-slate-200 rounded-lg p-3">
+     <div className="grid grid-cols-1 md:grid-cols-[.75fr_1.9fr_1.35fr] gap-3 items-end">
+      <div><label className={field}>نقدًا — {MAIN_CASH_TREASURY_CODE}</label>
+       <div className="relative"><input type="number" step="0.01" min="0"
+        className={box+' font-mono text-emerald-800 font-bold'} value={cash}
+        onChange={e=>setCash(e.target.value)} placeholder="0.00"/>
+        <Wallet size={14} className="absolute left-2.5 top-2.5 text-emerald-600"/></div>
+      </div>
+      <div className="grid grid-cols-[minmax(100px,.8fr)_minmax(170px,1.4fr)] items-end gap-2">
+       <div><label className={field}>بنكي</label>
+        <input type="number" min="0" step="0.01" className={box+' font-mono font-bold text-blue-800'}
+         value={bank} onChange={e=>setBank(e.target.value)} placeholder="0.00"/></div>
+       <div><label className={field}>الصندوق / المحفظة</label>
+        <select value={bankCode} onChange={e=>setBankCode(e.target.value)} className={box}>
+         <option value="">اختر الصندوق</option>
+         {noncash.map(t=><option key={t.id} value={t.accountCode}>{t.accountCode} — {t.name}</option>)}
+        </select></div>
+      </div>
+      <div><label className={field}>إيصال / ملاحظة الدفع</label>
+       <input className={box} value={paymentNote} onChange={e=>setPaymentNote(e.target.value)}
+        placeholder="رقم الإيصال أو تفاصيل التحويل"/></div>
+     </div>
+    </div>
+
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-100 border border-slate-200 p-2.5 rounded-md">
+     <span className="font-semibold text-slate-600">إجمالي النقدي والبنكي:
+      <strong className="text-blue-800 mr-1">{Number.isFinite(collected)?m(collected).toFixed(2):'—'} {symbol}</strong>
+     </span>
+     <span className="font-semibold text-slate-600">المبلغ المطلوب:
+      <strong className="text-slate-900 mr-1">{Number.isFinite(entered)?entered.toFixed(2):'—'} {symbol}</strong>
+     </span>
+     <span className="font-semibold text-slate-600">الرصيد بعد التسوية:
+      <strong className="text-emerald-700 mr-1">{remaining===null?'—':remaining.toFixed(2)+' ₪'}</strong>
+     </span>
+    </div>
+    {error&&<div role="alert" className="bg-rose-50 p-2.5 border border-rose-200 text-rose-700 font-medium rounded-md">{error}</div>}
+    {savedVoucher&&<div className="text-emerald-700 font-semibold">تم تأكيد السند {savedVoucher.voucherNumber}</div>}
+    <div className="text-[11px] text-slate-500 flex items-center gap-1"><Info size={13}/>
+     النقدي للصندوق الرئيسي حصراً؛ غير النقدي حسب الصندوق. حالات الخصم والقبض المختلط والموظفين تُحمى من الترحيل غير المكتمل.
+    </div>
+   </div>
+   <footer className="px-4 py-3 flex items-center justify-between bg-white border-t border-slate-200 gap-3">
+    <button type="button" onClick={onClose} className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-slate-700 font-bold">إلغاء</button>
+    <div className="flex items-center gap-2">
+     <button disabled={saving} onClick={()=>void submit(true)} type="button"
+      className="flex items-center gap-2 bg-blue-100 text-blue-800 font-bold rounded-md px-5 py-2.5 disabled:opacity-50"><Printer size={16}/>حفظ وطباعة</button>
+     <button disabled={saving} onClick={()=>void submit(false)} type="button"
+      className="flex items-center gap-2 bg-emerald-600 text-white font-bold rounded-md px-6 py-2.5 disabled:opacity-50"><Check size={16}/>{saving?'جارٍ الحفظ...':editingVoucher?'حفظ التعديل':'اعتماد سند القبض'}</button>
+    </div>
+   </footer>
+  </section>
+ </div>
+ );
 };

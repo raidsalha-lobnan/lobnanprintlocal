@@ -557,6 +557,8 @@ export interface PaymentVoucher {
   date: string;
   partyId: string;
   partyName: string;
+  partyType?: 'customer' | 'supplier' | 'employee';
+  paymentNotes?: string;
   amount: number;
   paymentMethod: 'cash' | 'bank_transfer' | 'cheque' | 'card' | 'electronic' | 'e_wallet' | 'pos';
   accountCode: string; // الحساب المقابل (الصندوق / البنك)
