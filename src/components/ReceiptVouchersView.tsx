@@ -140,7 +140,7 @@ export const ReceiptVouchersView: React.FC = () => {
           <h1 className="text-sm 2xl:text-base font-bold text-slate-800 whitespace-nowrap">سندات القبض (التحصيلات المالية)</h1>
         </div>
       <div className="flex flex-1 min-w-0 items-center gap-1.5 flex-wrap xl:flex-nowrap">
-        <div className="relative w-full sm:w-36 xl:w-40 2xl:w-52 shrink-0">
+        <div className="relative w-full sm:w-48 xl:w-52 2xl:w-64 shrink-0">
           <Search className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
           <input type="search" placeholder="بحث بالسند أو الاسم أو البيان"
             value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
@@ -176,18 +176,18 @@ export const ReceiptVouchersView: React.FC = () => {
         {(searchQuery||methodFilter!=='all'||dateMode!=='all')&&
           <button type="button" className="text-emerald-700 text-xs px-2 py-2"
             onClick={()=>{setSearchQuery('');setMethodFilter('all');setDateMode('all');setSelectedDay('');setFromDate('');setToDate('');setReportError('');}}>إلغاء الفلاتر</button>}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-[11px] text-slate-500 whitespace-nowrap">{filteredVouchers.length} سند</span>
-          <button type="button" onClick={printRegister}
-            className="flex items-center gap-1 rounded-md bg-blue-700 hover:bg-blue-800 text-white px-2 py-2 text-[11px] font-bold whitespace-nowrap">
-            <Printer size={15}/>طباعة كشف السندات
-          </button>
-        </div>
+        <span className="text-[11px] text-slate-500 whitespace-nowrap">{filteredVouchers.length} سند</span>
       </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button type="button" onClick={printRegister}
+          className="flex items-center gap-1 rounded-md bg-blue-700 hover:bg-blue-800 text-white px-2 py-2 text-[11px] font-bold whitespace-nowrap">
+          <Printer size={15}/>طباعة كشف السندات
+        </button>
         <button type="button" onClick={() => {setEditingVoucher(null);setIsModalOpen(true)}}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-[11px] px-3 py-2 rounded-md flex items-center justify-center gap-1 shrink-0 whitespace-nowrap">
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-[11px] px-3 py-2 rounded-md flex items-center justify-center gap-1 whitespace-nowrap">
           <Plus className="w-3.5 h-3.5"/>تحرير سند قبض جديد
         </button>
+      </div>
       </div>
 
       {/* Compact single-line KPI cards */}
