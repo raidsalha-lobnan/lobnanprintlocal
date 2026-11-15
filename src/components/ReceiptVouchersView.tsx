@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import { ReceiptVoucherModal } from './pos/ReceiptVoucherModal';
+import {resolveReceiptRoute,sumReceiptRoutes} from '../utils/receiptRouting';
+import type {PaymentVoucher} from '../types';
 import {
   Receipt,
   Plus,
@@ -10,6 +12,7 @@ import {
   User,
   Filter,
   Printer,
+  Pencil,
   Trash2,
   DollarSign,
   TrendingUp,
@@ -43,11 +46,14 @@ export const ReceiptVouchersView: React.FC = () => {
 
   // Modal open
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingVoucher,setEditingVoucher] = useState<PaymentVoucher|null>(null);
 
   // Filtered vouchers
   const filteredVouchers = useMemo(() => {
     return receiptVouchers.filter(v => {
-      if (methodFilter !== 'all' && v.paymentMethod !== methodFilter) return false;
+      const method=resolveReceiptRoute(v,treasuries);
+      if(methodFilter !== 'all' && (methodFilter==='cash'?method!=='cash':
+         methodFilter==='cheque'?method!=='cheque':!['bank_transfer','wallet'].includes(method))) return false;
       if (fromDate && v.date < fromDate) return false;
       if (toDate && v.date > toDate) return false;
 
@@ -60,14 +66,15 @@ export const ReceiptVouchersView: React.FC = () => {
       }
       return true;
     }).sort((a, b) => b.date.localeCompare(a.date));
-  }, [receiptVouchers, methodFilter, fromDate, toDate, searchQuery]);
+  }, [receiptVouchers,treasuries, methodFilter, fromDate, toDate, searchQuery]);
 
   // Statistics
   const todayIso = new Date().toISOString().split('T')[0];
   const totalAmount = receiptVouchers.reduce((sum, v) => sum + v.amount, 0);
   const todayAmount = receiptVouchers.filter(v => v.date === todayIso).reduce((sum, v) => sum + v.amount, 0);
-  const cashTotal = receiptVouchers.filter(v => v.paymentMethod === 'cash').reduce((sum, v) => sum + v.amount, 0);
-  const bankTotal = receiptVouchers.filter(v => v.paymentMethod === 'bank_transfer' || v.paymentMethod === 'cheque').reduce((sum, v) => sum + v.amount, 0);
+  const routedTotals=sumReceiptRoutes(receiptVouchers,treasuries);
+  const cashTotal=routedTotals.cash;
+  const bankTotal=routedTotals.noncash;
 
   const getMethodBadge = (method: string) => {
     switch (method) {
@@ -78,6 +85,10 @@ export const ReceiptVouchersView: React.FC = () => {
             <span>نقداً (كاش)</span>
           </span>
         );
+      case 'wallet':
+        return <span className="inline-flex items-center gap-1 bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded text-[11px] font-medium"><CreditCard className="w-3 h-3"/>محفظة إلكترونية</span>;
+      case 'unknown':
+        return <span className="text-amber-700 font-bold text-xs">صندوق غير معروف</span>;
       case 'bank_transfer':
         return (
           <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded text-[11px] font-medium">
@@ -114,7 +125,7 @@ export const ReceiptVouchersView: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {setEditingVoucher(null);setIsModalOpen(true)}}
           className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4" />
@@ -250,7 +261,7 @@ export const ReceiptVouchersView: React.FC = () => {
               ) : (
                 filteredVouchers.map((v, idx) => {
                   const party = parties.find(p => p.id === v.partyId);
-                  const treasury = treasuries.find(t => t.accountCode === v.accountCode || t.accountCode === v.treasuryAccountCode);
+                  const treasury = treasuries.find(t => t.accountCode === (v.treasuryAccountCode||v.accountCode));
                   const treasuryName = treasury?.name || (v.paymentMethod === 'cash' ? 'الصندوق الرئيسي (الكاشير)' : 'الحساب البنكي');
 
                   return (
@@ -272,7 +283,7 @@ export const ReceiptVouchersView: React.FC = () => {
                           {v.description || 'سداد دفعة من الحساب'}
                         </div>
                       </td>
-                      <td className="p-3">{getMethodBadge(v.paymentMethod)}</td>
+                      <td className="p-3">{getMethodBadge(resolveReceiptRoute(v,treasuries))}</td>
                       <td className="p-3 text-slate-600 font-medium">
                         {treasuryName}
                       </td>
@@ -287,6 +298,10 @@ export const ReceiptVouchersView: React.FC = () => {
                             title="طباعة سند القبض الرسمي"
                           >
                             <Printer className="w-4 h-4" />
+                          </button>
+                          <button onClick={()=>{setEditingVoucher(v);setIsModalOpen(true)}}
+                            className="p-1.5 text-amber-700 hover:bg-amber-50 rounded-md cursor-pointer" title="تعديل سند القبض">
+                            <Pencil className="w-4 h-4"/>
                           </button>
                           <button
                             onClick={() => {
@@ -313,7 +328,8 @@ export const ReceiptVouchersView: React.FC = () => {
       {/* Modal for Creating Receipt Voucher */}
       <ReceiptVoucherModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {setIsModalOpen(false);setEditingVoucher(null)}}
+        editingVoucher={editingVoucher}
       />
     </div>
   );

@@ -16,6 +16,8 @@ import {createWorkspaceSettingsPatch} from '../sync-next/settingsPatch';
 import {MAIN_CASH_TREASURY_CODE,canonicalTreasuryCode,requiredTreasury,ledgerAccountForTreasury} from '../utils/treasuryCodes';
 import { LocalHttpSyncTransport, getLocalSyncConfig } from '../sync-next/httpTransport';
 import {invoiceEditSignature} from '../utils/invoiceEditSignature';
+import {buildReceiptAmendment} from '../utils/receiptAmendment';
+import type {EditableReceipt} from '../utils/receiptAmendment';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
 import { ProposedChange, EntityName, JsonObject } from '../sync-next/types';
 import {
@@ -450,6 +452,7 @@ interface AccountingContextType {
   vouchers: PaymentVoucher[];
   createPaymentVoucher: (voucher: Omit<PaymentVoucher, 'id' | 'voucherNumber'>) => void;
   updatePaymentVoucher: (id: string, updates: Partial<PaymentVoucher>) => void;
+  amendReceiptVoucher: (id: string, baseline: PaymentVoucher, updates: EditableReceipt) => Promise<{success:boolean;message?:string}>;
   deletePaymentVoucher: (id: string) => void;
 
   // Multi-Currency Support (تعدد العملات والعملة الأساسية: الشيكل الفلسطيني)
@@ -9344,6 +9347,37 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  /** PostgreSQL-authoritative grouped receipt amendment (one transaction). */
+  const amendReceiptVoucher = async (id:string,baseline:PaymentVoucher,updates:EditableReceipt):Promise<{success:boolean;message?:string}> => {
+    try {
+      const config=getLocalSyncConfig();
+      const transport=new LocalHttpSyncTransport(config.url,config.token,config.workspace);
+      const snapshot=await transport.fetchAuthoritativeBootstrap();
+      const command=buildReceiptAmendment(snapshot.records,id,baseline,updates,'receipt-amend-'+crypto.randomUUID());
+      const receipt=await transport.push(command);
+      if(!Array.isArray(receipt.changes)||!receipt.changes.some(row=>row.entity==='vouchers'&&row.id===id))
+        throw Error('لم يؤكد الخادم تحديث سند القبض.');
+      for(const row of receipt.changes){
+        if(!row.value)continue;
+        if(row.entity==='vouchers'){
+          const updated=row.value as unknown as PaymentVoucher;
+          setVouchers(prev=>prev.map(v=>v.id===row.id?updated:v));
+        }
+        if(row.entity==='treasuries'){
+          const updated=row.value as unknown as Treasury;
+          setTreasuries(prev=>prev.map(t=>t.id===row.id?updated:t));
+        }
+        if(row.entity==='parties'){
+          const updated=row.value as unknown as Party;
+          setParties(prev=>prev.map(p=>p.id===row.id?updated:p));
+        }
+      }
+      return {success:true};
+    }catch(error){
+      console.error('RECEIPT_ATOMIC_AMEND_FAILED',error);
+      return {success:false,message:error instanceof Error?error.message:'تعذّر حفظ سند القبض؛ لم تُعدّل أي أرصدة.'};
+    }
+  };
   const deletePaymentVoucher = (id: string) => {
     let remainingVouchers: PaymentVoucher[] = [];
     setVouchers(prev => {
@@ -11036,6 +11070,7 @@ return (
         vouchers,
         createPaymentVoucher,
         updatePaymentVoucher,
+        amendReceiptVoucher,
         deletePaymentVoucher,
         selectedVoucherForPrint,
         setSelectedVoucherForPrint,

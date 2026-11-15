@@ -12,6 +12,7 @@ interface ReceiptVoucherModalProps {
   defaultParty?: Party | null;
   defaultSubCustomerName?: string;
   defaultAmount?: number;
+  editingVoucher?: PaymentVoucher | null;
 }
 
 export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
@@ -19,7 +20,8 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
   onClose,
   defaultParty,
   defaultSubCustomerName = '',
-  defaultAmount = 0
+  defaultAmount = 0,
+  editingVoucher = null
 }) => {
   const {
     parties,
@@ -27,6 +29,7 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
     currencies,
     settings,
     createPaymentVoucher,
+    amendReceiptVoucher,
     setSelectedVoucherForPrint
   } = useAccounting();
 
@@ -34,8 +37,8 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
   const [subCustomerName, setSubCustomerName] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [currencyCode, setCurrencyCode] = useState<string>(settings.baseCurrencyCode || 'ILS');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank_transfer' | 'cheque'>('cash');
-  const [treasuryCode, setTreasuryCode] = useState<string>('1101');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank_transfer' | 'cheque' | 'e_wallet'>('cash');
+  const [treasuryCode, setTreasuryCode] = useState<string>('CASH-1101');
   const [voucherDate, setVoucherDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState<string>('دفعة سداد حساب من العميل');
   const [transferReference, setTransferReference] = useState<string>('');
@@ -43,6 +46,8 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
   const [chequeBank, setChequeBank] = useState<string>('');
   const [chequeDueDate, setChequeDueDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [createdVoucher, setCreatedVoucher] = useState<PaymentVoucher | null>(null);
+  const [saving,setSaving]=useState(false);
+  const [saveError,setSaveError]=useState('');
 
   // Active currency
   const activeCurrency = useMemo(() => {
@@ -55,13 +60,38 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
 
   // Filter treasuries matching payment method and currency when possible
   const matchingTreasuries = useMemo(() => {
-    const forCurrency = treasuries.filter(t => !t.currency || t.currency === currencyCode);
-    if (forCurrency.length > 0) return forCurrency;
-    return treasuries;
-  }, [treasuries, currencyCode]);
+    return treasuries.filter(t => t.status!=='inactive' &&
+      (!t.currency || t.currency===currencyCode) &&
+      (paymentMethod==='cash'?t.accountCode==='CASH-1101'&&t.type==='cash_box':
+       paymentMethod==='e_wallet'?t.type==='digital_wallet':
+       paymentMethod==='cheque'?t.type==='bank_account'||t.type==='bank_app':
+       t.accountCode!=='CASH-1101'&&t.type!=='cash_box'));
+  }, [treasuries, currencyCode,paymentMethod]);
 
   useEffect(() => {
     if (isOpen) {
+      setSaveError('');
+      setSaving(false);
+      if(editingVoucher){
+        setSelectedPartyId(editingVoucher.partyId);
+        setSubCustomerName(editingVoucher.subCustomerName||'');
+        setAmount(String(editingVoucher.amount));
+        setCurrencyCode(editingVoucher.currency||'ILS');
+        setPaymentMethod(editingVoucher.paymentMethod==='e_wallet'||editingVoucher.paymentMethod==='electronic'?'e_wallet':
+          editingVoucher.paymentMethod==='cheque'?'cheque':
+          editingVoucher.treasuryAccountCode==='CASH-1101'?'cash':'bank_transfer');
+        setTreasuryCode(editingVoucher.treasuryAccountCode||editingVoucher.accountCode);
+        setVoucherDate(editingVoucher.date);
+        setDescription(editingVoucher.description||'');
+        setTransferReference(editingVoucher.transferReference||'');
+        setChequeNumber(editingVoucher.chequeNumber||'');
+        setChequeBank(editingVoucher.chequeBank||'');
+        setChequeDueDate(editingVoucher.chequeDueDate||editingVoucher.date);
+        setCreatedVoucher(null);
+        return;
+      }
+      setPaymentMethod('cash');
+      setTreasuryCode('CASH-1101');
       if (defaultParty) {
         setSelectedPartyId(defaultParty.id);
       } else if (parties.length > 0) {
@@ -83,31 +113,34 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
       setChequeDueDate(new Date().toISOString().split('T')[0]);
       setCreatedVoucher(null);
     }
-  }, [isOpen, defaultParty, defaultSubCustomerName, defaultAmount, parties, settings.baseCurrencyCode]);
+  }, [isOpen, editingVoucher,defaultParty,defaultSubCustomerName,defaultAmount,parties,settings.baseCurrencyCode]);
 
   // Update default treasury when currency or payment method changes
   useEffect(() => {
-    if (matchingTreasuries.length > 0) {
-      const preferred = matchingTreasuries.find(t => {
-        if (paymentMethod === 'cash') return t.type === 'cash_box';
-        return t.type === 'bank_account' || t.type === 'bank_app' || t.type === 'pos_terminal';
-      }) || matchingTreasuries[0];
-      setTreasuryCode(preferred.accountCode || preferred.id);
-    }
-  }, [currencyCode, paymentMethod, matchingTreasuries]);
+    if (!isOpen)return;
+    setTreasuryCode(old=>matchingTreasuries.some(t=>t.accountCode===old)?old:
+      (matchingTreasuries[0]?.accountCode||''));
+  }, [isOpen,matchingTreasuries]);
 
   if (!isOpen) return null;
 
   const currentParty = parties.find(p => p.id === selectedPartyId);
 
-  const handleSubmit = (andPrint = false) => {
+  const handleSubmit = async (andPrint = false) => {
+    if(saving)return;
+    setSaveError('');
     const amtNum = parseFloat(amount);
     if (isNaN(amtNum) || amtNum <= 0) {
       alert('يرجى إدخال مبلغ سند صحيح');
       return;
     }
 
-    const partyName = currentParty ? currentParty.name : 'عميل عام';
+    if(!currentParty){setSaveError('اختر العميل المسجل في سند القبض.');return;}
+    const selectedTreasury=matchingTreasuries.find(t=>t.accountCode===treasuryCode);
+    if(!selectedTreasury){setSaveError('اختر صندوقًا صالحًا لطريقة القبض.');return;}
+    const correctMethod:PaymentVoucher['paymentMethod']=treasuryCode==='CASH-1101'?'cash':
+      paymentMethod==='cheque'?'cheque':selectedTreasury.type==='digital_wallet'?'e_wallet':'bank_transfer';
+    const partyName=currentParty.name;
     const rate = activeCurrency.rateAgainstBase || 1.0;
     const baseAmt = Number((amtNum * rate).toFixed(2));
 
@@ -120,8 +153,8 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
       partyId: selectedPartyId,
       partyName,
       amount: amtNum,
-      paymentMethod,
-      accountCode: treasuryCode,
+      paymentMethod:correctMethod,
+      accountCode: '1201',
       description: description.trim() || 'دفعة سداد حساب من العميل',
       currency: currencyCode,
       currencySymbol: activeCurrency.symbol,
@@ -129,13 +162,32 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
       baseAmount: baseAmt,
       subCustomerName: subCustomerName.trim() || undefined,
       treasuryAccountCode: treasuryCode,
-      transferReference: paymentMethod === 'bank_transfer' ? transferReference.trim() || undefined : undefined,
-      chequeNumber: paymentMethod === 'cheque' ? chequeNumber.trim() || undefined : undefined,
-      chequeBank: paymentMethod === 'cheque' ? chequeBank.trim() || undefined : undefined,
-      chequeDueDate: paymentMethod === 'cheque' ? chequeDueDate : undefined
+      transferReference: correctMethod === 'bank_transfer' ? transferReference.trim() || undefined : undefined,
+      chequeNumber: correctMethod === 'cheque' ? chequeNumber.trim() || undefined : undefined,
+      chequeBank: correctMethod === 'cheque' ? chequeBank.trim() || undefined : undefined,
+      chequeDueDate: correctMethod === 'cheque' ? chequeDueDate : undefined
     };
 
-    createPaymentVoucher(newVoucher);
+    if(editingVoucher){
+      setSaving(true);
+      const result=await amendReceiptVoucher(editingVoucher.id,editingVoucher,{
+        partyId:selectedPartyId,date:voucherDate,description:description.trim(),
+        amount:amtNum,currency:currencyCode,exchangeRate:rate,
+        paymentMethod:correctMethod,treasuryAccountCode:treasuryCode,
+        subCustomerName:subCustomerName.trim(),transferReference:transferReference.trim(),
+        chequeNumber:chequeNumber.trim(),chequeBank:chequeBank.trim(),
+        chequeDueDate
+      });
+      setSaving(false);
+      if(!result.success){setSaveError(result.message||'تعذر تعديل السند.');return;}
+      posSound.playSuccessBeep();
+      if(andPrint)setSelectedVoucherForPrint({...newVoucher,id:editingVoucher.id,
+        voucherNumber:editingVoucher.voucherNumber});
+      onClose();
+      return;
+    }
+    try {createPaymentVoucher(newVoucher);}
+    catch(error){setSaveError(error instanceof Error?error.message:'تعذر حفظ السند.');return;}
     posSound.playSuccessBeep();
 
     if (andPrint) {
@@ -161,7 +213,7 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
               <Receipt className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-sm text-white">تحرير سند قبض جديد</h3>
+              <h3 className="font-bold text-sm text-white">{editingVoucher ? ("تعديل سند القبض " + editingVoucher.voucherNumber) : "إضافة سند قبض جديد"}</h3>
               <p className="text-[11px] text-blue-200">استلام وتحصيل نقدية / بنكي وإيداعها في الصندوق</p>
             </div>
           </div>
@@ -259,6 +311,7 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
               >
                 <option value="cash">نقداً (في الصندوق)</option>
                 <option value="bank_transfer">تحويل بنكي / إيداع</option>
+                <option value="e_wallet">محفظة إلكترونية</option>
                 <option value="cheque">شيك مصرفي</option>
               </select>
             </div>
@@ -348,6 +401,7 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
             </div>
           </div>
 
+          {saveError && <div role="alert" className="bg-rose-50 border border-rose-200 rounded-lg p-2 text-rose-700 font-semibold">{saveError}</div>}
           {/* Created Alert */}
           {createdVoucher && (
             <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 p-2.5 rounded-xl font-bold text-center flex items-center justify-center gap-1.5">
@@ -371,19 +425,21 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
             <button
               type="button"
               onClick={() => handleSubmit(true)}
+              disabled={saving}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <Printer className="w-4 h-4" />
-              <span>حفظ وطباعة السند</span>
+              <span>{editingVoucher ? 'حفظ التعديل والطباعة' : 'حفظ وطباعة السند'}</span>
             </button>
 
             <button
               type="button"
               onClick={() => handleSubmit(false)}
+              disabled={saving}
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <Check className="w-4 h-4" />
-              <span>حفظ السند</span>
+              <span>{saving ? 'جارٍ الحفظ...' : editingVoucher ? 'حفظ التعديل' : 'حفظ السند'}</span>
             </button>
           </div>
         </div>
