@@ -152,6 +152,7 @@ test('historical stock movement is immutable; replacement requires a separate ad
  const pool=new FakePostgres(),svc=new SyncService(pool);
  const stock=(qty)=>record('stockMovements','old-stock',{
   id:'old-stock',referenceType:'pos_invoice',referenceNumber:'INV-0009',
+  sourceInvoiceId:'immutable-invoice-9',
   itemId:'sku-1',type:'out_sale',quantity:qty,totalValue:qty*2
  });
  await svc.push('lobnan_main',make('original-stock',[stock(3)]));
