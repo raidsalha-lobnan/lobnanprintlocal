@@ -96,6 +96,42 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
     'length','width','count','unitCalculationType'].every(field=>
       JSON.stringify(old[field]??null)===JSON.stringify(next[field]??null));
   });
+ const legacyBasis=invoice.legacyStockBasis||null;
+ const virtualOriginalMovements=[];
+ if(legacyBasis){
+  // Reconstruction is a DOCUMENTARY basis, not a new stock transaction.
+  // Approved sales lines and one already-posted cost journal are the source.
+  // Never claim an original physical movement existed or deduct stock twice.
+  if(legacyBasis.version!==1||legacyBasis.kind!=='approved_invoice_cost_basis'||
+     legacyBasis.invoiceId!==invoice.id||
+     legacyBasis.invoiceNumber!==invoice.invoiceNumber||
+     !Array.isArray(legacyBasis.lines)||legacyBasis.lines.length===0||
+     cogs.length!==1||value(cogs[0]).id!==legacyBasis.costJournalId)
+   throw new Error('REVISION_LEGACY_COST_BASIS_UNVERIFIED');
+  if(movements.some(row=>{
+   const m=value(row);
+   return m.type==='out_sale' &&
+    ((m.sourceInvoiceId||m.referenceId)===invoice.id ||
+     m.referenceNumber==='TEMP-'+invoice.id);
+  }))throw new Error('REVISION_LEGACY_COST_BASIS_DOUBLE_SOURCE');
+  let sum=0;
+  for(const [index,line] of legacyBasis.lines.entries()){
+   const quantity=Number(line.quantity),unitPrice=Number(line.unitPrice);
+   if(!line.itemId||!Number.isFinite(quantity)||quantity<=0||
+      !Number.isFinite(unitPrice)||unitPrice<0||
+      minor(line.totalCost)!==minor(quantity*unitPrice))
+    throw new Error('REVISION_LEGACY_COST_BASIS_INVALID_LINE');
+   sum+=minor(line.totalCost);
+   virtualOriginalMovements.push({value:{
+    id:'basis-'+invoice.id+'-'+index,type:'out_sale',itemId:line.itemId,
+    quantity,unitPrice,totalValue:line.totalCost,date:legacyBasis.invoiceDate,
+    virtualLegacyBasis:true
+   }});
+  }
+  const originalCost=sumAccount(cogs,'5101');
+  if(sum!==originalCost||minor(legacyBasis.totalCost)!==sum)
+   throw new Error('REVISION_LEGACY_COST_BASIS_JOURNAL_MISMATCH');
+ }
  const provenStock=movements.some(row=>{
   const m=value(row);
   return (m.sourceInvoiceId||m.referenceId)===invoice.id ||
@@ -120,7 +156,7 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
  // leaving historical COGS and all stock exactly untouched. This is NOT a
  // substitute for tracing historical inventory or permission to edit qty.
  const financialOnlyWithoutStockProof=cogs.length===1&&corrections.length===0&&
-  !provenStock&&unchangedPhysicalSale&&plan.stockDeltas.length===0&&
+  !provenStock&&!legacyBasis&&unchangedPhysicalSale&&plan.stockDeltas.length===0&&
   invoice.customerId===proposed.customerId&&
   invoice.subCustomerId===proposed.subCustomerId&&
   invoice.counterpartyType===proposed.counterpartyType&&
@@ -181,7 +217,8 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
    minor(x.totalValue||0)===minor(y.totalValue||0);
  };
  const duplicateDisplayOnly=[];
- const originalMovements=candidates.filter(row=>{
+ const originalMovements=virtualOriginalMovements.length?
+  virtualOriginalMovements:candidates.filter(row=>{
   const m=value(row);
   if(m.referenceNumber!==invoice.invoiceNumber||m.sourceInvoiceId||m.referenceId)
    return true;
@@ -253,10 +290,17 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
  return {...plan,...finance,currentCOGSMinor:cogsMinor,
   expectedNextCOGSMinor:calculateNextCost(),costByItem:Object.fromEntries(costs),
   unpricedPhysicalIds,
-  verifiedMovementIds:[...originalMovements,...correctedMovements].map(r=>value(r).id),
+  verifiedMovementIds:[...originalMovements,...correctedMovements]
+   .filter(r=>!value(r).virtualLegacyBasis).map(r=>value(r).id),
   // Kept unchanged in the database; excluded solely from financial-only cost
   // proof so a repeated public number cannot double the invoice's inventory.
   legacyDuplicateDisplayMovementIds:duplicateDisplayOnly.map(r=>value(r).id),
   // Preserve each excluded unrelated stock event for independent audit.
-  legacyForeignPublicNumberMovementIds:unrelatedPublicNumberMovements.map(r=>value(r).id)};
+  legacyForeignPublicNumberMovementIds:unrelatedPublicNumberMovements.map(r=>value(r).id),
+  legacyUnverifiedPublicNumberMovementIds:virtualOriginalMovements.length?
+   candidates.filter(r=>value(r).referenceNumber===invoice.invoiceNumber &&
+    !value(r).sourceInvoiceId&&!value(r).referenceId).map(r=>value(r).id):[],
+  legacyDocumentaryCostBasis:virtualOriginalMovements.length>0,
+  legacyDocumentaryJournalId:virtualOriginalMovements.length?
+   legacyBasis.costJournalId:undefined};
 }
