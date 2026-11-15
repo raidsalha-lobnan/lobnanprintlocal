@@ -52,6 +52,7 @@ export function buildVerifiedInvoiceRevisionBundle({
   // Historical stock provenance is immutable server-side accounting evidence.
   // The browser may edit invoice lines but cannot replace the origin record.
   ...(invoice.legacyStockBasis?{legacyStockBasis:invoice.legacyStockBasis}:{}),
+  ...(invoice.costPostingEvidence?{costPostingEvidence:invoice.costPostingEvidence}:{}),
   isOfficial:true,isAccountingPosted:true,postedAt:invoice.postedAt,
   updatedAt:now,
   statusHistory:[...(invoice.statusHistory||[]),{

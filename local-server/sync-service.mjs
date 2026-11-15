@@ -234,6 +234,13 @@ export class SyncService {
           // migration, never supplied or changed by a device sync command.
           if(val.legacyStockBasis&&!old?.value?.legacyStockBasis)
             throw new InputError('LEGACY_STOCK_BASIS_SERVER_ONLY',409);
+          if(val.costPostingEvidence&&actual===0&&
+             command.atomicInvoiceId!==change.id)
+            throw new InputError('COST_POSTING_EVIDENCE_REQUIRES_ATOMIC_SALE',409);
+          if(old?.value?.costPostingEvidence&&
+             JSON.stringify(old.value.costPostingEvidence)!==
+             JSON.stringify(val.costPostingEvidence))
+            throw new InputError('COST_POSTING_EVIDENCE_IMMUTABLE',409);
           if(old?.value?.legacyStockBasis&&
              JSON.stringify(old.value.legacyStockBasis)!==JSON.stringify(val.legacyStockBasis))
             throw new InputError('LEGACY_STOCK_BASIS_IMMUTABLE',409);

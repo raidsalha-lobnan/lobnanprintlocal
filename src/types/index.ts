@@ -376,6 +376,15 @@ export interface Invoice {
   bankTreasuryCode?: string;
   treasuryAccountCode?: string;
   taxTotal?: number;
+  /** Immutable cost-origin summary for new atomic sales. A zero-priced
+   * physical sale has a verified zero cost, not a missing cost journal. */
+  costPostingEvidence?: {
+    version: 1;
+    kind: 'posted_cogs' | 'verified_zero_cost' | 'non_stock_service';
+    physicalItemCount: number;
+    totalCost: number;
+    source: 'atomic_pos_stock_movements';
+  };
   isAccountingPosted?: boolean; // هل تم ترحيل القيود وحركات المخزون؟
   postedAt?: string;
   deletedAt?: string;          // وقت وتاريخ الحذف (في سلة المحذوفات)

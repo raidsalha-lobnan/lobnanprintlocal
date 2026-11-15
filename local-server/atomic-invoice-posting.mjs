@@ -156,6 +156,17 @@ export function validateAtomicInvoicePosting(command){
   }
   if(cost>0&&cogs.length!==1)fail('ATOMIC_POSTING_COST_JOURNAL_REQUIRED');
   if(cost===0&&cogs.length)fail('ATOMIC_POSTING_ZERO_COST_JOURNAL_UNEXPECTED');
+  const costEvidence=invoice.costPostingEvidence;
+  if(costEvidence!==undefined){
+    const expectedKind=cost>0?'posted_cogs':
+      physical.size>0?'verified_zero_cost':'non_stock_service';
+    if(!costEvidence||costEvidence.version!==1||
+       costEvidence.source!=='atomic_pos_stock_movements'||
+       costEvidence.kind!==expectedKind||
+       costEvidence.physicalItemCount!==physical.size||
+       cents(costEvidence.totalCost??null,'COST_EVIDENCE')!==cost)
+      fail('ATOMIC_POSTING_COST_EVIDENCE_MISMATCH');
+  }
   if(cogs.length){
     const l=cogs[0].value.lines;
     if(l.length!==2||l[0].accountCode!=='5101'||l[1].accountCode!=='1301'||
