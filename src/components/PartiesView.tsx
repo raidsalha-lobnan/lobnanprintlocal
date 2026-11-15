@@ -64,6 +64,7 @@ export const PartiesView: React.FC = () => {
     deleteParty,
     setSelectedPartyForStatement,
     createPaymentVoucher,
+    createReceiptVoucherAtomic,
     treasuries,
     settings
   } = useAccounting();
@@ -117,7 +118,7 @@ export const PartiesView: React.FC = () => {
   const [voucherType, setVoucherType] = useState<'receipt' | 'payment'>('receipt');
   const [voucherAmount, setVoucherAmount] = useState<number>(0);
   const [voucherMethod, setVoucherMethod] = useState<'cash' | 'bank_transfer'>('cash');
-  const [voucherTreasuryCode, setVoucherTreasuryCode] = useState<string>('1101');
+  const [voucherTreasuryCode, setVoucherTreasuryCode] = useState<string>('CASH-1101');
   const [voucherDesc, setVoucherDesc] = useState('');
 
   // Special price management helpers
@@ -338,24 +339,35 @@ export const PartiesView: React.FC = () => {
     }
   };
 
-  const handleSaveVoucher = (e: React.FormEvent) => {
+  const handleSaveVoucher = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!voucherModalParty || voucherAmount <= 0) return;
-
-    createPaymentVoucher({
+    const draft = {
       date: new Date().toISOString().split('T')[0],
       type: voucherType,
       partyId: voucherModalParty.id,
       partyName: voucherModalParty.name,
+      partyType: voucherModalParty.type==='supplier'?'supplier':'customer',
       amount: voucherAmount,
       paymentMethod: voucherMethod,
       accountCode: voucherType === 'receipt' ? '1201' : '2101',
-      description: voucherDesc || `${voucherType === 'receipt' ? 'سند قبض مالي من' : 'سند صرف مالي إلى'} ${voucherModalParty.name}`
-    });
-
-    setVoucherModalParty(null);
-    setVoucherAmount(0);
-    setVoucherDesc('');
+      treasuryAccountCode:voucherMethod==='cash'?'CASH-1101':voucherTreasuryCode,
+      currency:'ILS',exchangeRate:1,
+      description: voucherDesc || (voucherType === 'receipt' ? 'سند قبض مالي من ' : 'سند صرف مالي إلى ')+voucherModalParty.name
+    } as const;
+    try {
+      if(voucherType==='receipt'){
+        await createReceiptVoucherAtomic({...draft,type:'receipt',paymentMethod:voucherMethod});
+      }else{
+        createPaymentVoucher({...draft,type:'payment',paymentMethod:voucherMethod});
+      }
+      setVoucherModalParty(null);
+      setVoucherAmount(0);
+      setVoucherDesc('');
+      setToastMsg({type:'success',text:'تم اعتماد السند وحفظه في قاعدة البيانات.'});
+    }catch(cause){
+      setToastMsg({type:'error',text:cause instanceof Error?cause.message:'تعذر ترحيل السند.'});
+    }
   };
 
   // Currently selected item for special price picker
@@ -1213,7 +1225,7 @@ export const PartiesView: React.FC = () => {
                   <label className="block text-slate-700 font-semibold mb-1 text-[11px]">طريقة الدفع:</label>
                   <select
                     value={voucherMethod}
-                    onChange={e => setVoucherMethod(e.target.value as any)}
+                    onChange={e => {const method=e.target.value as 'cash'|'bank_transfer';setVoucherMethod(method);setVoucherTreasuryCode(method==='cash'?'CASH-1101':treasuries.find(t=>t.status==='active'&&t.accountCode!=='CASH-1101')?.accountCode||'');}}
                     className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="cash">نقداً من الصندوق</option>
@@ -1228,8 +1240,9 @@ export const PartiesView: React.FC = () => {
                     onChange={e => setVoucherTreasuryCode(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
                   >
-                    <option value="1101">الخزينة الرئيسية (الكاشير)</option>
-                    <option value="1102">الحساب البنكي الجاري</option>
+                    {treasuries.filter(t=>t.status==='active'&&(
+                      voucherMethod==='cash'?t.accountCode==='CASH-1101':t.accountCode!=='CASH-1101'
+                    )).map(t=><option key={t.id} value={t.accountCode}>{t.accountCode} — {t.name}</option>)}
                   </select>
                 </div>
               </div>
