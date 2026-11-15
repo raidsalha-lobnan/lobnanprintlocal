@@ -55,61 +55,9 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
       </div>
       <div className="space-y-3">
               
-              {/* Summary cards are not displayed on the detailed customer statement. */}
-              {!isCustomer && (
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                <div className="bg-slate-50 p-2 rounded-lg border border-slate-200">
-                  <span className="text-[10px] text-slate-500 font-semibold block">رصيد أول المدة / سابق:</span>
-                  <span className="text-xs font-black font-mono text-slate-800">
-                    {formatNumber(partyStatement.openingBalance, 2)} {settings.currency}
-                  </span>
-                </div>
-
-                <div className="bg-emerald-50/70 p-2 rounded-lg border border-emerald-200/80">
-                  <span className="text-[10px] text-emerald-700 font-semibold block">
-                    {isCustomer ? 'إجمالي السحوبات (مدين):' : 'إجمالي التوريدات (دائن):'}
-                  </span>
-                  <span className="text-xs font-black font-mono text-emerald-800">
-                    {formatNumber(isCustomer ? partyStatement.totalWithdrawals : partyStatement.totalCredit, 2)} {settings.currency}
-                  </span>
-                </div>
-
-                <div className="bg-blue-50/70 p-2 rounded-lg border border-blue-200/80">
-                  <span className="text-[10px] text-blue-700 font-semibold block">
-                    {isCustomer ? 'إجمالي المقبوضات (دائن):' : 'إجمالي الصرف والمسدد (مدين):'}
-                  </span>
-                  <span className="text-xs font-black font-mono text-blue-800">
-                    {formatNumber(isCustomer ? partyStatement.totalReceipts : partyStatement.totalDebit, 2)} {settings.currency}
-                  </span>
-                </div>
-
-                <div className="bg-amber-50/70 p-2 rounded-lg border border-amber-200/80">
-                  <span className="text-[10px] text-amber-700 font-semibold block">
-                    {isCustomer ? 'إجمالي الصرف / مرتجعات:' : 'المردودات والمقبوضات:'}
-                  </span>
-                  <span className="text-xs font-black font-mono text-amber-800">
-                    {formatNumber(isCustomer ? partyStatement.totalDisbursements : 0, 2)} {settings.currency}
-                  </span>
-                </div>
-
-                <div className={`p-2 rounded-lg border ${
-                  partyStatement.closingBalance > 0
-                    ? 'bg-amber-50 border-amber-300 text-amber-900'
-                    : partyStatement.closingBalance < 0
-                    ? 'bg-rose-50 border-rose-300 text-rose-900'
-                    : 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                }`}>
-                  <span className="text-[10px] font-semibold block">
-                    {isCustomer
-                      ? (partyStatement.closingBalance > 0 ? 'صافي المتبقي على العميل (مدين):' : partyStatement.closingBalance < 0 ? 'رصيد دائن للعميل (دائن):' : 'الحساب متطابق (صفر):')
-                      : (partyStatement.closingBalance > 0 ? 'صافي مستحق للمورد (دائن):' : partyStatement.closingBalance < 0 ? 'مبلغ مدين للمورد (مدين):' : 'الحساب خالص:')}
-                  </span>
-                  <span className="text-xs font-black font-mono">
-                    {formatNumber(Math.abs(partyStatement.closingBalance), 2)} {settings.currency}
-                  </span>
-                </div>
-              </div>
-              )}
+              {/* Customers and suppliers use the same compact A4 statement layout.
+                  Supplier-specific totals are shown in the shared footer below,
+                  not in a separate set of dashboard cards. */}
 
               {/* Detailed Transactions Table - Optimized Font 12 & A4 Width */}
               <div className="border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-[440px] print:min-h-0 flex flex-col justify-between bg-white print:block print:overflow-visible print:border-none print:shadow-none">
@@ -580,9 +528,9 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
 
                 {/* Center Column */}
                 <div className="space-y-4 flex flex-col items-center justify-end">
-                  <span className="font-bold text-slate-700 block mb-auto">توقيع وإقرار الموظف بالمطابقة</span>
+                  <span className="font-bold text-slate-700 block mb-auto">توقيع ومطابقة المورد</span>
                   <div className="border-b border-dashed border-slate-400 w-28 mx-auto mt-6"></div>
-                  <span className="text-[10px] text-slate-400 block font-mono">الموظف</span>
+                  <span className="text-[10px] text-slate-400 block font-mono">المورد</span>
                 </div>
 
                 {/* Left Column - Official Stamp & Signature */}
