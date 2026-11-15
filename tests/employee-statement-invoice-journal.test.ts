@@ -82,3 +82,85 @@ test('only a manual journal explicitly referencing the employee and advance acco
  assert.equal(result.rows[0].disbursement,3);
  assert.equal(result.closingBalance,-3);
 });
+
+test('approved payroll prints salary components once, even with matching salary history and linked adjustments',()=>{
+ const sheetId='prs-approved-1';
+ const payroll = {
+   id:sheetId,sheetNumber:'PR-2026-0001',period:'نوفمبر 2026',
+   createdAt:'2026-11-04',disbursedAt:'2026-11-06',
+   status:'approved',voucherNumber:'PV-SAL-2026-0001',
+   items:[{
+     employeeId:employee.id,employeeName:employee.name,
+     employeeCode:employee.code,isIncluded:true,
+     basicSalary:3000,allowances:200,incentives:100,
+     deductions:50,advancesDeducted:500,netSalary:2750
+   }]
+ };
+ const result=generateEmployeeStatement({
+   employee:{
+     ...employee,
+     paymentHistory:[{
+       id:'salary-history',date:'2026-11-06',type:'salary',
+       amount:2750,period:'نوفمبر 2026',paymentMethod:'cash',
+       voucherNumber:'PV-SAL-2026-0001'
+     }]
+   },
+   fromDate:'2026-11-01',toDate:'2026-11-15',
+   payrollSheets:[payroll],
+   advances:[{
+     id:'adv-prior',employeeId:employee.id,employeeName:employee.name,
+     date:'2026-11-01',amount:500,status:'deducted',
+     disbursedImmediately:true,treasuryAccountCode:'CASH-1101',
+     treasuryName:'الصندوق النقدي الرئيسي',reason:'سلفة سابقة',
+     payrollSheetId:sheetId
+   }],
+   deductions:[{
+     id:'ded-payroll',employeeId:employee.id,employeeName:employee.name,
+     date:'2026-11-05',amount:50,reason:'خصم',
+     status:'deducted',payrollSheetId:sheetId
+   }],
+   incentives:[{
+     id:'inc-payroll',employeeId:employee.id,employeeName:employee.name,
+     date:'2026-11-05',amount:100,reason:'مكافأة',
+     status:'paid',payrollSheetId:sheetId
+   }]
+ });
+ assert.equal(result.rows.length,2,'one advance and one approved payroll, not four duplicate postings');
+ const slip=result.rows.find(row=>row.type==='payroll_sheet');
+ assert.ok(slip);
+ assert.equal(slip.entitlement,3300);
+ assert.equal(slip.deduction,50);
+ assert.equal(slip.disbursement,2750);
+ assert.equal(slip.payrollDetails?.incentives,100);
+ assert.equal(slip.payrollDetails?.advancesDeducted,500);
+ assert.equal(result.closingBalance,0,'previous advance is not deducted twice in payroll');
+});
+
+test('draft payroll, pending adjustments and unapproved contractual accrual do not become official debt',()=>{
+ const report=generateEmployeeStatement({
+   employee:{...employee,salaryAmount:3000,hireDate:'2026-01-01'},
+   fromDate:'2026-11-01',toDate:'2026-11-15',
+   payrollSheets:[{
+     id:'prs-draft-1',sheetNumber:'PR-2026-0099',
+     status:'draft',createdAt:'2026-11-01',period:'نوفمبر 2026',
+     items:[{employeeId:employee.id,employeeCode:employee.code,
+      isIncluded:true,basicSalary:3000,netSalary:3000}]
+   }],
+   advances:[{
+     id:'adv-pending',employeeId:employee.id,employeeName:employee.name,
+     date:'2026-11-01',amount:500,disbursedImmediately:false,
+     status:'pending',treasuryAccountCode:'CASH-1101',
+     treasuryName:'الصندوق',reason:'طلب'
+   }],
+   deductions:[{
+     id:'ded-pending',employeeId:employee.id,employeeName:employee.name,
+     date:'2026-11-01',amount:100,reason:'طلب خصم',status:'pending'
+   }],
+   incentives:[{
+     id:'inc-pending',employeeId:employee.id,employeeName:employee.name,
+     date:'2026-11-01',amount:100,reason:'طلب مكافأة',status:'pending'
+   }]
+ });
+ assert.equal(report.rows.length,0);
+ assert.equal(report.closingBalance,0);
+});
