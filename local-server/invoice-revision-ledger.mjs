@@ -8,6 +8,15 @@ export const minor=value=>{
  return Math.round(n*100);
 };
 export const money=value=>value/100;
+export const counterpartyType=invoice=>invoice.counterpartyType||
+ ((invoice.employeeId&&invoice.employeeId===invoice.customerId)||
+ /^emp-/.test(String(invoice.customerId||''))?'employee':'customer');
+export const debtorAccount=invoice=>{
+ const type=counterpartyType(invoice);
+ if(!['customer','employee','supplier'].includes(type))
+  throw new Error('REVISION_INVALID_COUNTERPARTY_TYPE');
+ return type==='employee'?'1104':type==='supplier'?'2101':'1201';
+};
 export const isDelivery=item=>['srv-delivery','srv-delivery-mobile'].includes(item?.itemId);
 export const isPhysical=item=>!!item&&!isDelivery(item)&&
  !['services','copy_scan'].includes(item.category);
@@ -45,16 +54,18 @@ export const invoiceAmounts=invoice=>{
   revenue:total-tax-delivery};
 };
 export const validatePostedSalesAccounts=(invoice,journalMap)=>{
- const a=invoiceAmounts(invoice);
+ const a=invoiceAmounts(invoice),debtor=debtorAccount(invoice);
  for(const [account,amount] of [
-  ['1201',a.outstanding],['4101',-a.revenue],
+  [debtor,a.outstanding],['4101',-a.revenue],
   ['2103',-a.tax],['2104',-a.delivery]]){
   if((journalMap.get(account)||0)!==amount)
    throw new Error('REVISION_POSTED_ACCOUNT_MISMATCH:'+account);
  }
  const payment=new Map();
  for(const [account,amount] of journalMap){
-  if(['1201','4101','2103','2104'].includes(account))continue;
+  if([debtor,'4101','2103','2104'].includes(account))continue;
+  if(['1201','1104','2101'].includes(account))
+   throw new Error('REVISION_UNEXPECTED_COUNTERPARTY_ACCOUNT:'+account);
   if(amount<=0)throw new Error('REVISION_UNVERIFIED_COLLECTION_ACCOUNT:'+account);
   payment.set(account,amount);
  }
@@ -81,7 +92,7 @@ export const plannedPaymentAccounts=(original,proposed,observed)=>{
  const cashCode=proposed.cashTreasuryCode||proposed.treasuryAccountCode||'1101';
  const bankCode=proposed.bankTreasuryCode||proposed.treasuryAccountCode||'1102';
  const result=new Map();
- const reserved=new Set(['1201','4101','2103','2104','5101','1301']);
+ const reserved=new Set(['1201','1104','2101','4101','2103','2104','5101','1301']);
  if(reserved.has(cashCode)||reserved.has(bankCode))
   throw new Error('REVISION_TREASURY_ACCOUNT_NOT_ALLOWED');
  if(splitCash!==undefined||splitBank!==undefined){
@@ -104,10 +115,11 @@ export const plannedPaymentAccounts=(original,proposed,observed)=>{
 };
 export const financialDelta=(original,proposed,posted)=>{
  const checked=validatePostedSalesAccounts(original,posted);
+ const nextDebtor=debtorAccount(proposed);
  const next=invoiceAmounts(proposed);
  const payment=plannedPaymentAccounts(original,proposed,checked.payment);
  const desired=new Map([
-  ['1201',next.outstanding],['4101',-next.revenue],
+  [nextDebtor,next.outstanding],['4101',-next.revenue],
   ['2103',-next.tax],['2104',-next.delivery]]);
  for(const [account,amount] of payment)add(desired,account,amount);
  const delta=new Map();
