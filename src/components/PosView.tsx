@@ -3765,6 +3765,16 @@ const getInitialPosDraft = (): PosFullDraftData => {
               {/* زر تفاصيل الفاتورة (مرفوع لشريط الأزرار العلوي) */}
               <button
                 type="button"
+                onClick={() => setIsDraftQueueOpen(true)}
+                className="h-8 px-2.5 py-1 bg-white hover:bg-blue-50 border border-blue-200 text-blue-800 rounded-lg font-bold text-xs flex items-center gap-1.5 whitespace-nowrap"
+                title="فتح مسودات الفواتير الواردة من Excel وOneDrive داخل الكاشير"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>مسودات Excel / OneDrive</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleOpenInvoiceDetailsPreview}
                 className="h-8 px-2.5 py-1 bg-white hover:bg-blue-50 border border-blue-300 hover:border-blue-400 text-blue-800 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
                 title="معاينة وطباعة مسودة الفاتورة لمراجعة البنود والأسعار مع الزبون قبل الحفظ"
