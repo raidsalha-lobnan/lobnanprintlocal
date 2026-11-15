@@ -64,6 +64,39 @@ export function verifyInvoiceRevisionBaseline({invoice,journals,movements,propos
  const cogsMinor=sumAccount(cogsJournals,'5101');
  if(cogsMinor<0||!Number.isSafeInteger(cogsMinor))
   throw new Error('REVISION_INVALID_POSTED_COST');
+ // Some imported invoices have one verified AR/revenue posting but never
+ // received an independently identifiable COGS or stock event. The missing
+ // cost is NOT evidence that it equals zero. Still, a financial-only edit can
+ // safely adjust the receivable and sale revenue without touching inventory.
+ // Crucially: only when both snapshots describe the SAME physical sale.
+ // Do not infer stock ownership from a reused public invoice number.
+ const oldItems=invoice.items||[],newItems=proposed.items||[];
+ const unchangedPhysicalSale=
+  invoice.date===proposed.date&&invoice.warehouse===proposed.warehouse&&
+  oldItems.length===newItems.length&&oldItems.every((old,index)=>{
+   const next=newItems[index];
+   return next && ['itemId','category','quantity','unit','hasDimensions',
+    'length','width','count','unitCalculationType'].every(field=>
+      JSON.stringify(old[field]??null)===JSON.stringify(next[field]??null));
+  });
+ const provenStock=movements.some(row=>{
+  const m=value(row);
+  return (m.sourceInvoiceId||m.referenceId)===invoice.id ||
+   (m.referenceNumber==='TEMP-'+invoice.id && m.date===invoice.date);
+ });
+ if(cogs.length===0&&
+    corrections.every(row=>value(row).correctionKind!=='cogs')&&
+    !provenStock&&unchangedPhysicalSale&&plan.stockDeltas.length===0){
+  // There are intentionally no COGS / inventory changes in this revision.
+  // A separate historical cost audit remains required; the approved invoice
+  // retains this explicit marker so users never mistake the absence of COGS
+  // for a verified zero-cost sale.
+  return {...plan,...finance,currentCOGSMinor:0,expectedNextCOGSMinor:0,
+   costByItem:{},unpricedPhysicalIds:[],verifiedMovementIds:[],
+   legacyCostReviewRequired:true,legacyCostReviewReason:'MISSING_VERIFIED_HISTORICAL_COGS_AND_STOCK',
+   legacyDuplicateDisplayMovementIds:[]};
+ }
+
  // A pre-atomic legacy sale can have two stock HISTORY rows for the same
  // physical issue: one with the unique TEMP-<immutable invoice id>, and one
  // re-imported under its public INV-#### number. The latter number was reused
