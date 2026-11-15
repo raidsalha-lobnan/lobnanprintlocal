@@ -125,7 +125,7 @@ WITH sales_ar AS (
   SELECT * FROM sales_ar UNION ALL SELECT * FROM receipts_ar
  ) e GROUP BY 1
 )
-SELECT 'CUSTOMER_DETAIL_DIFF_' || p.value->>'code',
+SELECT 'CUSTOMER_DETAIL_DIFF_' || (p.value->>'code'),
  COALESCE(p.value->>'name','') || ' (journal allocation vs customer card)',
  ROUND(COALESCE(posted.total,0)+COALESCE((p.value->>'openingBalance')::numeric,0)-
  COALESCE((p.value->>'balance')::numeric,0),2)
