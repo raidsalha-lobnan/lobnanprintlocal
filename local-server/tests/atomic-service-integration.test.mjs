@@ -20,9 +20,13 @@ class PgFake{
   else if(sql.startsWith('SELECT next_sequence,next_invoice')){rows.push({...s.workspaces.get(p[0])});}
   else if(sql.startsWith('SELECT next_sequence FROM sync_workspaces')){const w=s.workspaces.get(p[0]);if(w)rows.push(w);}
   else if(sql.startsWith('SELECT fingerprint,receipt')){const v=s.commands.get(key(p[0],p[1]));if(v)rows.push(v);}
-  else if(sql.startsWith('SELECT record_id AS id FROM sync_records') && sql.includes("entity='warehouses'")){
-   // Isolated tests explicitly enable one registered warehouse when needed.
-   if(s.registeredWarehouseId)rows.push({id:s.registeredWarehouseId});
+  else if(sql.startsWith('SELECT record_id AS id') && sql.includes("entity='warehouses'")){
+   // Match the production query, including its independently registered name.
+   // Never infer a warehouse name from an inventory display cache.
+   if(s.registeredWarehouseId)rows.push({
+    id:s.registeredWarehouseId,
+    name:s.registeredWarehouseName||'المستودع الرئيسي'
+   });
   }
   else if(sql.startsWith("SELECT value->>'code' AS code FROM sync_records")){
    for(const row of s.records.values()){
@@ -200,44 +204,45 @@ test('two new customers with identical automatically generated codes get distinc
  assert.equal((await svc.bootstrap('lobnan_main')).records.filter(x=>x.entity==='parties').length,2);
 });
 
-test('a new item and opening stock commit together with one idempotent receipt',async()=>{
+test('forbid obsolete opening stock and atomically roll back a new-item command',async()=>{
  const db=new PgFake(),svc=new SyncService(db);
  const item={id:'item-paper',code:'PRI-00010',name:'Paper',category:'print_raw',
-   stockQuantity:5,purchasePrice:2,_serverAutoCode:true};
- const stock={id:'opening-paper',type:'in_opening',referenceType:'opening',
+   stockQuantity:0,purchasePrice:2,_serverAutoCode:true};
+ const oldOpening={id:'opening-paper',type:'in_opening',referenceType:'opening',
    referenceNumber:'OP-PRI-00010',itemId:'item-paper',itemCode:'PRI-00010',
    category:'print_raw',quantity:5,unitPrice:2,totalValue:10,balanceBefore:0,balanceAfter:5};
- const command={id:'command-opening-paper',workspaceId:'lobnan_main',changes:[
-   r('inventory','item-paper',item),r('stockMovements','opening-paper',stock)
+ const obsoleteCommand={id:'command-opening-paper',workspaceId:'lobnan_main',changes:[
+   r('inventory','item-paper',item),r('stockMovements','opening-paper',oldOpening)
  ]};
- const first=await svc.push('lobnan_main',command);
- const repeat=await svc.push('lobnan_main',command);
+ await assert.rejects(svc.push('lobnan_main',obsoleteCommand),
+  /OPENING_STOCK_MOVEMENT_NOT_ALLOWED/);
+ assert.equal((await svc.bootstrap('lobnan_main')).records.length,0,
+  'both the new item and obsolete opening must roll back');
+ assert.equal(await svc.head('lobnan_main'),0);
+ const allowedCommand={id:'command-zero-opening-paper',workspaceId:'lobnan_main',
+   changes:[r('inventory','item-paper',item)]};
+ const first=await svc.push('lobnan_main',allowedCommand);
+ const repeat=await svc.push('lobnan_main',allowedCommand);
  assert.deepEqual(repeat,first);
- assert.equal(first.changes.length,2);
  const records=(await svc.bootstrap('lobnan_main')).records;
  assert.equal(records.filter(x=>x.entity==='inventory').length,1);
- assert.equal(records.filter(x=>x.entity==='stockMovements').length,1);
- assert.equal(records.find(x=>x.entity==='stockMovements').value.itemId,'item-paper');
- assert.equal(records.find(x=>x.entity==='stockMovements').value.referenceNumber,'OP-PRI-00010');
+ assert.equal(records.filter(x=>x.entity==='stockMovements').length,0);
+ assert.equal(records.find(x=>x.entity==='inventory').value.stockQuantity,0);
  assert.equal(await svc.head('lobnan_main'),1);
 });
-test('two-device SKU collision updates opening movement to the server-assigned serial',async()=>{
+test('two-device SKU collision allocates official item code without an opening movement',async()=>{
  const db=new PgFake(),svc=new SyncService(db);
  await svc.push('lobnan_main',{id:'command-seed-paper',workspaceId:'lobnan_main',
   changes:[r('inventory','previous-paper',{
    id:'previous-paper',code:'PRI-00010',category:'print_raw',stockQuantity:0,purchasePrice:2
   })]});
  const item={id:'new-paper',code:'PRI-00010',category:'print_raw',
-   stockQuantity:3,purchasePrice:4,_serverAutoCode:true};
- const stock={id:'opening-new-paper',itemId:'new-paper',itemCode:'PRI-00010',
-   category:'print_raw',type:'in_opening',referenceType:'opening',
-   referenceNumber:'OP-PRI-00010',quantity:3,unitPrice:4,totalValue:12,balanceBefore:0,balanceAfter:3};
- const cmd={id:'command-new-paper',workspaceId:'lobnan_main',changes:[
-   r('inventory','new-paper',item),r('stockMovements','opening-new-paper',stock)
- ]};
+   stockQuantity:0,purchasePrice:4,_serverAutoCode:true};
+ const cmd={id:'command-new-paper',workspaceId:'lobnan_main',
+   changes:[r('inventory','new-paper',item)]};
  const result=await svc.push('lobnan_main',cmd);
- assert.equal(result.changes.find(c=>c.entity==='inventory').value.code,'PRI-00011');
- assert.equal(result.changes.find(c=>c.entity==='stockMovements').value.itemCode,'PRI-00011');
- assert.equal(result.changes.find(c=>c.entity==='stockMovements').value.referenceNumber,'OP-PRI-00011');
+ assert.equal(result.changes[0].value.code,'PRI-00011');
+ assert.equal(result.changes[0].value.stockQuantity,0);
+ assert.equal((await svc.bootstrap('lobnan_main')).records.filter(x=>x.entity==='stockMovements').length,0);
  assert.equal(await svc.head('lobnan_main'),2);
 });
