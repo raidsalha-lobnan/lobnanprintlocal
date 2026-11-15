@@ -9252,7 +9252,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createPaymentVoucher = (voucherData: Omit<PaymentVoucher, 'id' | 'voucherNumber'>) => {
-    if(voucherData.type==='receipt')throw Error('استخدم الترحيل الذري لسند القبض؛ الحفظ المنفصل ممنوع.');
+    if(String(voucherData.type)==='receipt')throw Error('استخدم الترحيل الذري لسند القبض؛ الحفظ المنفصل ممنوع.');
     const id = 'vch-' + Date.now();
     const prefix = voucherData.type === 'receipt' ? 'RCT' : 'PAY';
     const currentYear = new Date().getFullYear();
