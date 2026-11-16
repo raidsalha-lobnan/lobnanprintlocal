@@ -224,6 +224,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
    transferReference:paymentRoute==='bank'?paymentNote.trim()||undefined:undefined
   };
   setSaving(true);
+  let confirmed:PaymentVoucher|null=null;
   try {
    if(current){
     const result=await amendReceiptVoucher(current.id,current,{
@@ -233,16 +234,30 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
      transferReference:paymentNote
     });
     if(!result.success)throw Error(result.message||'تعذّر تعديل سند القبض.');
-   }else {
-     const confirmed=await createReceiptVoucherAtomic(newVoucher);
-     setSavedVoucher(confirmed);
-     if(print)setSelectedVoucherForPrint(confirmed);
+   }else{
+    confirmed=await createReceiptVoucherAtomic(newVoucher);
+   }
+  }catch(cause){
+   // This catch covers ONLY the database confirmation path. An operation
+   // after confirmation must never be displayed as a failed receipt save.
+   setError(cause instanceof Error?cause.message:'تعذّر حفظ السند، لم يُؤكَّد ترحيله.');
+   return;
+  }finally{
+   setSaving(false);
+  }
+  // A successful atomic return proves the voucher and its linked records
+  // were committed. Printing, sounds and closing are non-accounting actions.
+  try{
+   if(confirmed){
+    setSavedVoucher(confirmed);
+    if(print)setSelectedVoucherForPrint(confirmed);
    }
    posSound.playSuccessBeep();
    onClose();
-  }catch(cause){
-   setError(cause instanceof Error?cause.message:'تعذّر حفظ السند، لم تُثبت أي حركة.');
-  }finally{setSaving(false);}
+  }catch(postSaveUiError){
+   console.error('Receipt already committed; secondary UI action failed',postSaveUiError);
+   setError('تم حفظ السند واعتماد قيوده في PostgreSQL. تعذّر إجراء لاحق في الشاشة؛ لا تُعد الحفظ منعًا للتكرار.');
+  }
  };
  newShortcutRef.current=openFreshVoucher;
  saveShortcutRef.current=()=>{void submit(false);};
