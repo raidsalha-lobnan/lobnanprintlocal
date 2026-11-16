@@ -1,6 +1,7 @@
 import {InputError, fingerprint, makeNumber, makeCursor, validateCommand} from './sync-domain.mjs';
 import {preserveOfficialInvoiceFields} from './invoice-amendments.mjs';
 import {telegramRelevantChanges} from './telegram-delivery.mjs';
+import {receiptTelegramOutboxChanges} from './telegram-receipt-format.mjs';
 import {validateAtomicInvoicePosting} from './atomic-invoice-posting.mjs';
 import {authoritativeAtomicSaleEffect,authoritativeAtomicStockMovement} from './atomic-pos-ledger-scope.mjs';
 import {assertStableEntitySerial,allocateAutomaticEntityCode} from './entity-identity.mjs';
@@ -303,8 +304,9 @@ export class SyncService {
       // Durable notification is committed atomically with the accounting record.
       // No Telegram send takes place until PostgreSQL has committed.
       if (telegramRelevantChanges(applied).length) {
+        const telegramChanges=await receiptTelegramOutboxChanges(client,workspace,applied);
         await client.query('INSERT INTO sync_telegram_outbox(workspace,command_id,changes) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
-          [workspace,command.id,JSON.stringify(applied)]);
+          [workspace,command.id,JSON.stringify(telegramChanges)]);
       }
       return receipt;
   }
