@@ -1,4 +1,5 @@
 import {invoiceTelegramReceipt,splitInvoiceTelegramReceipt} from './telegram-invoice-format.mjs';
+import {approvedReceiptTelegramText} from './telegram-receipt-format.mjs';
 // Durable Telegram confirmations of authoritative PostgreSQL commits.
 // All records and the delivery queue reside in the same lobnan_main database.
 // Client-side saves are NOT proof of a central commit.
@@ -145,7 +146,10 @@ export class TelegramDelivery {
         }));
        }
      }else{
-       receipts.push(committedTelegramText(row));
+       // A new receipt has its own human-readable document notice, built
+       // from the very same committed snapshot as the journal and customer.
+       // A delayed Telegram retry must NEVER read the customer's later balance.
+       receipts.push(approvedReceiptTelegramText(row)??committedTelegramText(row));
      }
      const parts=receipts.flatMap(part=>splitInvoiceTelegramReceipt(part));
      if(!parts.length)throw new Error('EMPTY_TELEGRAM_RECEIPT');
