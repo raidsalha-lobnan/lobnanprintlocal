@@ -151,7 +151,7 @@ test('Telegram worker sends exactly one detailed approved receipt from PostgreSQ
  ];
  assert.equal(await f.worker.drainOnce(),1);
  assert.equal(texts.length,1);
- for(const phrase of ['✅ سند قيد معتمد RCT-2026-0012',
+ for(const phrase of ['✅ إضافة سند قيد معتمد RCT-2026-0012',
   'التاريخ: 16/11/2026',
   'الزبون الرئيسي: الزبون الأول',
   'الزبون الفرعي: فرع المشروع',
@@ -184,4 +184,46 @@ test('Telegram outbox refuses to claim an incomplete receipt as approved and doe
  assert.equal(await f.worker.drainOnce(),0);
  assert.equal(texts.length,0);
  assert.equal(f.recipients[0].delivered,false);
+});
+
+test('Telegram worker sends edited RCT in the same detailed template instead of a generic save notice',async()=>{
+ const texts=[];
+ const f=fixture(['123'],async(_url,options)=>{
+  texts.push(JSON.parse(options.body).text);
+  return {ok:true,status:200,json:async()=>({ok:true})};
+ });
+ const id='vch-edited-22';
+ f.recipients[0].committed_at=new Date('2026-11-16T14:30:00Z');
+ f.recipients[0].changes=[
+  {entity:'vouchers',id,version:2,value:{
+   id,type:'receipt',voucherNumber:'RCT-2026-0022',
+   date:'2026-11-16',partyId:'customer-edited',partyName:'أسماء قديمة',
+   subCustomerName:'فرع العميل',amount:150,baseAmount:150,
+   currency:'ILS',currencySymbol:'₪',exchangeRate:1,
+   description:'تعديل ملاحظة السند',paymentMethod:'cash',
+   treasuryAccountCode:'CASH-1101',paymentNotes:'سند رقم 22'
+  }},
+  {entity:'telegramReceiptSnapshot',id,version:1,value:{
+   party:{name:'الزبون الرئيسي المعتمد',type:'customer',balance:350},
+   journal:{referenceType:'receipt',referenceId:id,
+    lines:[{accountCode:'1101',debit:150,credit:0},
+     {accountCode:'1201',debit:0,credit:150}]},
+   treasury:{name:'الصندوق النقدي الرئيسي',accountCode:'CASH-1101',
+    transaction:{referenceType:'receipt',referenceId:id,
+     baseAmount:150,baseCurrency:'ILS'}}
+  }}
+ ];
+ assert.equal(await f.worker.drainOnce(),1);
+ assert.equal(texts.length,1);
+ for(const phrase of [
+  '✅ تعديل سند قيد معتمد RCT-2026-0022',
+  'التاريخ: 16/11/2026','الزبون الرئيسي: الزبون الرئيسي المعتمد',
+  'الزبون الفرعي: فرع العميل','ملاحظة السند: تعديل ملاحظة السند',
+  'المبلغ المقبوض: 150.00','الخصم: 0.00',
+  'رصيد الزبون بعد الاعتماد حتى 16/11/2026: 350.00',
+  'طريقة القبض: نقداً','ملاحظة الإيصال: سند رقم 22'
+ ])assert.ok(texts[0].includes(phrase),'Missing '+phrase);
+ assert.equal(texts[0].includes('تأكيد الحفظ في قاعدة البيانات الرئيسية'),false);
+ assert.equal(await f.worker.drainOnce(),0);
+ assert.equal(texts.length,1);
 });
