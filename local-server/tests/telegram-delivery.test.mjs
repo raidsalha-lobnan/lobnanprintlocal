@@ -141,7 +141,13 @@ test('Telegram worker sends exactly one detailed approved receipt from PostgreSQ
     baseAmount:50,baseCurrency:'ILS'}]
   }},
   {entity:'accounts',id:'account-cash',version:2,value:{code:'1101',balance:200}},
-  {entity:'accounts',id:'account-ar',version:2,value:{code:'1201',balance:600}}
+  {entity:'accounts',id:'account-ar',version:2,value:{code:'1201',balance:600}},
+  // Paying a specific invoice also changes the invoice's paid/remaining fields.
+  // The message must still be the RCT approval, not an invoice-edit notice.
+  {entity:'invoices',id:'inv-linked',version:3,value:{
+   invoiceNumber:'INV-0090',customerId:'customer-test-1',
+   date:'2026-11-01',items:[],totalAmount:50,paidAmount:50,remainingAmount:0
+  }}
  ];
  assert.equal(await f.worker.drainOnce(),1);
  assert.equal(texts.length,1);
@@ -156,6 +162,8 @@ test('Telegram worker sends exactly one detailed approved receipt from PostgreSQ
   'طريقة القبض: نقداً',
   'ملاحظة الإيصال: الإيصال 123'
  ])assert.ok(texts[0].includes(phrase),'Missing '+phrase);
+ assert.equal(texts[0].includes('INV-0090'),false,
+  'A linked invoice update must not replace the approved RCT notice');
  assert.equal(texts[0].includes('رقم العملية'),false,
   'Do not add generic technical notifications for each journal and treasury');
  assert.equal(await f.worker.drainOnce(),0);
