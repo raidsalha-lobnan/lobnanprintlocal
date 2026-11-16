@@ -33,10 +33,54 @@ const asOfDate=(value)=>{
  * refuses to claim "approved" unless the committed journal, treasury
  * transaction and updated customer receivable are all present.
  */
+/**
+ * Capture a minimal, immutable accounting proof for an edited receipt from
+ * the same PostgreSQL transaction as its approved revision. Put it ONLY in
+ * the Telegram outbox, never in sync_events or the client-facing receipt.
+ * Otherwise a delayed Telegram retry could show a later customer balance.
+ */
+export async function receiptTelegramOutboxChanges(client,workspace,changes){
+ const revisions=changes.filter(x=>x.entity==='vouchers'&&
+  x.value?.type==='receipt'&&Number(x.version)>1);
+ if(!revisions.length)return changes;
+ if(revisions.length!==1)throw Error('TELEGRAM_RECEIPT_MULTIPLE_DOCUMENTS');
+ const {id,value:voucher}=revisions[0];
+ const [parties,journals,treasuries]=await Promise.all([
+  client.query(
+   "SELECT value FROM sync_records WHERE workspace=$1 AND entity='parties' AND record_id=$2",
+   [workspace,voucher.partyId]),
+  client.query(
+   "SELECT value FROM sync_records WHERE workspace=$1 AND entity='journalEntries' AND value->>'referenceType'='receipt' AND value->>'referenceId'=$2",
+   [workspace,id]),
+  client.query(
+   "SELECT value FROM sync_records WHERE workspace=$1 AND entity='treasuries' AND value->>'accountCode'=$2",
+   [workspace,voucher.treasuryAccountCode])
+ ]);
+ if(parties.rows.length!==1||journals.rows.length!==1||
+  treasuries.rows.length!==1)
+  throw Error('TELEGRAM_RECEIPT_AMENDMENT_POSTING_PROOF_MISSING');
+ const party=parties.rows[0].value,journal=journals.rows[0].value;
+ const treasury=treasuries.rows[0].value;
+ const transactions=(Array.isArray(treasury.transactions)?treasury.transactions:[])
+  .filter(tx=>tx.referenceType==='receipt'&&tx.referenceId===id);
+ if(!['customer','both'].includes(party?.type)||
+  transactions.length!==1||!Number.isFinite(Number(party.balance)))
+  throw Error('TELEGRAM_RECEIPT_AMENDMENT_POSTING_PROOF_MISSING');
+ const tx=transactions[0];
+ return [...changes,{entity:'telegramReceiptSnapshot',id,version:1,value:{
+  party:{type:party.type,name:party.name,balance:party.balance},
+  journal:{referenceType:journal.referenceType,referenceId:journal.referenceId,
+   lines:journal.lines},
+  treasury:{name:treasury.name,accountCode:treasury.accountCode,
+   transaction:{referenceType:tx.referenceType,referenceId:tx.referenceId,
+    baseAmount:tx.baseAmount,baseCurrency:tx.baseCurrency}}
+ }}];
+}
+
 export function approvedReceiptTelegramText(row){
  const changes=Array.isArray(row?.changes)?row.changes:[];
  const receipts=changes.filter(x=>
-  x.entity==='vouchers'&&x.value?.type==='receipt'&&Number(x.version)===1);
+  x.entity==='vouchers'&&x.value?.type==='receipt'&&Number(x.version)>=1);
  if(!receipts.length)return null;
  if(receipts.length!==1)throw Error('TELEGRAM_RECEIPT_MULTIPLE_DOCUMENTS');
  const voucher=receipts[0].value;
@@ -44,15 +88,23 @@ export function approvedReceiptTelegramText(row){
  const serial=plain(voucher.voucherNumber,50);
  if(!/^RCT-\d{4}-\d{4,}$/.test(serial)||id!==voucher.id)
   throw Error('TELEGRAM_RECEIPT_UNVERIFIED_SERIAL');
- const customer=changes.find(x=>x.entity==='parties'&&
-  x.id===voucher.partyId&&x.value);
- const journal=changes.find(x=>x.entity==='journalEntries'&&
-  x.value?.referenceType==='receipt'&&x.value?.referenceId===id);
- const treasury=changes.find(x=>x.entity==='treasuries'&&
+ const isAmendment=Number(receipts[0].version)>1;
+ const proof=isAmendment?changes.find(x=>
+  x.entity==='telegramReceiptSnapshot'&&x.id===id)?.value:null;
+ const customer=isAmendment?{value:proof?.party}:changes.find(x=>
+  x.entity==='parties'&&x.id===voucher.partyId&&x.value);
+ const journal=isAmendment?{value:proof?.journal}:changes.find(x=>
+  x.entity==='journalEntries'&&x.value?.referenceType==='receipt'&&
+  x.value?.referenceId===id);
+ const treasury=isAmendment?{value:proof?.treasury?{
+  ...proof.treasury,transactions:[proof.treasury.transaction]
+ }:null}:changes.find(x=>x.entity==='treasuries'&&
   x.value?.accountCode===voucher.treasuryAccountCode&&x.value);
  const tx=treasury?.value?.transactions?.find(x=>
   x.referenceType==='receipt'&&x.referenceId===id);
- if(!customer||!journal||!tx||
+ if(!customer?.value||journal?.value?.referenceType!=='receipt'||
+  journal.value.referenceId!==id||!tx||
+  treasury?.value?.accountCode!==voucher.treasuryAccountCode||
   !['customer','both'].includes(customer.value?.type))
   throw Error('TELEGRAM_RECEIPT_POSTING_PROOF_MISSING');
  const amount=number(voucher.amount),baseAmount=number(voucher.baseAmount);
@@ -78,7 +130,7 @@ export function approvedReceiptTelegramText(row){
  // New atomic customer receipts currently cannot post discounts. Always
  // show the actual ledger-supported zero, never a UI-only discount draft.
  const lines=[
-  '✅ سند قيد معتمد '+serial,
+  '✅ '+(isAmendment?'تعديل':'إضافة')+' سند قيد معتمد '+serial,
   'التاريخ: '+formatDate(voucher.date),
   'الزبون الرئيسي: '+primary,
   'الزبون الفرعي: '+secondary,
