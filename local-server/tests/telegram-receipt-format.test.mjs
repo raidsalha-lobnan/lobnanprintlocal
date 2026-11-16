@@ -92,12 +92,12 @@ test('delayed queued Telegram retries use the original committed balance, not an
  assert.equal(approvedReceiptTelegramText(row),text1);
 });
 
-test('only newly created receipt is a dedicated notification',()=>{
+test('unrelated sync commands do not get receipt confirmation',()=>{
  const row=makeRow();
  assert.equal(approvedReceiptTelegramText({...row,changes:[]}),null);
- assert.equal(approvedReceiptTelegramText({...row,
-  changes:row.changes.map(x=>x.entity==='vouchers'?{...x,version:2}:x)
- }),null);
+ assert.equal(approvedReceiptTelegramText({...row,changes:row.changes.map(x=>
+  x.entity==='vouchers'?{...x,value:{...x.value,type:'payment'}}:x
+ )}),null);
 });
 
 test('never claim a receipt was approved without its journal, treasury movement and party snapshot',()=>{
