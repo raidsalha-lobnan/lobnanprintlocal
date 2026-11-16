@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {approvedReceiptTelegramText} from '../telegram-receipt-format.mjs';
+import {approvedReceiptTelegramText,receiptTelegramOutboxChanges} from '../telegram-receipt-format.mjs';
 
 const makeRow=({
  amount=150,baseAmount=150,rate=1,currency='ILS',
@@ -48,7 +48,7 @@ const makeRow=({
 test('approved cash RCT notification shows all requested fields and committed customer balance',()=>{
  const message=approvedReceiptTelegramText(makeRow());
  for(const exact of [
-  '✅ سند قيد معتمد RCT-2026-0007',
+  '✅ إضافة سند قيد معتمد RCT-2026-0007',
   'التاريخ: 16/11/2026',
   'الزبون الرئيسي: الزبون الرئيسي المسجل',
   'الزبون الفرعي: المشروع الفرعي',
@@ -82,7 +82,7 @@ test('approved bank foreign-currency RCT includes bank, notes, FX and base amoun
   'سعر الصرف: 1 USD = 3.7 ILS',
   'المبلغ بالعملة المعتمدة: 74.00 شيكل (₪)'
  ])assert.ok(message.includes(exact),'Expected: '+exact+'\n'+message);
- assert.equal((message.match(/✅ سند قيد معتمد/g)||[]).length,1);
+ assert.equal((message.match(/✅ إضافة سند قيد معتمد/g)||[]).length,1);
 });
 
 test('delayed queued Telegram retries use the original committed balance, not any later party balance',()=>{
@@ -117,4 +117,81 @@ test('technical newlines and unwanted controls in names cannot change message st
  const result=approvedReceiptTelegramText(row);
  assert.match(result,/ملاحظة السند: دفعة موافقة إضافية/);
  assert.equal(result.includes('دفعة\nموافقة'),false);
+});
+
+const amendedRow=(options={})=>{
+ const original=makeRow(options);
+ const voucher=original.changes.find(x=>x.entity==='vouchers');
+ const party=original.changes.find(x=>x.entity==='parties');
+ const journal=original.changes.find(x=>x.entity==='journalEntries');
+ const treasury=original.changes.find(x=>x.entity==='treasuries');
+ return {...original,changes:[
+  {...voucher,version:2},
+  {entity:'telegramReceiptSnapshot',id:voucher.id,version:1,value:{
+   party:{type:party.value.type,name:party.value.name,balance:party.value.balance},
+   journal:journal.value,
+   treasury:{name:treasury.value.name,accountCode:treasury.value.accountCode,
+    transaction:treasury.value.transactions[0]}
+  }}
+ ]};
+};
+
+test('creation and amendment have identical receipt fields and values, only action word differs',()=>{
+ const added=approvedReceiptTelegramText(makeRow());
+ const updated=approvedReceiptTelegramText(amendedRow());
+ assert.equal(added.split('\n')[0],'✅ إضافة سند قيد معتمد RCT-2026-0007');
+ assert.equal(updated.split('\n')[0],'✅ تعديل سند قيد معتمد RCT-2026-0007');
+ assert.deepEqual(updated.split('\n').slice(1),added.split('\n').slice(1));
+ assert.equal(updated.includes('تأكيد الحفظ في قاعدة البيانات الرئيسية'),false);
+});
+
+test('edited bank receipt retains the same full bank, currency and balance details',()=>{
+ const message=approvedReceiptTelegramText(amendedRow({
+  cash:false,amount:20,baseAmount:74,rate:3.7,currency:'USD',
+  currencySymbol:'$',partyBalance:-26
+ }));
+ for(const text of [
+  '✅ تعديل سند قيد معتمد RCT-2026-0007',
+  'رصيد الزبون بعد الاعتماد حتى 16/11/2026: -26.00 شيكل (₪)',
+  'طريقة القبض: بنك فلسطين - حساب الشركة',
+  'ملاحظة الإيصال: حوالة رقم 902',
+  'سعر الصرف: 1 USD = 3.7 ILS',
+  'المبلغ بالعملة المعتمدة: 74.00 شيكل (₪)'
+ ])assert.ok(message.includes(text),'Missing: '+text);
+});
+
+test('edited receipts require committed snapshots, never a later balance or generic notice',()=>{
+ const row=amendedRow();
+ row.changes=row.changes.filter(x=>x.entity!=='telegramReceiptSnapshot');
+ assert.throws(()=>approvedReceiptTelegramText(row),/TELEGRAM_RECEIPT_POSTING_PROOF_MISSING/);
+});
+
+test('edited receipt snapshot is captured from the PostgreSQL transaction and not from browser data',async()=>{
+ const row=amendedRow();
+ const revision=row.changes[0];
+ const queries=[];
+ const data={
+  parties:[{value:{name:'اسم معتمد',type:'customer',balance:275}}],
+  journalEntries:[{value:{referenceType:'receipt',referenceId:revision.id,
+   lines:[{accountCode:'1101',debit:150,credit:0},{accountCode:'1201',debit:0,credit:150}]}}],
+  treasuries:[{value:{name:'الصندوق النقدي الرئيسي',
+   accountCode:'CASH-1101',transactions:[{
+    referenceType:'receipt',referenceId:revision.id,
+    baseAmount:150,baseCurrency:'ILS'
+   }]}}]
+ };
+ const client={query:async(sql,params)=>{
+  queries.push({sql,params});
+  const match=Object.keys(data).find(entity=>sql.includes("entity='"+entity+"'"));
+  return {rows:data[match]||[]};
+ }};
+ const proof=await receiptTelegramOutboxChanges(client,'lobnan_main',[revision]);
+ assert.equal(proof.length,2);
+ assert.equal(proof[1].entity,'telegramReceiptSnapshot');
+ const result=approvedReceiptTelegramText({...row,changes:proof});
+ assert.ok(result.includes('✅ تعديل سند قيد معتمد RCT-2026-0007'));
+ assert.ok(result.includes('الزبون الرئيسي: اسم معتمد'));
+ assert.ok(result.includes('275.00'));
+ assert.equal(queries.length,3);
+ assert.deepEqual(queries.map(q=>q.params[0]),['lobnan_main','lobnan_main','lobnan_main']);
 });
