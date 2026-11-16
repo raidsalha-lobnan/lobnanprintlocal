@@ -1,4 +1,5 @@
 import {invoiceTelegramReceipt,splitInvoiceTelegramReceipt} from './telegram-invoice-format.mjs';
+import {approvedReceiptTelegramText} from './telegram-receipt-format.mjs';
 // Durable Telegram confirmations of authoritative PostgreSQL commits.
 // All records and the delivery queue reside in the same lobnan_main database.
 // Client-side saves are NOT proof of a central commit.
@@ -117,8 +118,13 @@ export class TelegramDelivery {
       await client.query('COMMIT');continue;
      }
      const receipts=[];
+     const approvedReceipt=approvedReceiptTelegramText(row);
      const invoiceChanges=row.changes.filter(x=>x.entity==='invoices' && x.value);
-     if(invoiceChanges.length){
+     // A receipt can also update its linked invoice's paid/remaining fields.
+     // Still send the RCT document notice, NOT an invoice-edit notice.
+     if(approvedReceipt){
+       receipts.push(approvedReceipt);
+     }else if(invoiceChanges.length){
        const partyIds=[...new Set(invoiceChanges.flatMap(x=>
          [x.value.customerId,x.value.subCustomerId].filter(Boolean)))];
        const partyResult=partyIds.length?await client.query(
