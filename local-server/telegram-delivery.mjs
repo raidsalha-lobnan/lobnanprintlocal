@@ -118,8 +118,13 @@ export class TelegramDelivery {
       await client.query('COMMIT');continue;
      }
      const receipts=[];
+     const approvedReceipt=approvedReceiptTelegramText(row);
      const invoiceChanges=row.changes.filter(x=>x.entity==='invoices' && x.value);
-     if(invoiceChanges.length){
+     // A receipt can also update its linked invoice's paid/remaining fields.
+     // Still send the RCT document notice, NOT an invoice-edit notice.
+     if(approvedReceipt){
+       receipts.push(approvedReceipt);
+     }else if(invoiceChanges.length){
        const partyIds=[...new Set(invoiceChanges.flatMap(x=>
          [x.value.customerId,x.value.subCustomerId].filter(Boolean)))];
        const partyResult=partyIds.length?await client.query(
@@ -146,10 +151,7 @@ export class TelegramDelivery {
         }));
        }
      }else{
-       // A new receipt has its own human-readable document notice, built
-       // from the very same committed snapshot as the journal and customer.
-       // A delayed Telegram retry must NEVER read the customer's later balance.
-       receipts.push(approvedReceiptTelegramText(row)??committedTelegramText(row));
+       receipts.push(committedTelegramText(row));
      }
      const parts=receipts.flatMap(part=>splitInvoiceTelegramReceipt(part));
      if(!parts.length)throw new Error('EMPTY_TELEGRAM_RECEIPT');
