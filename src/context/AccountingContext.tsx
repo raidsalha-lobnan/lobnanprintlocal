@@ -11160,6 +11160,7 @@ return (
         setSelectedSalesReturnForPrint,
         vouchers,
         createPaymentVoucher,
+        createReceiptVoucherAtomic,
         updatePaymentVoucher,
         amendReceiptVoucher,
         deletePaymentVoucher,
