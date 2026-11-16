@@ -106,3 +106,74 @@ test('Telegram delivery sends a concise committed invoice with invoice, item and
  assert.equal(texts[0].includes('لا يوجد دفع'),false);
  assert.equal(f.recipients[0].delivered,true);
 });
+
+test('Telegram worker sends exactly one detailed approved receipt from PostgreSQL commit, not one notice per journal',async()=>{
+ const texts=[];
+ const f=fixture(['123'],async(_url,options)=>{
+  texts.push(JSON.parse(options.body).text);
+  return {ok:true,status:200,json:async()=>({ok:true})};
+ });
+ const id='vch-telegram-test-1';
+ const row=f.recipients[0];
+ row.committed_at=new Date('2026-11-16T13:00:00Z');
+ row.changes=[
+  {entity:'vouchers',id,version:1,value:{
+   id,type:'receipt',voucherNumber:'RCT-2026-0012',
+   date:'2026-11-16',partyId:'customer-test-1',partyName:'عميل',
+   subCustomerName:'فرع المشروع',amount:50,baseAmount:50,
+   currency:'ILS',currencySymbol:'₪',exchangeRate:1,
+   description:'تسديد حساب',paymentMethod:'cash',
+   treasuryAccountCode:'CASH-1101',paymentNotes:'الإيصال 123'
+  }},
+  {entity:'journalEntries',id:'je-receipt-'+id,version:1,value:{
+   id:'je-receipt-'+id,referenceType:'receipt',referenceId:id,
+   lines:[
+    {accountCode:'1101',debit:50,credit:0},
+    {accountCode:'1201',debit:0,credit:50}
+   ]
+  }},
+  {entity:'parties',id:'customer-test-1',version:2,value:{
+   type:'customer',name:'الزبون الأول',balance:345
+  }},
+  {entity:'treasuries',id:'cash-treasury-1',version:3,value:{
+   name:'الصندوق النقدي الرئيسي',accountCode:'CASH-1101',
+   transactions:[{referenceType:'receipt',referenceId:id,
+    baseAmount:50,baseCurrency:'ILS'}]
+  }},
+  {entity:'accounts',id:'account-cash',version:2,value:{code:'1101',balance:200}},
+  {entity:'accounts',id:'account-ar',version:2,value:{code:'1201',balance:600}}
+ ];
+ assert.equal(await f.worker.drainOnce(),1);
+ assert.equal(texts.length,1);
+ for(const phrase of ['✅ سند قيد معتمد RCT-2026-0012',
+  'التاريخ: 16/11/2026',
+  'الزبون الرئيسي: الزبون الأول',
+  'الزبون الفرعي: فرع المشروع',
+  'ملاحظة السند: تسديد حساب',
+  'المبلغ المقبوض: 50.00 شيكل (₪)',
+  'الخصم: 0.00',
+  'رصيد الزبون بعد الاعتماد حتى 16/11/2026: 345.00',
+  'طريقة القبض: نقداً',
+  'ملاحظة الإيصال: الإيصال 123'
+ ])assert.ok(texts[0].includes(phrase),'Missing '+phrase);
+ assert.equal(texts[0].includes('رقم العملية'),false,
+  'Do not add generic technical notifications for each journal and treasury');
+ assert.equal(await f.worker.drainOnce(),0);
+ assert.equal(texts.length,1,'No duplicate message after successful delivery');
+});
+
+test('Telegram outbox refuses to claim an incomplete receipt as approved and does not mark it delivered',async()=>{
+ const texts=[];
+ const f=fixture(['123'],async(_url,options)=>{
+  texts.push(JSON.parse(options.body).text);
+  return {ok:true,status:200,json:async()=>({ok:true})};
+ });
+ const id='vch-incomplete';
+ f.recipients[0].changes=[{entity:'vouchers',id,version:1,value:{
+  id,type:'receipt',voucherNumber:'RCT-2026-0013',
+  partyId:'cust',amount:50,baseAmount:50
+ }}];
+ assert.equal(await f.worker.drainOnce(),0);
+ assert.equal(texts.length,0);
+ assert.equal(f.recipients[0].delivered,false);
+});
