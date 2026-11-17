@@ -70,3 +70,23 @@ test('PDF button uses actual existing report markup and direct blob download wit
  assert.ok(!helper.includes('window.print()'));
  assert.ok(helper.includes('holder.remove()'));
 });
+
+test('PDF renderer supports Tailwind CSS4 color functions and keeps capture in the viewport',()=>{
+ const capture=readFileSync(
+   new URL('../src/utils/captureOfficialPrintSurface.ts',import.meta.url),'utf8');
+ const helper=readFileSync(
+   new URL('../src/utils/accountStatementPdf.ts',import.meta.url),'utf8');
+ const pkg=JSON.parse(readFileSync(
+   new URL('../package.json',import.meta.url),'utf8'));
+ const lock=JSON.parse(readFileSync(
+   new URL('../package-lock.json',import.meta.url),'utf8'));
+ assert.equal(pkg.dependencies['html2canvas-pro'],'2.4.3');
+ assert.equal(lock.packages[''].dependencies['html2canvas-pro'],'2.4.3');
+ assert.equal(lock.packages['node_modules/html2canvas-pro'].version,'2.4.3');
+ assert.ok(capture.includes("import html2canvas from 'html2canvas-pro'"));
+ assert.ok(capture.includes('OFFICIAL_REPORT_EMPTY_CAPTURE'));
+ assert.ok(helper.includes('position:fixed;left:0;top:0;width:794px'));
+ assert.equal(helper.includes('left:-12000px;top:0;width:794px'),false);
+ assert.ok(helper.includes("holder.dir='rtl'"));
+ assert.ok(helper.includes("copy.dir='rtl'"));
+});
