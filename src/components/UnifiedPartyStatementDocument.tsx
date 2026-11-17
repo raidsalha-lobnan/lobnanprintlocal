@@ -79,7 +79,11 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 font-mono">
-                    {/* Opening Balance Row */}
+                    {/* A zero "previous balance" line before the foundational
+                        opening would make it look like the real opening is NOT
+                        the first row. Suppress only that redundant zero row;
+                        nonzero previous-period balances must remain visible. */}
+                    {!(partyStatement.openingBalance === 0 && partyStatement.rows[0]?.type === 'opening') && (
                     <tr className="bg-slate-100/90 font-bold border-b border-slate-300 text-slate-800">
                       <td className="text-center text-slate-400 font-sans border-l border-slate-300">-</td>
                       <td className="text-center text-slate-600 font-mono border-l border-slate-300">{fromDate || 'الرصيد السابق'}</td>
@@ -96,6 +100,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                         {partyStatement.openingBalance.toFixed(2)}
                       </td>
                     </tr>
+                    )}
 
                     {displayedPartyRows.length === 0 ? (
                       <tr>
