@@ -11,7 +11,7 @@ import type {Invoice} from '../types';
  * financial revision transaction, never this text-only shortcut.
  */
 type LineInput = {
-  item: {id:string;sellingPrice?:number};
+  item: {id:string;sellingPrice?:number;unit?:string};
   itemName?:string;
   notes?:string;
   description?:string;
@@ -61,6 +61,8 @@ const numberEquals=(a:unknown,b:unknown,fallback=0)=>
   Number.isFinite(Number(a??fallback))&&Number.isFinite(Number(b??fallback))&&
   Math.abs(Number(a??fallback)-Number(b??fallback))<0.000001;
 const textEquals=(a:unknown,b:unknown)=>String(a??'')===String(b??'');
+const currency=(value:unknown)=>value==='₪'||!value?'ILS':String(value);
+const treasury=(value:unknown)=>value==='1101'?'CASH-1101':String(value??'');
 const originalPayment=(original:Invoice,side:'cash'|'bank')=>{
   const stored=side==='cash'?original.cashPaidAmount:original.bankPaidAmount;
   if(stored!==undefined&&stored!==null)return Number(stored);
@@ -90,8 +92,11 @@ export function preparePosDescriptionOnlyEdit(
     !textEquals(options.counterpartyId||customerId,original.counterpartyId||original.customerId)||
     !textEquals(options.subCustomerId,original.subCustomerId)||
     !textEquals(options.warehouse,original.warehouse)||
-    !textEquals(options.branchId,original.branchId)||
-    !textEquals(options.currency||'ILS',original.currency||'ILS')||
+    // A legacy invoice may have no branchId: the UI derives its current ID
+    // from the unchanged branch name when opening the document.
+    ((!textEquals(options.branchId,original.branchId)) &&
+      (!!original.branchId || !textEquals(options.branch,original.branch)))||
+    currency(options.currency)!==currency(original.currency)||
     !numberEquals(options.exchangeRate,original.exchangeRate,1)||
     !numberEquals(options.additionalCharges,original.additionalCharges)||
     !numberEquals(options.overallDiscount,original.discountTotal)||
@@ -105,11 +110,12 @@ export function preparePosDescriptionOnlyEdit(
   // default UI treasury selector only when that payment leg is precisely zero.
   const cash=originalPayment(original,'cash');
   const bank=originalPayment(original,'bank');
-  if((cash>0&&!textEquals(options.cashTreasuryCode||'CASH-1101',
-      original.cashTreasuryCode||'CASH-1101'))||
-     (bank>0&&!textEquals(options.bankTreasuryCode,original.bankTreasuryCode))||
-     ((cash>0||bank>0)&&!textEquals(options.treasuryAccountCode,
-        original.treasuryAccountCode)))return null;
+  if((cash>0&&treasury(options.cashTreasuryCode||'CASH-1101')!==
+       treasury(original.cashTreasuryCode||original.treasuryAccountCode||'CASH-1101'))||
+     (bank>0&&treasury(options.bankTreasuryCode)!==
+       treasury(original.bankTreasuryCode||original.treasuryAccountCode))||
+     ((cash>0||bank>0)&&treasury(options.treasuryAccountCode)!==
+       treasury(original.treasuryAccountCode)))return null;
 
   const newItems:Invoice['items']=[];
   for(let i=0;i<original.items.length;i++){
@@ -125,7 +131,7 @@ export function preparePosDescriptionOnlyEdit(
       !numberEquals(line.width,old.width)||
       !numberEquals(line.count,old.count,1)||
       Boolean(line.hasDimensions)!==Boolean(old.hasDimensions)||
-      !textEquals(line.unit,old.unit))return null;
+      !textEquals(line.unit,old.unit||line.item?.unit))return null;
     newItems.push({
       ...old,
       itemName:line.itemName??old.itemName,
