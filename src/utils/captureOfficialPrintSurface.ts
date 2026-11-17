@@ -35,8 +35,28 @@ export async function captureOfficialPrintSurface(root: HTMLElement,signal?:Abor
   const marginLeft=6,marginTop=6,marginBottom=6,contentWidth=pageWidth-12;
   const maxPx=Math.floor(width*(pageHeight-marginTop-marginBottom)/contentWidth);
   const top=root.getBoundingClientRect().top;
-  const suggestedBreaks=Array.from(root.querySelectorAll('tr,.invoice-heading'))
-    .map(el=>Math.round(el.getBoundingClientRect().bottom-top))
+  // Break between *whole invoices* first. The invoice title row may be
+  // followed by a detail row with several photos. Cutting after the title
+  // produces an orphan title on the previous page and its photos on the next.
+  const candidateRows=Array.from(root.querySelectorAll<HTMLElement>('tr'));
+  const majorBreaks=candidateRows
+    .filter(row=>{
+      if(row.closest('thead')||row.closest('table.report-sub-table'))return false;
+      const next=row.nextElementSibling as HTMLElement|null;
+      if((row.classList.contains('statement-invoice-title')||
+          row.classList.contains('invoice-heading'))&&next?.tagName==='TR'&&
+          (next.classList.contains('print-allow-break')||
+           Boolean(next.querySelector('.report-subtable-cell,.report-images,.report-sub-table'))))
+        return false;
+      return true;
+    })
+    .map(row=>Math.round(row.getBoundingClientRect().bottom-top))
+    .filter(p=>p>0&&p<height).sort((a,b)=>a-b);
+  // Very large invoice detail tables may still require a within-invoice
+  // break; individual item rows provide a safer last resort.
+  const minorBreaks=candidateRows
+    .filter(row=>Boolean(row.closest('.report-sub-table')))
+    .map(row=>Math.round(row.getBoundingClientRect().bottom-top))
     .filter(p=>p>0&&p<height).sort((a,b)=>a-b);
   let start=0,pageIndex=0;
   while(start<height){
@@ -45,8 +65,12 @@ export async function captureOfficialPrintSurface(root: HTMLElement,signal?:Abor
     let end=Math.min(height,start+maxPx);
     if(end<height){
       // Prefer cutting BETWEEN invoice/table rows instead of through text.
-      const safe=suggestedBreaks.filter(n=>n<=end&&n>start+maxPx*.72).at(-1);
-      if(safe)end=safe;
+      // Prefer the previous completed invoice even if it leaves modest
+      // whitespace; avoid splitting a title from its item/photo details.
+      const completed=majorBreaks.filter(n=>n<=end&&n>start+maxPx*.52).at(-1);
+      const itemRow=minorBreaks.filter(n=>n<=end&&n>start+maxPx*.72).at(-1);
+      if(completed)end=completed;
+      else if(itemRow)end=itemRow;
     }
     const chunkHeight=end-start;
     if(chunkHeight<=0)throw new Error('OFFICIAL_REPORT_PAGINATION_ERROR');
