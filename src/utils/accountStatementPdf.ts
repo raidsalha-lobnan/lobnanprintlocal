@@ -1,4 +1,3 @@
-import {captureOfficialPrintSurface} from './captureOfficialPrintSurface';
 
 const cleanFilePart=(value:string):string=>
   String(value||'').replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g,' ')
@@ -188,6 +187,7 @@ export async function downloadAccountStatementPdf(
   document.body.appendChild(holder);
   try{
     await copyLoadedReportImages(report,copy);
+    const {captureOfficialPrintSurface}=await import('./captureOfficialPrintSurface');
     const blob=await captureOfficialPrintSurface(copy);
     if(blob.type!=='application/pdf'||!blob.size||blob.size>100_000_000)
       throw new Error('STATEMENT_PDF_EMPTY_OR_INVALID');
