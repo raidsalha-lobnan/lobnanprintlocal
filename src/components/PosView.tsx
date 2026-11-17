@@ -5041,7 +5041,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
                                   multiple
                                   className="hidden"
                                   onChange={async (e) => {
-                                    const files = e.target.files;
+                                    const input=e.currentTarget;
+                                    const files = input.files;
                                     if (files && files.length > 0) {
                                       pendingGalleryUploadsRef.current++;
                                       try{
@@ -5061,7 +5062,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
                                         alert('تعذّر تجهيز صور البند. لم تُضف صور ناقصة إلى الفاتورة.');
                                       }finally{
                                         pendingGalleryUploadsRef.current--;
-                                        e.currentTarget.value='';
+                                        input.value='';
                                       }
                                     }
                                   }}
