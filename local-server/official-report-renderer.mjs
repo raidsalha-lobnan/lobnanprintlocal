@@ -55,7 +55,7 @@ async function settingsAndRecords(pool,workspace,access){
  }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error}
  finally{client.release();}
 }
-export async function generateOfficialReportPdf({pool,workspace,access,type,partyId,employeeId,fromDate,toDate}){
+export async function generateOfficialReportPdf({pool,workspace,access,type,partyId,subPartyId='all',employeeId,fromDate,toDate,showItemDetails=true,showImages=true}){
  if(!supported.has(type))throw new Error('OFFICIAL_REPORT_TYPE_UNSUPPORTED');
  if(!access?.can('view')||!access.can('view_accounting'))
   throw new Error('OFFICIAL_REPORT_PERMISSION_DENIED');
@@ -72,11 +72,27 @@ export async function generateOfficialReportPdf({pool,workspace,access,type,part
   if(type!=='supplier_statement'&&!['customer','both'].includes(party.type))
    throw new Error('OFFICIAL_REPORT_PARTY_INVALID_TYPE');
  }
+ if(subPartyId&&subPartyId!=='all'){
+  if(!['customer_statement','supplier_statement','customer_items'].includes(type)||
+     typeof subPartyId!=='string'||subPartyId.length>200||
+     /[<>\\x00-\\x1f]/.test(subPartyId))
+   throw new Error('OFFICIAL_REPORT_SUBPARTY_INVALID');
+  const hasSubParty=snapshot.parties.some(p=>p.id===subPartyId &&
+   [p.parentPartyId,p.parentCustomerId].includes(partyId));
+  // A cashier may reference a named subcustomer before registration.
+  const hasInvoiceReference=type!=='supplier_statement'&&snapshot.invoices.some(inv=>
+   inv.customerId===partyId&&(
+    inv.subCustomerId===subPartyId||
+    'synth-sub-'+String(inv.subCustomerName||inv.customCustomerText||'').trim()===subPartyId
+   ));
+  if(!hasSubParty&&!hasInvoiceReference)
+   throw new Error('OFFICIAL_REPORT_SUBPARTY_NOT_AUTHORIZED');
+ }
  if(type==='employee_statement'&&!snapshot.employees.some(p=>p.id===employeeId))
   throw new Error('OFFICIAL_REPORT_EMPLOYEE_NOT_AUTHORIZED');
  const result=type==='sales_report'
   ?{html:renderSalesReport(snapshot,{fromDate,toDate,periodLabel:fromDate||toDate?(fromDate||'')+' - '+(toDate||''):'كامل الفترة'}),hasReport:true}
-  :renderReport(snapshot,{type,partyId,employeeId,fromDate,toDate});
+  :renderReport(snapshot,{type,partyId,subPartyId,employeeId,fromDate,toDate,showItemDetails,showImages});
  if(!result.hasReport)throw new Error('OFFICIAL_REPORT_MARKUP_NOT_FOUND');
  const css=await fs.readFile(outputCss,'utf8').catch(()=>{throw new Error('OFFICIAL_REPORT_STYLESHEET_MISSING')});
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lobnan-official-report-'));
@@ -89,7 +105,7 @@ export async function generateOfficialReportPdf({pool,workspace,access,type,part
    <script>const report=document.querySelector('.report-a4-container');
      if(report){document.body.replaceChildren(report);document.documentElement.dataset.printReady='true';}</script></body></html>`;
   await fs.writeFile(htmlPath,document,'utf8');
-  await runChrome(htmlPath,pdfPath,type==='sales_report'?12000:2500);
+  await runChrome(htmlPath,pdfPath,type==='sales_report'?12000:15000);
   const pdf=await fs.readFile(pdfPath);
   if(pdf.length<500||pdf.length>20_000_000||pdf.toString('ascii',0,5)!=='%PDF-')
     throw new Error('OFFICIAL_REPORT_PDF_INVALID');
