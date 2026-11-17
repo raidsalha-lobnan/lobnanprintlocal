@@ -18,6 +18,7 @@ import { isInvoiceAccountingEligible } from './invoiceStatusUtils';
 import {invoiceParentCustomerId, getInvoiceSubCustomerName, normalizeSubCustomerName, subCustomerParentId} from './subCustomerIdentity';
 import { isDimensionalInvoiceItem } from './invoiceDimensions';
 import { isConfirmedSalesInvoice } from './invoiceConfirmation';
+import {compareStatementChronology} from './statementChronology';
 
 export interface StatementItemDetail {
   itemId?: string;
@@ -129,6 +130,8 @@ export function generateAccountStatement(params: {
     id: string;
     date: string;
     refNum: string;
+    createdAt?: string;
+    sourceInvoiceId?: string;
     type: StatementRow['type'];
     category: StatementRow['category'];
     typeLabel: string;
@@ -260,6 +263,7 @@ export function generateAccountStatement(params: {
         id: inv.id,
         date: inv.date,
         refNum: inv.invoiceNumber,
+        createdAt: inv.createdAt,
         type: 'invoice',
         category: 'withdrawal',
         typeLabel: 'فاتورة مبيعات',
@@ -296,6 +300,8 @@ export function generateAccountStatement(params: {
           id: `${inv.id}-pmt`,
           date: inv.date,
           refNum: `PAY-${inv.invoiceNumber}`,
+          createdAt: inv.createdAt,
+          sourceInvoiceId: inv.id,
           type: 'receipt',
           category: 'receipt',
           typeLabel: 'سند قبض',
@@ -336,6 +342,7 @@ export function generateAccountStatement(params: {
         id: job.id,
         date: job.deliveryDate || job.createdAt,
         refNum: job.orderNumber,
+        createdAt: job.createdAt,
         type: 'invoice',
         category: 'withdrawal',
         typeLabel: 'فاتورة مبيعات',
@@ -366,6 +373,8 @@ export function generateAccountStatement(params: {
             id: `${job.id}-dep`,
             date: job.createdAt,
             refNum: `DEP-${job.orderNumber}`,
+            createdAt: job.createdAt,
+            sourceInvoiceId: job.id,
             type: 'receipt',
             category: 'receipt',
             typeLabel: 'سند قبض',
@@ -396,6 +405,7 @@ export function generateAccountStatement(params: {
         id: pur.id,
         date: pur.date,
         refNum: pur.invoiceNumber,
+        createdAt: (pur as PurchaseInvoice & {createdAt?:string}).createdAt,
         type: 'purchase',
         category: 'withdrawal', // For supplier, supplies/purchases
         typeLabel: 'فاتورة مشتريات',
@@ -416,6 +426,8 @@ export function generateAccountStatement(params: {
           id: `${pur.id}-pmt`,
           date: pur.date,
           refNum: `DISB-${pur.invoiceNumber}`,
+          createdAt: (pur as PurchaseInvoice & {createdAt?:string}).createdAt,
+          sourceInvoiceId: pur.id,
           type: 'payment',
           category: 'disbursement',
           typeLabel: 'سند صرف',
@@ -437,6 +449,7 @@ export function generateAccountStatement(params: {
         id: ret.id,
         date: ret.date,
         refNum: ret.returnNumber,
+        createdAt: ret.createdAt,
         type: 'purchase_return',
         category: 'receipt',
         typeLabel: 'مردودات مشتريات',
@@ -457,6 +470,7 @@ export function generateAccountStatement(params: {
         id: ret.id,
         date: ret.date,
         refNum: ret.returnNumber,
+        createdAt: ret.createdAt,
         type: 'sales_return',
         category: 'receipt',
         typeLabel: 'مردودات مبيعات',
@@ -518,6 +532,7 @@ export function generateAccountStatement(params: {
           id: vch.id,
           date: vch.date,
           refNum: vch.voucherNumber,
+          createdAt: (vch as PaymentVoucher & {createdAt?:string}).createdAt,
           type: 'receipt',
           category: 'receipt',
           typeLabel: 'سند قبض',
@@ -542,6 +557,7 @@ export function generateAccountStatement(params: {
           id: vch.id,
           date: vch.date,
           refNum: vch.voucherNumber,
+          createdAt: (vch as PaymentVoucher & {createdAt?:string}).createdAt,
           type: 'payment',
           category: 'disbursement',
           typeLabel: 'سند صرف',
@@ -575,6 +591,7 @@ export function generateAccountStatement(params: {
           id: `${entry.id}-${lIdx}`,
           date: entry.date,
           refNum: entry.entryNumber,
+          createdAt: entry.createdAt,
           type: 'journal',
           category: line.debit > 0 ? 'withdrawal' : 'receipt',
           typeLabel: 'قيد يومية تسوية',
@@ -597,6 +614,7 @@ export function generateAccountStatement(params: {
         id: `${clr.id}-cust`,
         date: clr.date,
         refNum: clr.clearingNumber,
+        createdAt: clr.createdAt,
         type: 'clearance',
         category: 'receipt',
         typeLabel: 'مقاصة حسابات (قبض / تسوية دائنة)',
@@ -615,6 +633,7 @@ export function generateAccountStatement(params: {
         id: `${clr.id}-supp`,
         date: clr.date,
         refNum: clr.clearingNumber,
+        createdAt: clr.createdAt,
         type: 'clearance',
         category: 'disbursement',
         typeLabel: 'مقاصة حسابات (صرف / تسوية مدينة)',
@@ -628,14 +647,10 @@ export function generateAccountStatement(params: {
     }
   });
 
-  // Sort chronologically
-  allTx.sort((a, b) => {
-    const dComp = a.date.localeCompare(b.date);
-    if (dComp !== 0) return dComp;
-    if (a.type === 'opening') return -1;
-    if (b.type === 'opening') return 1;
-    return a.id.localeCompare(b.id);
-  });
+  // Business date first, then original insertion time/official document order.
+  // UUID/lexical IDs are not evidence of which same-day invoice was entered first.
+  // Sort BEFORE calculating the running balance so every row reflects this order.
+  allTx.sort(compareStatementChronology);
 
   // Calculate opening balance before `fromDate`
   let periodOpeningBalance = 0;
