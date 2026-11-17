@@ -5,6 +5,8 @@ import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {renderReport,renderSalesReport} from './report-ssr.compiled.mjs';
 import {settingsVisibleToUser} from './workspace-settings-public.mjs';
+import {hydrateOriginalPrintPhotos} from './print-image-originals.mjs';
+import {findUploadedAttachment} from './drive-storage.mjs';
 
 const supported=new Set(['sales_report','customer_statement','supplier_statement','customer_items',
  'treasuries_movement','purchases_report','inventory_report','expenses_report',
@@ -55,7 +57,7 @@ async function settingsAndRecords(pool,workspace,access){
  }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error}
  finally{client.release();}
 }
-export async function generateOfficialReportPdf({pool,workspace,access,type,partyId,subPartyId='all',employeeId,fromDate,toDate,showItemDetails=true,showImages=true}){
+export async function generateOfficialReportPdf({pool,workspace,access,driveStorage,type,partyId,subPartyId='all',employeeId,fromDate,toDate,showItemDetails=true,showImages=true}){
  if(!supported.has(type))throw new Error('OFFICIAL_REPORT_TYPE_UNSUPPORTED');
  if(!access?.can('view')||!access.can('view_accounting'))
   throw new Error('OFFICIAL_REPORT_PERMISSION_DENIED');
@@ -90,14 +92,23 @@ export async function generateOfficialReportPdf({pool,workspace,access,type,part
  }
  if(type==='employee_statement'&&!snapshot.employees.some(p=>p.id===employeeId))
   throw new Error('OFFICIAL_REPORT_EMPLOYEE_NOT_AUTHORIZED');
+ // The snapshot is temporary; hydrate originals only for the authorized
+ // invoice rows in this report and never alter PostgreSQL/Drive state.
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lobnan-official-report-'));
+ const htmlPath=path.join(dir,'report.html'),pdfPath=path.join(dir,'report.pdf');
+ try{
+  if(showImages&&driveStorage&&['customer_statement','supplier_statement'].includes(type)){
+   await hydrateOriginalPrintPhotos(snapshot,{
+    type,partyId,fromDate,toDate,workspace,dir,
+    findAttachment:(ws,id)=>findUploadedAttachment(pool,ws,id),
+    downloadAttachment:(id,maxBytes)=>driveStorage.download(id,maxBytes)
+   });
+  }
  const result=type==='sales_report'
   ?{html:renderSalesReport(snapshot,{fromDate,toDate,periodLabel:fromDate||toDate?(fromDate||'')+' - '+(toDate||''):'كامل الفترة'}),hasReport:true}
   :renderReport(snapshot,{type,partyId,subPartyId,employeeId,fromDate,toDate,showItemDetails,showImages});
  if(!result.hasReport)throw new Error('OFFICIAL_REPORT_MARKUP_NOT_FOUND');
  const css=await fs.readFile(outputCss,'utf8').catch(()=>{throw new Error('OFFICIAL_REPORT_STYLESHEET_MISSING')});
- const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lobnan-official-report-'));
- const htmlPath=path.join(dir,'report.html'),pdfPath=path.join(dir,'report.pdf');
- try{
   const document=type==='sales_report'?result.html:`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"/><style>${css}</style>
    <style>@page{size:A4 portrait;margin:6mm}html,body{background:#fff!important;color:#111!important;margin:0!important;padding:0!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
    .report-a4-container{box-shadow:none!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;break-inside:auto!important}
