@@ -94,17 +94,39 @@ export function enforceArabicNumeralsGlobally(): void {
     }
   };
 
-  // 2. تحويل أي مدخلات بالأرقام المشرقية في الحقول تلقائياً
-  window.addEventListener('input', (e: Event) => {
-    const target = e.target as HTMLInputElement | HTMLTextAreaElement;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
-      if (target.type === 'number' || target.type === 'text') {
-        const val = target.value;
-        if (/[٠-٩۰-۹]/.test(val)) {
-          const normalized = normalizeArabicDigits(val);
-          target.value = normalized;
-        }
-      }
+  // 2. Normalize digits without bypassing React's controlled-input state.
+  // Previously: target.value = normalized in WINDOW CAPTURE. React installs
+  // an instance value tracker on inputs. Writing through that instance setter
+  // updates the tracker before React's delegated onChange runs; React may then
+  // see "no change", leave its state stale, and erase the displayed cashier
+  // line notes on the next render. Reproduce: paste a note containing ٩٠×١٣٠,
+  // move focus to quantity, then let the repository rerender the POS.
+  const normalizeInput = (e: Event) => {
+    const target = e.target as HTMLInputElement | HTMLTextAreaElement | null;
+    if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA')) return;
+    if (target instanceof HTMLInputElement &&
+        !['text', 'search', 'tel', 'number'].includes(target.type)) return;
+    if ((e as InputEvent).isComposing) return;
+    const before = target.value;
+    if (!/[٠-٩۰-۹]/.test(before)) return;
+    const normalized = normalizeArabicDigits(before);
+    if (normalized === before) return;
+    const proto = target.tagName === 'INPUT'
+      ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    if (!setter) return; // Safer to leave original text than lose a controlled value.
+    const hasSelection = target.tagName !== 'INPUT' ||
+      (target as HTMLInputElement).type !== 'number';
+    const start = hasSelection ? target.selectionStart : null;
+    const end = hasSelection ? target.selectionEnd : null;
+    // Invoke the native *prototype* setter: React's instance tracker stays at
+    // its old value until the dispatched input event reaches React onChange.
+    setter.call(target, normalized);
+    if (hasSelection && start !== null && end !== null) {
+      try {target.setSelectionRange(start, end);} catch {}
     }
-  }, true);
+    target.dispatchEvent(new Event('input', {bubbles: true}));
+  };
+  window.addEventListener('input', normalizeInput, true);
+  window.addEventListener('compositionend', normalizeInput, true);
 }
