@@ -19,8 +19,9 @@ export function renderReport(snapshot,options={}){
  try{
   const html=renderToStaticMarkup(React.createElement(ReportsView,{
    initialReport:options.type||'customer_statement',
-   exportSelection:{partyId:options.partyId,employeeId:options.employeeId,
-    fromDate:options.fromDate,toDate:options.toDate}
+   exportSelection:{partyId:options.partyId,subPartyId:options.subPartyId,
+    employeeId:options.employeeId,fromDate:options.fromDate,toDate:options.toDate,
+    showItemDetails:options.showItemDetails,showImages:options.showImages}
   }));
   const start=html.indexOf('class="');
   return {html,hasReport:html.includes('report-a4-container'),
