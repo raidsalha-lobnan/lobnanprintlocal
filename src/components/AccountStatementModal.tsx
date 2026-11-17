@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {accountStatementPdfFilename} from '../utils/accountStatementPdf';
 import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
+import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStatementPdf';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -233,7 +234,10 @@ export const AccountStatementModal: React.FC = () => {
     }, 1000);
   };
 
-  const handleSavePdf = () => {
+  const [serverPdfDownloading,setServerPdfDownloading]=useState(false);
+  const pdfInFlight=useRef(false);
+  const handleSavePdf = async () => {
+    if(pdfInFlight.current) return;
     if(statementMode==='party'&&!partyStatement) return;
     if(statementMode==='employee'&&!employeeStatement) return;
     const primaryName = statementMode==='employee'
@@ -246,13 +250,22 @@ export const AccountStatementModal: React.FC = () => {
       primaryName,secondaryName,fromDate,toDate,
       kind:statementMode==='employee'?'employee':'party'
     });
+    pdfInFlight.current=true;
+    setServerPdfDownloading(true);
     try{
-      // Identical printable document, Arabic shaping, images and pagination.
-      // Chrome controls the final "Save as PDF" destination.
-      printStatementWithNativeBrowser(filename,handlePrint);
+      const type=statementMode==='employee'?'employee_statement'
+        :(currentParty?.type==='supplier'?'supplier_statement':'customer_statement');
+      await downloadServerOfficialStatementPdf({
+        type,partyId:currentParty?.id,employeeId:currentEmployee?.id,
+        fromDate,toDate,showItemDetails:showItemDetails,
+        showImages:showImageThumbnailsInStatement
+      },filename);
     }catch(error){
-      console.error('Native statement PDF print failed',error);
-      alert('تعذر فتح طباعة Chrome. استخدم زر «طباعة A4» واختر «Save as PDF». لم تتغير بيانات الكشف.');
+      console.error('Server Chrome modal statement PDF export failed',error);
+      alert('تعذّر إعداد PDF مباشرة من الخادم. يمكن استخدام «طباعة A4» ثم Save as PDF. '+(error instanceof Error?error.message:''));
+    }finally{
+      pdfInFlight.current=false;
+      setServerPdfDownloading(false);
     }
   };
 
@@ -356,13 +369,13 @@ export const AccountStatementModal: React.FC = () => {
 
             <button
               type="button"
-              onClick={handleSavePdf}
-              disabled={!partyStatement && !employeeStatement}
+              onClick={() => {void handleSavePdf();}}
+              disabled={serverPdfDownloading || (!partyStatement && !employeeStatement)}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer"
-              title="فتح طباعة Chrome الرسمية لاختيار Save as PDF بالاسم والفترة تلقائياً"
+              title="حفظ مباشر باستخدام محرك Chrome على الخادم دون نافذة الطباعة"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>حفظ PDF عبر Chrome</span>
+              <span>{serverPdfDownloading?'جاري إنشاء PDF...':'حفظ PDF مباشر'}</span>
             </button>
 
             <button
