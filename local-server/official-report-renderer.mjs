@@ -75,7 +75,7 @@ export async function generateOfficialReportPdf({pool,workspace,access,type,part
  if(subPartyId&&subPartyId!=='all'){
   if(!['customer_statement','supplier_statement','customer_items'].includes(type)||
      typeof subPartyId!=='string'||subPartyId.length>200||
-     /[<>\\x00-\\x1f]/.test(subPartyId))
+     /[<>\x00-\x1f]/.test(subPartyId))
    throw new Error('OFFICIAL_REPORT_SUBPARTY_INVALID');
   const hasSubParty=snapshot.parties.some(p=>p.id===subPartyId &&
    [p.parentPartyId,p.parentCustomerId].includes(partyId));
