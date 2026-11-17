@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {accountStatementPdfFilename} from '../utils/accountStatementPdf';
 import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
+import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStatementPdf';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -79,9 +80,12 @@ interface ReportsViewProps {
   /** Print/export callers select exactly the same report, party and period. */
   exportSelection?: {
     partyId?: string;
+    subPartyId?: string;
     employeeId?: string;
     fromDate?: string;
     toDate?: string;
+    showItemDetails?: boolean;
+    showImages?: boolean;
   };
 }
 
@@ -132,7 +136,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   });
   const [selectedSubCustomerId, setSelectedSubCustomerId] = useState<string>(() => {
     const target=parties.find(p=>p.id===exportSelection?.partyId);
-    return (target?.parentPartyId || target?.parentCustomerId) ? target.id : 'all';
+    return exportSelection?.subPartyId || ((target?.parentPartyId || target?.parentCustomerId) ? target.id : 'all');
   });
 
   const subCustomersForSelected = useMemo(() => {
@@ -182,7 +186,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   });
   const [selectedSubSupplierId, setSelectedSubSupplierId] = useState<string>(() => {
     const target=parties.find(p=>p.id===exportSelection?.partyId);
-    return (target?.parentPartyId || target?.parentCustomerId) ? target.id : 'all';
+    return exportSelection?.subPartyId || ((target?.parentPartyId || target?.parentCustomerId) ? target.id : 'all');
   });
 
   const subSuppliersForSelected = useMemo(() => {
@@ -274,35 +278,52 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
     window.print();
   };
 
-  const handleDownloadDetailedStatementPdf = () => {
-    if(!supportsDetailedStatementPdf) return;
+  const [serverPdfDownloading,setServerPdfDownloading]=useState(false);
+  const serverPdfInFlight=useRef(false);
+  const handleDownloadDetailedStatementPdf = async () => {
+    if(!supportsDetailedStatementPdf || serverPdfInFlight.current)return;
     let filename:string;
+    let partyId='';
+    let employeeId='';
+    let subPartyId='all';
     if(activeReport==='customer_statement'){
       if(!customerStatementData.statement || !customerStatementData.party) return;
+      partyId=customerStatementData.party.id;
+      subPartyId=selectedSubCustomerId;
       filename=accountStatementPdfFilename({
         primaryName:customerStatementData.party.name,
-        secondaryName:selectedSubCustObj?.name,
-        fromDate,toDate
+        secondaryName:selectedSubCustObj?.name,fromDate,toDate
       });
     }else if(activeReport==='supplier_statement'){
       if(!supplierStatementData.statement || !supplierStatementData.party) return;
+      partyId=supplierStatementData.party.id;
+      subPartyId=selectedSubSupplierId;
       filename=accountStatementPdfFilename({
         primaryName:supplierStatementData.party.name,
-        secondaryName:selectedSubSuppObj?.name,
-        fromDate,toDate
+        secondaryName:selectedSubSuppObj?.name,fromDate,toDate
       });
     }else{
       const employee=employees.find(e=>e.id===selectedEmpId);
       if(!employee || !employeeStatementData.statement) return;
+      employeeId=employee.id;
       filename=accountStatementPdfFilename({
         primaryName:employee.name,fromDate,toDate,kind:'employee'
       });
     }
+    serverPdfInFlight.current=true;
+    setServerPdfDownloading(true);
     try{
-      printStatementWithNativeBrowser(filename,handlePrint);
+      await downloadServerOfficialStatementPdf({
+        type:activeReport,partyId,subPartyId,employeeId,
+        fromDate,toDate,showItemDetails:showStatementItemDetails,
+        showImages:showStatementImageThumbnails
+      },filename);
     }catch(error){
-      console.error('Native statement PDF print failed',error);
-      alert('تعذر فتح طباعة Chrome. يمكنك الضغط على «طباعة التقرير» ثم اختيار «حفظ بتنسيق PDF». لم تتغير بيانات الكشف.');
+      console.error('Server Chrome statement PDF generation failed',error);
+      alert('تعذّر إنشاء ملف PDF مباشرة من الخادم. لم تتغير البيانات المحاسبية. يمكن استخدام «طباعة التقرير» ثم Save as PDF عند الحاجة. '+(error instanceof Error?error.message:''));
+    }finally{
+      serverPdfInFlight.current=false;
+      setServerPdfDownloading(false);
     }
   };
 
@@ -320,8 +341,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   // -------------------------------------------------------------
   // REPORT 1: Detailed Customer Statement (كشف حساب تفصيلي عميل)
   // -------------------------------------------------------------
-  const [showStatementItemDetails, setShowStatementItemDetails] = useState<boolean>(true);
-  const [showStatementImageThumbnails, setShowStatementImageThumbnails] = useState<boolean>(true);
+  const [showStatementItemDetails, setShowStatementItemDetails] = useState<boolean>(exportSelection?.showItemDetails ?? true);
+  const [showStatementImageThumbnails, setShowStatementImageThumbnails] = useState<boolean>(exportSelection?.showImages ?? true);
   const [previewModalImage, setPreviewModalImage] = useState<{ url: string; name: string } | null>(null);
 
   const selectedSubCustObj = useMemo(() => {
@@ -1047,12 +1068,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
           {supportsDetailedStatementPdf && (
             <button
               type="button"
-              onClick={handleDownloadDetailedStatementPdf}
+              onClick={() => {void handleDownloadDetailedStatementPdf();}}
+              disabled={serverPdfDownloading}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
-              title="حفظ الكشف باستخدام نفس طباعة Chrome الرسمية: اختر «Save as PDF» وسيقترح الاسم والفترة تلقائياً"
+              title="حفظ PDF مباشرة بمحرك Chrome على الخادم، دون فتح نافذة الطباعة"
             >
               <Download className="w-4 h-4" />
-              <span>حفظ PDF عبر Chrome</span>
+              <span>{serverPdfDownloading?'جاري إنشاء PDF...':'حفظ PDF مباشر'}</span>
             </button>
           )}
           <button
