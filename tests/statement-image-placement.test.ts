@@ -22,9 +22,10 @@ test('attached images appear only below invoice items with a numbered badge on e
   const galleryStart = source.indexOf('showImageThumbnailsInStatement && row.items');
   assert.ok(galleryStart > 0, 'invoice gallery missing');
   const gallery = source.slice(galleryStart);
-  assert.match(gallery, /parseThumbnails\(it\.imageThumbnail\)/);
-  assert.match(gallery, /it\.attachments/);
-  assert.match(gallery, /src=\{imgObj\.imgStr\}/);
-  assert.match(gallery, /#\{imgObj\.itemSeq\}/);
-  assert.doesNotMatch(gallery, /#\{imgObj\.itemSeq\} \{imgObj\.itemName\}/);
+  assert.match(gallery, /statementPhotoSources\(row\.items\)/);
+  assert.match(gallery, /<StatementPrintPhoto/);
+  assert.match(gallery, /thumbnail=\{photo\.preview\}/);
+  assert.match(gallery, /original=\{photo\.original\}/);
+  assert.match(gallery, /#\{photo\.itemSeq\}/);
+  assert.doesNotMatch(gallery, /#\{photo\.itemSeq\} \{photo\.itemName\}/);
 });
