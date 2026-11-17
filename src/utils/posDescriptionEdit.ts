@@ -11,14 +11,14 @@ import type {Invoice} from '../types';
  * financial revision transaction, never this text-only shortcut.
  */
 type LineInput = {
-  item: {id:string};
+  item: {id:string;sellingPrice?:number};
   itemName?:string;
   notes?:string;
   description?:string;
-  attachments?:unknown;
+  attachments?:Invoice['items'][number]['attachments'];
   imageThumbnail?:string;
   quantity:number;
-  unitPrice:number;
+  unitPrice?:number;
   discount?:number;
   tax?:number;
   taxRate?:number;
@@ -116,7 +116,7 @@ export function preparePosDescriptionOnlyEdit(
     const line=lines[i];
     if(!line||line.item?.id!==old.itemId||
       !numberEquals(line.quantity,old.quantity)||
-      !numberEquals(line.unitPrice,old.unitPrice)||
+      !numberEquals(line.unitPrice??line.item.sellingPrice,old.unitPrice)||
       !numberEquals(line.discount,old.discount)||
       !numberEquals(line.tax,old.tax)||
       !numberEquals(line.taxRate,old.taxRate)||
