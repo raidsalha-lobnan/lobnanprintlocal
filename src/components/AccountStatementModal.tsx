@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import {accountStatementPdfFilename,downloadAccountStatementPdf,explainStatementPdfError} from '../utils/accountStatementPdf';
+import React, { useState, useMemo, useEffect } from 'react';
+import {accountStatementPdfFilename} from '../utils/accountStatementPdf';
+import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -100,9 +101,7 @@ export const AccountStatementModal: React.FC = () => {
   const [showItemDetails, setShowItemDetails] = useState<boolean>(true);
   const [showImageThumbnailsInStatement, setShowImageThumbnailsInStatement] = useState<boolean>(true);
   const [previewModalImage, setPreviewModalImage] = useState<{ url: string; name: string } | null>(null);
-  const [isDownloadingPdf,setIsDownloadingPdf] = useState(false);
-  const pdfInProgressRef=useRef(false);
-  const statementSurfaceRef=useRef<HTMLDivElement|null>(null);
+
 
   // Active party or employee
   const currentParty = useMemo(() => {
@@ -234,8 +233,7 @@ export const AccountStatementModal: React.FC = () => {
     }, 1000);
   };
 
-  const handleSavePdf = async () => {
-    if(pdfInProgressRef.current||!statementSurfaceRef.current) return;
+  const handleSavePdf = () => {
     if(statementMode==='party'&&!partyStatement) return;
     if(statementMode==='employee'&&!employeeStatement) return;
     const primaryName = statementMode==='employee'
@@ -248,16 +246,13 @@ export const AccountStatementModal: React.FC = () => {
       primaryName,secondaryName,fromDate,toDate,
       kind:statementMode==='employee'?'employee':'party'
     });
-    pdfInProgressRef.current=true;
-    setIsDownloadingPdf(true);
     try{
-      await downloadAccountStatementPdf(statementSurfaceRef.current,filename);
+      // Identical printable document, Arabic shaping, images and pagination.
+      // Chrome controls the final "Save as PDF" destination.
+      printStatementWithNativeBrowser(filename,handlePrint);
     }catch(error){
-      console.error('Detailed statement PDF export failed',error);
-      alert(explainStatementPdfError(error));
-    }finally{
-      pdfInProgressRef.current=false;
-      setIsDownloadingPdf(false);
+      console.error('Native statement PDF print failed',error);
+      alert('تعذر فتح طباعة Chrome. استخدم زر «طباعة A4» واختر «Save as PDF». لم تتغير بيانات الكشف.');
     }
   };
 
@@ -361,13 +356,13 @@ export const AccountStatementModal: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => {void handleSavePdf();}}
-              disabled={isDownloadingPdf || (!partyStatement && !employeeStatement)}
+              onClick={handleSavePdf}
+              disabled={!partyStatement && !employeeStatement}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer"
-              title="تنزيل كشف الحساب مباشرة PDF مع الاسم والفترة المحددين دون فتح نافذة الطباعة"
+              title="فتح طباعة Chrome الرسمية لاختيار Save as PDF بالاسم والفترة تلقائياً"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{isDownloadingPdf?'جاري تجهيز PDF...':'حفظ PDF'}</span>
+              <span>حفظ PDF عبر Chrome</span>
             </button>
 
             <button
@@ -606,7 +601,7 @@ export const AccountStatementModal: React.FC = () => {
         </div>
 
         {/* Scrollable Printable Statement Body */}
-        <div ref={statementSurfaceRef} className="p-4 sm:p-6 overflow-y-auto space-y-4 print:p-0 print:overflow-visible report-a4-container">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 print:p-0 print:overflow-visible report-a4-container">
           
           {/* ========================================================= */}
           {/* SECTION 1: PARTY FINANCIAL STATEMENT (CUSTOMER / SUPPLIER)*/}
