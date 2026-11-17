@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import {accountStatementPdfFilename,downloadAccountStatementPdf} from '../utils/accountStatementPdf';
+import {accountStatementPdfFilename,downloadAccountStatementPdf,explainStatementPdfError} from '../utils/accountStatementPdf';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -303,7 +303,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
       await downloadAccountStatementPdf(surface,filename);
     }catch(error){
       console.error('Reports Center detailed statement PDF save failed',error);
-      alert('تعذّر حفظ كشف الحساب PDF. لم تتغير البيانات المحاسبية. يُمكنك إعادة المحاولة أو استخدام طباعة التقرير.');
+      alert(explainStatementPdfError(error));
     }finally{
       pdfExportInFlightRef.current=false;
       setPdfExporting(false);
