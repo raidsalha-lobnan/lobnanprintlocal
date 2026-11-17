@@ -1,0 +1,111 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {generateAccountStatement} from '../src/utils/statementGenerator';
+import {compareStatementChronology} from '../src/utils/statementChronology';
+import type {Party,Invoice,PurchaseInvoice,PaymentVoucher} from '../src/types';
+
+const customer:Party={
+  id:'cust-chronology',code:'CUST-0341',name:'عميل اختبار الترتيب',
+  type:'customer',phone:'',email:'',balance:0
+};
+function invoice(n:number,date='2026-11-17',createdAt?:string,paid=0):Invoice {
+  return {
+    // Deliberately reverse ID lexical order relative to invoice seniority.
+    id:'invoice-uuid-'+String(1000-n).padStart(5,'0'),
+    invoiceNumber:'INV-'+String(n).padStart(4,'0'),
+    date,createdAt,customerId:customer.id,customerName:customer.name,
+    type:'pos',items:[{
+      itemId:'itm-test',itemName:'بند اختباري',quantity:1,unitPrice:n,
+      discount:0,tax:0,total:n
+    }],
+    subtotal:n,discountTotal:0,taxRate:0,taxAmount:0,totalAmount:n,
+    paidAmount:paid,remainingAmount:n-paid,
+    paymentMethod:paid?'cash':'credit',status:paid?'paid':'unpaid',
+    workflowStatus:'new',isAccountingPosted:true
+  };
+}
+function statement(invoices:Invoice[],extra?:{vouchers?:PaymentVoucher[];fromDate?:string;toDate?:string}) {
+  return generateAccountStatement({party:customer,invoices,purchases:[],
+    vouchers:extra?.vouchers||[],fromDate:extra?.fromDate,toDate:extra?.toDate});
+}
+
+test('three same-day invoices display oldest inserted first even when UUIDs and source array are reversed',()=>{
+ const first=invoice(81,'2026-11-17','2026-11-17T07:40:00.000Z');
+ const second=invoice(82,'2026-11-17','2026-11-17T07:44:00.000Z');
+ const third=invoice(83,'2026-11-17','2026-11-17T07:49:00.000Z');
+ const actual=statement([third,first,second]);
+ assert.deepEqual(actual.rows.map(r=>r.referenceNumber),
+   ['INV-0081','INV-0082','INV-0083']);
+ assert.deepEqual(actual.rows.map(r=>r.runningBalance),[81,163,246]);
+ assert.equal(actual.totalDebit,246);
+ assert.equal(actual.closingBalance,246);
+});
+
+test('official invoice serial restores seniority for old invoices without createdAt',()=>{
+ const actual=statement([invoice(103),invoice(101),invoice(102)]);
+ assert.deepEqual(actual.rows.map(r=>r.referenceNumber),
+   ['INV-0101','INV-0102','INV-0103']);
+ assert.deepEqual(actual.rows.map(r=>r.runningBalance),[101,203,306]);
+});
+
+test('business document date takes precedence over insertion time and numbering',()=>{
+ const backdated=invoice(99,'2026-11-15','2026-11-17T08:00:00Z');
+ const later=invoice(98,'2026-11-16','2026-11-16T08:00:00Z');
+ const today=invoice(97,'2026-11-17','2026-11-15T08:00:00Z');
+ const actual=statement([today,later,backdated]);
+ assert.deepEqual(actual.rows.map(r=>r.referenceNumber),
+   ['INV-0099','INV-0098','INV-0097']);
+});
+
+test('an immediate invoice payment stays after its parent invoice on the same day',()=>{
+ const paid=invoice(12,'2026-11-17',undefined,12);
+ const later=invoice(13,'2026-11-17');
+ const actual=statement([later,paid]);
+ assert.deepEqual(actual.rows.map(r=>r.referenceNumber),
+   ['INV-0012','PAY-INV-0012','INV-0013']);
+ assert.deepEqual(actual.rows.map(r=>r.runningBalance),[12,0,13]);
+ assert.equal(actual.totalDebit,25);
+ assert.equal(actual.totalCredit,12);
+ assert.equal(actual.closingBalance,13);
+});
+
+test('invoice edits must not use updatedAt to reorder the original insertion sequence',()=>{
+ const older={...invoice(20,'2026-11-17','2026-11-17T09:00:00Z'),updatedAt:'2026-11-17T17:00:00Z'};
+ const newer={...invoice(21,'2026-11-17','2026-11-17T09:10:00Z'),updatedAt:'2026-11-17T10:00:00Z'};
+ const actual=statement([newer,older]);
+ assert.deepEqual(actual.rows.map(r=>r.referenceNumber),['INV-0020','INV-0021']);
+});
+
+test('same-day equal-time ties use numeric invoice number, not string or UUID order',()=>{
+ const dated=['INV-9','INV-10','INV-11'].map((n,i)=>({
+   id:'uuid-'+String(3-i),date:'2026-11-17',createdAt:'2026-11-17T10:00:00Z',
+   type:'invoice',refNum:n
+ }));
+ assert.deepEqual(dated.sort(compareStatementChronology).map(x=>x.refNum),
+  ['INV-9','INV-10','INV-11']);
+});
+
+test('date-scoped running balance remains exact and chronological',()=>{
+ const actual=statement([
+   invoice(3,'2026-11-17'),invoice(1,'2026-11-15'),invoice(2,'2026-11-17')
+ ],{fromDate:'2026-11-17',toDate:'2026-11-17'});
+ assert.equal(actual.openingBalance,1);
+ assert.deepEqual(actual.rows.map(r=>r.referenceNumber),['INV-0002','INV-0003']);
+ assert.deepEqual(actual.rows.map(r=>r.runningBalance),[3,6]);
+ assert.equal(actual.closingBalance,6);
+});
+
+test('supplier purchases also use official numeric order when the entry time is unavailable',()=>{
+ const supplier={...customer,id:'supplier-test',type:'supplier' as const};
+ const pur=(n:number):PurchaseInvoice=>({
+   id:'pur-'+(100-n),invoiceNumber:'PUR-'+String(n).padStart(4,'0'),
+   date:'2026-11-17',supplierId:supplier.id,supplierName:supplier.name,
+   items:[],subtotal:n,taxRate:0,taxAmount:0,totalAmount:n,
+   paidAmount:0,paymentMethod:'credit',status:'unpaid'
+ });
+ const result=generateAccountStatement({party:supplier,invoices:[],
+   purchases:[pur(15),pur(13),pur(14)],vouchers:[]});
+ assert.deepEqual(result.rows.map(r=>r.referenceNumber),
+  ['PUR-0013','PUR-0014','PUR-0015']);
+ assert.equal(result.closingBalance,-42);
+});
