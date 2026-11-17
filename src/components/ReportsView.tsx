@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import {accountStatementPdfFilename,downloadAccountStatementPdf} from '../utils/accountStatementPdf';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -258,6 +259,56 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
   // 9: Treasuries selection
   const [selectedTreasuryCode, setSelectedTreasuryCode] = useState<string>('all');
+
+  // One-click PDF export for the actual Reports Center statement, not the
+  // separate AccountStatementModal. Reuse the visible official A4 layout so
+  // the PDF has the same letterhead, rows and invoice details as Print.
+  const reportsSurfaceRef=useRef<HTMLDivElement|null>(null);
+  const pdfExportInFlightRef=useRef(false);
+  const [pdfExporting,setPdfExporting]=useState(false);
+  const supportsDetailedStatementPdf=
+    activeReport==='customer_statement'||
+    activeReport==='supplier_statement'||
+    activeReport==='employee_statement';
+
+  const handleDownloadDetailedStatementPdf = async () => {
+    if(pdfExportInFlightRef.current || !supportsDetailedStatementPdf) return;
+    const surface=reportsSurfaceRef.current?.querySelector<HTMLElement>('.report-a4-container');
+    if(!surface) return;
+    let filename:string;
+    if(activeReport==='customer_statement'){
+      if(!customerStatementData.statement || !customerStatementData.party) return;
+      filename=accountStatementPdfFilename({
+        primaryName:customerStatementData.party.name,
+        secondaryName:selectedSubCustObj?.name,
+        fromDate,toDate
+      });
+    }else if(activeReport==='supplier_statement'){
+      if(!supplierStatementData.statement || !supplierStatementData.party) return;
+      filename=accountStatementPdfFilename({
+        primaryName:supplierStatementData.party.name,
+        secondaryName:selectedSubSuppObj?.name,
+        fromDate,toDate
+      });
+    }else{
+      const employee=employees.find(e=>e.id===selectedEmpId);
+      if(!employee || !employeeStatementData.statement) return;
+      filename=accountStatementPdfFilename({
+        primaryName:employee.name,fromDate,toDate,kind:'employee'
+      });
+    }
+    pdfExportInFlightRef.current=true;
+    setPdfExporting(true);
+    try{
+      await downloadAccountStatementPdf(surface,filename);
+    }catch(error){
+      console.error('Reports Center detailed statement PDF save failed',error);
+      alert('تعذّر حفظ كشف الحساب PDF. لم تتغير البيانات المحاسبية. يُمكنك إعادة المحاولة أو استخدام طباعة التقرير.');
+    }finally{
+      pdfExportInFlightRef.current=false;
+      setPdfExporting(false);
+    }
+  };
 
   // Print helper
   const handlePrint = () => {
@@ -986,7 +1037,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   ];
 
   return (
-    <div className="space-y-5" dir="rtl">
+    <div ref={reportsSurfaceRef} className="space-y-5" dir="rtl">
       {/* Top Header */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 print:hidden">
         <div className="flex items-center gap-2.5">
@@ -1002,6 +1053,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         </div>
 
         <div className="flex items-center gap-2">
+          {supportsDetailedStatementPdf && (
+            <button
+              type="button"
+              onClick={() => {void handleDownloadDetailedStatementPdf();}}
+              disabled={pdfExporting}
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
+              title="حفظ كشف الحساب التفصيلي PDF مباشرة بالاسم والفترة دون فتح نافذة الطباعة"
+            >
+              <Download className="w-4 h-4" />
+              <span>{pdfExporting?'جاري تجهيز PDF...':'حفظ PDF'}</span>
+            </button>
+          )}
           <button
             onClick={handlePrint}
             className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
