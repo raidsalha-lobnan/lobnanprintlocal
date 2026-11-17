@@ -2656,7 +2656,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
     let effectiveMethod: PaymentMethod = forcedPayment ? forcedPayment.method : 'credit';
     if (!forcedPayment) {
       if (cBase > 0 && bBase === 0) effectiveMethod = 'cash';
-      else if (bBase > 0 && cBase === 0) effectiveMethod = 'card';
+      else if (bBase > 0 && cBase === 0)
+        // An existing bank-transfer invoice must not turn into a card payment
+        // merely because the cashier is saving a note.
+        effectiveMethod = paymentMethod === 'bank_transfer' || paymentMethod === 'card'
+          ? paymentMethod : 'card';
       else if (cBase > 0 && bBase > 0) effectiveMethod = 'cash';
       else effectiveMethod = 'credit';
     }
