@@ -29,6 +29,7 @@ import { findPartyByCodeOrNumber, isCashCustomerParty, sortPartiesByCode } from 
 import { getAvailableUnitsOfMeasure, isSquareMeterUnit } from '../utils/unitsOfMeasure';
 import { isDimensionalInvoiceItem } from '../utils/invoiceDimensions';
 import {invoiceEditSignature} from '../utils/invoiceEditSignature';
+import {verifyPosEditReceipt} from '../utils/posEditReceiptVerification';
 import { matchKeyboardShortcut } from '../utils/keyboardShortcuts';
 import { calculatePartyTrueBalance, calculateEmployeeTrueBalance } from '../utils/statementGenerator';
 import {
@@ -2719,7 +2720,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
         bankCurrency: bankCurrencyCode,
         bankExchangeRate: bankExchangeRate,
         bankTreasuryCode: forcedPayment && (forcedPayment.method === 'card' || forcedPayment.method === 'bank_transfer') ? forcedPayment.treasuryCode : bankTreasuryCode,
-        paymentNotes: paymentNotes || undefined,
+        // Empty string is an intentional clearing of the previous receipt note.
+        paymentNotes,
         workflowStatus: invoiceWorkflowStatus
       }
     );
@@ -2748,6 +2750,21 @@ const getInitialPosDraft = (): PosFullDraftData => {
     }
 
     const savedInvoice = postRes.invoice;
+    const editingId=currentEditingInvoiceIdRef.current||editingPosInvoiceId;
+    if(editingId){
+      const mismatch=verifyPosEditReceipt(
+        savedInvoice,editingId,activeLines,invoiceNotes,paymentNotes,invoiceDate
+      );
+      if(mismatch){
+        // The server may already have committed another part of the revision.
+        // Do not discard the editor, retry automatically, or declare success.
+        // Re-open the authoritative invoice and compare before any new save.
+        posSound.error();
+        alert('لم يتطابق إيصال اعتماد تعديل الفاتورة مع البيانات المكتوبة ('+
+          mismatch+'). احتفظنا بجميع مدخلاتك على الشاشة. تحقق من الفاتورة المعتمدة في السجل قبل إعادة الحفظ؛ لا تنشئ فاتورة مكررة.');
+        return;
+      }
+    }
     // Auto-register an occasional / walk-in customer AFTER the invoice has a
     // durable save receipt. A failed posting must not create orphan party records.
     // Older name-only invoices are grouped read-only using the same identity key.
