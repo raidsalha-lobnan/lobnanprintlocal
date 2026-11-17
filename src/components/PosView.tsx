@@ -31,6 +31,7 @@ import { isDimensionalInvoiceItem } from '../utils/invoiceDimensions';
 import {invoiceEditSignature} from '../utils/invoiceEditSignature';
 import {verifyPosEditReceipt} from '../utils/posEditReceiptVerification';
 import {resolvePosPaymentMethod} from '../utils/posPaymentMethod';
+import {dateForNewPosInvoice,localPosToday} from '../utils/posInvoiceDate';
 import { matchKeyboardShortcut } from '../utils/keyboardShortcuts';
 import { calculatePartyTrueBalance, calculateEmployeeTrueBalance } from '../utils/statementGenerator';
 import {
@@ -1075,8 +1076,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
       setPosLayoutConfig(userConfig);
       const userWidths = loadPosColumnWidths(currentUser.id, settings?.defaultPosColumnWidths);
       setColumnWidths(userWidths);
-      if (userConfig.isDateLocked && userConfig.lockedDate) {
-        setInvoiceDate(userConfig.lockedDate);
+      // Rehydrating layout settings must not overwrite the original date of
+      // a historical invoice currently open for editing.
+      if (!currentEditingInvoiceIdRef.current && !editingPosInvoiceId &&
+          userConfig.isDateLocked && userConfig.lockedDate) {
+        setInvoiceDate(dateForNewPosInvoice(userConfig));
       }
     }
   }, [currentUser?.id, settings?.defaultPosLayout, settings?.defaultPosButtons, settings?.defaultPosColumnWidths]);
@@ -2885,9 +2889,10 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setBankExchangeRate(1);
     setBranch(branches.find(b => b.id === activeBranchId)?.name || 'الفرع الرئيسي');
     setWarehouse(warehouses.find(w => w.id === activeWarehouseId)?.name || 'المخزن الرئيسي');
-    // A newly opened invoice defaults to today's date, not the date of
-    // the previously edited invoice.
-    setInvoiceDate(new Date().toLocaleDateString('en-CA'));
+    // After a successful create OR edit, the next blank invoice uses the
+    // pinned date if enabled (e.g. 15/11 even when today is 17/11).
+    // Never inherit the historical date of the invoice just edited.
+    setInvoiceDate(dateForNewPosInvoice(posLayoutConfig));
 
     try {
       localStorage.removeItem(POS_FULL_DRAFT_KEY);
@@ -3463,6 +3468,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setBankAmountInput('0');
 
     setInvoiceSeqNumber('');
+    // Ctrl+N, navigation beyond the last invoice, and Cancel/New all use
+    // the saved date pin. Without a pin the device's current local date wins.
+    setInvoiceDate(dateForNewPosInvoice(posLayoutConfig));
     try {
       localStorage.removeItem(POS_FULL_DRAFT_KEY);
       localStorage.removeItem('pos_active_draft_lines');
@@ -4068,10 +4076,13 @@ const getInitialPosDraft = (): PosFullDraftData => {
                   type="button"
                   onClick={() => {
                     const nextLocked = !posLayoutConfig.isDateLocked;
-                    const dateToLock = nextLocked ? (invoiceDate || new Date().toISOString().split('T')[0]) : '';
-                    if (!nextLocked) {
-                      // عند إلغاء التثبيت نعود لتاريخ اليوم الفعلي للجهاز
-                      setInvoiceDate(new Date().toISOString().split('T')[0]);
+                    // Capture exactly the date currently entered in the invoice,
+                    // not the date of the computer when it is pinned.
+                    const dateToLock = nextLocked ? (invoiceDate || localPosToday()) : '';
+                    if (!nextLocked && !currentEditingInvoiceIdRef.current && !editingPosInvoiceId) {
+                      // Removing the pin returns NEW invoices to the local day.
+                      // An existing invoice being edited keeps its own date.
+                      setInvoiceDate(localPosToday());
                     }
                     const updated = {
                       ...posLayoutConfig,
