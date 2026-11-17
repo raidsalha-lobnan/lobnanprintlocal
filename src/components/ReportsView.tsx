@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import {accountStatementPdfFilename,downloadAccountStatementPdf,explainStatementPdfError} from '../utils/accountStatementPdf';
+import React, { useState, useMemo, useEffect } from 'react';
+import {accountStatementPdfFilename} from '../utils/accountStatementPdf';
+import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -260,21 +261,21 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   // 9: Treasuries selection
   const [selectedTreasuryCode, setSelectedTreasuryCode] = useState<string>('all');
 
-  // One-click PDF export for the actual Reports Center statement, not the
-  // separate AccountStatementModal. Reuse the visible official A4 layout so
-  // the PDF has the same letterhead, rows and invoice details as Print.
-  const reportsSurfaceRef=useRef<HTMLDivElement|null>(null);
-  const pdfExportInFlightRef=useRef(false);
-  const [pdfExporting,setPdfExporting]=useState(false);
+  // The direct-canvas PDF engine corrupts bidi Arabic and deferred images
+  // in large reports. Use exactly the existing Chrome print path instead.
+  // The browser manages Save as PDF; a web page cannot choose a printer silently.
   const supportsDetailedStatementPdf=
     activeReport==='customer_statement'||
     activeReport==='supplier_statement'||
     activeReport==='employee_statement';
 
-  const handleDownloadDetailedStatementPdf = async () => {
-    if(pdfExportInFlightRef.current || !supportsDetailedStatementPdf) return;
-    const surface=reportsSurfaceRef.current?.querySelector<HTMLElement>('.report-a4-container');
-    if(!surface) return;
+  // Print helper shared by both buttons so their content and pagination match.
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleDownloadDetailedStatementPdf = () => {
+    if(!supportsDetailedStatementPdf) return;
     let filename:string;
     if(activeReport==='customer_statement'){
       if(!customerStatementData.statement || !customerStatementData.party) return;
@@ -297,22 +298,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         primaryName:employee.name,fromDate,toDate,kind:'employee'
       });
     }
-    pdfExportInFlightRef.current=true;
-    setPdfExporting(true);
     try{
-      await downloadAccountStatementPdf(surface,filename);
+      printStatementWithNativeBrowser(filename,handlePrint);
     }catch(error){
-      console.error('Reports Center detailed statement PDF save failed',error);
-      alert(explainStatementPdfError(error));
-    }finally{
-      pdfExportInFlightRef.current=false;
-      setPdfExporting(false);
+      console.error('Native statement PDF print failed',error);
+      alert('تعذر فتح طباعة Chrome. يمكنك الضغط على «طباعة التقرير» ثم اختيار «حفظ بتنسيق PDF». لم تتغير بيانات الكشف.');
     }
-  };
-
-  // Print helper
-  const handlePrint = () => {
-    window.print();
   };
 
   // Export CSV helper
@@ -1037,7 +1028,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   ];
 
   return (
-    <div ref={reportsSurfaceRef} className="space-y-5" dir="rtl">
+    <div className="space-y-5" dir="rtl">
       {/* Top Header */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 print:hidden">
         <div className="flex items-center gap-2.5">
@@ -1056,13 +1047,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
           {supportsDetailedStatementPdf && (
             <button
               type="button"
-              onClick={() => {void handleDownloadDetailedStatementPdf();}}
-              disabled={pdfExporting}
+              onClick={handleDownloadDetailedStatementPdf}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
-              title="حفظ كشف الحساب التفصيلي PDF مباشرة بالاسم والفترة دون فتح نافذة الطباعة"
+              title="حفظ الكشف باستخدام نفس طباعة Chrome الرسمية: اختر «Save as PDF» وسيقترح الاسم والفترة تلقائياً"
             >
               <Download className="w-4 h-4" />
-              <span>{pdfExporting?'جاري تجهيز PDF...':'حفظ PDF'}</span>
+              <span>حفظ PDF عبر Chrome</span>
             </button>
           )}
           <button
