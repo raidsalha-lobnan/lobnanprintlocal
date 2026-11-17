@@ -79,16 +79,16 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 font-mono">
-                    {/* A zero "previous balance" line before the foundational
-                        opening would make it look like the real opening is NOT
-                        the first row. Suppress only that redundant zero row;
-                        nonzero previous-period balances must remain visible. */}
-                    {!(filterType === 'all' && partyStatement.openingBalance === 0 && displayedPartyRows[0]?.type === 'opening') && (
+                    {/* ONE carried-forward opening position at the top of
+                        every statement. It already includes the original
+                        foundational balance and all pre-period transactions,
+                        so it must never appear a second time among rows. */}
                     <tr className="bg-slate-100/90 font-bold border-b border-slate-300 text-slate-800">
                       <td className="text-center text-slate-400 font-sans border-l border-slate-300">-</td>
-                      <td className="text-center text-slate-600 font-mono border-l border-slate-300">{fromDate || 'الرصيد السابق'}</td>
+                      <td className="text-center text-slate-600 font-mono border-l border-slate-300">{fromDate || 'بداية التعامل'}</td>
                       <td className="font-sans text-slate-700 font-semibold border-l border-slate-300">
-                        رصيد سابق - رصيد الحساب الافتتاحي السابق (ما قبل تاريخ {fromDate || 'بدء الحركة'})
+                        رصيد افتتاحي سابق مدور
+                        {fromDate ? ` — الرصيد ما قبل تاريخ ${fromDate}` : ' — رصيد بداية التعامل'}
                       </td>
                       <td className="text-left font-bold text-slate-700 font-mono whitespace-nowrap border-l border-slate-300">
                         {partyStatement.openingBalance > 0 ? partyStatement.openingBalance.toFixed(2) : '-'}
@@ -100,7 +100,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                         {partyStatement.openingBalance.toFixed(2)}
                       </td>
                     </tr>
-                    )}
 
                     {displayedPartyRows.length === 0 ? (
                       <tr>
