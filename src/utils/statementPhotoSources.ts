@@ -31,8 +31,9 @@ export function splitInvoiceThumbnails(value?:string):string[]{
  */
 export function statementPhotoSources(items:StatementPhotoItem[]):StatementPhotoSource[]{
   const photos:StatementPhotoSource[]=[];
-  const seen=new Set<string>();
   for(let i=0;i<items.length;i++){
+    // Repeated designs on different invoice items remain separate tiles.
+    const seen=new Set<string>();
     const item=items[i];
     const originals=item.attachments||[];
     const thumbnails=splitInvoiceThumbnails(item.imageThumbnail);
