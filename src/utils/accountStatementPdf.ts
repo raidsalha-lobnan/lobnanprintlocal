@@ -44,11 +44,117 @@ export function accountStatementPdfFilename(input:StatementPdfFileNameInput):str
 }
 
 /**
- * Capture the *existing* detailed statement component (including the
- * approved company letterhead, Arabic rows and invoice item details).
- * A detached, off-screen copy avoids changing the interactive cashier
- * page or opening the browser's print/Save As workflow.
+ * Canvas exporters render screen CSS. Reapply the application's existing
+ * @media print rules ONLY to this captured copy (not to the live page).
  */
+function splitCssSelectorList(input:string):string[]{
+  const out:string[]=[];
+  let depth=0,start=0,quote='';
+  for(let i=0;i<input.length;i++){
+    const char=input[i];
+    if(quote){
+      if(char===quote&&input[i-1]!=='\\')quote='';
+    }else if(char==='"'||char==="'"){quote=char;}
+    else if(char==='('||char==='['){depth++;}
+    else if(char===')'||char===']'){depth--;}
+    else if(char===','&&depth===0){
+      out.push(input.slice(start,i).trim());start=i+1;
+    }
+  }
+  out.push(input.slice(start).trim());
+  return out.filter(Boolean);
+}
+
+function scopedStatementPrintCss():string {
+  const result:string[]=[];
+  const visit=(rules:CSSRuleList,printContext=false)=>{
+    for(const rule of Array.from(rules)){
+      if(rule.type===CSSRule.MEDIA_RULE){
+        const media=rule as CSSMediaRule;
+        const condition=media.conditionText;
+        if(/\bprint\b/i.test(condition)&&!/\bnot\s+print\b/i.test(condition)){
+          visit(media.cssRules,true);
+        }else if(printContext&&/\ball\b/i.test(condition)){
+          visit(media.cssRules,true);
+        }
+      }else if(printContext&&rule.type===CSSRule.STYLE_RULE){
+        const style=rule as CSSStyleRule;
+        const scoped=splitCssSelectorList(style.selectorText).flatMap(selector=>[
+          '[data-statement-pdf] '+selector,
+          '[data-statement-pdf]'+selector
+        ]);
+        if(scoped.length)result.push(scoped.join(',')+'{'+style.style.cssText+'}');
+      }else if(printContext&&'cssRules' in rule){
+        const group=rule as CSSGroupingRule;
+        if(group.cssRules)visit(group.cssRules,true);
+      }
+    }
+  };
+  for(const sheet of Array.from(document.styleSheets)){
+    try{visit(sheet.cssRules);}catch{
+      // Third-party stylesheets are not accessible. The application CSS is.
+    }
+  }
+  return result.join('\n');
+}
+
+async function waitForOriginalImage(image:HTMLImageElement):Promise<void>{
+  if(!image.complete){
+    await Promise.race([
+      image.decode().catch(()=>{}),
+      new Promise<void>(resolve=>setTimeout(resolve,9000))
+    ]);
+  }
+  if(!image.complete||image.naturalWidth<1||image.naturalHeight<1){
+    throw new Error('STATEMENT_PDF_IMAGE_UNAVAILABLE');
+  }
+}
+
+/**
+ * cloneNode copies image URLs but NOT decoded bitmaps. Make local data-image
+ * snapshots of the live loaded images (header, signatures and attachments).
+ * Fail closed if a photo cannot be embedded rather than shipping a broken PDF.
+ */
+async function copyLoadedReportImages(source:HTMLElement,target:HTMLElement):Promise<void>{
+  const sourceImages=Array.from(source.querySelectorAll<HTMLImageElement>('img'));
+  const targetImages=Array.from(target.querySelectorAll<HTMLImageElement>('img'));
+  if(sourceImages.length!==targetImages.length)throw new Error('STATEMENT_PDF_IMAGE_COUNT_CHANGED');
+  const cache=new Map<string,string>();
+  for(let i=0;i<sourceImages.length;i++){
+    const image=sourceImages[i],clone=targetImages[i];
+    await waitForOriginalImage(image);
+    const key=image.currentSrc||image.src;
+    const isHeader=Boolean(image.closest('[data-component="print-header"]'));
+    const maxPixels=isHeader?1800:720;
+    const cacheKey=key+':'+maxPixels;
+    let data=cache.get(cacheKey);
+    if(!data){
+      const scale=Math.min(1,maxPixels/Math.max(image.naturalWidth,image.naturalHeight));
+      const bitmap=document.createElement('canvas');
+      bitmap.width=Math.max(1,Math.round(image.naturalWidth*scale));
+      bitmap.height=Math.max(1,Math.round(image.naturalHeight*scale));
+      const context=bitmap.getContext('2d');
+      if(!context)throw new Error('STATEMENT_PDF_IMAGE_CANVAS_UNAVAILABLE');
+      context.drawImage(image,0,0,bitmap.width,bitmap.height);
+      try{
+        data=bitmap.toDataURL('image/png');
+      }catch{
+        throw new Error('STATEMENT_PDF_IMAGE_CORS_BLOCKED');
+      }finally{
+        bitmap.width=0;bitmap.height=0;
+      }
+      cache.set(cacheKey,data);
+    }
+    clone.src=data;
+    clone.removeAttribute('srcset');
+    await clone.decode().catch(()=>{
+      throw new Error('STATEMENT_PDF_IMAGE_EMBED_FAILED');
+    });
+    if(clone.naturalWidth<1)throw new Error('STATEMENT_PDF_IMAGE_EMBED_FAILED');
+  }
+}
+
+/** Same approved financial report and print styles; no independent markup. */
 export async function downloadAccountStatementPdf(
   report:HTMLElement,
   filename:string
@@ -57,18 +163,19 @@ export async function downloadAccountStatementPdf(
   const safeName=cleanFilePart(filename.replace(/\.pdf$/i,''))+'.pdf';
   const holder=document.createElement('div');
   holder.setAttribute('aria-hidden','true');
-  // Keep the capture inside the actual viewport at x=0. A negative
-  // left position (previously -12000px) makes canvas rasterization blank or
-  // fail, because the capture engine crops using viewport coordinates.
-  // A negative stacking order keeps this copy behind the live UI.
-  holder.style.cssText='position:fixed;left:0;top:0;width:794px;background:white;z-index:-2147483647;pointer-events:none;';
+  holder.style.cssText='position:fixed;left:0;top:0;width:748px;background:white;z-index:-2147483647;pointer-events:none;';
   holder.dir='rtl';
+  const printStyles=document.createElement('style');
+  printStyles.textContent=scopedStatementPrintCss();
   const copy=report.cloneNode(true) as HTMLElement;
   copy.dir='rtl';
-  copy.style.cssText='width:794px;max-width:none;max-height:none;height:auto;overflow:visible;box-sizing:border-box;background:white;';
+  copy.dataset.statementPdf='true';
+  copy.style.cssText='width:748px;min-width:748px;max-width:748px;max-height:none;height:auto;overflow:visible;box-sizing:border-box;background:white;margin:0;';
+  holder.appendChild(printStyles);
   holder.appendChild(copy);
   document.body.appendChild(holder);
   try{
+    await copyLoadedReportImages(report,copy);
     const blob=await captureOfficialPrintSurface(copy);
     if(blob.type!=='application/pdf'||!blob.size||blob.size>100_000_000)
       throw new Error('STATEMENT_PDF_EMPTY_OR_INVALID');
@@ -82,7 +189,6 @@ export async function downloadAccountStatementPdf(
       try{anchor.click();}
       finally{anchor.remove();}
     }finally{
-      // The browser may still be reading the blob asynchronously after click.
       setTimeout(()=>URL.revokeObjectURL(url),60_000);
     }
   }finally{
