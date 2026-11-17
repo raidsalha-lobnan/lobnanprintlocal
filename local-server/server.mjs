@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import pg from 'pg';
 import {SyncService} from './sync-service.mjs';
 import {revisePostedInvoice} from './invoice-revision-service.mjs';
+import {generateOfficialReportPdf} from './official-report-renderer.mjs';
 import {TelegramDelivery} from './telegram-delivery.mjs';
 import {TelegramHub} from './telegram-hub.mjs';
 import {TelegramMiniPos} from './telegram-mini-pos.mjs';
@@ -36,6 +37,7 @@ const WORKSPACE=process.env.SYNC_WORKSPACE||'lobnan_main';
 const STRICT_AUTH=process.env.SYNC_AUTH_MODE==='users';
 const ADMIN_USER_ID=process.env.SYNC_ADMIN_USER_ID||'';
 const authAttempts=new Map();
+let officialPdfActive=0;
 
 if(!DATABASE_URL || (!STRICT_AUTH && TOKEN.length<32))
   throw new Error('DATABASE_URL and legacy SYNC_DEVICE_TOKEN (32+ characters) are mandatory');
@@ -345,6 +347,48 @@ const srv=http.createServer(async(req,res)=>{
       const ok=await telegramHub.ackInbox(payload?.updateId,payload?.leaseToken);
       if(!ok)throw new InputError('TELEGRAM_INBOX_LEASE_EXPIRED',409);
       return json(res,200,{ok:true},cors);
+    }
+    if(req.method==='POST' && url.pathname==='/api/v1/reports/official-pdf'){
+      // Chrome headless prints the existing React report with @media print,
+      // avoiding canvas Arabic shaping errors and disappearing attachments.
+      // The browser's session grants only its usual permitted report access.
+      if(!STRICT_AUTH||!access?.can('view')||!access.can('view_accounting'))
+        throw new InputError('REPORT_PDF_PERMISSION_DENIED',403);
+      if(officialPdfActive>=2)
+        throw new InputError('REPORT_PDF_BUSY',429);
+      const payload=await parseBody(req,8192);
+      const type=String(payload?.type||'');
+      if(!['customer_statement','supplier_statement','employee_statement'].includes(type))
+        throw new InputError('REPORT_PDF_TYPE_INVALID',400);
+      const partyId=String(payload?.partyId||'');
+      const employeeId=String(payload?.employeeId||'');
+      const fromDate=String(payload?.fromDate||'');
+      const toDate=String(payload?.toDate||'');
+      if((type==='employee_statement'?!/^[a-zA-Z0-9_-]{1,200}$/.test(employeeId):
+          !/^[a-zA-Z0-9_-]{1,200}$/.test(partyId))||
+         (fromDate&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(fromDate))||
+         (toDate&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(toDate))||
+         (fromDate&&toDate&&fromDate>toDate))
+        throw new InputError('REPORT_PDF_REQUEST_INVALID',400);
+      officialPdfActive++;
+      try{
+        const result=await generateOfficialReportPdf({
+          pool,workspace,access,type,partyId,employeeId,fromDate,toDate
+        });
+        // Never cache financial PDFs, and never upload their contents or
+        // write another copy into PostgreSQL, Telegram, or Google Drive.
+        res.writeHead(200,{
+          'content-type':'application/pdf',
+          'content-disposition':'attachment; filename="statement.pdf"',
+          'cache-control':'no-store, private',
+          'x-content-type-options':'nosniff',
+          'content-length':result.pdf.length,
+          'access-control-allow-origin':cors||'',
+          'vary':'Origin'
+        });
+        res.end(result.pdf);
+      }finally{officialPdfActive--;}
+      return;
     }
     if(req.method==='GET' && url.pathname==='/api/v1/head')
       return json(res,200,{sequence:await service.head(workspace)},cors);
