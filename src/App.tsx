@@ -51,6 +51,8 @@ const MainLayout: React.FC = () => {
   const {
     activeTab,
     hasUnsyncedChanges,
+    unifiedRepository,
+    syncCoordinatorState,
     settings,
     setActiveTab,
     hasPermission,
@@ -567,6 +569,16 @@ const MainLayout: React.FC = () => {
             <button type="button" className="rounded bg-slate-200 px-2 py-1 font-bold"
               onClick={()=>setLocalSaveFailure(null)} aria-label="إغلاق التنبيه">إغلاق</button>
           </div>
+        </div>
+      )}
+      {!unifiedRepository && (
+        <div role="alert" className="shrink-0 print:hidden border-b border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">
+          <div>جاري تجهيز مستودع الفواتير المحلي وربطه بقاعدة البيانات. الحفظ غير متاح حتى يكتمل التشغيل، لكن المدخلات الحالية لن تُمسح.</div>
+          {syncCoordinatorState.lastError && (
+            <div className="mt-1 text-xs font-normal">
+              فشل تجهيز المستودع مؤقتاً، وستتم إعادة المحاولة تلقائياً. إذا استمر التنبيه، راجع اتصال الخادم وتسجيل الدخول.
+            </div>
+          )}
         </div>
       )}
       {availableBuildVersion && !isPrintModalActive && (
