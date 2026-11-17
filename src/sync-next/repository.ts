@@ -166,6 +166,34 @@ export class UnifiedRepository {
     return this.local;
   }
 
+  /**
+   * A temporarily empty IndexedDB projection must not blank previously visible
+   * financial invoices. Verify the complete authenticated PostgreSQL snapshot,
+   * then repair only the local confirmed cache (never the offline outbox).
+   * A genuinely empty server invoice collection remains authoritative.
+   */
+  async verifyUnexpectedEmptyInvoiceProjection(): Promise<'recovered' | 'verified-empty'> {
+    const remote = (this.sync as any).remote;
+    if (!remote || typeof remote.fetchAuthoritativeBootstrap !== 'function')
+      throw new Error('AUTHORITATIVE_INVOICE_VERIFICATION_UNAVAILABLE');
+    const snapshot = await remote.fetchAuthoritativeBootstrap();
+    if (!Array.isArray(snapshot?.records) || !snapshot?.cursor)
+      throw new Error('INVALID_AUTHORITATIVE_INVOICE_VERIFICATION');
+    const localCursor = await this.local.cursor();
+    const localSequence = localCursor?.sequence;
+    const serverSequence = snapshot.cursor.sequence;
+    if (Number.isSafeInteger(localSequence) &&
+        (!Number.isSafeInteger(serverSequence) || serverSequence < localSequence!))
+      throw new Error('STALE_AUTHORITATIVE_INVOICE_VERIFICATION');
+    const confirmedInvoices = snapshot.records.filter((row: any) =>
+      row.entity === 'invoices' && row.value !== null);
+    if (!confirmedInvoices.length) return 'verified-empty';
+    // Uses an atomic IndexedDB transaction, retains all pending/conflicted
+    // commands, and emits one repository change after a successful repair.
+    await this.local.refreshAuthoritativeSnapshot(snapshot.records, snapshot.cursor);
+    return 'recovered';
+  }
+
   async getCloudSnapshot(): Promise<Record<string, any[]>> {
     const remote = (this.sync as any).remote;
     if (remote && typeof remote.fetchCloudSnapshot === 'function') {
