@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {accountStatementPdfFilename} from '../utils/accountStatementPdf';
+import {waitForStatementPrintPhotos} from '../utils/statementPrintReadiness';
 import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
 import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStatementPdf';
 import { DateInput } from '../components/common/DateInput';
@@ -227,11 +228,15 @@ export const AccountStatementModal: React.FC = () => {
   };
 
   const handlePrint = () => {
-    document.body.classList.add('printing-mode');
-    window.print();
-    setTimeout(() => {
-      document.body.classList.remove('printing-mode');
-    }, 1000);
+    void (async()=>{
+      const ready=await waitForStatementPrintPhotos();
+      if(!ready&&!window.confirm('لم تكتمل بعض الصور الأصلية عالية الدقة. هل ترغب بالطباعة باستخدام الصور المصغّرة المتاحة؟'))return;
+      document.body.classList.add('printing-mode');
+      try{window.print();}
+      finally{
+        setTimeout(()=>document.body.classList.remove('printing-mode'),1000);
+      }
+    })();
   };
 
   const [serverPdfDownloading,setServerPdfDownloading]=useState(false);
