@@ -113,3 +113,37 @@ test('same notes plus a changed financial amount must never be silently accepted
  const inv=original();const ls=lines();ls[0].notes='بعد التغيير';ls[0].unitPrice=26;
  assert.equal(edit(inv,ls),null);
 });
+
+test('old POS invoices with omitted units and branch IDs can retain their numbers on notes-only save',()=>{
+ const inv=original() as any;
+ inv.branch='الفرع الرئيسي';
+ delete inv.branchId;
+ inv.currency='₪';
+ delete inv.items[0].unit;
+ const l=lines();
+ l[0].item={id:'itm-1',unit:'حبة'} as any;
+ l[0].notes='الملاحظة المعدلة';
+ const result=preparePosDescriptionOnlyEdit(inv,l,inv.customerName,'credit','cust-1',
+  inv.notes,{...options(),branch:'الفرع الرئيسي',branchId:'branch-main'});
+ assert.equal(result?.items[0].notes,'الملاحظة المعدلة');
+ assert.equal(result?.items[0].unit,undefined,'Do not fabricate a unit in the stored invoice');
+ assert.equal(result?.branchId,undefined,'Do not fabricate a financial branch identity');
+ assert.equal(result?.currency,'₪','Keep the exact historical currency representation');
+});
+
+test('old cash vouchers with legacy treasury shorthand do not force a new cash movement',()=>{
+ const inv=original() as any;
+ inv.paymentMethod='cash';
+ inv.paidAmount=50;
+ inv.remainingAmount=0;
+ delete inv.cashPaidAmount;
+ inv.treasuryAccountCode='1101';
+ const result=preparePosDescriptionOnlyEdit(inv,
+  [{...lines()[0],notes:'تعديل ملاحظة فاتورة نقدية'}],
+  inv.customerName,'cash','cust-1',inv.notes,
+  {...options(),paidAmount:50,cashPaidAmount:50,
+   cashTreasuryCode:'CASH-1101',treasuryAccountCode:'CASH-1101'});
+ assert.equal(result?.items[0].notes,'تعديل ملاحظة فاتورة نقدية');
+ assert.equal(result?.treasuryAccountCode,'1101','Never rewrite the old treasury route');
+ assert.equal(result?.paidAmount,50);
+});
