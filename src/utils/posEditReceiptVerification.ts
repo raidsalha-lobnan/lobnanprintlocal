@@ -8,6 +8,9 @@ type EditedPosLine = {
   quantity:number;
   unitPrice:number;
   discount?:number;
+  tax?:number;
+  hasDimensions?:boolean;
+  attachments?:Array<{id?:string}>;
   unit?:string;
   length?:number;
   width?:number;
@@ -59,6 +62,27 @@ export function verifyPosEditReceipt(
       return 'INVOICE_ITEM_PRICE_NOT_SAVED';
     if(!sameNumber(stored.discount,current.discount,0.00001))
       return 'INVOICE_ITEM_DISCOUNT_NOT_SAVED';
+    if(stored.tax!=null&&current.tax!=null&&!sameNumber(stored.tax,current.tax,0.00001))
+      return 'INVOICE_ITEM_TAX_NOT_SAVED';
+    if(stored.hasDimensions!=null&&current.hasDimensions!=null&&
+       Boolean(stored.hasDimensions)!==Boolean(current.hasDimensions))
+      return 'INVOICE_ITEM_DIMENSION_MODE_NOT_SAVED';
+    if(stored.length!=null&&current.length!=null&&
+       !sameNumber(stored.length,current.length,0.00001))
+      return 'INVOICE_ITEM_LENGTH_NOT_SAVED';
+    if(stored.width!=null&&current.width!=null&&
+       !sameNumber(stored.width,current.width,0.00001))
+      return 'INVOICE_ITEM_WIDTH_NOT_SAVED';
+    if(stored.count!=null&&current.count!=null&&
+       !sameNumber(stored.count,current.count,0.00001))
+      return 'INVOICE_ITEM_COUNT_NOT_SAVED';
+    if(Array.isArray(current.attachments)){
+      const expected=current.attachments.map(a=>String(a.id||''));
+      const actual=(Array.isArray(stored.attachments)?stored.attachments:[])
+        .map(a=>String(a.id||''));
+      if(JSON.stringify(expected)!==JSON.stringify(actual))
+        return 'INVOICE_ITEM_ATTACHMENTS_NOT_SAVED';
+    }
     // Historical invoices can omit unit entirely; the cashier shows the
     // catalog's fallback unit without writing a new inventory denomination.
     // A persisted explicit unit, however, must match the displayed edit.
