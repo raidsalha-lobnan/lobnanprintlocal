@@ -59,7 +59,11 @@ export function verifyPosEditReceipt(
       return 'INVOICE_ITEM_PRICE_NOT_SAVED';
     if(!sameNumber(stored.discount,current.discount,0.00001))
       return 'INVOICE_ITEM_DISCOUNT_NOT_SAVED';
-    if(current.unit && asText(stored.unit)!==asText(current.unit))
+    // Historical invoices can omit unit entirely; the cashier shows the
+    // catalog's fallback unit without writing a new inventory denomination.
+    // A persisted explicit unit, however, must match the displayed edit.
+    if(current.unit && stored.unit!=null &&
+       asText(stored.unit)!==asText(current.unit))
       return 'INVOICE_ITEM_UNIT_NOT_SAVED';
   }
   return null;
