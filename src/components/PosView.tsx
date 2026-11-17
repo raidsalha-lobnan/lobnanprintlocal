@@ -2538,6 +2538,10 @@ const getInitialPosDraft = (): PosFullDraftData => {
       treasuryCode?: string;
     }
   ) => {
+    // Capture the invoice identity synchronously at the start of the click.
+    // A sync/event render while awaiting PostgreSQL must never convert an edit
+    // into a new sale or skip verification of the edited source invoice.
+    const intendedEditingInvoiceId=currentEditingInvoiceIdRef.current||editingPosInvoiceId||null;
     // 0. Active non-empty lines filter
     const activeLines = tableLines.filter(l => (l.itemName && l.itemName.trim() !== '') || l.unitPrice > 0 || l.quantity > 0);
     if (activeLines.length === 0 || calculatedTotalAmount <= 0) {
@@ -2683,8 +2687,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
       selectedCustomerId || undefined,
       invoiceNotes,
       {
-        invoiceNumber: (currentEditingInvoiceIdRef.current || editingPosInvoiceId)
-          ? invoices.find(i => i.id === (currentEditingInvoiceIdRef.current || editingPosInvoiceId))?.invoiceNumber
+        invoiceNumber: intendedEditingInvoiceId
+          ? invoices.find(i => i.id === intendedEditingInvoiceId)?.invoiceNumber
           : undefined,
         date: invoiceDate,
         additionalCharges,
@@ -2697,7 +2701,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
         warehouse,
         userId: currentUser?.id,
         userName: currentUser?.fullName || currentUser?.username,
-        editingInvoiceId: currentEditingInvoiceIdRef.current || editingPosInvoiceId || undefined,
+        editingInvoiceId: intendedEditingInvoiceId || undefined,
         editingInvoiceSnapshot: openedInvoiceSignatureRef.current || undefined,
         counterpartyType: posTargetType,
         counterpartyId: selectedCustomerId || undefined,
@@ -2747,7 +2751,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     }
 
     const savedInvoice = postRes.invoice;
-    const editingId=currentEditingInvoiceIdRef.current||editingPosInvoiceId;
+    const editingId=intendedEditingInvoiceId;
     if(editingId){
       const mismatch=verifyPosEditReceipt(
         savedInvoice,editingId,activeLines,invoiceNotes,paymentNotes,invoiceDate
@@ -2767,7 +2771,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     // Older name-only invoices are grouped read-only using the same identity key.
     // Atomic POS already created/linked this sub-customer in the invoice bundle.
     // Never run the legacy independent registration again after a successful sale.
-    if (posTargetType === 'customer' && selectedCustomerId && !savedInvoice.subCustomerId) {
+    if (!editingId && posTargetType === 'customer' && selectedCustomerId && !savedInvoice.subCustomerId) {
       const parent = parties.find(p => p.id === selectedCustomerId && !p.isSubCustomer);
       const walkInName = cleanSubCustomerName(subCustomerName || customCustomerText);
       if (parent && walkInName && !registeredSubCustomer(parties, parent.id, walkInName)) {
@@ -2812,7 +2816,21 @@ const getInitialPosDraft = (): PosFullDraftData => {
       setSelectedInvoiceForPrint(savedInvoice);
     }
 
-    // Reset to a fresh blank invoice
+    // Saving an existing invoice is NOT a new checkout. Previously this code
+    // unconditionally wiped all POS lines and their notes even after a
+    // successful edit, causing the reported "note disappears on Save" and a
+    // dangerous second save as a fresh sale. Keep the edited invoice on-screen
+    // with its existing line notes, parties, payments and original identity.
+    if(editingId){
+      currentEditingInvoiceIdRef.current=savedInvoice.id;
+      lastLoadedInvoiceIdRef.current=savedInvoice.id;
+      openedInvoiceSignatureRef.current=invoiceEditSignature(savedInvoice);
+      if(editingPosInvoiceId!==savedInvoice.id)
+        setEditingPosInvoiceId(savedInvoice.id);
+      return;
+    }
+
+    // Only a NEW sale clears the cashier screen after an accepted save.
     setInvoiceSeqNumber('');
 
     setTableLines([
