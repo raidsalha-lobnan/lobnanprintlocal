@@ -32,6 +32,7 @@ import {invoiceEditSignature} from '../utils/invoiceEditSignature';
 import {verifyPosEditReceipt} from '../utils/posEditReceiptVerification';
 import {resolvePosPaymentMethod} from '../utils/posPaymentMethod';
 import {dateForNewPosInvoice,localPosToday} from '../utils/posInvoiceDate';
+import {prepareInvoiceGalleryImages} from '../utils/printQualityAssets';
 import { matchKeyboardShortcut } from '../utils/keyboardShortcuts';
 import { calculatePartyTrueBalance, calculateEmployeeTrueBalance } from '../utils/statementGenerator';
 import {
@@ -297,48 +298,6 @@ const DraggableDigitalDisplay = ({ amount }: { amount: number }) => {
       </div>
     </div>
   );
-};
-
-const compressToThumbnail = (file: File): Promise<string> => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 120;
-        const MAX_HEIGHT = 120;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.7));
-        } else {
-          resolve(e.target?.result as string);
-        }
-      };
-      img.onerror = () => resolve('');
-      img.src = e.target?.result as string;
-    };
-    reader.onerror = () => resolve('');
-    reader.readAsDataURL(file);
-  });
 };
 
 const parseThumbnails = (val?: string): string[] => {
@@ -706,6 +665,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
   >(null);
 
   // Table Lines State - تبدأ دائماً كفاتورة جديدة فارغة عند فتح شاشة الكاشير
+  const pendingGalleryUploadsRef=useRef(0);
   const [tableLines, setTableLines] = useState<PosTableLine[]>(() => {
     return [
       {
@@ -2543,6 +2503,10 @@ const getInitialPosDraft = (): PosFullDraftData => {
       treasuryCode?: string;
     }
   ) => {
+    if(pendingGalleryUploadsRef.current>0){
+      alert('ما زال رفع الصور الأصلية للبند جارياً. لا تحفظ الفاتورة قبل اكتماله كي لا تفقد صور الطباعة عالية الدقة.');
+      return;
+    }
     // A green server indicator does not prove the browser's authoritative
     // IndexedDB/PG repository has booted. Never attempt a financial command
     // with a missing repository or silently clear the invoice afterward.
@@ -5079,11 +5043,25 @@ const getInitialPosDraft = (): PosFullDraftData => {
                                   onChange={async (e) => {
                                     const files = e.target.files;
                                     if (files && files.length > 0) {
-                                      const promises = Array.from(files).map((file: File) => compressToThumbnail(file));
-                                      const compressedImages = await Promise.all(promises);
-                                      const validImages = compressedImages.filter(img => img !== '');
-                                      if (validImages.length > 0) {
-                                        handleUpdateLine(line.id, 'imageThumbnail', JSON.stringify(validImages));
+                                      pendingGalleryUploadsRef.current++;
+                                      try{
+                                        const prepared=await prepareInvoiceGalleryImages(Array.from(files));
+                                        if(prepared.thumbnails.length){
+                                          setTableLines(prev=>prev.map(current=>current.id!==line.id?current:{
+                                            ...current,
+                                            imageThumbnail:JSON.stringify(prepared.thumbnails),
+                                            attachments:[...(current.attachments||[]),...prepared.originals]
+                                          }));
+                                        }
+                                        if(prepared.localOnlyCount){
+                                          alert('تم الاحتفاظ بالصور الأصلية بجودتها الكاملة على هذا الجهاز، لكن لم يُكتمل رفع بعضها إلى المخزن المركزي. سيستخدم PDF على الأجهزة الأخرى صور المعاينة إلى أن ترفع الصور الأصلية من هذا الجهاز.');
+                                        }
+                                      }catch(error){
+                                        console.error('Print-quality gallery upload failed',error);
+                                        alert('تعذّر تجهيز صور البند. لم تُضف صور ناقصة إلى الفاتورة.');
+                                      }finally{
+                                        pendingGalleryUploadsRef.current--;
+                                        e.currentTarget.value='';
                                       }
                                     }
                                   }}
