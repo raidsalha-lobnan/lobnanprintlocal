@@ -4,7 +4,10 @@ import {downloadBlobFile} from '../utils/fileStorage';
 // One private, authenticated attachment API for every program device.
 // Google OAuth and encryption keys live on the server, never in a browser.
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
-const VALID_ID = /^att_[0-9a-f-]{36}$/;
+// Two supported storage backends: encrypted rclone (att_UUID) and native
+// Google Drive (opaque URL-safe file IDs). The server still verifies that
+// each ID belongs to the authorized workspace before serving content.
+const VALID_ID = /^[A-Za-z0-9_-]{8,200}$/;
 
 function connection() {
   if (!secureLoginEnabled()) throw new Error('ATTACHMENTS_REQUIRE_SECURE_LOGIN');
@@ -61,6 +64,17 @@ export async function uploadCentralAttachment(file: File): Promise<CentralAttach
 
 export function isCentralAttachmentId(id: string | undefined): boolean {
   return VALID_ID.test(id || '');
+}
+
+/** Retrieve an authenticated original image for a report without triggering a download. */
+export async function fetchCentralAttachmentBlob(fileId:string):Promise<Blob>{
+  if(!VALID_ID.test(fileId))throw new Error('INVALID_CLOUD_ATTACHMENT_ID');
+  const {base,headers}=connection();
+  const response=await fetch(base+'/api/v1/attachments/content/'+encodeURIComponent(fileId),{
+    headers,cache:'no-store'
+  });
+  if(!response.ok)throw await failure(response);
+  return response.blob();
 }
 
 export async function downloadCentralAttachment(fileId: string, filename: string): Promise<void> {
