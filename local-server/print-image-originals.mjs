@@ -9,6 +9,7 @@ const IMAGE_TYPES=new Map([
 const VALID_ID=/^[a-zA-Z0-9_-]{8,200}$/;
 const MAX_IMAGE_BYTES=20*1024*1024;
 const MAX_DISTINCT_PHOTOS=300;
+const MAX_REPORT_IMAGE_BYTES=160*1024*1024;
 
 function reportInvoices(snapshot,{type,partyId,fromDate,toDate}){
   if(!['customer_statement','supplier_statement'].includes(type))return [];
@@ -49,6 +50,7 @@ export async function hydrateOriginalPrintPhotos(snapshot,{
     throw new Error('OFFICIAL_REPORT_TOO_MANY_ORIGINAL_PHOTOS');
 
   const fileUris=new Map();
+  let reservedBytes=0;
   let idx=0;
   const entries=Array.from(unique);
   await Promise.all(Array.from({length:Math.min(entries.length,4)},async()=>{
@@ -60,6 +62,9 @@ export async function hydrateOriginalPrintPhotos(snapshot,{
       const ext=IMAGE_TYPES.get(mime);
       if(!ext||Number(record.file_size)>MAX_IMAGE_BYTES)
         throw new Error('OFFICIAL_REPORT_ORIGINAL_PHOTO_INVALID');
+      reservedBytes+=Number(record.file_size)||MAX_IMAGE_BYTES;
+      if(reservedBytes>MAX_REPORT_IMAGE_BYTES)
+        throw new Error('OFFICIAL_REPORT_TOO_MANY_ORIGINAL_PHOTO_BYTES');
       const bytes=await downloadAttachment(fileId,MAX_IMAGE_BYTES);
       if(!Buffer.isBuffer(bytes)||bytes.length<10||bytes.length>MAX_IMAGE_BYTES)
         throw new Error('OFFICIAL_REPORT_ORIGINAL_PHOTO_INVALID');
