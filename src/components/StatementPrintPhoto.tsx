@@ -58,6 +58,7 @@ export const StatementPrintPhoto:React.FC<StatementPrintPhotoProps>=({
       className={className}
       onClick={()=>onClick?.(source)}
       data-statement-photo-status={pending?'loading':source===thumbnail?'thumbnail':'original'}
+      data-statement-original-expected={original&&(original.driveFileId||original.localBlobId)?'true':'false'}
       title={pending?'جاري تحميل الصورة الأصلية للطباعة':alt}
       loading="eager"
       decoding="sync"
