@@ -586,7 +586,9 @@ export default defineConfig(() => {
       tailwindcss(),
       ...(localMode ? [] : [syncHubPlugin()]), // disable legacy file-store sync endpoints in PG mode
       VitePWA({
-        registerType: 'autoUpdate',
+        // Prevent a PWA update from activating/reloading during an unsaved POS edit.
+        // The operator applies upgrades explicitly via the existing safe-screen banner.
+        registerType: 'prompt',
         includeAssets: ['apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
         manifest: {
           id: '/',
@@ -626,6 +628,8 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          skipWaiting: false,
+          clientsClaim: false,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           maximumFileSizeToCacheInBytes: 15 * 1024 * 1024, // 15MB
         },
