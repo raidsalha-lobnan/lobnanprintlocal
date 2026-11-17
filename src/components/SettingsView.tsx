@@ -1,4 +1,5 @@
 import { resizeAndCompressImage } from '../utils/imageCompress';
+import {preparePrintLetterhead} from '../utils/printQualityAssets';
 import React, { useState } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { CurrencySettings } from './settings/CurrencySettings';
@@ -171,7 +172,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
       alert('يرجى اختيار ملف صورة صالح (PNG, JPG, SVG, WebP)');
       return;
     }
-    resizeAndCompressImage(file, 1200, 300).then(setHeaderImageUrl).catch(console.error);
+    // Preserve print-ready pixels: the old 1200x300 / 80% JPEG upload
+    // irreversibly blurred official letterheads in both PDF and paper prints.
+    preparePrintLetterhead(file)
+      .then(url=>{setHeaderImageUrl(url);setGeneralDirty(true);})
+      .catch(error=>{
+        console.error('Print letterhead upload failed',error);
+        alert('تعذّر تجهيز الترويسة عالية الدقة. استخدم صورة PNG أو JPG سليمة، ويفضّل عرض 2400 إلى 3200 بكسل.');
+      });
   };
 
   
@@ -732,6 +740,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                   </div>
                   <p className="text-[10px] text-slate-400 font-light mb-3">
                     ترويسة مصممة مسبقاً بعرض الصفحة تحتوي الشعار والاسم والبيانات. عند رفعه يُعتمد لكل المطبوعات الرسمية.
+                    يُحفظ الأصل عالي الدقة دون ضغط عندما تسمح أبعاده وحجمه؛ يوصى بصورة PNG بعرض 2400–3200 بكسل. الترويسة القديمة لا تتحسن دون إعادة رفع أصلها.
                   </p>
 
                   {/* Header Banner Preview & Input */}
