@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {accountStatementPdfFilename,pdfStatementDate} from '../src/utils/accountStatementPdf';
+import {accountStatementPdfFilename,pdfStatementDate,explainStatementPdfError} from '../src/utils/accountStatementPdf';
 
 test('principal and subsidiary customer appear without a subsidiary label in the suggested PDF filename',()=>{
  const filename=accountStatementPdfFilename({
@@ -95,4 +95,27 @@ test('PDF renderer supports Tailwind CSS4 color functions and keeps capture in t
  assert.ok(helper.includes('STATEMENT_PDF_IMAGE_CORS_BLOCKED'));
  assert.ok(helper.includes('STATEMENT_PDF_IMAGE_UNAVAILABLE'));
 
+});
+
+test('PDF export never silently saves a report with missing letterhead or thumbnails',()=>{
+ const helper=readFileSync(new URL('../src/utils/accountStatementPdf.ts',import.meta.url),'utf8');
+ assert.ok(helper.includes('copyLoadedReportImages(report,copy)'));
+ assert.ok(helper.includes('image.naturalWidth<1'));
+ assert.ok(helper.includes('context.drawImage(image'));
+ assert.ok(helper.includes('bitmap.toDataURL'));
+ assert.ok(helper.includes('clone.decode()'));
+ assert.ok(helper.includes('scopedStatementPrintCss()'));
+ assert.ok(helper.includes('copy.dataset.statementPdf'));
+ const message=explainStatementPdfError(new Error('STATEMENT_PDF_IMAGE_CORS_BLOCKED'));
+ assert.ok(message.includes('صور'));
+ assert.ok(message.includes('طباعة التقرير'));
+});
+
+test('PDF pagination keeps invoice title attached to the next item/photo row when it fits',()=>{
+ const capture=readFileSync(new URL('../src/utils/captureOfficialPrintSurface.ts',import.meta.url),'utf8');
+ assert.ok(capture.includes('statement-invoice-title'));
+ assert.ok(capture.includes("row.classList.contains('invoice-heading')"));
+ assert.ok(capture.includes('majorBreaks'));
+ assert.ok(capture.includes('minorBreaks'));
+ assert.ok(capture.includes('if(completed)end=completed'));
 });
