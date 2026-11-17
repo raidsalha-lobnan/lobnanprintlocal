@@ -58,6 +58,7 @@ import {
 } from '../../services/liveSheetService';
 import { LineAttachmentsModal } from './LineAttachmentsModal';
 import { posSound } from '../../utils/audio';
+import {prepareInvoiceGalleryImages} from '../../utils/printQualityAssets';
 
 interface DraftInvoicesQueueModalProps {
   isOpen: boolean;
@@ -200,48 +201,6 @@ const ItemNameCellInputModal: React.FC<{
       )}
     </div>
   );
-};
-
-const compressToThumbnail = (file: File): Promise<string> => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 120;
-        const MAX_HEIGHT = 120;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.7));
-        } else {
-          resolve(e.target?.result as string);
-        }
-      };
-      img.onerror = () => resolve('');
-      img.src = e.target?.result as string;
-    };
-    reader.onerror = () => resolve('');
-    reader.readAsDataURL(file);
-  });
 };
 
 const parseThumbnails = (val?: string): string[] => {
@@ -845,8 +804,14 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
     setActiveItemAutocompleteIdx(null);
   };
 
+  const pendingGalleryUploadsRef=useRef(0);
+
   // Commit Single Multi-Item Draft into Real Accounting Invoice
   const handleApproveDraft = (draft: MultiItemDraftInvoice, autoAdvance = true) => {
+    if(pendingGalleryUploadsRef.current>0){
+      alert('ما زال تجهيز الصور الأصلية جارياً. لا تعتمد الفاتورة قبل انتهاء رفع المرفقات.');
+      return;
+    }
     if (!draft.items || draft.items.length === 0) {
       alert('لا يمكن اعتماد فاتورة بدون بنود.');
       return;
@@ -1487,11 +1452,25 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
                                     onChange={async (e) => {
                                       const files = e.target.files;
                                       if (files && files.length > 0) {
-                                        const promises = Array.from(files).map((file: File) => compressToThumbnail(file));
-                                        const compressedImages = await Promise.all(promises);
-                                        const validImages = compressedImages.filter(img => img !== '');
-                                        if (validImages.length > 0) {
-                                          handleUpdateItem(currentDraft.id, item.id, { imageThumbnail: JSON.stringify(validImages) });
+                                        const input=e.currentTarget;
+                                        pendingGalleryUploadsRef.current++;
+                                        try{
+                                          const prepared=await prepareInvoiceGalleryImages(Array.from(files));
+                                          if(prepared.thumbnails.length){
+                                            handleUpdateItem(currentDraft.id,item.id,{
+                                              imageThumbnail:JSON.stringify(prepared.thumbnails),
+                                              attachments:[...(item.attachments||[]),...prepared.originals]
+                                            });
+                                          }
+                                          if(prepared.localOnlyCount){
+                                            alert('حُفظ أصل الصورة على هذا الجهاز، لكن تعذر رفع بعضها إلى المخزن المركزي. لن تظهر بدقة الطباعة الأصلية على الأجهزة الأخرى قبل رفعها.');
+                                          }
+                                        }catch(error){
+                                          console.error('Draft gallery original upload failed',error);
+                                          alert('تعذّر تجهيز صور البند؛ لم تُضف نسخ ناقصة.');
+                                        }finally{
+                                          pendingGalleryUploadsRef.current--;
+                                          input.value='';
                                         }
                                       }
                                     }}
