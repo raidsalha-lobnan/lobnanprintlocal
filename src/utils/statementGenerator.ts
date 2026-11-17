@@ -182,8 +182,11 @@ export function generateAccountStatement(params: {
     return false;
   };
 
-  // 1. Initial Opening Balance
-  const partyInitDate = (targetSubCustObj && targetSubCustObj.openingBalanceDate) || party.openingBalanceDate || '2000-01-01';
+  // 1. Single carried-forward opening balance.
+  // Foundational opening is a starting position, not a dated transaction:
+  // it must not become an extra invoice-like movement or be counted twice.
+  // When the user filters a period, combine this starting amount with ALL
+  // earlier transactions, regardless of the foundational entry's audit date.
   let initialBal = targetSubCustObj
     ? Number(targetSubCustObj.openingBalance || 0)
     : Number(party.openingBalance || 0);
@@ -191,22 +194,6 @@ export function generateAccountStatement(params: {
   const initBalType = targetSubCustObj ? targetSubCustObj.openingBalanceType : party.openingBalanceType;
   if (initBalType === 'credit') {
     initialBal = -Math.abs(initialBal);
-  }
-
-  if (initialBal !== 0) {
-    allTx.push({
-      id: `init-${targetSubCustObj ? targetSubCustObj.id : party.id}`,
-      date: partyInitDate,
-      refNum: 'OPENING',
-      type: 'opening',
-      category: 'opening',
-      typeLabel: 'رصيد افتتاحي تأسيسي',
-      description: targetSubCustObj
-        ? `الرصيد الافتتاحي المقيد للزبون الفرعي: ${targetSubCustObj.name}`
-        : 'الرصيد الافتتاحي المقيد عند إنشاء الحساب',
-      debit: initialBal > 0 ? initialBal : 0,
-      credit: initialBal < 0 ? Math.abs(initialBal) : 0
-    });
   }
 
   // 2. Sales Invoices (for Customers)
@@ -652,8 +639,11 @@ export function generateAccountStatement(params: {
   // Sort BEFORE calculating the running balance so every row reflects this order.
   allTx.sort(compareStatementChronology);
 
-  // Calculate opening balance before `fromDate`
-  let periodOpeningBalance = 0;
+  // The statement always has ONE opening position: original foundational
+  // balance + net transactions preceding the selected statement start.
+  // Opening is never in filteredTx, so it is not repeated as a second row
+  // and the movement totals measure only transactions WITHIN the period.
+  let periodOpeningBalance = initialBal;
   const filteredTx: RawTx[] = [];
 
   allTx.forEach(tx => {
