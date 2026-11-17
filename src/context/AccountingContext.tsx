@@ -2,6 +2,7 @@ import { TelegramService } from '../services/TelegramService';
 import { onlineInvoicePostingService } from '../services/onlineInvoicePostingService';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createUnifiedDataLayer } from '../sync-next/boot';
+import {repositoryStartupNeedsManualAction,repositoryStartupRetryDelay} from '../sync-next/repositoryStartupRetry';
 import { secureLoginEnabled } from '../services/secureAuth';
 import { getBinaryAttachment } from '../utils/fileStorage';
 import {registeredSubCustomer,findSubCustomerForSale,normalizeSubCustomerName} from '../utils/subCustomerIdentity';
@@ -1427,11 +1428,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             ...prev, running: false,
             lastError: 'REPOSITORY_STARTUP_FAILED: ' + String(e).slice(0,180)
           }));
-          const delay = Math.min(30000, 2000 * (2 ** Math.min(retries++, 4)));
-          retryTimer = setTimeout(() => {
-            retryTimer = null;
-            void initLayer();
-          }, delay);
+          if (!repositoryStartupNeedsManualAction(e)) {
+            const delay = repositoryStartupRetryDelay(retries++);
+            retryTimer = setTimeout(() => {
+              retryTimer = null;
+              void initLayer();
+            }, delay);
+          }
         }
       } finally {
         initializationInFlight = false;
