@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {generateAccountStatement} from '../src/utils/statementGenerator';
 import {compareStatementChronology} from '../src/utils/statementChronology';
 import type {Party,Invoice,PurchaseInvoice,PaymentVoucher} from '../src/types';
@@ -123,13 +124,13 @@ test('foundational opening balance is the first customer movement even when its 
   fromDate:'2026-11-01',toDate:'2026-11-30'
  });
  assert.deepEqual(actual.rows.map(r=>r.referenceNumber),
-  ['OPENING','INV-0022','INV-0023']);
- assert.deepEqual(actual.rows.map(r=>r.runningBalance),[26,34,38]);
- assert.equal(actual.rows[0].date,'2026-11-03','Keep original audit date');
- assert.equal(actual.rows[0].typeLabel,'رصيد افتتاحي تأسيسي');
- assert.equal(actual.openingBalance,0);
+  ['INV-0022','INV-0023'],'Founding balance must NOT be a second movement');
+ assert.deepEqual(actual.rows.map(r=>r.runningBalance),[34,38]);
+ assert.equal(actual.openingBalance,26,'One opening amount includes foundation');
  assert.equal(actual.closingBalance,38);
- assert.equal(actual.totalDebit,38);
+ assert.equal(actual.totalDebit,12,'Period debit totals exclude opening');
+ assert.equal(actual.totalCredit,0);
+ assert.equal(actual.openingBalance+actual.totalDebit-actual.totalCredit,actual.closingBalance);
 });
 
 test('foundational opening precedes earlier, same-date, and later invoices without changing balances',()=>{
@@ -140,10 +141,12 @@ test('foundational opening precedes earlier, same-date, and later invoices witho
  const after=invoice(6,'2026-11-18');
  const result=generateAccountStatement({party,invoices:[after,same,before],purchases:[],vouchers:[]});
  assert.deepEqual(result.rows.map(r=>r.referenceNumber),
-  ['OPENING','INV-0002','INV-0004','INV-0006']);
- assert.deepEqual(result.rows.map(r=>r.runningBalance),[-100,-98,-94,-88]);
+  ['INV-0002','INV-0004','INV-0006']);
+ assert.deepEqual(result.rows.map(r=>r.runningBalance),[-98,-94,-88]);
+ assert.equal(result.openingBalance,-100,'One credit opening, no duplicated founding row');
  assert.equal(result.closingBalance,-88);
- assert.equal(result.totalCredit,100);
+ assert.equal(result.totalCredit,0,'Opening is not a movement within the period');
+ assert.equal(result.totalDebit,12);
 });
 
 test('date filters continue to carry founding balance into previous-period amount only once',()=>{
@@ -167,4 +170,34 @@ test('opening precedence is independent of date even for a stand-alone sort and 
  ];
  list.sort(compareStatementChronology);
  assert.deepEqual(list.map(r=>r.refNum),['OPENING','INV-0001','INV-0002']);
+});
+
+test('full customer statement always contains exactly one carried-forward opening row in the document, never in movement rows',()=>{
+ const customerWithOpening={...customer,openingBalance:20,
+  openingBalanceDate:'2026-11-09',openingBalanceType:'debit' as const};
+ const result=generateAccountStatement({party:customerWithOpening,
+  invoices:[invoice(1,'2026-11-01'),invoice(3,'2026-11-17')],
+  purchases:[],vouchers:[]});
+ assert.equal(result.openingBalance,20);
+ assert.equal(result.rows.filter(r=>r.type==='opening').length,0);
+ assert.deepEqual(result.rows.map(r=>r.runningBalance),[21,24]);
+ assert.equal(result.closingBalance,24);
+ const document=readFileSync(new URL('../src/components/UnifiedPartyStatementDocument.tsx',import.meta.url),'utf8');
+ assert.equal((document.match(/رصيد افتتاحي سابق مدور/g)||[]).length,1,
+  'There must be exactly one opening line in the shared statement layout');
+ assert.ok(document.includes('partyStatement.openingBalance.toFixed(2)'));
+});
+
+test('nonzero opening and prior-date invoices form a single carried-forward balance, including when opening audit date is later',()=>{
+ const withOpening={...customer,openingBalance:26,
+  openingBalanceDate:'2026-11-12',openingBalanceType:'debit' as const};
+ const actual=generateAccountStatement({party:withOpening,
+  invoices:[{...invoice(22,'2026-11-01'),totalAmount:8,subtotal:8},
+   {...invoice(23,'2026-11-08'),totalAmount:4,subtotal:4}],
+  purchases:[],vouchers:[],fromDate:'2026-11-05',toDate:'2026-11-30'});
+ assert.equal(actual.openingBalance,34);
+ assert.deepEqual(actual.rows.map(r=>r.referenceNumber),['INV-0023']);
+ assert.equal(actual.rows[0].runningBalance,38);
+ assert.equal(actual.totalDebit,4);
+ assert.equal(actual.closingBalance,38);
 });
