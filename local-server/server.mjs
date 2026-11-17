@@ -373,7 +373,7 @@ const srv=http.createServer(async(req,res)=>{
       officialPdfActive++;
       try{
         const result=await generateOfficialReportPdf({
-          pool,workspace,access,type,partyId,employeeId,fromDate,toDate
+          pool,workspace,access,driveStorage,type,partyId,employeeId,fromDate,toDate
         });
         // Never cache financial PDFs, and never upload their contents or
         // write another copy into PostgreSQL, Telegram, or Google Drive.
