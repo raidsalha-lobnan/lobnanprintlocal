@@ -7,7 +7,7 @@ const reports=readFileSync(new URL('../src/components/ReportsView.tsx',import.me
 
 test('Reports Center itself has a visible PDF button next to the report print button',()=>{
   const headerStart=reports.indexOf('مركز التقارير المحاسبية والتفصيلية');
-  const button=reports.indexOf('<span>حفظ PDF عبر Chrome</span>',headerStart);
+  const button=reports.indexOf("<span>{serverPdfDownloading?'جاري إنشاء PDF...':'حفظ PDF مباشر'}</span>",headerStart);
   const print=reports.indexOf('<span>طباعة التقرير</span>',headerStart);
   assert.ok(headerStart>=0,'Must target the actual Reports Center');
   assert.ok(button>headerStart&&print>button,'Save PDF must be visible before Print button');
@@ -16,14 +16,16 @@ test('Reports Center itself has a visible PDF button next to the report print bu
   assert.ok(reports.includes("activeReport==='employee_statement'"));
 });
 
-test('Reports Center PDF uses the EXACT original browser print path for bidi text and images',()=>{
-  assert.ok(reports.includes('printStatementWithNativeBrowser(filename,handlePrint);'));
-  assert.ok(reports.includes('const handlePrint = () => {'));
-  assert.ok(reports.includes('window.print();'));
+test('Reports Center Save PDF downloads via authorized headless Chrome without opening print preview',()=>{
+  assert.ok(reports.includes('await downloadServerOfficialStatementPdf({'));
+  assert.ok(reports.includes('subPartyId=selectedSubCustomerId;'));
+  assert.ok(reports.includes('subPartyId=selectedSubSupplierId;'));
+  assert.ok(reports.includes('showImages:showStatementImageThumbnails'));
+  assert.ok(reports.includes('showItemDetails:showStatementItemDetails'));
   assert.ok(!reports.includes('downloadAccountStatementPdf('),
-    'Old canvas snapshots cause RTL corruption and missing photos in long reports');
-  assert.ok(reports.includes('Save as PDF'),
-    'The browser printer selection remains under the operator control');
+    'Canvas snapshots cause Arabic corruption and missing images in long reports');
+  assert.ok(reports.includes('const handlePrint = () => {'));
+  assert.ok(reports.includes('window.print();'),'Original Print remains an independent fallback');
 });
 
 test('Customer PDF includes main then selected child customer name without adding فرعي',()=>{
