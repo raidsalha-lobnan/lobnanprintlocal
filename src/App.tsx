@@ -8,6 +8,7 @@ import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Navbar } from './components/Navbar';
 import {explainSyncFailure} from './sync-next/syncFailureGuide';
 import {shouldUpgradeClientBuild} from './utils/buildUpgrade';
+import {repositoryStartupNeedsManualAction} from './sync-next/repositoryStartupRetry';
 import { DesktopStatusBar } from './components/DesktopStatusBar';
 import { HomeScreenView } from './components/HomeScreenView';
 import { DashboardView } from './components/DashboardView';
@@ -576,7 +577,9 @@ const MainLayout: React.FC = () => {
           <div>جاري تجهيز مستودع الفواتير المحلي وربطه بقاعدة البيانات. الحفظ غير متاح حتى يكتمل التشغيل، لكن المدخلات الحالية لن تُمسح.</div>
           {syncCoordinatorState.lastError && (
             <div className="mt-1 text-xs font-normal">
-              فشل تجهيز المستودع مؤقتاً، وستتم إعادة المحاولة تلقائياً. إذا استمر التنبيه، راجع اتصال الخادم وتسجيل الدخول.
+              {repositoryStartupNeedsManualAction(syncCoordinatorState.lastError)
+                ? 'يحتاج تجهيز المستودع إلى مراجعة اتصال الحساب أو حالة البيانات المحلية قبل متابعة الحفظ. لا تمسح بيانات الموقع أو تنشئ فاتورة مكررة.'
+                : 'فشل تجهيز المستودع مؤقتاً، وسيحاول البرنامج الاتصال تلقائياً. لا تحذف المسودة الحالية.'}
             </div>
           )}
         </div>
