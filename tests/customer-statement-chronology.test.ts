@@ -109,3 +109,62 @@ test('supplier purchases also use official numeric order when the entry time is 
   ['PUR-0013','PUR-0014','PUR-0015']);
  assert.equal(result.closingBalance,-42);
 });
+
+test('foundational opening balance is the first customer movement even when its entry date follows an invoice',()=>{
+ // Screenshot regression: INV-0022 dated 01/11, opening balance entered
+ // on 03/11, then INV-0023 dated 08/11. Opening is the starting amount,
+ // not an ordinary 03/11 transaction.
+ const party={...customer,openingBalance:26,openingBalanceDate:'2026-11-03',
+  openingBalanceType:'debit' as const};
+ const first={...invoice(22,'2026-11-01'),totalAmount:8,subtotal:8};
+ const last={...invoice(23,'2026-11-08'),totalAmount:4,subtotal:4};
+ const actual=generateAccountStatement({
+  party,invoices:[last,first],purchases:[],vouchers:[],
+  fromDate:'2026-11-01',toDate:'2026-11-30'
+ });
+ assert.deepEqual(actual.rows.map(r=>r.referenceNumber),
+  ['OPENING','INV-0022','INV-0023']);
+ assert.deepEqual(actual.rows.map(r=>r.runningBalance),[26,34,38]);
+ assert.equal(actual.rows[0].date,'2026-11-03','Keep original audit date');
+ assert.equal(actual.rows[0].typeLabel,'رصيد افتتاحي تأسيسي');
+ assert.equal(actual.openingBalance,0);
+ assert.equal(actual.closingBalance,38);
+ assert.equal(actual.totalDebit,38);
+});
+
+test('foundational opening precedes earlier, same-date, and later invoices without changing balances',()=>{
+ const party={...customer,openingBalance:100,openingBalanceDate:'2026-11-17',
+  openingBalanceType:'credit' as const};
+ const same=invoice(4,'2026-11-17');
+ const before=invoice(2,'2026-11-15');
+ const after=invoice(6,'2026-11-18');
+ const result=generateAccountStatement({party,invoices:[after,same,before],purchases:[],vouchers:[]});
+ assert.deepEqual(result.rows.map(r=>r.referenceNumber),
+  ['OPENING','INV-0002','INV-0004','INV-0006']);
+ assert.deepEqual(result.rows.map(r=>r.runningBalance),[-100,-98,-94,-88]);
+ assert.equal(result.closingBalance,-88);
+ assert.equal(result.totalCredit,100);
+});
+
+test('date filters continue to carry founding balance into previous-period amount only once',()=>{
+ const party={...customer,openingBalance:26,openingBalanceDate:'2026-11-03',
+  openingBalanceType:'debit' as const};
+ const early={...invoice(22,'2026-11-01'),totalAmount:8,subtotal:8};
+ const later={...invoice(23,'2026-11-08'),totalAmount:4,subtotal:4};
+ const result=generateAccountStatement({party,invoices:[early,later],
+  purchases:[],vouchers:[],fromDate:'2026-11-05',toDate:'2026-11-30'});
+ assert.equal(result.openingBalance,34);
+ assert.deepEqual(result.rows.map(r=>r.referenceNumber),['INV-0023']);
+ assert.equal(result.rows[0].runningBalance,38);
+ assert.equal(result.closingBalance,38);
+});
+
+test('opening precedence is independent of date even for a stand-alone sort and preserves normal same-day invoice order',()=>{
+ const list=[
+  {id:'z',date:'2026-11-01',refNum:'INV-0002',type:'invoice',createdAt:'2026-11-01T08:00:00Z'},
+  {id:'a',date:'2026-11-03',refNum:'OPENING',type:'opening'},
+  {id:'y',date:'2026-11-01',refNum:'INV-0001',type:'invoice',createdAt:'2026-11-01T07:00:00Z'}
+ ];
+ list.sort(compareStatementChronology);
+ assert.deepEqual(list.map(r=>r.refNum),['OPENING','INV-0001','INV-0002']);
+});
