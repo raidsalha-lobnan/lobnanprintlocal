@@ -16,6 +16,7 @@ import {createWorkspaceSettingsPatch} from '../sync-next/settingsPatch';
 import {MAIN_CASH_TREASURY_CODE,canonicalTreasuryCode,requiredTreasury,ledgerAccountForTreasury} from '../utils/treasuryCodes';
 import { LocalHttpSyncTransport, getLocalSyncConfig } from '../sync-next/httpTransport';
 import {invoiceEditSignature} from '../utils/invoiceEditSignature';
+import {preparePosDescriptionOnlyEdit} from '../utils/posDescriptionEdit';
 import {buildReceiptAmendment} from '../utils/receiptAmendment';
 import type {EditableReceipt} from '../utils/receiptAmendment';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
@@ -7198,7 +7199,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               Math.abs(Number(draft.bankPaidAmount||0)-Number(original.paidAmount||0))<0.000001&&
               Number(draft.cashPaidAmount||0)===0));
         const rateOnlyPayment=previousRate!==currencyRate&&sameReceipt;
-        const proposed:Invoice={
+        // A note-only edit must NEVER silently recalculate the already
+        // posted money, VAT, stock, or payment snapshots from UI defaults.
+        // Edits to any accounting field still use the verified revision bundle.
+        const descriptionOnly=preparePosDescriptionOnlyEdit(
+          original,items,customerName,paymentMethod,customerId,notes,
+          {...extraOptions, editingInvoiceId:original.id}
+        );
+        const proposed:Invoice=descriptionOnly||{
           ...original,
           ...draft,
           id:original.id,
