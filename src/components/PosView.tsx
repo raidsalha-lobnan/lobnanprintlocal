@@ -30,6 +30,7 @@ import { getAvailableUnitsOfMeasure, isSquareMeterUnit } from '../utils/unitsOfM
 import { isDimensionalInvoiceItem } from '../utils/invoiceDimensions';
 import {invoiceEditSignature} from '../utils/invoiceEditSignature';
 import {verifyPosEditReceipt} from '../utils/posEditReceiptVerification';
+import {resolvePosPaymentMethod} from '../utils/posPaymentMethod';
 import { matchKeyboardShortcut } from '../utils/keyboardShortcuts';
 import { calculatePartyTrueBalance, calculateEmployeeTrueBalance } from '../utils/statementGenerator';
 import {
@@ -2653,17 +2654,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
     const bBase = bankVal * (bankExchangeRate || 1.0);
     const tPaidBase = cBase + bBase;
 
-    let effectiveMethod: PaymentMethod = forcedPayment ? forcedPayment.method : 'credit';
-    if (!forcedPayment) {
-      if (cBase > 0 && bBase === 0) effectiveMethod = 'cash';
-      else if (bBase > 0 && cBase === 0)
-        // An existing bank-transfer invoice must not turn into a card payment
-        // merely because the cashier is saving a note.
-        effectiveMethod = paymentMethod === 'bank_transfer' || paymentMethod === 'card'
-          ? paymentMethod : 'card';
-      else if (cBase > 0 && bBase > 0) effectiveMethod = 'cash';
-      else effectiveMethod = 'credit';
-    }
+    const effectiveMethod: PaymentMethod = forcedPayment
+      ? forcedPayment.method
+      : resolvePosPaymentMethod(cBase,bBase,paymentMethod);
 
     const effectiveTreasuryCode = bBase > cBase ? (forcedPayment?.method === 'card' ? forcedPayment.treasuryCode : bankTreasuryCode) : 'CASH-1101';
     if (bBase > 0 && !treasuries.some(t => t.accountCode === (forcedPayment?.method === 'card' ? forcedPayment.treasuryCode : bankTreasuryCode) && t.type !== 'cash_box' && t.status !== 'inactive')) {
