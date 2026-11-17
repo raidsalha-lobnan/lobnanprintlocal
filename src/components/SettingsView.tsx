@@ -161,7 +161,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
       alert('يرجى اختيار ملف صورة صالح (PNG, JPG, SVG, WebP)');
       return;
     }
-    resizeAndCompressImage(file, 400, 400).then(setLogoUrl).catch(console.error);
+    // Preserve logo detail on the official A4 header; 400px was insufficient.
+    resizeAndCompressImage(file, 1200, 1200, .96)
+      .then(url=>{setLogoUrl(url);setGeneralDirty(true);}).catch(console.error);
   };
 
   // Full Header banner file upload handler
