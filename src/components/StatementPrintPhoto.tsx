@@ -8,7 +8,7 @@ export interface StatementPrintPhotoProps {
   original?:LineAttachment;
   alt:string;
   className?:string;
-  onClick?:()=>void;
+  onClick?:(src:string)=>void;
 }
 
 /** Shared print/screen photo. Server SSR supplies the same full-resolution
@@ -56,7 +56,7 @@ export const StatementPrintPhoto:React.FC<StatementPrintPhotoProps>=({
       src={source}
       alt={alt}
       className={className}
-      onClick={onClick}
+      onClick={()=>onClick?.(source)}
       data-statement-photo-status={pending?'loading':source===thumbnail?'thumbnail':'original'}
       title={pending?'جاري تحميل الصورة الأصلية للطباعة':alt}
       loading="eager"
