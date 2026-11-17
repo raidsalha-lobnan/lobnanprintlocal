@@ -8,15 +8,8 @@ import { OfficialStamp } from './common/OfficialStamp';
 import { Image as ImageIcon, Eye } from 'lucide-react';
 import type { StatementResult } from '../utils/statementGenerator';
 import type { BusinessSettings } from '../types';
-
-const parseThumbnails = (val?: string): string[] => {
-  if (!val) return [];
-  const trimmed = val.trim();
-  if (trimmed.startsWith('[')) {
-    try { const parsed = JSON.parse(trimmed); if (Array.isArray(parsed)) return parsed; } catch {}
-  }
-  return [val];
-};
+import {statementPhotoSources} from '../utils/statementPhotoSources';
+import {StatementPrintPhoto} from './StatementPrintPhoto';
 
 export interface UnifiedPartyStatementProps {
   partyStatement: StatementResult;
@@ -379,49 +372,33 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                     </div>
                                   )}
 
-                                  {/* كشف تفصيلي بالصور: شريط المصغرات التفصيلي بالصور تحت جدول الفاتورة مباشرة */}
-                                  {showImageThumbnailsInStatement && row.items && row.items.some(it => 
-                                    it.imageThumbnail || (it.attachments && it.attachments.some(a => a.data || a.type?.startsWith('image/')))
-                                  ) && (
+                                  {/* تحميل الأصل عالي الدقة للطباعة، مع إبقاء 120px للمعاينة السريعة فقط */}
+                                  {showImageThumbnailsInStatement && row.items && statementPhotoSources(row.items).length > 0 && (
                                     <div className="bg-white p-2 border-t border-slate-200">
                                       <div className="grid grid-cols-7 gap-2.5 w-full print:grid-cols-7">
-                                        {row.items.flatMap((it, itemIdx) => {
-                                           const thumbs = parseThumbnails(it.imageThumbnail);
-                                           const attImgs = (it.attachments || [])
-                                             .filter(a => a.data || a.type?.startsWith('image/'))
-                                             .map(a => a.data || '');
-                                           const allImgs = Array.from(new Set([...thumbs, ...attImgs].filter(Boolean)));
-                                           return allImgs.map(imgStr => ({
-                                             imgStr,
-                                             itemName: it.itemName,
-                                             itemCode: it.itemCode,
-                                             itemSeq: itemIdx + 1
-                                           }));
-                                         }).map((imgObj, idx) => (
-                                           <div
-                                             key={idx}
-                                             onClick={() => setPreviewModalImage({ url: imgObj.imgStr, name: imgObj.itemName })}
-                                             className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group"
-                                             title={`معاينة وتكبير صورة "${imgObj.itemName}" (بند #${imgObj.itemSeq})`}
-                                           >
-                                             <div className="relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5">
-                                               <span className="absolute top-0.5 right-0.5 bg-slate-900/80 text-white text-[8px] font-mono font-black px-1 rounded-xs z-10 print:bg-slate-800">
-                                                 #{imgObj.itemSeq}
-                                               </span>
-                                               <img
-                                                 src={imgObj.imgStr}
-                                                 alt={imgObj.itemName}
-                                                 className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-200"
-                                                 onError={(e) => {
-                                                   e.currentTarget.style.display = 'none';
-                                                 }}
-                                               />
-                                             </div>
-                                           </div>
-                                         ))}
-                                       </div>
-                                     </div>
-                                   )}
+                                        {statementPhotoSources(row.items).map((photo, idx) => (
+                                          <div
+                                            key={idx}
+                                            className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group"
+                                            title={`معاينة صورة "${photo.itemName}" (بند #${photo.itemSeq})`}
+                                          >
+                                            <div className="relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5">
+                                              <span className="absolute top-0.5 right-0.5 bg-slate-900/80 text-white text-[8px] font-mono font-black px-1 rounded-xs z-10 print:bg-slate-800">
+                                                #{photo.itemSeq}
+                                              </span>
+                                              <StatementPrintPhoto
+                                                thumbnail={photo.preview}
+                                                original={photo.original}
+                                                alt={photo.itemName}
+                                                onClick={src=>setPreviewModalImage({url:src,name:photo.itemName})}
+                                                className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-200 print:transform-none"
+                                              />
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                  </div>
                                </td>
                              </tr>
