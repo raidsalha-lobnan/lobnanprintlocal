@@ -42,3 +42,20 @@ test('invoice identity, row order and amount mismatches block editor reset',()=>
   [{...lines()[0],unitPrice:100}],'بند توضيحي','سداد جزئي','2026-11-17'),
   'INVOICE_ITEM_PRICE_NOT_SAVED');
 });
+
+test('changed VAT, dimensions and attachment references require an exact approved receipt',()=>{
+ const withTax=saved();withTax.items[0].tax=2;
+ assert.equal(verifyPosEditReceipt(withTax,'inv-101',
+  [{...lines()[0],tax:0}],'بند توضيحي','سداد جزئي','2026-11-17'),
+  'INVOICE_ITEM_TAX_NOT_SAVED');
+ const withWidth=saved();withWidth.items[0].width=2;
+ assert.equal(verifyPosEditReceipt(withWidth,'inv-101',
+  [{...lines()[0],width:3}],'بند توضيحي','سداد جزئي','2026-11-17'),
+  'INVOICE_ITEM_WIDTH_NOT_SAVED');
+ const withAttachments=saved();
+ withAttachments.items[0].attachments=[{id:'old-attachment'} as any];
+ assert.equal(verifyPosEditReceipt(withAttachments,'inv-101',
+  [{...lines()[0],attachments:[{id:'new-attachment'}]}],
+  'بند توضيحي','سداد جزئي','2026-11-17'),
+  'INVOICE_ITEM_ATTACHMENTS_NOT_SAVED');
+});
