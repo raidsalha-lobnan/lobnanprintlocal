@@ -1,4 +1,6 @@
-import html2canvas from 'html2canvas';
+// Unlike html2canvas 1.4.1 this renderer understands Tailwind 4 oklch/color-mix.
+// Limit the substitution to official report PDF capture; other renderers stay unchanged.
+import html2canvas from 'html2canvas-pro';
 import jsPDF from 'jspdf';
 
 /**
@@ -56,6 +58,26 @@ export async function captureOfficialPrintSurface(root: HTMLElement,signal?:Abor
     });
     ensureActive();
     if(pageIndex>0)pdf.addPage();
+    // A capture positioned outside the viewport can silently render a blank
+    // white page instead of throwing. Do not deliver an empty account statement
+    // to the customer as if it were a valid PDF.
+    if(pageIndex===0){
+      const ctx=canvas.getContext('2d');
+      if(!ctx)throw new Error('OFFICIAL_REPORT_CANVAS_UNAVAILABLE');
+      const imageData=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+      let ink=0;
+      const stride=Math.max(1,Math.floor(Math.min(canvas.width,canvas.height)/120));
+      for(let py=0;py<canvas.height;py+=stride){
+        for(let px=0;px<canvas.width;px+=stride){
+          const at=(py*canvas.width+px)*4;
+          if(imageData[at]<190||imageData[at+1]<190||imageData[at+2]<190){
+            if(++ink>=8)break;
+          }
+        }
+        if(ink>=8)break;
+      }
+      if(ink<8)throw new Error('OFFICIAL_REPORT_EMPTY_CAPTURE');
+    }
     const image=canvas.toDataURL('image/jpeg',.94);
     pdf.addImage(image,'JPEG',marginLeft,marginTop,
       contentWidth,chunkHeight*contentWidth/width);
