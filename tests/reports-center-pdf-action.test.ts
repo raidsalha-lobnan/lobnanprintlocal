@@ -7,7 +7,7 @@ const reports=readFileSync(new URL('../src/components/ReportsView.tsx',import.me
 
 test('Reports Center itself has a visible PDF button next to the report print button',()=>{
   const headerStart=reports.indexOf('مركز التقارير المحاسبية والتفصيلية');
-  const button=reports.indexOf("<span>{pdfExporting?'جاري تجهيز PDF...':'حفظ PDF'}</span>",headerStart);
+  const button=reports.indexOf('<span>حفظ PDF عبر Chrome</span>',headerStart);
   const print=reports.indexOf('<span>طباعة التقرير</span>',headerStart);
   assert.ok(headerStart>=0,'Must target the actual Reports Center');
   assert.ok(button>headerStart&&print>button,'Save PDF must be visible before Print button');
@@ -16,14 +16,14 @@ test('Reports Center itself has a visible PDF button next to the report print bu
   assert.ok(reports.includes("activeReport==='employee_statement'"));
 });
 
-test('Reports Center PDF uses the currently rendered report with existing official A4 letterhead',()=>{
-  assert.ok(reports.includes('ref={reportsSurfaceRef}'));
-  assert.ok(reports.includes("querySelector<HTMLElement>('.report-a4-container')"));
-  assert.ok(reports.includes('await downloadAccountStatementPdf(surface,filename);'));
-  const action=reports.slice(reports.indexOf('const handleDownloadDetailedStatementPdf = async'),reports.indexOf('// Print helper'));
-  assert.ok(!action.includes('window.print('),'PDF must be downloaded without browser printing');
-  assert.ok(action.includes('pdfExportInFlightRef.current=true'));
-  assert.ok(action.includes('finally{'));
+test('Reports Center PDF uses the EXACT original browser print path for bidi text and images',()=>{
+  assert.ok(reports.includes('printStatementWithNativeBrowser(filename,handlePrint);'));
+  assert.ok(reports.includes('const handlePrint = () => {'));
+  assert.ok(reports.includes('window.print();'));
+  assert.ok(!reports.includes('downloadAccountStatementPdf('),
+    'Old canvas snapshots cause RTL corruption and missing photos in long reports');
+  assert.ok(reports.includes('Save as PDF'),
+    'The browser printer selection remains under the operator control');
 });
 
 test('Customer PDF includes main then selected child customer name without adding فرعي',()=>{
