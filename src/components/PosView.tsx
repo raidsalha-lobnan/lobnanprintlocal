@@ -5081,6 +5081,10 @@ const getInitialPosDraft = (): PosFullDraftData => {
                             id={`notes-input-${line.id}`}
                             type="text"
                             value={line.notes}
+                            // onInput also receives synthetic native-input normalization
+                            // and paste/IME updates. Do not allow a DOM-only note value
+                            // to be erased by the next React render.
+                            onInput={e => handleUpdateLine(line.id, 'notes', e.currentTarget.value)}
                             onChange={e => handleUpdateLine(line.id, 'notes', e.target.value)}
                             onKeyDown={e => {
                               if (e.key === 'Enter') {
