@@ -56,20 +56,21 @@ test('ISO date formatting and same-name redundancy are safe',()=>{
    'كشف حساب تفصيلي - سليم - من بداية التعامل إلى 17-11-2026.pdf');
 });
 
-test('Modal Save PDF uses the exact original A4 Chrome print path with the proposed customer filename',()=>{
+test('Modal Save PDF directly downloads via the authorized Chrome report endpoint without print preview',()=>{
  const component=readFileSync(
    new URL('../src/components/AccountStatementModal.tsx',import.meta.url),'utf8');
  const helper=readFileSync(
-   new URL('../src/utils/nativeStatementPrint.ts',import.meta.url),'utf8');
- assert.ok(component.includes('حفظ PDF عبر Chrome'));
+   new URL('../src/utils/serverOfficialStatementPdf.ts',import.meta.url),'utf8');
+ assert.ok(component.includes('حفظ PDF مباشر'));
  assert.ok(component.includes('accountStatementPdfFilename({'));
- assert.ok(component.includes('printStatementWithNativeBrowser(filename,handlePrint)'));
+ assert.ok(component.includes('await downloadServerOfficialStatementPdf({'));
+ assert.ok(component.includes('showImages:showImageThumbnailsInStatement'));
  assert.ok(component.includes('const handlePrint = () => {'));
- assert.ok(component.includes('window.print()'));
+ assert.ok(component.includes('window.print()'),'Normal A4 printing must remain available');
  assert.ok(!component.includes('downloadAccountStatementPdf('));
- assert.ok(helper.includes('document.title = proposedTitle'));
- assert.ok(helper.includes('afterprint'));
- assert.ok(helper.includes('printAction()'));
+ assert.ok(helper.includes('/api/v1/reports/official-pdf'));
+ assert.ok(helper.includes("anchor.download=filename"));
+ assert.ok(!helper.includes("window.print()"));
 });
 
 test('PDF renderer supports Tailwind CSS4 color functions and keeps capture in the viewport',()=>{
