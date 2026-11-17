@@ -43,6 +43,18 @@ export function accountStatementPdfFilename(input:StatementPdfFileNameInput):str
   return `${clean}.pdf`;
 }
 
+/** Fail with a useful, non-technical message rather than an incomplete PDF. */
+export function explainStatementPdfError(error:unknown):string{
+  const code=error instanceof Error?error.message:String(error);
+  if(/STATEMENT_PDF_IMAGE_|OFFICIAL_REPORT_IMAGE_/.test(code)){
+    return 'تعذّر تضمين إحدى صور الترويسة أو صور بنود الفاتورة في PDF. لم يتم تنزيل كشف ناقص. تحقق من أن الصور تظهر في الكشف، ثم أعد المحاولة. ويمكنك استخدام «طباعة التقرير» إذا كان مصدر الصور يمنع تصديرها مباشرة.';
+  }
+  if(/OFFICIAL_REPORT_TOO_MANY_PAGES|OFFICIAL_REPORT_INVALID_LENGTH/.test(code)){
+    return 'الكشف كبير جداً للتصدير المباشر إلى PDF في المتصفح. حدّد فترة أقصر أو استخدم «طباعة التقرير» دون تعديل بيانات الحساب.';
+  }
+  return 'تعذّر تجهيز نسخة PDF مطابقة للترويسة والجداول والصور. لم تتغير البيانات المحاسبية. يُرجى إعادة المحاولة أو استخدام «طباعة التقرير».';
+}
+
 /**
  * Canvas exporters render screen CSS. Reapply the application's existing
  * @media print rules ONLY to this captured copy (not to the live page).
