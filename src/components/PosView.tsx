@@ -363,6 +363,7 @@ export const PosView: React.FC = () => {
     settings,
     createPosSale,
     postPosSaleOnline,
+    unifiedRepository,
     deleteInvoice,
     deletedInvoices,
     setSelectedInvoiceForPrint,
@@ -2538,6 +2539,14 @@ const getInitialPosDraft = (): PosFullDraftData => {
       treasuryCode?: string;
     }
   ) => {
+    // A green server indicator does not prove the browser's authoritative
+    // IndexedDB/PG repository has booted. Never attempt a financial command
+    // with a missing repository or silently clear the invoice afterward.
+    if (!unifiedRepository) {
+      posSound.error();
+      alert('لم تكتمل تهيئة مستودع الفواتير على هذا الجهاز بعد. لا تزال ملاحظاتك وكل مدخلاتك في شاشة الكاشير، ولم يُرسل أي حفظ إلى PostgreSQL. ستُعاد محاولة الاتصال تلقائياً؛ لا تُنشئ فاتورة جديدة ولا تمسح بيانات المتصفح.');
+      return;
+    }
     // Capture the invoice identity synchronously at the start of the click.
     // A sync/event render while awaiting PostgreSQL must never convert an edit
     // into a new sale or skip verification of the edited source invoice.
@@ -2745,7 +2754,10 @@ const getInitialPosDraft = (): PosFullDraftData => {
         setOfflinePendingPrintMode(printMode);
       } else {
         posSound.error();
-        alert(`لم يُعتمد تعديل الفاتورة:\n${postRes.error || 'خطأ غير معروف'}\nمدخلات الفاتورة ما زالت على الشاشة. لا تعتبر العملية محفوظة في PostgreSQL.`);
+        const repositoryUnavailable = /LOCAL_REPOSITORY_NOT_INITIALIZED|REPOSITORY_STARTUP_FAILED|SESSION_LOGIN_REQUIRED/.test(postRes.error || '');
+        alert(repositoryUnavailable
+          ? 'تعذّر حفظ الفاتورة لأن مستودع المزامنة المحلي غير جاهز أو لأن جلسة الدخول تحتاج تجديداً. لم تُمسح ملاحظاتك ولا تُعتبر العملية محفوظة في PostgreSQL. انتظر عودة حالة المستودع، أو أعد تسجيل الدخول إذا استمر التعطل، دون مسح بيانات الموقع.'
+          : `لم يُعتمد تعديل الفاتورة:\n${postRes.error || 'خطأ غير معروف'}\nمدخلات الفاتورة ما زالت على الشاشة. لا تعتبر العملية محفوظة في PostgreSQL.`);
       }
       return;
     }
