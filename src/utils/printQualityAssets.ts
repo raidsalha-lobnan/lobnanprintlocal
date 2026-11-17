@@ -6,7 +6,9 @@ import {uploadCentralAttachment} from '../services/centralAttachmentApi';
 /** High-fidelity document images stay separate from lightweight POS previews. */
 export const PRINT_HEADER_MAX_WIDTH=3200;
 export const PRINT_HEADER_MAX_HEIGHT=900;
-const MAX_HEADER_BYTES=8*1024*1024;
+// sync command payloads are limited to 1MB. Leave headroom for other
+// settings and JSON encoding; reject oversized banner data before saving.
+const MAX_HEADER_DATA_URL_CHARS=590_000;
 const MAX_PRINT_ATTACHMENT_BYTES=50*1024*1024;
 
 function asDataUrl(file:File):Promise<string>{
@@ -26,21 +28,47 @@ function asDataUrl(file:File):Promise<string>{
 export async function preparePrintLetterhead(file:File):Promise<string>{
   if(!['image/png','image/jpeg','image/webp'].includes(file.type))
     throw new Error('PRINT_HEADER_FORMAT_UNSUPPORTED');
-  const dimensions=await new Promise<{width:number;height:number}>((resolve,reject)=>{
+  const img=await new Promise<HTMLImageElement>((resolve,reject)=>{
     const url=URL.createObjectURL(file);
-    const img=new Image();
-    img.onload=()=>{
+    const image=new Image();
+    image.onload=()=>{URL.revokeObjectURL(url);resolve(image);};
+    image.onerror=()=>{
       URL.revokeObjectURL(url);
-      resolve({width:img.naturalWidth,height:img.naturalHeight});
+      reject(new Error('PRINT_HEADER_IMAGE_INVALID'));
     };
-    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('PRINT_HEADER_IMAGE_INVALID'));};
-    img.src=url;
+    image.src=url;
   });
-  if(dimensions.width<1||dimensions.height<1)throw new Error('PRINT_HEADER_IMAGE_INVALID');
-  if(dimensions.width<=PRINT_HEADER_MAX_WIDTH&&
-     dimensions.height<=PRINT_HEADER_MAX_HEIGHT&&
-     file.size<=MAX_HEADER_BYTES)return asDataUrl(file);
-  return resizeAndCompressImage(file,PRINT_HEADER_MAX_WIDTH,PRINT_HEADER_MAX_HEIGHT,.97);
+  if(img.naturalWidth<1||img.naturalHeight<1)
+    throw new Error('PRINT_HEADER_IMAGE_INVALID');
+  if(img.naturalWidth<=PRINT_HEADER_MAX_WIDTH&&
+     img.naturalHeight<=PRINT_HEADER_MAX_HEIGHT&&
+     Math.ceil(file.size*4/3)+40<=MAX_HEADER_DATA_URL_CHARS){
+    return asDataUrl(file); // Original bytes, no lossy re-encoding.
+  }
+  const canvas=document.createElement('canvas');
+  const context=canvas.getContext('2d');
+  if(!context)throw new Error('PRINT_HEADER_CANVAS_UNAVAILABLE');
+  const scale=Math.min(1,PRINT_HEADER_MAX_WIDTH/img.naturalWidth,
+    PRINT_HEADER_MAX_HEIGHT/img.naturalHeight);
+  const safeWidth=img.naturalWidth*scale,safeHeight=img.naturalHeight*scale;
+  // Prefer print-sharp lossless PNG for logos and Arabic text; otherwise
+  // use a high-quality full-size JPEG before reducing resolution.
+  for(const factor of [1,.90,.80,.70]){
+    canvas.width=Math.max(1,Math.round(safeWidth*factor));
+    canvas.height=Math.max(1,Math.round(safeHeight*factor));
+    context.fillStyle='#fff';
+    context.fillRect(0,0,canvas.width,canvas.height);
+    context.drawImage(img,0,0,canvas.width,canvas.height);
+    if(file.type==='image/png'){
+      const png=canvas.toDataURL('image/png');
+      if(png.length<=MAX_HEADER_DATA_URL_CHARS)return png;
+    }
+    for(const quality of [.97,.94,.90,.86]){
+      const jpeg=canvas.toDataURL('image/jpeg',quality);
+      if(jpeg.length<=MAX_HEADER_DATA_URL_CHARS)return jpeg;
+    }
+  }
+  throw new Error('PRINT_HEADER_TOO_LARGE_FOR_SYNC');
 }
 
 export interface PreparedGalleryImages {
