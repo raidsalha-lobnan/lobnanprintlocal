@@ -73,8 +73,21 @@ export async function createUnifiedDataLayer(workspaceId:string){
     await coordinator.start();
   }catch(error){
     unregister();
+    // An unsuccessful bootstrap previously leaked its IndexedDB connection,
+    // BroadcastChannel and coordinator instance. Repeated startup attempts
+    // must use fresh, explicitly cleaned-up resources, never a second writer.
+    coordinator.stop();
+    void local.close().catch(closeError => {
+      console.warn('Unable to close failed repository startup', closeError);
+    });
     console.error('Local server initialization failed; no hidden legacy cloud fallback',error);
     throw error;
   }
-  return {repository,coordinator,local,stop:()=>{unregister();coordinator.stop();}};
+  return {repository,coordinator,local,stop:()=>{
+    unregister();
+    coordinator.stop();
+    void local.close().catch(closeError => {
+      console.warn('Unable to close stopped repository', closeError);
+    });
+  }};
 }
