@@ -118,7 +118,7 @@ export async function generateOfficialReportPdf({pool,workspace,access,driveStor
   await fs.writeFile(htmlPath,document,'utf8');
   await runChrome(htmlPath,pdfPath,type==='sales_report'?12000:15000);
   const pdf=await fs.readFile(pdfPath);
-  if(pdf.length<500||pdf.length>20_000_000||pdf.toString('ascii',0,5)!=='%PDF-')
+  if(pdf.length<500||pdf.length>60_000_000||pdf.toString('ascii',0,5)!=='%PDF-')
     throw new Error('OFFICIAL_REPORT_PDF_INVALID');
   return {pdf,filename:type+'_'+(fromDate||'all')+'_'+(toDate||'now')+'.pdf'};
  }finally{await fs.rm(dir,{recursive:true,force:true}).catch(()=>{});}
