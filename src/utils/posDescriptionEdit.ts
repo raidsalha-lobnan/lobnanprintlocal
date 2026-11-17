@@ -60,7 +60,6 @@ const numberEquals=(a:unknown,b:unknown,fallback=0)=>
   Number.isFinite(Number(a??fallback))&&Number.isFinite(Number(b??fallback))&&
   Math.abs(Number(a??fallback)-Number(b??fallback))<0.000001;
 const textEquals=(a:unknown,b:unknown)=>String(a??'')===String(b??'');
-const num=(v:unknown)=>Number(v??0);
 const originalPayment=(original:Invoice,side:'cash'|'bank')=>{
   const stored=side==='cash'?original.cashPaidAmount:original.bankPaidAmount;
   if(stored!==undefined&&stored!==null)return Number(stored);
@@ -111,7 +110,9 @@ export function preparePosDescriptionOnlyEdit(
      ((cash>0||bank>0)&&!textEquals(options.treasuryAccountCode,
         original.treasuryAccountCode)))return null;
 
-  const newItems=original.items.map((old,i)=>{
+  const newItems:Invoice['items']=[];
+  for(let i=0;i<original.items.length;i++){
+    const old=original.items[i];
     const line=lines[i];
     if(!line||line.item?.id!==old.itemId||
       !numberEquals(line.quantity,old.quantity)||
@@ -124,16 +125,15 @@ export function preparePosDescriptionOnlyEdit(
       !numberEquals(line.count,old.count,1)||
       Boolean(line.hasDimensions)!==Boolean(old.hasDimensions)||
       !textEquals(line.unit,old.unit))return null;
-    return {
+    newItems.push({
       ...old,
       itemName:line.itemName??old.itemName,
       notes:line.notes??old.notes,
       description:line.description??old.description,
       attachments:line.attachments??old.attachments,
       imageThumbnail:line.imageThumbnail??old.imageThumbnail
-    };
-  });
-  if(newItems.some(x=>x===null))return null;
+    });
+  }
   // Preserve every authoritative monetary/ledger/stock field byte-for-byte.
   return {
     ...original,
