@@ -129,6 +129,32 @@ const MainLayout: React.FC = () => {
   const [availableBuildVersion, setAvailableBuildVersion] = React.useState<string | null>(null);
   const mayApplyBuildUpdate = !hasUnsyncedChanges && !isPrintModalActive &&
     (activeTab === 'home' || activeTab === 'dashboard');
+  const applyBuildUpdateManually = async () => {
+    if (!mayApplyBuildUpdate) return;
+    if ('serviceWorker' in navigator) {
+      try {
+        const registration = await navigator.serviceWorker.getRegistration();
+        // A waiting Workbox upgrade is only activated by this explicit click,
+        // never by polling while an invoice/receipt is being edited.
+        if (registration?.waiting) {
+          let finished = false;
+          const reloadOnce = () => {
+            if (finished) return;
+            finished = true;
+            window.location.reload();
+          };
+          navigator.serviceWorker.addEventListener('controllerchange', reloadOnce, {once: true});
+          registration.waiting.postMessage({type: 'SKIP_WAITING'});
+          // In case another browser tab delays activation, leave current
+          // accounting screen intact rather than forcing a stale refresh.
+          return;
+        }
+      } catch (error) {
+        console.warn('Manual service-worker upgrade unavailable', error);
+      }
+    }
+    window.location.reload();
+  };
   React.useEffect(() => {
     const loadedBuildSha = String(import.meta.env.VITE_CLIENT_BUILD_SHA || '').trim();
     let currentServerVersion: string | null = null;
@@ -549,7 +575,7 @@ const MainLayout: React.FC = () => {
             <span>يوجد تحديث للبرنامج. لن تُعاد تحميل الفواتير أو الصفحة تلقائياً.</span>
             <button type="button" disabled={!mayApplyBuildUpdate}
               title={mayApplyBuildUpdate ? 'تحديث البرنامج الآن' : 'انتقل للرئيسية بعد حفظ جميع الأعمال وإكمال المزامنة'}
-              onClick={() => { if (mayApplyBuildUpdate) window.location.reload(); }}
+              onClick={() => { void applyBuildUpdateManually(); }}
               className="rounded-md bg-sky-700 px-2.5 py-1 font-bold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:bg-slate-400">
               تحديث الآن
             </button>
