@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import {accountStatementPdfFilename,downloadAccountStatementPdf} from '../utils/accountStatementPdf';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -99,6 +100,9 @@ export const AccountStatementModal: React.FC = () => {
   const [showItemDetails, setShowItemDetails] = useState<boolean>(true);
   const [showImageThumbnailsInStatement, setShowImageThumbnailsInStatement] = useState<boolean>(true);
   const [previewModalImage, setPreviewModalImage] = useState<{ url: string; name: string } | null>(null);
+  const [isDownloadingPdf,setIsDownloadingPdf] = useState(false);
+  const pdfInProgressRef=useRef(false);
+  const statementSurfaceRef=useRef<HTMLDivElement|null>(null);
 
   // Active party or employee
   const currentParty = useMemo(() => {
@@ -230,6 +234,33 @@ export const AccountStatementModal: React.FC = () => {
     }, 1000);
   };
 
+  const handleSavePdf = async () => {
+    if(pdfInProgressRef.current||!statementSurfaceRef.current) return;
+    if(statementMode==='party'&&!partyStatement) return;
+    if(statementMode==='employee'&&!employeeStatement) return;
+    const primaryName = statementMode==='employee'
+      ? (currentEmployee?.name||'موظف')
+      : (parentParty?.name||currentParty?.parentCustomerName||currentParty?.name||'عميل');
+    const secondaryName = statementMode==='party' &&
+      (parentParty||currentParty?.parentCustomerName)
+      ? currentParty?.name : undefined;
+    const filename=accountStatementPdfFilename({
+      primaryName,secondaryName,fromDate,toDate,
+      kind:statementMode==='employee'?'employee':'party'
+    });
+    pdfInProgressRef.current=true;
+    setIsDownloadingPdf(true);
+    try{
+      await downloadAccountStatementPdf(statementSurfaceRef.current,filename);
+    }catch(error){
+      console.error('Detailed statement PDF export failed',error);
+      alert('تعذّر حفظ كشف الحساب بصيغة PDF. لم تتغير بيانات الكشف أو الفواتير. يرجى إعادة المحاولة أو استخدام زر طباعة A4.');
+    }finally{
+      pdfInProgressRef.current=false;
+      setIsDownloadingPdf(false);
+    }
+  };
+
   const handleExportCSV = () => {
     if (statementMode === 'party' && partyStatement) {
       exportStatementToCSV(partyStatement, settings.currency || '₪');
@@ -326,6 +357,17 @@ export const AccountStatementModal: React.FC = () => {
             >
               <Download className="w-3.5 h-3.5 text-emerald-400" />
               <span>تصدير CSV</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {void handleSavePdf();}}
+              disabled={isDownloadingPdf || (!partyStatement && !employeeStatement)}
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer"
+              title="تنزيل كشف الحساب مباشرة PDF مع الاسم والفترة المحددين دون فتح نافذة الطباعة"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{isDownloadingPdf?'جاري تجهيز PDF...':'حفظ PDF'}</span>
             </button>
 
             <button
@@ -564,7 +606,7 @@ export const AccountStatementModal: React.FC = () => {
         </div>
 
         {/* Scrollable Printable Statement Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 print:p-0 print:overflow-visible report-a4-container">
+        <div ref={statementSurfaceRef} className="p-4 sm:p-6 overflow-y-auto space-y-4 print:p-0 print:overflow-visible report-a4-container">
           
           {/* ========================================================= */}
           {/* SECTION 1: PARTY FINANCIAL STATEMENT (CUSTOMER / SUPPLIER)*/}
