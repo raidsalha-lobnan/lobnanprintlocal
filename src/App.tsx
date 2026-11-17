@@ -122,14 +122,16 @@ const MainLayout: React.FC = () => {
   }, [settings?.appTitle]);
 
 
-  // Code updates require loading the new JS bundle; data changes are already live.
-  // Auto-reload only at a safe navigation point, never over an unsaved POS form.
-  const safeAutoUpgradeRef = React.useRef({activeTab, hasUnsyncedChanges, isPrintModalActive});
-  safeAutoUpgradeRef.current = {activeTab, hasUnsyncedChanges, isPrintModalActive};
+  // Never interrupt an active accounting session with an automatic page reload.
+  // A refresh remounts AccountingProvider and temporarily hides IndexedDB records
+  // while the authoritative projection is initialized again. Let the operator
+  // explicitly apply a new build from a safe screen instead.
+  const [availableBuildVersion, setAvailableBuildVersion] = React.useState<string | null>(null);
+  const mayApplyBuildUpdate = !hasUnsyncedChanges && !isPrintModalActive &&
+    (activeTab === 'home' || activeTab === 'dashboard');
   React.useEffect(() => {
     const loadedBuildSha = String(import.meta.env.VITE_CLIENT_BUILD_SHA || '').trim();
     let currentServerVersion: string | null = null;
-    let pendingVersion: string | null = null;
     let checking = false;
     const checkVersion = async () => {
       if (checking) return;
@@ -140,20 +142,9 @@ const MainLayout: React.FC = () => {
         const data = await res.json();
         const next = typeof data.version === 'string' ? data.version.trim() : '';
         if (!next) return;
-        pendingVersion = shouldUpgradeClientBuild(loadedBuildSha,currentServerVersion,next) ? next : null;
+        const upgradeAvailable = shouldUpgradeClientBuild(loadedBuildSha,currentServerVersion,next);
         currentServerVersion = next;
-        if (pendingVersion) {
-          const s = safeAutoUpgradeRef.current;
-          const el = document.activeElement as HTMLElement | null;
-          const editing = !!el?.matches('input,textarea,select,[contenteditable="true"]');
-          const safeTab = s.activeTab === 'home' || s.activeTab === 'dashboard';
-          // Outbox data is already durable in IndexedDB, including rejected
-          // commands. Blocking code upgrades whenever a conflict exists would
-          // leave those devices permanently trapped on an obsolete JS build.
-          if (!s.isPrintModalActive && !editing && safeTab) {
-            window.location.reload();
-          }
-        }
+        if (upgradeAvailable) setAvailableBuildVersion(next);
       } catch (e) {
         // An unavailable version endpoint never interrupts offline work.
       } finally { checking = false; }
@@ -549,6 +540,19 @@ const MainLayout: React.FC = () => {
             </div>
             <button type="button" className="rounded bg-slate-200 px-2 py-1 font-bold"
               onClick={()=>setLocalSaveFailure(null)} aria-label="إغلاق التنبيه">إغلاق</button>
+          </div>
+        </div>
+      )}
+      {availableBuildVersion && !isPrintModalActive && (
+        <div role="status" className="shrink-0 print:hidden z-30 border-b border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>يوجد تحديث للبرنامج. لن تُعاد تحميل الفواتير أو الصفحة تلقائياً.</span>
+            <button type="button" disabled={!mayApplyBuildUpdate}
+              title={mayApplyBuildUpdate ? 'تحديث البرنامج الآن' : 'انتقل للرئيسية بعد حفظ جميع الأعمال وإكمال المزامنة'}
+              onClick={() => { if (mayApplyBuildUpdate) window.location.reload(); }}
+              className="rounded-md bg-sky-700 px-2.5 py-1 font-bold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:bg-slate-400">
+              تحديث الآن
+            </button>
           </div>
         </div>
       )}
