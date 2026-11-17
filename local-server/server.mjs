@@ -366,8 +366,8 @@ const srv=http.createServer(async(req,res)=>{
       const toDate=String(payload?.toDate||'');
       if((type==='employee_statement'?!/^[a-zA-Z0-9_-]{1,200}$/.test(employeeId):
           !/^[a-zA-Z0-9_-]{1,200}$/.test(partyId))||
-         (fromDate&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(fromDate))||
-         (toDate&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(toDate))||
+         (fromDate&&!/^\d{4}-\d{2}-\d{2}$/.test(fromDate))||
+         (toDate&&!/^\d{4}-\d{2}-\d{2}$/.test(toDate))||
          (fromDate&&toDate&&fromDate>toDate))
         throw new InputError('REPORT_PDF_REQUEST_INVALID',400);
       officialPdfActive++;
