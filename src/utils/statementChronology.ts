@@ -34,13 +34,17 @@ export function compareStatementChronology(
   a: ChronologicalStatementTransaction,
   b: ChronologicalStatementTransaction
 ):number {
+  // A foundational opening balance is the balance *before* all customer
+  // dealings. Its configured registration date is for audit display only;
+  // it is never a reason to place it between invoices. Apply this rule
+  // before comparing dates, so even a backdated invoice follows opening.
+  if (a.type === 'opening' && b.type !== 'opening') return -1;
+  if (b.type === 'opening' && a.type !== 'opening') return 1;
+
   const firstDate=String(a.date||'').slice(0,10);
   const secondDate=String(b.date||'').slice(0,10);
   const dated=firstDate.localeCompare(secondDate);
   if (dated) return dated;
-
-  if (a.type === 'opening' && b.type !== 'opening') return -1;
-  if (b.type === 'opening' && a.type !== 'opening') return 1;
 
   // A payment taken when the sale was recorded is always shown immediately
   // after its parent invoice when the two share the same business date.
