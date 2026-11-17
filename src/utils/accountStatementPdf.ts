@@ -57,8 +57,14 @@ export async function downloadAccountStatementPdf(
   const safeName=cleanFilePart(filename.replace(/\.pdf$/i,''))+'.pdf';
   const holder=document.createElement('div');
   holder.setAttribute('aria-hidden','true');
-  holder.style.cssText='position:fixed;left:-12000px;top:0;width:794px;background:white;z-index:-1;pointer-events:none;';
+  // Keep the capture inside the actual viewport at x=0. A negative
+  // left position (previously -12000px) makes canvas rasterization blank or
+  // fail, because the capture engine crops using viewport coordinates.
+  // A negative stacking order keeps this copy behind the live UI.
+  holder.style.cssText='position:fixed;left:0;top:0;width:794px;background:white;z-index:-2147483647;pointer-events:none;';
+  holder.dir='rtl';
   const copy=report.cloneNode(true) as HTMLElement;
+  copy.dir='rtl';
   copy.style.cssText='width:794px;max-width:none;max-height:none;height:auto;overflow:visible;box-sizing:border-box;background:white;';
   holder.appendChild(copy);
   document.body.appendChild(holder);
