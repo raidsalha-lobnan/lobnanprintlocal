@@ -41,6 +41,7 @@ type PosEditOptions = {
   counterpartyId?:string;
   subCustomerId?:string;
   branchId?:string;
+  branch?:string;
   warehouse?:string;
   currency?:string;
   exchangeRate?:number;
@@ -141,6 +142,7 @@ export function preparePosDescriptionOnlyEdit(
     notes:invoiceNotes??original.notes,
     paymentNotes:options.paymentNotes??original.paymentNotes,
     representative:options.representative??original.representative,
+    branch:options.branch??original.branch,
     customerName,
     customCustomerText:options.customCustomerText??original.customCustomerText,
     subCustomerName:options.subCustomerName??original.subCustomerName,
