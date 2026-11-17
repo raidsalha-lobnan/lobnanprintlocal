@@ -85,8 +85,14 @@ test('PDF renderer supports Tailwind CSS4 color functions and keeps capture in t
  assert.equal(lock.packages['node_modules/html2canvas-pro'].version,'2.4.3');
  assert.ok(capture.includes("import html2canvas from 'html2canvas-pro'"));
  assert.ok(capture.includes('OFFICIAL_REPORT_EMPTY_CAPTURE'));
- assert.ok(helper.includes('position:fixed;left:0;top:0;width:794px'));
+ assert.ok(helper.includes('position:fixed;left:0;top:0;width:748px'));
  assert.equal(helper.includes('left:-12000px;top:0;width:794px'),false);
  assert.ok(helper.includes("holder.dir='rtl'"));
  assert.ok(helper.includes("copy.dir='rtl'"));
+ assert.ok(helper.includes('scopedStatementPrintCss()'));
+ assert.ok(helper.includes('copyLoadedReportImages(report,copy)'));
+ assert.ok(helper.includes("copy.dataset.statementPdf='true'"));
+ assert.ok(helper.includes('STATEMENT_PDF_IMAGE_CORS_BLOCKED'));
+ assert.ok(helper.includes('STATEMENT_PDF_IMAGE_UNAVAILABLE'));
+
 });
