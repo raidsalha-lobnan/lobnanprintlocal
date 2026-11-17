@@ -60,7 +60,10 @@ test('print header upload is no longer limited to 1200 x 300 and old pixels are 
  const settings=readFileSync(new URL('../src/components/SettingsView.tsx',import.meta.url),'utf8');
  assert.ok(image.includes('PRINT_HEADER_MAX_WIDTH=3200'));
  assert.ok(image.includes('PRINT_HEADER_MAX_HEIGHT=900'));
- assert.ok(image.includes('file.size<=MAX_HEADER_BYTES)return asDataUrl(file)'));
+ assert.ok(image.includes('MAX_HEADER_DATA_URL_CHARS=590_000'));
+ assert.ok(image.includes('return asDataUrl(file); // Original bytes, no lossy re-encoding.'));
+ assert.ok(image.includes("canvas.toDataURL('image/png')"));
+ assert.ok(image.includes("canvas.toDataURL('image/jpeg',quality)"));
  assert.ok(settings.includes('preparePrintLetterhead(file)'));
  assert.ok(!settings.includes('resizeAndCompressImage(file, 1200, 300)'));
 });
