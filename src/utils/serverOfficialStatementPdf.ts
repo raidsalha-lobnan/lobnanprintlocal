@@ -51,7 +51,7 @@ export async function downloadServerOfficialStatementPdf(
     throw new Error('تعذّر إعداد PDF على الخادم ('+reason+').');
   }
   const blob=await response.blob();
-  if(blob.size<500||blob.size>30_000_000||
+  if(blob.size<500||blob.size>60_000_000||
      await blob.slice(0,5).text()!=='%PDF-')
     throw new Error('رد الخادم ليس ملف PDF صالحاً.');
   const url=URL.createObjectURL(blob);
