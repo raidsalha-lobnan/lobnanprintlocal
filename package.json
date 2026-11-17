@@ -46,6 +46,7 @@
     "express": "^4.21.2",
     "fake-indexeddb": "^6.2.7",
     "html2canvas": "^1.4.1",
+    "html2canvas-pro": "2.4.3",
     "html5-qrcode": "^2.3.8",
     "jsbarcode": "^3.12.3",
     "jspdf": "^4.2.1",
