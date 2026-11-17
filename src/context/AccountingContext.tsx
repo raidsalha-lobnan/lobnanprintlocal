@@ -1250,6 +1250,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const openConflictModal = () => setIsConflictModalOpen(true);
   const closeConflictModal = () => setIsConflictModalOpen(false);
   const unifiedRepoRef = React.useRef<UnifiedRepository | null>(null);
+  // Keep the last rendered invoice count outside the asynchronous repository
+  // callback, which otherwise captures only the initial React state.
+  const renderedInvoiceCountRef = React.useRef<number>(0);
   // Prevent two click/keyboard submissions from creating two financial sales.
   const posSubmissionInFlightRef = React.useRef(false);
   const settingsWriteChainRef = React.useRef<Promise<unknown>>(Promise.resolve());
@@ -1287,7 +1290,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             // is meaningful: do not display an old localStorage list as cloud truth.
             const canonical = (await repo.getLocalDb().bootstrapStatus()) === 'initialized';
             if (unmounted || refresh !== latestRepositoryRefresh) return;
-            if (Array.isArray(grouped.invoices) && (canonical || grouped.invoices.length > 0)) setInvoices(prev => unchanged(prev, grouped.invoices) ? prev : grouped.invoices);
+            // A transient empty IndexedDB read is not proof that PostgreSQL has
+            // deleted every invoice. Never make an already displayed ledger
+            // disappear merely because one local projection was empty.
+            let allowEmptyInvoiceProjection = true;
+            if (canonical && Array.isArray(grouped.invoices) &&
+                grouped.invoices.length === 0 && renderedInvoiceCountRef.current > 0) {
+              try {
+                const verdict = await repo.verifyUnexpectedEmptyInvoiceProjection();
+                allowEmptyInvoiceProjection = verdict === 'verified-empty';
+                if (!allowEmptyInvoiceProjection) {
+                  console.warn('Recovered transiently empty invoice projection from PostgreSQL');
+                }
+              } catch (error) {
+                // Offline or stale verification: keep the last visible invoices
+                // intact, while allowing all other entities to keep syncing.
+                allowEmptyInvoiceProjection = false;
+                console.warn('Invoice projection held until PostgreSQL verification', error);
+              }
+            }
+            if (unmounted || refresh !== latestRepositoryRefresh) return;
+            if (allowEmptyInvoiceProjection && Array.isArray(grouped.invoices) &&
+                (canonical || grouped.invoices.length > 0))
+              setInvoices(prev => unchanged(prev, grouped.invoices) ? prev : grouped.invoices);
             if (Array.isArray(grouped.parties) && (canonical || grouped.parties.length > 0)) setParties(prev => unchanged(prev, grouped.parties) ? prev : grouped.parties);
             if (Array.isArray(grouped.inventory) && (canonical || grouped.inventory.length > 0)) setInventory(prev => unchanged(prev, grouped.inventory) ? prev : grouped.inventory);
             if (Array.isArray(grouped.accounts) && (canonical || grouped.accounts.length > 0)) setAccounts(prev => unchanged(prev, grouped.accounts) ? prev : grouped.accounts);
@@ -1579,6 +1604,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const snapshotInvoices = Array.isArray(initialInvoices) ? initialInvoices : [];
     return snapshotInvoices;
   });
+  renderedInvoiceCountRef.current = invoices.length;
 
   const [purchases, setPurchases] = useState<PurchaseInvoice[]>(() => {
     const loaded = safeLoadArray(`${STORAGE_KEY}_purchases`, initialPurchases);
