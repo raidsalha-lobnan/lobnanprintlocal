@@ -2828,21 +2828,19 @@ const getInitialPosDraft = (): PosFullDraftData => {
       setSelectedInvoiceForPrint(savedInvoice);
     }
 
-    // Saving an existing invoice is NOT a new checkout. Previously this code
-    // unconditionally wiped all POS lines and their notes even after a
-    // successful edit, causing the reported "note disappears on Save" and a
-    // dangerous second save as a fresh sale. Keep the edited invoice on-screen
-    // with its existing line notes, parties, payments and original identity.
-    if(editingId){
-      currentEditingInvoiceIdRef.current=savedInvoice.id;
-      lastLoadedInvoiceIdRef.current=savedInvoice.id;
-      openedInvoiceSignatureRef.current=invoiceEditSignature(savedInvoice);
-      if(editingPosInvoiceId!==savedInvoice.id)
-        setEditingPosInvoiceId(savedInvoice.id);
-      return;
+    // A confirmed edit closes the OLD invoice and opens a fresh POS invoice.
+    // Never clear before a successful PostgreSQL receipt, note verification
+    // and any local acknowledgement warning above. In particular, clearing
+    // the editing identity after the reset is too late: an intervening sync
+    // render could reopen the old invoice and overwrite the new draft.
+    if (editingId) {
+      currentEditingInvoiceIdRef.current = null;
+      lastLoadedInvoiceIdRef.current = null;
+      openedInvoiceSignatureRef.current = null;
+      setEditingPosInvoiceId(null);
     }
 
-    // Only a NEW sale clears the cashier screen after an accepted save.
+    // Applies to both a confirmed edit and a newly approved POS sale.
     setInvoiceSeqNumber('');
 
     setTableLines([
@@ -2872,6 +2870,24 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setCashAmountInput('0');
     setBankAmountInput('0');
     setInvoiceWorkflowStatus('new');
+    setPaymentMethod('cash');
+    setTransactionType('cash');
+    setDiscountType('amount');
+    setActiveRowId(null);
+    setCashTreasuryCode('CASH-1101');
+    setSelectedTreasuryCode('CASH-1101');
+    setBankTreasuryCode('');
+    setSelectedCurrencyCode(settings.baseCurrencyCode || 'ILS');
+    setCustomExchangeRate(1);
+    setCashCurrencyCode(settings.baseCurrencyCode || 'ILS');
+    setBankCurrencyCode(settings.baseCurrencyCode || 'ILS');
+    setCashExchangeRate(1);
+    setBankExchangeRate(1);
+    setBranch(branches.find(b => b.id === activeBranchId)?.name || 'الفرع الرئيسي');
+    setWarehouse(warehouses.find(w => w.id === activeWarehouseId)?.name || 'المخزن الرئيسي');
+    // A newly opened invoice defaults to today's date, not the date of
+    // the previously edited invoice.
+    setInvoiceDate(new Date().toLocaleDateString('en-CA'));
 
     try {
       localStorage.removeItem(POS_FULL_DRAFT_KEY);
@@ -2896,13 +2912,6 @@ const getInitialPosDraft = (): PosFullDraftData => {
       setCustomerCode('');
     }
 
-    if (currentEditingInvoiceIdRef.current || editingPosInvoiceId) {
-      setEditingPosInvoiceId(null);
-      currentEditingInvoiceIdRef.current = null;
-      lastLoadedInvoiceIdRef.current = null;
-      openedInvoiceSignatureRef.current = null;
-      // setActiveTab('invoices'); // Removed so the screen stays as is
-    }
   };
   handleSaveInvoiceRef.current = handleSaveInvoice;
 
