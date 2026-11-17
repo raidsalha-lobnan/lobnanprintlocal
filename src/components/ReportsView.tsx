@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {accountStatementPdfFilename} from '../utils/accountStatementPdf';
+import {waitForStatementPrintPhotos} from '../utils/statementPrintReadiness';
 import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
 import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStatementPdf';
 import { DateInput } from '../components/common/DateInput';
@@ -275,7 +276,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
   // Print helper shared by both buttons so their content and pagination match.
   const handlePrint = () => {
-    window.print();
+    void (async()=>{
+      const ready=await waitForStatementPrintPhotos();
+      if(!ready&&!window.confirm('لم تكتمل بعض الصور الأصلية عالية الدقة. هل ترغب بالطباعة باستخدام الصور المصغّرة المتاحة؟'))return;
+      window.print();
+    })();
   };
 
   const [serverPdfDownloading,setServerPdfDownloading]=useState(false);
