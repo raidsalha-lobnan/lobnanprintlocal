@@ -1481,9 +1481,22 @@ export function exportStatementToCSV(statement: StatementResult, currencySymbol:
     r.runningBalance.toFixed(2)
   ]);
 
+  // The CSV, like the printable statement, contains exactly one opening
+  // line, followed by dated movements. It must NOT repeat the same opening
+  // as a second financial entry in the totals.
+  const carriedOpeningRow = [
+    '-',
+    statement.fromDate || 'بداية التعامل',
+    '',
+    '"رصيد افتتاحي سابق مدور"',
+    '"الرصيد ما قبل تاريخ الكشف"',
+    statement.openingBalance > 0 ? statement.openingBalance.toFixed(2) : '0.00',
+    statement.openingBalance < 0 ? Math.abs(statement.openingBalance).toFixed(2) : '0.00',
+    statement.openingBalance.toFixed(2)
+  ];
+
   const summaryRows = [
     [],
-    ['', '', '', 'رصيد أول المدة / سابق', '', '', '', `${statement.openingBalance.toFixed(2)} ${currencySymbol}`],
     ['', '', '', 'إجمالي السحوبات / مدين', '', statement.totalDebit.toFixed(2), '', ''],
     ['', '', '', 'إجمالي المقبوضات / دائن', '', '', statement.totalCredit.toFixed(2), ''],
     ['', '', '', 'صافي الرصيد الختامي المستحق', '', '', '', `${statement.closingBalance.toFixed(2)} ${currencySymbol}`]
@@ -1495,6 +1508,7 @@ export function exportStatementToCSV(statement: StatementResult, currencySymbol:
     [`"الرقم الضريبي: ${statement.party.taxNumber || 'غير مسجل'}"`],
     [],
     headers.join(','),
+    carriedOpeningRow.join(','),
     ...rows.map(row => row.join(',')),
     ...summaryRows.map(row => row.join(','))
   ].join('\r\n');
