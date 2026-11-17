@@ -257,6 +257,7 @@ export interface LineAttachment {
   type?: string;
   data?: string;
   localBlobId?: string;       // معرف الملف المخزن محلياً بجودة أصلية كاملة
+  galleryPrintIndex?: number; // يربط صورة الطباعة الأصلية بمصغّر البند دون تكرار الصورة
   driveFileId?: string;       // معرف الملف في Google Drive
   driveWebViewLink?: string;  // رابط المعاينة المباشر في Google Drive
   driveDownloadLink?: string; // رابط التحميل المباشر من Google Drive
