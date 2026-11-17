@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import {accountStatementPdfFilename,downloadAccountStatementPdf} from '../utils/accountStatementPdf';
+import {accountStatementPdfFilename,downloadAccountStatementPdf,explainStatementPdfError} from '../utils/accountStatementPdf';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -254,7 +254,7 @@ export const AccountStatementModal: React.FC = () => {
       await downloadAccountStatementPdf(statementSurfaceRef.current,filename);
     }catch(error){
       console.error('Detailed statement PDF export failed',error);
-      alert('تعذّر حفظ كشف الحساب بصيغة PDF. لم تتغير بيانات الكشف أو الفواتير. يرجى إعادة المحاولة أو استخدام زر طباعة A4.');
+      alert(explainStatementPdfError(error));
     }finally{
       pdfInProgressRef.current=false;
       setIsDownloadingPdf(false);
