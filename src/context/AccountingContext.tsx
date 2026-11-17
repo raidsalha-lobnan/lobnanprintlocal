@@ -1264,8 +1264,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let stopFn: (() => void) | null = null;
     let unsubscribeState: (() => void) | null = null;
     let unsubscribeRepo: (() => void) | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retries = 0;
+    let initializationInFlight = false;
 
     const initLayer = async () => {
+      // A slow IndexedDB or PostgreSQL startup must not spawn overlapping
+      // layers with separate listeners and writers.
+      if (unmounted || initializationInFlight || unifiedRepoRef.current) return;
+      initializationInFlight = true;
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
       try {
         const workspaceId = 'lobnan_main';
         const layer = await createUnifiedDataLayer(workspaceId);
@@ -1276,6 +1284,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         unifiedRepoRef.current = layer.repository;
         setUnifiedRepository(layer.repository);
         stopFn = layer.stop;
+        retries = 0;
 
         let latestRepositoryRefresh = 0;
         const syncStateWithRepository = async (repo: UnifiedRepository) => {
@@ -1410,16 +1419,43 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       } catch (e) {
         console.warn('Unified data layer init notice:', e);
+        if (!unmounted) {
+          // Network, login and IndexedDB startup can fail transiently. Never
+          // leave an apparently connected cashier permanently uninitialized.
+          // Preserve all local records and queued commands; retry startup only.
+          setSyncCoordinatorState(prev => ({
+            ...prev, running: false,
+            lastError: 'REPOSITORY_STARTUP_FAILED: ' + String(e).slice(0,180)
+          }));
+          const delay = Math.min(30000, 2000 * (2 ** Math.min(retries++, 4)));
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            void initLayer();
+          }, delay);
+        }
+      } finally {
+        initializationInFlight = false;
       }
     };
 
-    initLayer();
+    const wakeUpInitialization = () => {
+      if (unmounted || unifiedRepoRef.current || initializationInFlight) return;
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+      void initLayer();
+    };
+    // Restore service as soon as a new authenticated connection is available;
+    // a green network indicator is NOT proof that the local repository exists.
+    window.addEventListener('online', wakeUpInitialization);
+    void initLayer();
 
     return () => {
       unmounted = true;
+      window.removeEventListener('online', wakeUpInitialization);
+      if (retryTimer) clearTimeout(retryTimer);
       if (unsubscribeRepo) unsubscribeRepo();
       if (unsubscribeState) unsubscribeState();
       if (stopFn) stopFn();
+      unifiedRepoRef.current = null;
     };
   }, []);
 
