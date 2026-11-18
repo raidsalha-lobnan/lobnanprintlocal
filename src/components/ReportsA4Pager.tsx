@@ -1,5 +1,6 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, FileText } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText } from 'lucide-react';
 
 // A4 at the browser's standard 96 CSS pixels per inch (210 x 297 mm).
 const PAGE_WIDTH = 210 * 96 / 25.4;
@@ -27,6 +28,11 @@ export const ReportsA4Pager: React.FC<ReportsA4PagerProps> = ({ reportKey, child
   const [page, setPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const [scale, setScale] = useState(0.6);
+  const [toolbarTarget, setToolbarTarget] = useState<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    setToolbarTarget(document.getElementById('reports-pager-toolbar'));
+  }, []);
 
   const goToPage = useCallback((requested: number) => {
     const next = Math.min(Math.max(1, requested), countRef.current);
@@ -56,7 +62,7 @@ export const ReportsA4Pager: React.FC<ReportsA4PagerProps> = ({ reportKey, child
     let frame = 0;
     const measure = () => {
       frame = 0;
-      const availableWidth = Math.max(1, stage.clientWidth - 64);
+      const availableWidth = Math.max(1, stage.clientWidth - 10);
       const availableHeight = Math.max(1, stage.clientHeight - 14);
       const nextScale = Math.min(1, availableWidth / PAGE_WIDTH, availableHeight / PAGE_HEIGHT);
       setScale(previous => Math.abs(previous - nextScale) > 0.002 ? nextScale : previous);
@@ -126,19 +132,15 @@ export const ReportsA4Pager: React.FC<ReportsA4PagerProps> = ({ reportKey, child
 
   return (
     <div className="report-pager-stage" ref={stageRef} aria-label="معاينة التقارير المقسمة إلى صفحات A4">
-      <div className="report-pager-controls print:hidden" dir="rtl" aria-live="polite">
-        <FileText className="h-4 w-4 text-blue-600" aria-hidden="true" />
-        <span>صفحة</span>
-        <strong className="tabular-nums">{page} / {pageCount}</strong>
-        <button type="button" title="الصفحة السابقة" aria-label="الصفحة السابقة"
-          disabled={page <= 1} onClick={() => goToPage(page - 1)}>
-          <ChevronRight className="h-4 w-4" />
-        </button>
-        <button type="button" title="الصفحة التالية" aria-label="الصفحة التالية"
-          disabled={page >= pageCount} onClick={() => goToPage(page + 1)}>
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-      </div>
+      {toolbarTarget ? createPortal(
+        <div className="report-pager-controls print:hidden" dir="rtl" aria-live="polite">
+          <button type="button" title="الصفحة الأولى" aria-label="الصفحة الأولى" disabled={page <= 1} onClick={() => goToPage(1)}><ChevronsRight className="h-4 w-4" /></button>
+          <button type="button" title="الصفحة السابقة" aria-label="الصفحة السابقة" disabled={page <= 1} onClick={() => goToPage(page - 1)}><ChevronRight className="h-4 w-4" /></button>
+          <span className="reports-page-label tabular-nums">صفحة {page} من {pageCount}</span>
+          <button type="button" title="الصفحة التالية" aria-label="الصفحة التالية" disabled={page >= pageCount} onClick={() => goToPage(page + 1)}><ChevronLeft className="h-4 w-4" /></button>
+          <button type="button" title="الصفحة الأخيرة" aria-label="الصفحة الأخيرة" disabled={page >= pageCount} onClick={() => goToPage(pageCount)}><ChevronsLeft className="h-4 w-4" /></button>
+        </div>, toolbarTarget
+      ) : null}
       <div className="report-pager-frame" style={{
         width: PAGE_WIDTH * scale,
         height: PAGE_HEIGHT * scale,

@@ -1,9 +1,9 @@
 import { useLayoutEffect, useRef } from 'react';
 
 /**
- * Fit every sidebar option into the actual available panel height.
- * Use a compact grid on short panels, then scale the full content only
- * when necessary. Nothing is hidden, truncated, or made scroll-dependent.
+ * Keep all fifteen report choices and the currently relevant filters visible.
+ * Fit to the available workspace height without creating a large white filler
+ * panel below the last control.
  */
 export function useReportsSidebarFit() {
   const sidebarRef = useRef<HTMLElement>(null);
@@ -12,32 +12,41 @@ export function useReportsSidebarFit() {
   useLayoutEffect(() => {
     const sidebar = sidebarRef.current;
     const content = sidebarContentRef.current;
-    if (!sidebar || !content) return;
+    const grid = sidebar?.parentElement;
+    if (!sidebar || !content || !grid) return;
 
     let frame = 0;
     const measure = () => {
       frame = 0;
-      const style = getComputedStyle(sidebar);
-      const height = sidebar.clientHeight -
-        parseFloat(style.paddingTop || '0') -
-        parseFloat(style.paddingBottom || '0');
+      const computed = getComputedStyle(sidebar);
+      const padding = parseFloat(computed.paddingTop || '0') +
+        parseFloat(computed.paddingBottom || '0');
+      const availableHeight = Math.max(240, grid.clientHeight - padding - 4);
 
-      sidebar.dataset.density = height < 760 ? 'compact' : 'normal';
-      content.style.transform = '';
+      // Always use the readable two-column selector from the approved design.
+      sidebar.dataset.density = 'compact';
+      content.style.zoom = '1';
       content.style.width = '100%';
-      const naturalHeight = content.scrollHeight;
-      const scale = Math.min(1, Math.max(0.2, (height - 3) / Math.max(1, naturalHeight)));
-      // The extra logical width exactly offsets the scaled display width.
-      content.style.width = String(100 / scale) + '%';
-      content.style.transform = 'scale(' + scale + ')';
+      content.style.transform = '';
+      const unscaledHeight = Math.max(1, content.scrollHeight);
+      let ratio = Math.min(1, availableHeight / unscaledHeight);
+      content.style.zoom = String(ratio);
+
+      // Browser font metrics and wrapped labels can affect the final height.
+      // Recheck actual rendered geometry rather than cropping the bottom row.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const actualHeight = content.getBoundingClientRect().height;
+        if (actualHeight <= availableHeight + 1) break;
+        ratio *= availableHeight / actualHeight;
+        content.style.zoom = String(ratio);
+      }
     };
     const schedule = () => {
       if (frame) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(measure);
     };
-
     const resize = new ResizeObserver(schedule);
-    resize.observe(sidebar);
+    resize.observe(grid);
     const mutation = new MutationObserver(schedule);
     mutation.observe(content, { childList: true, characterData: true, subtree: true });
     window.addEventListener('resize', schedule);

@@ -832,7 +832,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
     // 2. Secondary Source: Sales Invoices with cash/card payment linked to target treasuries
     invoices.forEach(inv => {
       if ((inv.paidAmount || 0) <= 0) return;
-      
+
       const docNum = inv.invoiceNumber;
 
       // CRITICAL RULE: If invoice transaction is already recorded in any treasury, SKIP to avoid duplicate across treasuries!
@@ -840,7 +840,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         return;
       }
 
-      let invTreasuryCode = inv.treasuryAccountCode || 
+      let invTreasuryCode = inv.treasuryAccountCode ||
         (inv.paymentMethod === 'cash' ? (inv.cashTreasuryCode || 'CASH-1101') : (inv.bankTreasuryCode || ''));
 
       if (invTreasuryCode === '1102' && !treasuries.some(tr => tr.accountCode === '1102' || tr.id === '1102')) {
@@ -1072,23 +1072,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
   return (
     <div ref={reportsConsoleRef} className="reports-dashboard flex flex-col gap-2 min-h-0 print:block" dir="rtl">
-      {/* Top Header */}
-      <div className="reports-dashboard-header bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-3 print:hidden">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-            <BarChart3 className="w-5 h-5" />
-          </div>
-          <div>
-            <h1 className="text-base font-bold text-slate-900">مركز التقارير المحاسبية والتفصيلية</h1>
-
-          </div>
+      {/* شريط عنوان مختصر مع عداد وتقليب صفحات A4 */}
+      <header className="reports-dashboard-header bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-xs flex items-center justify-between gap-2 print:hidden">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center shrink-0"><BarChart3 className="w-4 h-4" /></div>
+          <h1 className="font-bold text-slate-900 text-sm truncate">مركز التقارير المحاسبية والتفصيلية</h1>
         </div>
-
-      </div>
-
+        <div id="reports-pager-toolbar" className="reports-pager-toolbar min-w-0 print:hidden" aria-label="التحكم بصفحات التقرير" />
+      </header>
       {/* أدوات التقارير مرتبة طولياً بجوار المعاينة */}
-      <div className="reports-dashboard-grid grid grid-cols-1 lg:grid-cols-[minmax(300px,350px)_minmax(0,1fr)] gap-3 items-stretch flex-1 min-h-0 print:block print:space-y-0">
-        <aside ref={sidebarRef} className="reports-sidebar print:hidden bg-white rounded-xl border border-slate-200 shadow-xs p-2.5 flex flex-col gap-2 min-h-0 overflow-hidden" aria-label="اختيار التقرير وإعداداته">
+      <div className="reports-dashboard-grid grid grid-cols-1 lg:grid-cols-[minmax(430px,36%)_minmax(0,1fr)] gap-3 items-stretch flex-1 min-h-0 print:block print:space-y-0">
+        <aside ref={sidebarRef} className="reports-sidebar self-start print:hidden bg-white rounded-xl border border-slate-200 shadow-xs p-2.5 flex flex-col gap-2 min-h-0 overflow-visible" aria-label="اختيار التقرير وإعداداته">
           <div ref={sidebarContentRef} className="reports-sidebar-content">
           <div className="reports-action-row grid grid-cols-2 gap-2">
           {supportsDetailedStatementPdf && (
@@ -1114,9 +1108,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
           {/* اختيار التقرير في قائمة طولية */}
           <section className="reports-selector border-t border-slate-200 pt-2 space-y-1">
-        <div className="flex items-center gap-1 text-[11px] text-slate-400 font-bold mb-1">
-          <span>اختر التقرير المطلوب:</span>
-        </div>
         <div className="reports-report-selector-list flex flex-col gap-0.5">
           {[...reportsCategories.slice(1, 5).flatMap(cat => cat.items), ...reportsCategories[0].items, ...reportsCategories.slice(5).flatMap(cat => cat.items)].map(item => {
             const Icon = item.icon;
@@ -1142,7 +1133,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
           {/* فلاتر مشتركة ضمن نفس العمود */}
           <section className="reports-filters border-t border-slate-200 pt-2 space-y-1 text-xs">
-            <h2 className="font-bold text-blue-700 flex items-center gap-2"><Filter className="w-4 h-4" />فلترة وتصفية التقرير:</h2>
         <div className="reports-filter-fields flex flex-col items-stretch gap-1.5 w-full min-w-0">
           {/* Customer Selector if activeReport is customer_statement or customer_items */}
           {(activeReport === 'customer_statement' || activeReport === 'customer_items') && (
@@ -1194,41 +1184,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
                 </div>
               )}
 
-              {activeReport === 'customer_statement' && (
-                <div className="reports-statement-options grid grid-cols-2 gap-1 w-full">
-                  <div className="h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5"></div>
-                  
-                  <button
-                    type="button"
-                    onClick={() => setShowStatementItemDetails(prev => !prev)}
-                    className={`px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-colors flex items-center gap-1.5 border select-none ${
-                      showStatementItemDetails
-                        ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span>{showStatementItemDetails ? 'إخفاء تفاصيل الفواتير' : 'إظهار تفاصيل الفواتير والمقاسات'}</span>
-                  </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setShowStatementImageThumbnails(prev => !prev)}
-                    className={`px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-all flex items-center gap-1 border select-none ${
-                      showStatementImageThumbnails
-                        ? 'bg-purple-600 text-white border-purple-700 shadow-2xs hover:bg-purple-700'
-                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                    }`}
-                    title={showStatementImageThumbnails ? 'إخفاء مصغرات صور الأصناف من الكشف' : 'إظهار مصغرات صور الأصناف تحت جدول الفاتورة'}
-                  >
-                    <ImageIcon className={`w-3 h-3 ${showStatementImageThumbnails ? 'text-amber-300' : 'text-purple-600'}`} />
-                    <span>{showStatementImageThumbnails ? 'إخفاء صور الأصناف' : 'إظهار صور الأصناف 🖼️'}</span>
-                  </button>
-
-                  <div className="text-[10px] text-slate-500 font-bold bg-slate-100 border border-slate-200 rounded px-2 py-1 select-none">
-                    عدد الحركات: <strong className="font-mono text-slate-900">{customerStatementData?.rows?.length || 0}</strong>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -1282,27 +1238,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
                 </div>
               )}
 
-              {activeReport === 'supplier_statement' && (
-                <div className="reports-statement-options grid grid-cols-2 gap-1 w-full">
-                  <div className="h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5"></div>
-                  
-                  <button
-                    type="button"
-                    onClick={() => setShowStatementItemDetails(prev => !prev)}
-                    className={`px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-colors flex items-center gap-1.5 border select-none ${
-                      showStatementItemDetails
-                        ? 'bg-amber-700 text-white border-amber-800 shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span>{showStatementItemDetails ? 'إخفاء تفاصيل الفواتير' : 'إظهار تفاصيل الفواتير والمقاسات'}</span>
-                  </button>
 
-                  <div className="text-[10px] text-slate-500 font-bold bg-slate-100 border border-slate-200 rounded px-2 py-1 select-none">
-                    عدد الحركات: <strong className="font-mono text-slate-900">{supplierStatementData?.rows?.length || 0}</strong>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -1324,9 +1260,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
                 />
               </div>
 
-              <div className="text-[10px] text-slate-500 font-bold bg-slate-100 border border-slate-200 rounded px-2 py-1 select-none">
-                عدد الحركات: <strong className="font-mono text-slate-900">{employeeStatementData?.rows?.length || 0}</strong>
-              </div>
+
             </div>
           )}
 
@@ -1371,18 +1305,75 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
           <DateInput value={toDate} onChange={e => setToDate(e.target.value)}
             className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs"
           />
-          {(fromDate || toDate) && (
-            <button
-              onClick={() => {
-                setFromDate('');
-                setToDate('');
-              }}
-              className="col-span-4 justify-self-start text-rose-600 text-[11px] font-bold hover:underline cursor-pointer"
-            >
-              إلغاء
-            </button>
-          )}
+
         </div>
+            {/* عدد الحركات وإلغاء الفترة في نفس السطر، لجميع أنواع الحسابات */}
+            {(activeReport === 'customer_statement' || activeReport === 'supplier_statement' || activeReport === 'employee_statement' || fromDate || toDate) && (
+            <div className="reports-movement-toolbar flex items-center justify-between gap-2">
+              {(activeReport === 'customer_statement' || activeReport === 'supplier_statement' || activeReport === 'employee_statement') && (
+                <span className="reports-movement-count bg-slate-100 border border-slate-200 rounded-md px-2 py-1 font-bold text-slate-700">
+                  عدد الحركات: <strong className="font-mono text-slate-900">{activeReport === 'customer_statement' ? (customerStatementData?.rows?.length || 0) : activeReport === 'supplier_statement' ? (supplierStatementData?.rows?.length || 0) : (employeeStatementData?.rows?.length || 0)}</strong>
+                </span>
+              )}
+              {(fromDate || toDate) && (
+                <button type="button" onClick={() => { setFromDate(''); setToDate(''); }} className="reports-clear-date bg-rose-50 text-rose-700 border border-rose-200 rounded-md px-3 py-1 font-bold hover:bg-rose-100 cursor-pointer">إلغاء</button>
+              )}
+            </div>
+            )}
+            <div className="reports-summary-options">
+              {activeReport === 'customer_statement' && (
+                <div className="reports-statement-options grid grid-cols-2 gap-1 w-full">
+                  <div className="h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5"></div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowStatementItemDetails(prev => !prev)}
+                    className={`px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-colors flex items-center gap-1.5 border select-none ${
+                      showStatementItemDetails
+                        ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>{showStatementItemDetails ? 'إخفاء تفاصيل الفواتير' : 'إظهار تفاصيل الفواتير والمقاسات'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowStatementImageThumbnails(prev => !prev)}
+                    className={`px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-all flex items-center gap-1 border select-none ${
+                      showStatementImageThumbnails
+                        ? 'bg-purple-600 text-white border-purple-700 shadow-2xs hover:bg-purple-700'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                    }`}
+                    title={showStatementImageThumbnails ? 'إخفاء مصغرات صور الأصناف من الكشف' : 'إظهار مصغرات صور الأصناف تحت جدول الفاتورة'}
+                  >
+                    <ImageIcon className={`w-3 h-3 ${showStatementImageThumbnails ? 'text-amber-300' : 'text-purple-600'}`} />
+                    <span>{showStatementImageThumbnails ? 'إخفاء صور الأصناف' : 'إظهار صور الأصناف 🖼️'}</span>
+                  </button>
+
+
+                </div>
+              )}
+              {activeReport === 'supplier_statement' && (
+                <div className="reports-statement-options grid grid-cols-2 gap-1 w-full">
+                  <div className="h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5"></div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowStatementItemDetails(prev => !prev)}
+                    className={`px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-colors flex items-center gap-1.5 border select-none ${
+                      showStatementItemDetails
+                        ? 'bg-amber-700 text-white border-amber-800 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>{showStatementItemDetails ? 'إخفاء تفاصيل الفواتير' : 'إظهار تفاصيل الفواتير والمقاسات'}</span>
+                  </button>
+
+
+                </div>
+              )}
+            </div>
           </section>
           </div>
         </aside>
