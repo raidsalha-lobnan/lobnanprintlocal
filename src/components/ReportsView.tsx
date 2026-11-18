@@ -4,7 +4,8 @@ import {waitForStatementPrintPhotos} from '../utils/statementPrintReadiness';
 import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
 import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStatementPdf';
 import { DateInput } from '../components/common/DateInput';
-import { ReportsA4Pager } from './ReportsA4Pager';
+import { ReportsVerifiedPreview } from './OfficialStatementPdfPreview';
+import type { OfficialStatementRequest } from '../utils/serverOfficialStatementPdf';
 import { useReportsSidebarFit } from './useReportsSidebarFit';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -125,7 +126,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
     if (!node) return;
     const fit = () => {
       const top = node.getBoundingClientRect().top;
-      node.style.height = Math.max(350, window.innerHeight - top - 42) + 'px';
+      node.style.height = Math.max(350, window.innerHeight - top - 7) + 'px';
     };
     fit();
     window.addEventListener('resize', fit);
@@ -1070,6 +1071,47 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
     }
   ];
 
+  // The verified A4 preview is the same Chrome PDF served by the existing
+  // direct-save endpoint; other report types keep the HTML screen preview.
+  const officialPreviewRequest = useMemo<OfficialStatementRequest | null>(() => {
+    if (activeReport === 'customer_statement') {
+      if (!customerStatementData.statement || !customerStatementData.party) return null;
+      return {
+        type: 'customer_statement',
+        partyId: customerStatementData.party.id,
+        subPartyId: selectedSubCustomerId,
+        fromDate, toDate,
+        showItemDetails: showStatementItemDetails,
+        showImages: showStatementImageThumbnails,
+      };
+    }
+    if (activeReport === 'supplier_statement') {
+      if (!supplierStatementData.statement || !supplierStatementData.party) return null;
+      return {
+        type: 'supplier_statement',
+        partyId: supplierStatementData.party.id,
+        subPartyId: selectedSubSupplierId,
+        fromDate, toDate,
+        showItemDetails: showStatementItemDetails,
+        showImages: showStatementImageThumbnails,
+      };
+    }
+    if (activeReport === 'employee_statement' && employeeStatementData.statement && selectedEmpId) {
+      return {
+        type: 'employee_statement',
+        employeeId: selectedEmpId,
+        fromDate, toDate,
+        showItemDetails: showStatementItemDetails,
+        showImages: showStatementImageThumbnails,
+      };
+    }
+    return null;
+  }, [activeReport, customerStatementData.statement, customerStatementData.party?.id,
+      supplierStatementData.statement, supplierStatementData.party?.id,
+      employeeStatementData.statement, selectedEmpId, selectedSubCustomerId,
+      selectedSubSupplierId, fromDate, toDate,
+      showStatementItemDetails, showStatementImageThumbnails]);
+
   return (
     <div ref={reportsConsoleRef} className="reports-dashboard flex flex-col gap-2 min-h-0 print:block" dir="rtl">
       {/* شريط عنوان مختصر مع عداد وتقليب صفحات A4 */}
@@ -1081,7 +1123,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         <div id="reports-pager-toolbar" className="reports-pager-toolbar min-w-0 print:hidden" aria-label="التحكم بصفحات التقرير" />
       </header>
       {/* أدوات التقارير مرتبة طولياً بجوار المعاينة */}
-      <div className="reports-dashboard-grid grid grid-cols-1 lg:grid-cols-[minmax(430px,36%)_minmax(0,1fr)] gap-3 items-stretch flex-1 min-h-0 print:block print:space-y-0">
+      <div className="reports-dashboard-grid grid grid-cols-1 lg:grid-cols-[minmax(390px,32%)_minmax(0,1fr)] gap-3 items-stretch flex-1 min-h-0 print:block print:space-y-0">
         <aside ref={sidebarRef} className="reports-sidebar self-start print:hidden bg-white rounded-xl border border-slate-200 shadow-xs p-2.5 flex flex-col gap-2 min-h-0 overflow-visible" aria-label="اختيار التقرير وإعداداته">
           <div ref={sidebarContentRef} className="reports-sidebar-content">
           <div className="reports-action-row grid grid-cols-2 gap-2">
@@ -1380,7 +1422,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
         {/* معاينة المستند مع الاحتفاظ بمحتوى وطباعة التقرير */}
         <div className="reports-preview-area min-w-0 h-full min-h-0 overflow-hidden print:block">
-          <ReportsA4Pager reportKey={activeReport}>
+          <ReportsVerifiedPreview reportKey={activeReport} request={officialPreviewRequest}>
       {/* ========================================================================= */}
       {/* 1. كشف حساب تفصيلي عميل */}
       {/* ========================================================================= */}
@@ -2252,7 +2294,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         </div>
       )}
 
-          </ReportsA4Pager>
+          </ReportsVerifiedPreview>
         </div>
       </div>
 
