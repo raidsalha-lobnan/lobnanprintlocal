@@ -1063,19 +1063,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
           </div>
           <div>
             <h1 className="text-base font-bold text-slate-900">مركز التقارير المحاسبية والتفصيلية</h1>
-            <p className="text-[10px] text-slate-400 font-light">
-              كشوفات الحسابات المعتمدة، حركات وتجميع الأصناف، سندات القبض والصرف، الرواتب والصناديق والقوائم المالية
-            </p>
+
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+      </div>
+
+      {/* أدوات التقارير مرتبة طولياً بجوار المعاينة */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,350px)_minmax(0,1fr)] gap-4 items-start print:block print:space-y-0">
+        <aside className="print:hidden bg-white rounded-xl border border-slate-200 shadow-xs p-3.5 space-y-4 lg:sticky lg:top-3 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto" aria-label="اختيار التقرير وإعداداته">
+          <div className="flex flex-col gap-2">
           {supportsDetailedStatementPdf && (
             <button
               type="button"
               onClick={() => {void handleDownloadDetailedStatementPdf();}}
               disabled={serverPdfDownloading}
-              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
+              className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-bold px-3.5 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer"
               title="حفظ PDF مباشرة بمحرك Chrome على الخادم، دون فتح نافذة الطباعة"
             >
               <Download className="w-4 h-4" />
@@ -1084,54 +1087,55 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
           )}
           <button
             onClick={handlePrint}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer"
           >
             <Printer className="w-4 h-4" />
             <span>طباعة التقرير</span>
           </button>
-        </div>
-      </div>
+          </div>
 
-      {/* Reports Navigation Bar (Tabs Selector) */}
-      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs print:hidden space-y-2">
+          {/* اختيار التقرير في قائمة طولية */}
+          <section className="border-t border-slate-200 pt-3 space-y-2">
         <div className="flex items-center gap-1 text-[11px] text-slate-400 font-bold mb-1">
           <span>اختر التقرير المطلوب:</span>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {reportsCategories.flatMap(cat => cat.items).map(item => {
+        <div className="flex flex-col gap-1.5">
+          {[...reportsCategories.slice(1, 5).flatMap(cat => cat.items), ...reportsCategories[0].items, ...reportsCategories.slice(5).flatMap(cat => cat.items)].map(item => {
             const Icon = item.icon;
             const isSelected = activeReport === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => setActiveReport(item.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                aria-pressed={isSelected}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-right font-semibold transition-all cursor-pointer ${
                   isSelected
                     ? 'bg-blue-600 text-white shadow-xs font-bold'
                     : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{item.name}</span>
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="min-w-0">{item.name}</span>
               </button>
             );
           })}
         </div>
-      </div>
+          </section>
 
-      {/* Common Filters Bar (Dates & Entities) */}
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3 print:hidden text-xs">
-        <div className="flex flex-wrap items-center gap-3">
+          {/* فلاتر مشتركة ضمن نفس العمود */}
+          <section className="border-t border-slate-200 pt-3 space-y-3 text-xs">
+            <h2 className="font-bold text-blue-700 flex items-center gap-2"><Filter className="w-4 h-4" />فلترة وتصفية التقرير:</h2>
+        <div className="flex flex-col items-stretch gap-3 w-full min-w-0">
           {/* Customer Selector if activeReport is customer_statement or customer_items */}
           {(activeReport === 'customer_statement' || activeReport === 'customer_items') && (
-            <div className="flex items-center gap-2 flex-wrap min-w-[280px]">
+            <div className="flex flex-col items-stretch gap-2 min-w-0 w-full">
               <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs">
                 <div className="p-1 rounded bg-blue-100 text-blue-700">
                   <Users className="w-3.5 h-3.5" />
                 </div>
                 <span>الزبون / العميل:</span>
               </div>
-              <div className="w-64 sm:w-72">
+              <div className="w-full min-w-0">
                 <AutocompleteCombobox
                   items={customerComboboxOptions}
                   selectedId={selectedSubCustomerId !== 'all' ? selectedSubCustomerId : selectedCustomerId}
@@ -1160,7 +1164,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
                   <select
                     value={selectedSubCustomerId}
                     onChange={e => setSelectedSubCustomerId(e.target.value)}
-                    className="bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1 text-xs text-blue-900 font-semibold"
+                    className="w-full bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-2 text-xs text-blue-900 font-semibold"
                   >
                     <option value="all">كل الزبائن الفرعيين والتابعِين</option>
                     {subCustomersForSelected.map(sub => (
@@ -1173,7 +1177,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
               )}
 
               {activeReport === 'customer_statement' && (
-                <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex flex-col items-stretch gap-2 w-full">
                   <div className="h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5"></div>
                   
                   <button
@@ -1212,14 +1216,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
           {/* Supplier Selector if activeReport is supplier_statement or supplier_items */}
           {(activeReport === 'supplier_statement' || activeReport === 'supplier_items') && (
-            <div className="flex items-center gap-2 flex-wrap min-w-[280px]">
+            <div className="flex flex-col items-stretch gap-2 min-w-0 w-full">
               <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs">
                 <div className="p-1 rounded bg-amber-100 text-amber-700">
                   <Truck className="w-3.5 h-3.5" />
                 </div>
                 <span>المورد:</span>
               </div>
-              <div className="w-64 sm:w-72">
+              <div className="w-full min-w-0">
                 <AutocompleteCombobox
                   items={supplierComboboxOptions}
                   selectedId={selectedSubSupplierId !== 'all' ? selectedSubSupplierId : selectedSupplierId}
@@ -1248,7 +1252,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
                   <select
                     value={selectedSubSupplierId}
                     onChange={e => setSelectedSubSupplierId(e.target.value)}
-                    className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 text-xs text-amber-900 font-semibold"
+                    className="w-full bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 text-xs text-amber-900 font-semibold"
                   >
                     <option value="all">كل الفروع التابعة</option>
                     {subSuppliersForSelected.map(sub => (
@@ -1261,7 +1265,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
               )}
 
               {activeReport === 'supplier_statement' && (
-                <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex flex-col items-stretch gap-2 w-full">
                   <div className="h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5"></div>
                   
                   <button
@@ -1286,12 +1290,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
           {/* Employee Selector if activeReport is employee_statement */}
           {activeReport === 'employee_statement' && (
-            <div className="flex items-center gap-2 flex-wrap min-w-[280px]">
+            <div className="flex flex-col items-stretch gap-2 min-w-0 w-full">
               <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs">
                 <UserCheck className="w-4 h-4 text-purple-600" />
                 <span>اختيار الموظف:</span>
               </div>
-              <div className="w-64">
+              <div className="w-full min-w-0">
                 <AutocompleteCombobox
                   items={employeeComboboxOptions}
                   selectedId={selectedEmpId}
@@ -1310,7 +1314,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
           {/* Treasury Filter if activeReport is treasuries_movement, receipt_vouchers, or payment_vouchers */}
           {(activeReport === 'treasuries_movement' || activeReport === 'receipt_vouchers' || activeReport === 'payment_vouchers') && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-stretch gap-2 w-full">
               <span className="font-bold text-slate-700">الخزينة / الحساب:</span>
               <select
                 value={
@@ -1326,7 +1330,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
                   else if (activeReport === 'receipt_vouchers') setReceiptTreasuryFilter(val);
                   else setPaymentTreasuryFilter(val);
                 }}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-800"
               >
                 <option value="all">كل الخزائن والحسابات البنكية</option>
                 {treasuries.map(t => (
@@ -1340,14 +1344,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         </div>
 
         {/* Date Filter Inputs */}
-        <div className="flex items-center gap-2 text-slate-600">
-          <span className="text-[11px] text-slate-400">من:</span>
+        <div className="flex flex-col gap-2 border-t border-slate-200 pt-3 text-slate-600">
+          <span className="text-xs font-bold text-slate-600">من تاريخ:</span>
           <DateInput value={fromDate} onChange={e => setFromDate(e.target.value)}
-            className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs"
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs"
           />
-          <span className="text-[11px] text-slate-400">إلى:</span>
+          <span className="text-xs font-bold text-slate-600">إلى تاريخ:</span>
           <DateInput value={toDate} onChange={e => setToDate(e.target.value)}
-            className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs"
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs"
           />
           {(fromDate || toDate) && (
             <button
@@ -1361,8 +1365,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
             </button>
           )}
         </div>
-      </div>
+          </section>
+        </aside>
 
+        {/* معاينة المستند مع الاحتفاظ بمحتوى وطباعة التقرير */}
+        <div className="reports-preview-area min-w-0 space-y-5 print:block">
       {/* ========================================================================= */}
       {/* 1. كشف حساب تفصيلي عميل */}
       {/* ========================================================================= */}
@@ -2233,6 +2240,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
           <ReportSignatures rightLabel="إعداد مسؤول الضرائب" centerLabel="المراجع القانوني" leftLabel="المفوض بالتوقيع والاعتماد" />
         </div>
       )}
+
+        </div>
+      </div>
 
       {/* Image Preview Lightbox Modal */}
       {previewModalImage && (

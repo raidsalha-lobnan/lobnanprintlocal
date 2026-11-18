@@ -1422,3 +1422,10 @@ td.empty-row-shaded {
     justify-content: flex-start !important;
   }
 }
+
+/* معاينة التقارير على الشاشة فقط: ورقة طولية A4 دون التأثير على تخطيط الطباعة أو PDF. */
+@media screen and (min-width: 1024px) {
+  .reports-preview-area > .report-a4-container {
+    min-height: 280mm;
+  }
+}
