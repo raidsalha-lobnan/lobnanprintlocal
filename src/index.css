@@ -1668,3 +1668,54 @@ td.empty-row-shaded {
   }
   .report-pager-controls { display: none !important; }
 }
+
+/* Keep ALL report sidebar controls visible inside the real, measured panel.
+   Size is determined by the sidebar itself, not the browser viewport height. */
+@media screen {
+  .reports-sidebar {
+    display: block !important;
+    overflow: hidden !important;
+  }
+  .reports-sidebar-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    transform-origin: top right;
+    will-change: transform;
+  }
+  .reports-sidebar[data-density="compact"] .reports-report-selector-list {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 3px !important;
+  }
+  .reports-sidebar[data-density="compact"] .reports-report-selector-list button {
+    min-width: 0;
+    min-height: 28px;
+    height: auto;
+    font-size: 11px !important;
+    padding: 3px 4px !important;
+    line-height: 1.12 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+  .reports-sidebar[data-density="compact"] .reports-report-selector-list button svg {
+    flex-shrink: 0;
+    width: 12px !important;
+    height: 12px !important;
+  }
+  .reports-sidebar[data-density="compact"] .reports-selector,
+  .reports-sidebar[data-density="compact"] .reports-filters {
+    padding-top: 4px !important;
+  }
+  .reports-sidebar[data-density="compact"] .reports-action-row button {
+    min-height: 32px;
+    padding: 5px 3px !important;
+  }
+  .reports-sidebar[data-density="compact"] .reports-filter-fields {
+    gap: 3px !important;
+  }
+  .reports-sidebar[data-density="compact"] .reports-date-range {
+    padding-top: 3px !important;
+  }
+}

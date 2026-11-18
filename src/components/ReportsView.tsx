@@ -5,6 +5,7 @@ import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
 import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStatementPdf';
 import { DateInput } from '../components/common/DateInput';
 import { ReportsA4Pager } from './ReportsA4Pager';
+import { useReportsSidebarFit } from './useReportsSidebarFit';
 import { useAccounting } from '../context/AccountingContext';
 import {
   BarChart3,
@@ -116,6 +117,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
   const [activeReport, setActiveReport] = useState<ReportType>(initialReport || 'customer_statement');
   const reportsConsoleRef = useRef<HTMLDivElement>(null);
+  const { sidebarRef, sidebarContentRef } = useReportsSidebarFit();
 
   // Fit the reports workspace in the visible app area; no document-level scrollbar.
   React.useLayoutEffect(() => {
@@ -1086,7 +1088,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
       {/* أدوات التقارير مرتبة طولياً بجوار المعاينة */}
       <div className="reports-dashboard-grid grid grid-cols-1 lg:grid-cols-[minmax(300px,350px)_minmax(0,1fr)] gap-3 items-stretch flex-1 min-h-0 print:block print:space-y-0">
-        <aside className="reports-sidebar print:hidden bg-white rounded-xl border border-slate-200 shadow-xs p-2.5 flex flex-col gap-2 min-h-0 overflow-hidden" aria-label="اختيار التقرير وإعداداته">
+        <aside ref={sidebarRef} className="reports-sidebar print:hidden bg-white rounded-xl border border-slate-200 shadow-xs p-2.5 flex flex-col gap-2 min-h-0 overflow-hidden" aria-label="اختيار التقرير وإعداداته">
+          <div ref={sidebarContentRef} className="reports-sidebar-content">
           <div className="reports-action-row grid grid-cols-2 gap-2">
           {supportsDetailedStatementPdf && (
             <button
@@ -1381,6 +1384,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
           )}
         </div>
           </section>
+          </div>
         </aside>
 
         {/* معاينة المستند مع الاحتفاظ بمحتوى وطباعة التقرير */}
