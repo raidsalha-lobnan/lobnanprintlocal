@@ -82,8 +82,8 @@ export const UnifiedEmployeeStatementDocument: React.FC<Props> = ({
           <span>عدد الحركات: <strong>{statement.rows.length}</strong></span>
         </div>
 
-        <div className="border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-[440px] print:min-h-0 flex flex-col justify-between bg-white print:block print:overflow-visible print:border-none print:shadow-none">
-          <table className="w-full text-right report-table border-collapse h-full">
+        <div className="border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-0 bg-white print:block print:overflow-visible print:border-none print:shadow-none">
+          <table className="w-full text-right report-table border-collapse">
             <thead>
               <tr className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
                 <th className="w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400">م</th>
@@ -118,8 +118,8 @@ export const UnifiedEmployeeStatementDocument: React.FC<Props> = ({
                       <td className="font-sans text-slate-800 border-l border-slate-300">
                         <div className="flex flex-wrap items-center gap-1 leading-tight">
                           <strong className="text-slate-900">{row.typeLabel}</strong>
-                          {row.referenceNumber && <span className="font-mono font-semibold text-slate-700">— {row.referenceNumber}</span>}
-                          {notes && <span className="text-slate-600">— {notes}</span>}
+                          {row.referenceNumber && <span className="font-semibold text-slate-700">— <bdi dir="ltr" className="inline-block font-mono">{row.referenceNumber}</bdi></span>}
+                          {notes && <span className="text-slate-600">— <bdi dir="auto">{notes}</bdi></span>}
                         </div>
                         {(row.period || row.paymentMethod) && (
                           <div className="text-[10px] text-slate-500 mt-1">
@@ -154,8 +154,8 @@ export const UnifiedEmployeeStatementDocument: React.FC<Props> = ({
                                   <tr key={ii}>
                                     <td className="text-center border-l border-slate-200 font-mono">{ii + 1}</td>
                                     <td className="border-l border-slate-200">
-                                      <strong>{item.itemName}</strong>
-                                      {(item.notes || item.description) && <span className="font-medium text-slate-600"> / {item.notes || item.description}</span>}
+                                      <strong><bdi dir="auto">{item.itemName}</bdi></strong>
+                                      {(item.notes || item.description) && <bdi dir="auto" className="font-medium text-slate-600"> / {item.notes || item.description}</bdi>}
                                     </td>
                                     <td className="text-center font-mono border-l border-slate-200">{displayDimension(item.length, hasVisibleInvoiceDimensions(item))}</td>
                                     <td className="text-center font-mono border-l border-slate-200">{displayDimension(item.width, hasVisibleInvoiceDimensions(item))}</td>

@@ -39,7 +39,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
       <div className="border-b-2 border-slate-900 pb-2">
         <div className="statement-document-heading text-center font-bold text-base mb-1.5 mt-2 text-slate-900 leading-relaxed">
           {isCustomer ? 'كشف حساب عميل تفصيلي:' : 'كشف حساب مورد تفصيلي:'}{' '}
-          <span className={isCustomer ? 'text-blue-900' : 'text-rose-900'}>{clientDisplayName}</span>
+          <span className={isCustomer ? 'text-blue-900' : 'text-rose-900'}><bdi dir="auto">{clientDisplayName}</bdi></span>
           <div className="text-xs text-slate-600 mt-0.5 font-semibold">
             من تاريخ: <span className="font-mono">{fromDate || 'بداية التعامل'}</span>{' '}
             إلى تاريخ: <span className="font-mono">{toDate || 'تاريخ اليوم'}</span>
@@ -53,8 +53,8 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                   not in a separate set of dashboard cards. */}
 
               {/* Detailed Transactions Table - Optimized Font 12 & A4 Width */}
-              <div className="border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-[440px] print:min-h-0 flex flex-col justify-between bg-white print:block print:overflow-visible print:border-none print:shadow-none">
-                <table className="w-full text-right report-table border-collapse h-full">
+              <div className="border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-0 bg-white print:block print:overflow-visible print:border-none print:shadow-none">
+                <table className="w-full text-right report-table border-collapse">
                   <thead>
                     <tr className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
                       <th className="w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400">م</th>
@@ -172,7 +172,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                               : 'bg-white print:bg-white'}
                           >
                             <td className="text-center text-slate-400 font-sans align-middle border-l border-slate-300">{idx + 1}</td>
-                            <td className="text-slate-700 whitespace-nowrap text-center align-middle font-mono border-l border-slate-300">{formatDateDisplay(row.date)}</td>
+                            <td className="text-slate-700 whitespace-nowrap text-center align-middle font-mono border-l border-slate-300" dir="ltr">{formatDateDisplay(row.date)}</td>
                             <td className="font-sans text-slate-800 align-middle space-y-1 border-l border-slate-300">
                               {/* سطر مدمج وموحد: نوع العملية - رقم الحركة - الملاحظات */}
                               <div className="font-bold text-slate-900 leading-tight flex flex-wrap items-center gap-1">
@@ -180,13 +180,13 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                 {row.referenceNumber && row.referenceNumber !== 'OPENING' && (
                                   <>
                                     <span className="text-slate-400 font-normal">-</span>
-                                    <span className="font-mono font-bold text-slate-800">{row.referenceNumber}</span>
+                                    <bdi dir="ltr" className="inline-block font-mono font-bold text-slate-800">{row.referenceNumber}</bdi>
                                   </>
                                 )}
                                 {trimmedNote && (
                                   <>
                                     <span className="text-slate-400 font-normal">-</span>
-                                    <span className="text-slate-700 font-medium">{trimmedNote}</span>
+                                    <bdi dir="auto" className="text-slate-700 font-medium">{trimmedNote}</bdi>
                                   </>
                                 )}
                               </div>
@@ -293,10 +293,11 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                           </tr>
 
                           {/* تفاصيل الفاتورة: جدول الأصناف ممتد بالكامل تحت أعمدة مدين ودائن ورصيد */}
-                          {showItemDetails && row.items && row.items.length > 0 && (
+                          {row.items && row.items.length > 0 && (showItemDetails || (showImageThumbnailsInStatement && statementPhotoSources(row.items).length > 0)) && (
                             <tr className="bg-white print:bg-white print-allow-break">
                               <td colSpan={6} className="p-0 border-b border-slate-300 print-allow-break report-subtable-cell">
                                 <div className="w-full bg-white print:border-none print:rounded-none print:overflow-visible print:shadow-none print:block">
+                                  {showItemDetails && (
                                   <table className="w-full text-right report-sub-table border-collapse">
                                     <thead>
                                       <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
@@ -316,9 +317,9 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                           <td className="text-center font-mono font-bold text-slate-700 border-l border-slate-200 py-1">{iIdx + 1}</td>
                                           <td className="font-bold text-slate-900 border-l border-slate-200">
                                             <div>
-                                              <span>{it.itemName}</span>
+                                              <bdi dir="auto">{it.itemName}</bdi>
                                               {(it.notes || it.description) && (it.notes !== it.itemName) && (
-                                                <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
+                                                <bdi dir="auto" className="text-slate-600 font-medium"> / {it.notes || it.description}</bdi>
                                               )}
                                               
                                             </div>
@@ -351,8 +352,9 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                       </tfoot>
                                     )}
                                   </table>
+                                  )}
 
-                                  {row.type === 'invoice' && (
+                                  {showItemDetails && row.type === 'invoice' && (
                                     <div className="invoice-financial-strip grid grid-cols-6 items-center gap-x-1 border-t border-slate-300 bg-white px-1 py-1 font-bold text-slate-900" dir="rtl">
                                       {([
                                         ['قبل الخصم', row.subtotal ?? row.items.reduce((total, item) => total + item.total, 0)],
