@@ -183,7 +183,7 @@ const srv=http.createServer(async(req,res)=>{
     if(workspace!==WORKSPACE)throw new InputError('WRONG_WORKSPACE',403);
     if(req.method==='GET' && url.pathname==='/api/v1/health')
       return json(res,200,{ok:true,workspace,authMode:STRICT_AUTH?'users':'legacy',
-        features:{atomicPosRebaseV1:true}},cors);
+        features:{atomicPosRebaseV1:true,pdfDisplayOptionsV1:true}},cors);
     const bearer=(req.headers.authorization||'').replace(/^Bearer /i,'');
     if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/auth/login'){
       const payload=await parseBody(req,4096);

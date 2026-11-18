@@ -3,6 +3,7 @@ import {accountStatementPdfFilename} from '../utils/accountStatementPdf';
 import {waitForStatementPrintPhotos} from '../utils/statementPrintReadiness';
 import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
 import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStatementPdf';
+import {publicSyncApiUrl} from '../services/secureAuth';
 import { DateInput } from '../components/common/DateInput';
 import { ReportsLivePreview } from './ReportsLivePreview';
 import { useReportsSidebarFit } from './useReportsSidebarFit';
@@ -301,6 +302,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   };
 
   const [serverPdfDownloading,setServerPdfDownloading]=useState(false);
+  // A running API process may predate the PDF options fix. Do not expose
+  // direct saving until that process explicitly advertises support.
+  const [directPdfOptionsReady,setDirectPdfOptionsReady]=useState(false);
+  useEffect(()=>{
+    const controller=new AbortController();
+    let mounted=true;
+    try{
+      fetch(publicSyncApiUrl()+'/api/v1/health', {cache:'no-store',signal:controller.signal})
+        .then(response=>response.ok?response.json():null)
+        .then(data=>{if(mounted)setDirectPdfOptionsReady(data?.features?.pdfDisplayOptionsV1===true);})
+        .catch(()=>{if(mounted)setDirectPdfOptionsReady(false);});
+    }catch{setDirectPdfOptionsReady(false);}
+    return ()=>{mounted=false;controller.abort();};
+  },[]);
   const serverPdfInFlight=useRef(false);
   const handleDownloadDetailedStatementPdf = async () => {
     if(!supportsDetailedStatementPdf || serverPdfInFlight.current)return;
@@ -332,6 +347,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         primaryName:employee.name,fromDate,toDate,kind:'employee'
       });
     }
+    if(!directPdfOptionsReady){
+      // The same live React report obeys the images/details toggles.
+      // Until the server is safely restarted, use native Save as PDF
+      // rather than showing a failed direct-download alert.
+      printStatementWithNativeBrowser(filename,handlePrint);
+      return;
+    }
     serverPdfInFlight.current=true;
     setServerPdfDownloading(true);
     try{
@@ -341,6 +363,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         showImages:showStatementImageThumbnails
       },filename);
     }catch(error){
+      if(error instanceof Error && error.message==='PDF_DISPLAY_OPTIONS_NOT_CONFIRMED'){
+        setDirectPdfOptionsReady(false);
+        printStatementWithNativeBrowser(filename,handlePrint);
+        return;
+      }
       console.error('Server Chrome statement PDF generation failed',error);
       alert('تعذّر إنشاء ملف PDF مباشرة من الخادم. لم تتغير البيانات المحاسبية. يمكن استخدام «طباعة التقرير» ثم Save as PDF عند الحاجة. '+(error instanceof Error?error.message:''));
     }finally{
@@ -1091,10 +1118,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
               onClick={() => {void handleDownloadDetailedStatementPdf();}}
               disabled={serverPdfDownloading}
               className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-bold px-3.5 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer"
-              title="حفظ PDF مباشرة بمحرك Chrome على الخادم، دون فتح نافذة الطباعة"
+              title={directPdfOptionsReady ? "حفظ PDF مباشرة من الخادم مع تطبيق الصور والتفاصيل" : "حفظ باستخدام نافذة الطباعة ثم Save as PDF حتى يتم تحديث خدمة الخادم"}
             >
               <Download className="w-4 h-4" />
-              <span>{serverPdfDownloading?'جاري إنشاء PDF...':'حفظ PDF مباشر'}</span>
+              <span>{serverPdfDownloading?'جاري إنشاء PDF...':(directPdfOptionsReady?'حفظ PDF مباشر':'حفظ PDF (طباعة)')}</span>
             </button>
           )}
           <button

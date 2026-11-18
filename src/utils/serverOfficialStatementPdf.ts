@@ -56,7 +56,7 @@ export async function downloadServerOfficialStatementPdf(
     ';images='+(request.showImages!==false?'1':'0');
   const confirmedOptions=response.headers.get('x-lobnan-pdf-options');
   if(confirmedOptions!==expectedOptions)
-    throw new Error('خدمة PDF لم تؤكد تطبيق خيارات الصور والتفاصيل. استخدم طباعة التقرير ثم Save as PDF إلى أن تُحدَّث الخدمة.');
+    throw new Error('PDF_DISPLAY_OPTIONS_NOT_CONFIRMED');
   const blob=await response.blob();
   if(blob.size<500||blob.size>60_000_000||
      await blob.slice(0,5).text()!=='%PDF-')
