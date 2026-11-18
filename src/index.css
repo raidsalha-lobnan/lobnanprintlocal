@@ -2190,3 +2190,18 @@ td.empty-row-shaded {
   .reports-pager-toolbar .report-pager-controls button { width: 18px !important; }
   .reports-pager-toolbar .reports-page-label { min-width: 55px !important; font-size: 9px !important; }
 }
+
+/* Statement invoice heading: every nested label, code, note and amount must
+   remain WHITE on the dark blue row in the live preview and printed PDF. */
+.report-table tbody > tr.statement-invoice-title,
+.report-table tbody > tr.statement-invoice-title > td,
+.report-table tbody > tr.statement-invoice-title > td * {
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+}
+.report-table tbody > tr.statement-invoice-title,
+.report-table tbody > tr.statement-invoice-title > td {
+  background-color: #315779 !important;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}

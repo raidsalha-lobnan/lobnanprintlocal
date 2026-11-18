@@ -362,6 +362,12 @@ const srv=http.createServer(async(req,res)=>{
         throw new InputError('REPORT_PDF_TYPE_INVALID',400);
       const partyId=String(payload?.partyId||'');
       const employeeId=String(payload?.employeeId||'');
+      const subPartyId=String(payload?.subPartyId||'all');
+      // Keep the official PDF in sync with the visible report controls.
+      const showItemDetails=payload?.showItemDetails ?? true;
+      const showImages=payload?.showImages ?? true;
+      if(typeof showItemDetails!=='boolean'||typeof showImages!=='boolean')
+        throw new InputError('REPORT_PDF_DISPLAY_OPTIONS_INVALID',400);
       const fromDate=String(payload?.fromDate||'');
       const toDate=String(payload?.toDate||'');
       if((type==='employee_statement'?!/^[a-zA-Z0-9_-]{1,200}$/.test(employeeId):
@@ -373,7 +379,8 @@ const srv=http.createServer(async(req,res)=>{
       officialPdfActive++;
       try{
         const result=await generateOfficialReportPdf({
-          pool,workspace,access,driveStorage,type,partyId,employeeId,fromDate,toDate
+          pool,workspace,access,driveStorage,type,partyId,subPartyId,employeeId,
+          fromDate,toDate,showItemDetails,showImages
         });
         // Never cache financial PDFs, and never upload their contents or
         // write another copy into PostgreSQL, Telegram, or Google Drive.
@@ -381,6 +388,8 @@ const srv=http.createServer(async(req,res)=>{
           'content-type':'application/pdf',
           'content-disposition':'attachment; filename="statement.pdf"',
           'cache-control':'no-store, private',
+          'x-lobnan-pdf-options':'details='+(showItemDetails?'1':'0')+';images='+(showImages?'1':'0'),
+          'access-control-expose-headers':'x-lobnan-pdf-options, content-disposition',
           'x-content-type-options':'nosniff',
           'content-length':result.pdf.length,
           'access-control-allow-origin':cors||'',

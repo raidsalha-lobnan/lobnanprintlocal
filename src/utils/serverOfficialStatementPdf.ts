@@ -50,6 +50,13 @@ export async function downloadServerOfficialStatementPdf(
     if(response.status===429)throw new Error('الخادم منشغل بإنشاء كشف آخر. أعد المحاولة.');
     throw new Error('تعذّر إعداد PDF على الخادم ('+reason+').');
   }
+  // Never download a PDF from a server that silently ignored the display
+  // controls selected in the live report preview.
+  const expectedOptions='details='+(request.showItemDetails!==false?'1':'0')+
+    ';images='+(request.showImages!==false?'1':'0');
+  const confirmedOptions=response.headers.get('x-lobnan-pdf-options');
+  if(confirmedOptions!==expectedOptions)
+    throw new Error('خدمة PDF لم تؤكد تطبيق خيارات الصور والتفاصيل. استخدم طباعة التقرير ثم Save as PDF إلى أن تُحدَّث الخدمة.');
   const blob=await response.blob();
   if(blob.size<500||blob.size>60_000_000||
      await blob.slice(0,5).text()!=='%PDF-')
