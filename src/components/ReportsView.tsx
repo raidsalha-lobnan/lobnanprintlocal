@@ -1071,18 +1071,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   ];
 
   return (
-    <div ref={reportsConsoleRef} className="reports-dashboard flex flex-col gap-2 min-h-0 print:block" dir="rtl">
-      {/* شريط عنوان مختصر مع عداد وتقليب صفحات A4 */}
-      <header className="reports-dashboard-header bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-xs flex items-center justify-between gap-2 print:hidden">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-7 h-7 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center shrink-0"><BarChart3 className="w-4 h-4" /></div>
-          <h1 className="font-bold text-slate-900 text-sm truncate">مركز التقارير المحاسبية والتفصيلية</h1>
-        </div>
-        <div id="reports-pager-toolbar" className="reports-pager-toolbar min-w-0 print:hidden" aria-label="التحكم بصفحات التقرير" />
-      </header>
+    <div ref={reportsConsoleRef} className="reports-dashboard flex flex-col gap-0 min-h-0 print:block" dir="rtl">
       {/* أدوات التقارير مرتبة طولياً بجوار المعاينة */}
       <div className="reports-dashboard-grid grid grid-cols-1 lg:grid-cols-[minmax(390px,32%)_minmax(0,1fr)] gap-3 items-stretch flex-1 min-h-0 print:block print:space-y-0">
         <aside ref={sidebarRef} className="reports-sidebar self-start print:hidden bg-white rounded-xl border border-slate-200 shadow-xs p-2.5 flex flex-col gap-2 min-h-0 overflow-visible" aria-label="اختيار التقرير وإعداداته">
+      {/* شريط عنوان مختصر مع عداد وتقليب صفحات A4 */}
+      <header className="reports-dashboard-header flex items-center justify-start gap-1.5 px-1 py-1 border-b border-slate-100 min-w-0 print:hidden">
+        <div className="reports-header-title flex items-center gap-1 min-w-0" title="مركز التقارير المحاسبية والتفصيلية">
+          <div className="w-5 h-5 rounded bg-blue-50 text-blue-600 flex items-center justify-center shrink-0"><BarChart3 className="w-3.5 h-3.5" /></div>
+          <h1 className="font-bold text-slate-900 text-xs truncate whitespace-nowrap">مركز التقارير المحاسبية والتفصيلية</h1>
+        </div>
+        <div id="reports-pager-toolbar" className="reports-pager-toolbar min-w-0 print:hidden" aria-label="التحكم بصفحات التقرير" />
+      </header>
           <div ref={sidebarContentRef} className="reports-sidebar-content">
           <div className="reports-action-row grid grid-cols-2 gap-2">
           {supportsDetailedStatementPdf && (

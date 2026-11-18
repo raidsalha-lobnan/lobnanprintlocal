@@ -21,7 +21,10 @@ export function useReportsSidebarFit() {
       const computed = getComputedStyle(sidebar);
       const padding = parseFloat(computed.paddingTop || '0') +
         parseFloat(computed.paddingBottom || '0');
-      const availableHeight = Math.max(240, grid.clientHeight - padding - 4);
+      // The title and page controls now live inside this sidebar.
+      // Reserve their actual height so the final filter is never clipped.
+      const headerHeight = sidebar.querySelector<HTMLElement>('.reports-dashboard-header')?.offsetHeight || 0;
+      const availableHeight = Math.max(160, grid.clientHeight - padding - headerHeight - 9);
 
       // Always use the readable two-column selector from the approved design.
       sidebar.dataset.density = 'compact';
