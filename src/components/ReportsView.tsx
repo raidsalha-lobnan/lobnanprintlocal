@@ -4,6 +4,7 @@ import {waitForStatementPrintPhotos} from '../utils/statementPrintReadiness';
 import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
 import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStatementPdf';
 import { DateInput } from '../components/common/DateInput';
+import { ReportsA4Pager } from './ReportsA4Pager';
 import { useAccounting } from '../context/AccountingContext';
 import {
   BarChart3,
@@ -114,6 +115,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   } = useAccounting();
 
   const [activeReport, setActiveReport] = useState<ReportType>(initialReport || 'customer_statement');
+  const reportsConsoleRef = useRef<HTMLDivElement>(null);
+
+  // Fit the reports workspace in the visible app area; no document-level scrollbar.
+  React.useLayoutEffect(() => {
+    const node = reportsConsoleRef.current;
+    if (!node) return;
+    const fit = () => {
+      const top = node.getBoundingClientRect().top;
+      node.style.height = Math.max(350, window.innerHeight - top - 42) + 'px';
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, []);
 
   useEffect(() => {
     if (initialReport) {
@@ -1054,9 +1069,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   ];
 
   return (
-    <div className="space-y-5" dir="rtl">
+    <div ref={reportsConsoleRef} className="reports-dashboard flex flex-col gap-2 min-h-0 print:block" dir="rtl">
       {/* Top Header */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 print:hidden">
+      <div className="reports-dashboard-header bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-3 print:hidden">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
             <BarChart3 className="w-5 h-5" />
@@ -1070,9 +1085,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
       </div>
 
       {/* أدوات التقارير مرتبة طولياً بجوار المعاينة */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,350px)_minmax(0,1fr)] gap-4 items-start print:block print:space-y-0">
-        <aside className="print:hidden bg-white rounded-xl border border-slate-200 shadow-xs p-3.5 space-y-4 lg:sticky lg:top-3 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto" aria-label="اختيار التقرير وإعداداته">
-          <div className="flex flex-col gap-2">
+      <div className="reports-dashboard-grid grid grid-cols-1 lg:grid-cols-[minmax(300px,350px)_minmax(0,1fr)] gap-3 items-stretch flex-1 min-h-0 print:block print:space-y-0">
+        <aside className="reports-sidebar print:hidden bg-white rounded-xl border border-slate-200 shadow-xs p-2.5 flex flex-col gap-2 min-h-0 overflow-hidden" aria-label="اختيار التقرير وإعداداته">
+          <div className="reports-action-row grid grid-cols-2 gap-2">
           {supportsDetailedStatementPdf && (
             <button
               type="button"
@@ -1095,11 +1110,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
           </div>
 
           {/* اختيار التقرير في قائمة طولية */}
-          <section className="border-t border-slate-200 pt-3 space-y-2">
+          <section className="reports-selector border-t border-slate-200 pt-2 space-y-1">
         <div className="flex items-center gap-1 text-[11px] text-slate-400 font-bold mb-1">
           <span>اختر التقرير المطلوب:</span>
         </div>
-        <div className="flex flex-col gap-1.5">
+        <div className="reports-report-selector-list flex flex-col gap-0.5">
           {[...reportsCategories.slice(1, 5).flatMap(cat => cat.items), ...reportsCategories[0].items, ...reportsCategories.slice(5).flatMap(cat => cat.items)].map(item => {
             const Icon = item.icon;
             const isSelected = activeReport === item.id;
@@ -1123,12 +1138,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
           </section>
 
           {/* فلاتر مشتركة ضمن نفس العمود */}
-          <section className="border-t border-slate-200 pt-3 space-y-3 text-xs">
+          <section className="reports-filters border-t border-slate-200 pt-2 space-y-1 text-xs">
             <h2 className="font-bold text-blue-700 flex items-center gap-2"><Filter className="w-4 h-4" />فلترة وتصفية التقرير:</h2>
-        <div className="flex flex-col items-stretch gap-3 w-full min-w-0">
+        <div className="reports-filter-fields flex flex-col items-stretch gap-1.5 w-full min-w-0">
           {/* Customer Selector if activeReport is customer_statement or customer_items */}
           {(activeReport === 'customer_statement' || activeReport === 'customer_items') && (
-            <div className="flex flex-col items-stretch gap-2 min-w-0 w-full">
+            <div className="reports-entity-picker flex flex-col items-stretch gap-1 min-w-0 w-full">
               <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs">
                 <div className="p-1 rounded bg-blue-100 text-blue-700">
                   <Users className="w-3.5 h-3.5" />
@@ -1177,7 +1192,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
               )}
 
               {activeReport === 'customer_statement' && (
-                <div className="flex flex-col items-stretch gap-2 w-full">
+                <div className="reports-statement-options grid grid-cols-2 gap-1 w-full">
                   <div className="h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5"></div>
                   
                   <button
@@ -1216,7 +1231,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
           {/* Supplier Selector if activeReport is supplier_statement or supplier_items */}
           {(activeReport === 'supplier_statement' || activeReport === 'supplier_items') && (
-            <div className="flex flex-col items-stretch gap-2 min-w-0 w-full">
+            <div className="reports-entity-picker flex flex-col items-stretch gap-1 min-w-0 w-full">
               <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs">
                 <div className="p-1 rounded bg-amber-100 text-amber-700">
                   <Truck className="w-3.5 h-3.5" />
@@ -1265,7 +1280,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
               )}
 
               {activeReport === 'supplier_statement' && (
-                <div className="flex flex-col items-stretch gap-2 w-full">
+                <div className="reports-statement-options grid grid-cols-2 gap-1 w-full">
                   <div className="h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5"></div>
                   
                   <button
@@ -1290,7 +1305,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
           {/* Employee Selector if activeReport is employee_statement */}
           {activeReport === 'employee_statement' && (
-            <div className="flex flex-col items-stretch gap-2 min-w-0 w-full">
+            <div className="reports-entity-picker flex flex-col items-stretch gap-1 min-w-0 w-full">
               <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs">
                 <UserCheck className="w-4 h-4 text-purple-600" />
                 <span>اختيار الموظف:</span>
@@ -1314,7 +1329,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
           {/* Treasury Filter if activeReport is treasuries_movement, receipt_vouchers, or payment_vouchers */}
           {(activeReport === 'treasuries_movement' || activeReport === 'receipt_vouchers' || activeReport === 'payment_vouchers') && (
-            <div className="flex flex-col items-stretch gap-2 w-full">
+            <div className="reports-treasury-picker flex flex-col items-stretch gap-1 w-full">
               <span className="font-bold text-slate-700">الخزينة / الحساب:</span>
               <select
                 value={
@@ -1344,7 +1359,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         </div>
 
         {/* Date Filter Inputs */}
-        <div className="flex flex-col gap-2 border-t border-slate-200 pt-3 text-slate-600">
+        <div className="reports-date-range grid grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 border-t border-slate-200 pt-2 text-slate-600">
           <span className="text-xs font-bold text-slate-600">من تاريخ:</span>
           <DateInput value={fromDate} onChange={e => setFromDate(e.target.value)}
             className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs"
@@ -1359,7 +1374,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
                 setFromDate('');
                 setToDate('');
               }}
-              className="text-rose-600 text-[11px] font-bold hover:underline cursor-pointer"
+              className="col-span-4 justify-self-start text-rose-600 text-[11px] font-bold hover:underline cursor-pointer"
             >
               إلغاء
             </button>
@@ -1369,7 +1384,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         </aside>
 
         {/* معاينة المستند مع الاحتفاظ بمحتوى وطباعة التقرير */}
-        <div className="reports-preview-area min-w-0 space-y-5 print:block">
+        <div className="reports-preview-area min-w-0 h-full min-h-0 overflow-hidden print:block">
+          <ReportsA4Pager reportKey={activeReport}>
       {/* ========================================================================= */}
       {/* 1. كشف حساب تفصيلي عميل */}
       {/* ========================================================================= */}
@@ -2241,6 +2257,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
         </div>
       )}
 
+          </ReportsA4Pager>
         </div>
       </div>
 
