@@ -169,17 +169,20 @@ export const VoucherPrintModal: React.FC = () => {
           </div>
         </div>
 
-        {/* Printable Voucher Paper */}
-        <div className="p-6 sm:p-10 flex-1 overflow-y-auto print:p-0 print:m-0 print:overflow-visible text-slate-950 font-sans bg-white select-none printable-paper print-document">
+        {/* One A5 landscape receipt on screen; two identical A5 copies when printed on one A4 sheet. */}
+        <div className={isPayment ? 'voucher-print-sheets' : 'voucher-print-sheets receipt-a5-sheet'}>
+          {(isPayment ? [0] : [0, 1]).map(copyIndex => (
+          <div key={copyIndex} data-receipt-print-copy={copyIndex}
+            className={`p-6 sm:p-10 flex-1 overflow-y-auto print:p-0 print:m-0 print:overflow-visible text-slate-950 font-sans bg-white select-none printable-paper print-document ${isPayment ? '' : 'receipt-a5-copy'}`}>
           
           {/* 1. الهيدر المرفق بالبرنامج (Official Header) */}
-          <div className="mb-4">
+          <div className="mb-4 receipt-a5-letterhead">
             <PrintHeader showBorder={false} />
           </div>
 
           {/* 2. سند القبض: الرقم أقصى اليمين، العنوان بالوسط، التاريخ أقصى اليسار في سطر واحد */}
           {!isPayment ? (
-            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 my-3 sm:my-4" dir="rtl">
+            <div className="receipt-a5-title grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 my-3 sm:my-4" dir="rtl">
               <span dir="ltr" className="justify-self-stretch text-right font-mono font-extrabold text-xs sm:text-sm text-slate-950 whitespace-nowrap">
                 {voucher.voucherNumber}
               </span>
@@ -198,10 +201,10 @@ export const VoucherPrintModal: React.FC = () => {
           )}
 
           {/* 3. المبلغ والعملة، وتاريخ سند الصرف فقط (تاريخ القبض أصبح في سطر العنوان) */}
-          <div className={`flex items-end gap-4 mt-4 mb-6 pb-3 border-b border-slate-200 ${isPayment ? 'justify-between' : 'justify-start'}`}>
+          <div className={`receipt-a5-amount-row flex items-end gap-4 mt-4 mb-6 pb-3 border-b border-slate-200 ${isPayment ? 'justify-between' : 'justify-start'}`}>
             {/* جهة اليمين: العملة والخانة فيها المبلغ مع رمز العملة */}
-            <div className="flex flex-col items-start text-right">
-              <span className="text-xs font-bold text-slate-700 mb-1">{currName}</span>
+            <div className={isPayment ? 'flex flex-col items-start text-right' : 'flex flex-row items-center gap-2 text-right'}>
+              <span className={isPayment ? 'text-xs font-bold text-slate-700 mb-1' : 'receipt-a5-currency text-xs font-bold text-slate-700 whitespace-nowrap'}>{currName}</span>
               <div className="border-2 border-black rounded-full px-6 py-1.5 min-w-[150px] sm:min-w-[170px] text-center bg-white shadow-2xs">
                 <span className="font-mono font-black text-lg sm:text-xl text-black">
                   {voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currencySymbol}
@@ -226,7 +229,7 @@ export const VoucherPrintModal: React.FC = () => {
           )}
 
           {/* 4. بنود السند - أسطر نظيفة بدون أسطر نقاط */}
-          <div className="space-y-4 my-6 text-sm sm:text-[15px]">
+          <div className="receipt-a5-fields space-y-4 my-6 text-sm sm:text-[15px]">
             
             {/* السطر الأول: إستلمت من / يصرف إلى (دون كود العميل) */}
             <div className="flex items-baseline gap-2 py-1">
@@ -274,7 +277,11 @@ export const VoucherPrintModal: React.FC = () => {
           </div>
 
           {/* 5. التوقيعات والختم (Signatures & Stamp Section) */}
-          <ReportSignatures columns={2} rightLabel={isPayment ? 'توقيع المستلم' : 'توقيع المحاسب / المستلم'} leftLabel="الختم والاعتماد" />
+          <div className="receipt-a5-signatures">
+            <ReportSignatures columns={2} rightLabel={isPayment ? 'توقيع المستلم' : 'توقيع المحاسب / المستلم'} leftLabel="الختم والاعتماد" />
+          </div>
+        </div>
+          ))}
         </div>
       </div>
     </div>

@@ -2386,3 +2386,172 @@ td.empty-row-shaded {
     white-space: nowrap !important;
   }
 }
+
+/* Two-up receipt printing: TWO A5 landscape originals on ONE A4 portrait.
+   Named page is scoped to receipt printing; invoices and reports keep their page setup. */
+@page receiptVoucherTwoUp {
+  size: 210mm 297mm;
+  margin: 0;
+}
+@media screen {
+  .receipt-a5-sheet {
+    width: 100%;
+    min-width: 0;
+  }
+  .receipt-a5-sheet .receipt-a5-copy:first-child {
+    min-height: min(67vw, 480px);
+  }
+  .receipt-a5-copy[data-receipt-print-copy="1"] {
+    display: none !important;
+  }
+}
+@media print {
+  .print-modal-container:has(.receipt-a5-sheet),
+  .print-modal-container:has(.receipt-a5-sheet) > div {
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    height: 297mm !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  .receipt-a5-sheet {
+    page: receiptVoucherTwoUp;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    height: 297mm !important;
+    min-height: 297mm !important;
+    max-height: 297mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    overflow: hidden !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  .receipt-a5-sheet > .receipt-a5-copy {
+    box-sizing: border-box !important;
+    position: relative !important;
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 0 0 148.5mm !important;
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    height: 148.5mm !important;
+    min-height: 148.5mm !important;
+    max-height: 148.5mm !important;
+    padding: 3mm 6mm 2mm !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    overflow: hidden !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    break-before: avoid !important;
+    break-inside: avoid !important;
+    break-after: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  .receipt-a5-copy[data-receipt-print-copy="1"] {
+    display: flex !important;
+    border-top: 0.2mm dashed #cbd5e1 !important;
+  }
+  .receipt-a5-copy .receipt-a5-letterhead {
+    flex: 0 0 auto !important;
+    margin-bottom: 0.5mm !important;
+  }
+  .receipt-a5-copy .print-header,
+  .receipt-a5-copy [data-component="print-header"] {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .receipt-a5-copy .print-header img,
+  .receipt-a5-copy [data-component="print-header"] img {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 27mm !important;
+    object-fit: contain !important;
+  }
+  .receipt-a5-copy .receipt-a5-title {
+    flex: 0 0 auto !important;
+    margin: 1.5mm 0 1.5mm !important;
+    gap: 2mm !important;
+    line-height: 1.15 !important;
+  }
+  .receipt-a5-copy .receipt-a5-title > span {
+    font-size: 11px !important;
+  }
+  .receipt-a5-copy .receipt-a5-title > span:nth-child(2) {
+    font-size: 16px !important;
+    padding: 1.5mm 7mm !important;
+    line-height: 1.2 !important;
+  }
+  .receipt-a5-copy .receipt-a5-amount-row {
+    flex: 0 0 auto !important;
+    margin: 1mm 0 1.5mm !important;
+    padding: 0 0 1mm !important;
+    min-height: 0 !important;
+    gap: 2mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-amount-row .receipt-a5-currency {
+    font-size: 11px !important;
+    margin: 0 !important;
+  }
+  .receipt-a5-copy .receipt-a5-amount-row .rounded-full {
+    min-width: 33mm !important;
+    padding: 1mm 4mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-amount-row .rounded-full span {
+    font-size: 16px !important;
+    line-height: 1.25 !important;
+  }
+  .receipt-a5-copy .receipt-a5-fields {
+    flex: 0 0 auto !important;
+    margin: 1.5mm 0 0 !important;
+    font-size: 11px !important;
+    line-height: 1.35 !important;
+  }
+  .receipt-a5-copy .receipt-a5-fields > div {
+    padding: 0.5mm 0 !important;
+    margin: 0 !important;
+    gap: 2mm !important;
+    line-height: 1.3 !important;
+  }
+  .receipt-a5-copy .receipt-a5-fields > div + div {
+    margin-top: 1.4mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-fields span {
+    font-size: 11px !important;
+    line-height: 1.35 !important;
+    min-width: 25mm !important;
+    overflow-wrap: anywhere;
+  }
+  .receipt-a5-copy .receipt-a5-signatures {
+    flex: 0 0 auto !important;
+    margin-top: auto !important;
+  }
+  .receipt-a5-copy .receipt-a5-signatures > div {
+    margin: 1mm 0 0 !important;
+    padding: 1.5mm 0 0 !important;
+    gap: 4mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-signatures > div > div {
+    min-height: 0 !important;
+    gap: 1mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-signatures > div > div:last-child > div {
+    min-height: 35mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-signatures span {
+    margin: 0 !important;
+    font-size: 10px !important;
+    line-height: 1.2 !important;
+  }
+}
