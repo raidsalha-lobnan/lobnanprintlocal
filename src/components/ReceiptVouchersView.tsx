@@ -24,6 +24,26 @@ import {
   CheckCircle2
 } from 'lucide-react';
 
+// Sort by the *issued* RCT sequence, not the voucher date or arrival order.
+// Numeric comparison keeps 0010 above 0009, even if the older receipt was
+// entered with a later calendar date. Across years, the newer series leads.
+const receiptNumberDescending = (a: PaymentVoucher, b: PaymentVoucher): number => {
+  const pattern = /^RCT-(\d{4})-(\d+)$/i;
+  const left = pattern.exec(String(a.voucherNumber || ''));
+  const right = pattern.exec(String(b.voucherNumber || ''));
+  if (left && right) {
+    const yearDiff = Number(right[1]) - Number(left[1]);
+    if (yearDiff !== 0) return yearDiff;
+    const seqDiff = Number(right[2]) - Number(left[2]);
+    if (seqDiff !== 0) return seqDiff;
+  } else if (left || right) {
+    return left ? -1 : 1;
+  }
+  return b.date.localeCompare(a.date) ||
+    String(b.voucherNumber || '').localeCompare(String(a.voucherNumber || ''), 'en', { numeric: true }) ||
+    String(b.id).localeCompare(String(a.id));
+};
+
 export const ReceiptVouchersView: React.FC = () => {
   const {
     vouchers,
@@ -70,7 +90,7 @@ export const ReceiptVouchersView: React.FC = () => {
         if (!matchNum && !matchParty && !matchDesc) return false;
       }
       return true;
-    }).sort((a, b) => b.date.localeCompare(a.date));
+    }).sort(receiptNumberDescending);
   }, [receiptVouchers,treasuries, methodFilter, dateMode, selectedDay, fromDate, toDate, searchQuery]);
 
   // Statistics
