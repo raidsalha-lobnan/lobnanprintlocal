@@ -25,9 +25,8 @@ export function splitInvoiceThumbnails(value?:string):string[]{
 }
 
 /**
- * Do not repeat a photographed item when its full-resolution original is
- * stored as a separate Drive/local attachment. Older invoices without a
- * matching original keep the existing thumbnail, without fake upscaling.
+ * Only images intentionally stored in imageThumbnail appear here. Ordinary
+ * line attachments are independent; legacy galleryPrintIndex pairs stay valid.
  */
 export function statementPhotoSources(items:StatementPhotoItem[]):StatementPhotoSource[]{
   const photos:StatementPhotoSource[]=[];
@@ -44,14 +43,6 @@ export function statementPhotoSources(items:StatementPhotoItem[]):StatementPhoto
       if(seen.has(key))continue;
       seen.add(key);
       photos.push({preview,original,itemName:item.itemName,itemSeq:i+1});
-    }
-    for(const att of originals){
-      if(att.galleryPrintIndex!==undefined||
-         !(att.type?.startsWith('image/')||att.data?.startsWith('data:image/')))continue;
-      const key=att.driveFileId||att.localBlobId||att.data||att.id;
-      if(seen.has(key)||(!att.data&&!att.driveFileId&&!att.localBlobId))continue;
-      seen.add(key);
-      photos.push({preview:att.data||'',original:att,itemName:item.itemName,itemSeq:i+1});
     }
   }
   return photos;

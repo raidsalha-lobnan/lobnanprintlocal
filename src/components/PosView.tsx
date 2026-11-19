@@ -32,7 +32,7 @@ import {invoiceEditSignature} from '../utils/invoiceEditSignature';
 import {verifyPosEditReceipt} from '../utils/posEditReceiptVerification';
 import {resolvePosPaymentMethod} from '../utils/posPaymentMethod';
 import {dateForNewPosInvoice,localPosToday} from '../utils/posInvoiceDate';
-import {prepareInvoiceGalleryImages} from '../utils/printQualityAssets';
+import {prepareInvoiceThumbnails} from '../utils/printQualityAssets';
 import { matchKeyboardShortcut } from '../utils/keyboardShortcuts';
 import { calculatePartyTrueBalance, calculateEmployeeTrueBalance } from '../utils/statementGenerator';
 import {
@@ -663,6 +663,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
 
   // Table Lines State - تبدأ دائماً كفاتورة جديدة فارغة عند فتح شاشة الكاشير
   const pendingGalleryUploadsRef=useRef(0);
+  const [preparingThumbnailIds,setPreparingThumbnailIds]=useState<Record<string,boolean>>({});
   const [tableLines, setTableLines] = useState<PosTableLine[]>(() => {
     return [
       {
@@ -5021,10 +5022,10 @@ const getInitialPosDraft = (): PosFullDraftData => {
                       {posLayoutConfig.tableColumns.showImageThumbnail && (
                         <td className="p-0 border-l border-b border-slate-300 text-center bg-slate-50/50">
                           <div className="flex items-center justify-center h-full min-h-[36px] relative group/imgcell py-1 gap-1">
-                            {line.imageThumbnail ? (
+                            {line.imageThumbnail && (
                               <div className="flex items-center gap-1 px-1">
                                 {/* Green Checkmark representing successful upload */}
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="تم رفع وإرفاق الصور بنجاح" />
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="تم تجهيز الصورة المصغرة داخل الفاتورة" />
                                 
                                 {/* Thumbnails Gallery */}
                                 <div className="flex -space-x-1.5 rtl:space-x-reverse overflow-hidden">
@@ -5048,51 +5049,49 @@ const getInitialPosDraft = (): PosFullDraftData => {
                                     handleUpdateLine(line.id, 'imageThumbnail', '');
                                   }}
                                   className="text-slate-400 hover:text-rose-600 p-0.5 rounded hover:bg-rose-50 cursor-pointer"
-                                  title="حذف كافة الصور المرفقة للبند"
+                                  title="حذف المصغرات فقط؛ لا حذف لمرفقات البند"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
-                            ) : (
+                            )}
                               <label
                                 className="w-8 h-8 rounded-md border border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50 flex items-center justify-center cursor-pointer transition-all text-slate-400 hover:text-blue-600"
-                                title="رفع صورة أو عدة صور للبند"
+                                title="إضافة صورة مصغرة مستقلة عن مرفقات البند"
                               >
-                                <Plus className="w-3.5 h-3.5" />
+                                {preparingThumbnailIds[line.id] ? <span className="text-[10px] text-blue-700">...</span> : <Plus className="w-3.5 h-3.5" />}
                                 <input
                                   type="file"
-                                  accept="image/*"
+                                  accept="image/png,image/jpeg,image/webp"
                                   multiple
+                                  disabled={Boolean(preparingThumbnailIds[line.id])}
                                   className="hidden"
                                   onChange={async (e) => {
                                     const input=e.currentTarget;
                                     const files = input.files;
                                     if (files && files.length > 0) {
                                       pendingGalleryUploadsRef.current++;
+                                      setPreparingThumbnailIds(prev=>({...prev,[line.id]:true}));
                                       try{
-                                        const prepared=await prepareInvoiceGalleryImages(Array.from(files));
-                                        if(prepared.thumbnails.length){
+                                        const thumbnails=await prepareInvoiceThumbnails(Array.from(files));
+                                        if(thumbnails.length){
                                           setTableLines(prev=>prev.map(current=>current.id!==line.id?current:{
                                             ...current,
-                                            imageThumbnail:JSON.stringify(prepared.thumbnails),
-                                            attachments:[...(current.attachments||[]),...prepared.originals]
+                                            imageThumbnail:JSON.stringify([...parseThumbnails(current.imageThumbnail),...thumbnails])
                                           }));
                                         }
-                                        if(prepared.localOnlyCount){
-                                          alert('تم الاحتفاظ بالصور الأصلية بجودتها الكاملة على هذا الجهاز، لكن لم يُكتمل رفع بعضها إلى المخزن المركزي. سيستخدم PDF على الأجهزة الأخرى صور المعاينة إلى أن ترفع الصور الأصلية من هذا الجهاز.');
-                                        }
                                       }catch(error){
-                                        console.error('Print-quality gallery upload failed',error);
-                                        alert('تعذّر تجهيز صور البند. لم تُضف صور ناقصة إلى الفاتورة.');
+                                        console.error('Invoice thumbnail preparation failed',error);
+                                        alert('تعذّر تجهيز الصورة المصغرة. تأكد من نوع وصحة ملف الصورة.');
                                       }finally{
                                         pendingGalleryUploadsRef.current--;
+                                        setPreparingThumbnailIds(prev=>{const next={...prev};delete next[line.id];return next;});
                                         input.value='';
                                       }
                                     }
                                   }}
                                 />
                               </label>
-                            )}
                           </div>
                         </td>
                       )}

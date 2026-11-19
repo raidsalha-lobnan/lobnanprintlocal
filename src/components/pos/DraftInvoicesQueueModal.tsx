@@ -58,7 +58,7 @@ import {
 } from '../../services/liveSheetService';
 import { LineAttachmentsModal } from './LineAttachmentsModal';
 import { posSound } from '../../utils/audio';
-import {prepareInvoiceGalleryImages} from '../../utils/printQualityAssets';
+import {prepareInvoiceThumbnails} from '../../utils/printQualityAssets';
 
 interface DraftInvoicesQueueModalProps {
   isOpen: boolean;
@@ -805,11 +805,12 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
   };
 
   const pendingGalleryUploadsRef=useRef(0);
+  const [preparingThumbnailIds,setPreparingThumbnailIds]=useState<Record<string,boolean>>({});
 
   // Commit Single Multi-Item Draft into Real Accounting Invoice
   const handleApproveDraft = (draft: MultiItemDraftInvoice, autoAdvance = true) => {
     if(pendingGalleryUploadsRef.current>0){
-      alert('ما زال تجهيز الصور الأصلية جارياً. لا تعتمد الفاتورة قبل انتهاء رفع المرفقات.');
+      alert('ما زال تجهيز الصور المصغرة جارياً. لا تعتمد الفاتورة قبل انتهائها.');
       return;
     }
     if (!draft.items || draft.items.length === 0) {
@@ -1407,10 +1408,10 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
                           {/* صورة البند */}
                           <td className="p-1 border-l border-[#d4e4f4] text-center">
                             <div className="flex items-center justify-center h-full min-h-[28px] relative group/imgcell gap-1">
-                              {item.imageThumbnail ? (
+                              {item.imageThumbnail && (
                                 <div className="flex items-center gap-1 px-1">
                                   {/* Green Checkmark representing successful upload */}
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="تم رفع وإرفاق الصور بنجاح" />
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="تم تجهيز الصورة المصغرة داخل الفاتورة" />
                                   
                                   {/* Thumbnails Gallery */}
                                   <div className="flex -space-x-1.5 rtl:space-x-reverse overflow-hidden">
@@ -1433,50 +1434,48 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
                                       handleUpdateItem(currentDraft.id, item.id, { imageThumbnail: '' });
                                     }}
                                     className="text-slate-400 hover:text-rose-600 p-0.5 rounded hover:bg-rose-50 cursor-pointer"
-                                    title="حذف كافة الصور المرفقة للبند"
+                                    title="حذف المصغرات فقط؛ لا حذف لمرفقات البند"
                                   >
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 </div>
-                              ) : (
+                              )}
                                 <label
                                   className="w-7 h-7 rounded-md border border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50 flex items-center justify-center cursor-pointer transition-all text-slate-400 hover:text-blue-600"
-                                  title="رفع صورة أو عدة صور للبند"
+                                  title="إضافة صورة مصغرة مستقلة عن مرفقات البند"
                                 >
-                                  <Plus className="w-3 h-3" />
+                                  {preparingThumbnailIds[item.id] ? <span className="text-[10px] text-blue-700">...</span> : <Plus className="w-3 h-3" />}
                                   <input
                                     type="file"
-                                    accept="image/*"
+                                    accept="image/png,image/jpeg,image/webp"
                                     multiple
+                                    disabled={Boolean(preparingThumbnailIds[item.id])}
                                     className="hidden"
                                     onChange={async (e) => {
                                       const files = e.target.files;
                                       if (files && files.length > 0) {
                                         const input=e.currentTarget;
                                         pendingGalleryUploadsRef.current++;
+                                        setPreparingThumbnailIds(prev=>({...prev,[item.id]:true}));
                                         try{
-                                          const prepared=await prepareInvoiceGalleryImages(Array.from(files));
-                                          if(prepared.thumbnails.length){
+                                          const thumbnails=await prepareInvoiceThumbnails(Array.from(files));
+                                          if(thumbnails.length){
                                             handleUpdateItem(currentDraft.id,item.id,{
-                                              imageThumbnail:JSON.stringify(prepared.thumbnails),
-                                              attachments:[...(item.attachments||[]),...prepared.originals]
+                                              imageThumbnail:JSON.stringify([...parseThumbnails(item.imageThumbnail),...thumbnails])
                                             });
                                           }
-                                          if(prepared.localOnlyCount){
-                                            alert('حُفظ أصل الصورة على هذا الجهاز، لكن تعذر رفع بعضها إلى المخزن المركزي. لن تظهر بدقة الطباعة الأصلية على الأجهزة الأخرى قبل رفعها.');
-                                          }
                                         }catch(error){
-                                          console.error('Draft gallery original upload failed',error);
-                                          alert('تعذّر تجهيز صور البند؛ لم تُضف نسخ ناقصة.');
+                                          console.error('Draft thumbnail preparation failed',error);
+                                          alert('تعذّر تجهيز الصورة المصغرة. تأكد من نوع وصحة ملف الصورة.');
                                         }finally{
                                           pendingGalleryUploadsRef.current--;
+                                          setPreparingThumbnailIds(prev=>{const next={...prev};delete next[item.id];return next;});
                                           input.value='';
                                         }
                                       }
                                     }}
                                   />
                                 </label>
-                              )}
                             </div>
                           </td>
 
