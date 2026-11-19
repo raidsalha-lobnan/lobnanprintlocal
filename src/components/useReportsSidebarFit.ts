@@ -1,9 +1,10 @@
 import { useLayoutEffect, useRef } from 'react';
 
 /**
- * Keep all fifteen report choices and the currently relevant filters visible.
- * Fit to the available workspace height without creating a large white filler
- * panel below the last control.
+ * Keep the reports sidebar at its original width while using readable,
+ * full-size text. Never shrink the entire sidebar with CSS zoom.
+ * If the content exceeds the available viewport height, the sidebar itself
+ * scrolls vertically rather than hiding controls or widening the preview.
  */
 export function useReportsSidebarFit() {
   const sidebarRef = useRef<HTMLElement>(null);
@@ -12,59 +13,12 @@ export function useReportsSidebarFit() {
   useLayoutEffect(() => {
     const sidebar = sidebarRef.current;
     const content = sidebarContentRef.current;
-    const grid = sidebar?.parentElement;
-    if (!sidebar || !content || !grid) return;
+    if (!sidebar || !content) return;
 
-    let frame = 0;
-    const measure = () => {
-      frame = 0;
-      const computed = getComputedStyle(sidebar);
-      const padding = parseFloat(computed.paddingTop || '0') +
-        parseFloat(computed.paddingBottom || '0');
-      // The title and page controls now live inside this sidebar.
-      // Reserve their actual height so the final filter is never clipped.
-      const headerHeight = sidebar.querySelector<HTMLElement>('.reports-dashboard-header')?.offsetHeight || 0;
-      const availableHeight = Math.max(160, grid.clientHeight - padding - headerHeight - 9);
-
-      // Always use the readable two-column selector from the approved design.
-      sidebar.dataset.density = 'compact';
-      content.style.zoom = '1';
-      content.style.width = '100%';
-      content.style.transform = '';
-      const unscaledHeight = Math.max(1, content.scrollHeight);
-      let ratio = Math.min(1, availableHeight / unscaledHeight);
-      content.style.zoom = String(ratio);
-
-      // Browser font metrics and wrapped labels can affect the final height.
-      // Recheck actual rendered geometry rather than cropping the bottom row.
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const actualHeight = content.getBoundingClientRect().height;
-        if (actualHeight <= availableHeight + 1) break;
-        ratio *= availableHeight / actualHeight;
-        content.style.zoom = String(ratio);
-      }
-    };
-    const schedule = () => {
-      if (frame) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(measure);
-    };
-    // Fallback gracefully on secondary devices without observer APIs.
-    const resize = typeof ResizeObserver === 'function'
-      ? new ResizeObserver(schedule) : null;
-    resize?.observe(grid);
-    const mutation = typeof MutationObserver === 'function'
-      ? new MutationObserver(schedule) : null;
-    mutation?.observe(content, { childList: true, characterData: true, subtree: true });
-    window.addEventListener('resize', schedule);
-    document.fonts?.ready?.then(schedule).catch(() => undefined);
-    schedule();
-
-    return () => {
-      if (frame) cancelAnimationFrame(frame);
-      resize?.disconnect();
-      mutation?.disconnect();
-      window.removeEventListener('resize', schedule);
-    };
+    sidebar.dataset.density = 'readable';
+    content.style.zoom = '1';
+    content.style.width = '100%';
+    content.style.transform = '';
   }, []);
 
   return { sidebarRef, sidebarContentRef };
