@@ -425,19 +425,16 @@ const getInitialPosDraft = (): PosFullDraftData => {
 
   // Real-time online posting status & screen freeze guard: "وأثناء عدم الاتصال تضل الشاشات مجمدة محتفظة بمدخلاتها ولكن لا تحفظ إلا وقت الاتصال"
   const [isPostingCloudInvoice, setIsPostingCloudInvoice] = useState<boolean>(false);
+  // A synchronous lock complements React state: rapid clicks/keyboard repeat
+  // cannot send a second financial command before the busy state renders.
+  const posSaveUiInFlightRef = useRef(false);
   const [isNetworkOffline, setIsNetworkOffline] = useState<boolean>(() => typeof navigator !== 'undefined' ? !navigator.onLine : false);
   const [isOfflineFrozen, setIsOfflineFrozen] = useState<boolean>(false);
   const [offlinePendingPrintMode, setOfflinePendingPrintMode] = useState<'none' | 'prompt' | 'thermal-direct' | 'a4-direct' | 'a4-custom-direct'>('none');
-  const handleSaveInvoiceRef = useRef<any>(null);
-
   useEffect(() => {
-    const handleOnline = () => {
-      setIsNetworkOffline(false);
-      if (isOfflineFrozen && handleSaveInvoiceRef.current) {
-        console.log('Online restored: auto-resuming frozen invoice posting...');
-        handleSaveInvoiceRef.current(offlinePendingPrintMode || 'none');
-      }
-    };
+    // A lost HTTP response has an UNKNOWN commit outcome. Never automatically
+    // replay a financial edit when the browser's online event fires.
+    const handleOnline = () => setIsNetworkOffline(false);
     const handleOffline = () => setIsNetworkOffline(true);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -445,7 +442,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [isOfflineFrozen, offlinePendingPrintMode]);
+  }, []);
 
 
 
@@ -2576,7 +2573,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     // Cloud approval and official numbering happen after reconnection.
 
     // 4. قفل التتابع السريع: منع الضغط المزدوج أثناء إنشاء الفاتورة
-    if (isPostingCloudInvoice) {
+    if (isPostingCloudInvoice || posSaveUiInFlightRef.current) {
       return;
     }
 
@@ -2645,14 +2642,23 @@ const getInitialPosDraft = (): PosFullDraftData => {
       return;
     }
 
+    posSaveUiInFlightRef.current = true;
     setIsPostingCloudInvoice(true);
-    onlineInvoicePostingService.stageInvoiceDraft({
-      lines: tableLines,
-      customerName: customerName || customCustomerText || 'عميل كاشير نقدي',
-      selectedCustomerId,
-      notes: invoiceNotes,
-      timestamp: Date.now()
-    });
+    try {
+      onlineInvoicePostingService.stageInvoiceDraft({
+        lines: tableLines,
+        customerName: customerName || customCustomerText || 'عميل كاشير نقدي',
+        selectedCustomerId,
+        notes: invoiceNotes,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      posSaveUiInFlightRef.current = false;
+      setIsPostingCloudInvoice(false);
+      posSound.error();
+      alert('تعذّر الاحتفاظ بمسودة الحفظ في المتصفح، ولم نرسل أي طلب مالي جديد. احتفظ بالمدخلات على الشاشة وراجع مساحة التخزين قبل المحاولة.\n' + String(error));
+      return;
+    }
 
     // الترحيل المتزامن المباشر للسيرفر مع حماية عدم فقدان البيانات
     let postRes: Awaited<ReturnType<typeof postPosSaleOnline>>;
@@ -2704,20 +2710,30 @@ const getInitialPosDraft = (): PosFullDraftData => {
       }
     );
     } catch (error) {
+      posSaveUiInFlightRef.current = false;
       setIsPostingCloudInvoice(false);
       posSound.error();
       const message = String(error);
       const browserDbClosed = /InvalidStateError|database connection is closing|IDBDatabase/i.test(message);
+      const unknownCommit = /Failed to fetch|NetworkError|fetch failed|TimeoutError|LOCAL_SYNC_HTTP_TIMEOUT|AbortError/i.test(message);
       alert(browserDbClosed
         ? 'تعذر الاتصال بمخزن المتصفح المحلي (IndexedDB): الاتصال مغلق أو قيد الإغلاق. قد يحدث ذلك بعد تحديث البرنامج أو فتحه في تبويب قديم. مدخلاتك باقية على الشاشة؛ لا تمسح بيانات الموقع، ولا تكرر الحفظ قبل مراجعة سجل الفاتورة.'
-        : `تعذر حفظ الفاتورة: ${message}\nمدخلاتك ما زالت موجودة على الشاشة، ولم نؤكد حفظها مركزيًا.`);
+        : unknownCommit
+          ? `تعذر التأكد من اعتماد الفاتورة بسبب انقطاع الاتصال: ${message}\nقد يكون PostgreSQL استلم التعديل رغم انقطاع الرد. لا تضغط حفظ مرة أخرى قبل مراجعة الفاتورة المعتمدة في السجل.`
+          : `تعذر حفظ الفاتورة: ${message}\nمدخلاتك ما زالت موجودة على الشاشة، ولم نؤكد حفظها مركزيًا.`);
       return;
     }
 
+    posSaveUiInFlightRef.current = false;
     setIsPostingCloudInvoice(false);
 
     if (!postRes.success || !postRes.invoice) {
-      if (postRes.isOffline) {
+      if (postRes.isBusy) return;
+      const unknownCommit = /Failed to fetch|NetworkError|fetch failed|TimeoutError|LOCAL_SYNC_HTTP_TIMEOUT|AbortError/i.test(postRes.error || '');
+      if (unknownCommit) {
+        posSound.error();
+        alert('تعذر تأكيد اعتماد تعديل الفاتورة بسبب انقطاع الاتصال. قد يكون PostgreSQL حفظ التعديل لكن الرد لم يصل إلى المتصفح. المدخلات باقية كما هي؛ راجع الفاتورة المعتمدة في السجل قبل إعادة الضغط على حفظ.\n' + (postRes.error || ''));
+      } else if (postRes.isOffline) {
         setIsOfflineFrozen(true);
         setOfflinePendingPrintMode(printMode);
       } else {
@@ -2882,7 +2898,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     }
 
   };
-  handleSaveInvoiceRef.current = handleSaveInvoice;
+
 
   // Direct Pay Cash (زر دفع وسداد الفاتورة نقداً بصندوق النقدية وحفظها)
   const handleQuickPayCash = (printMode: 'none' | 'prompt' | 'thermal-direct' | 'a4-direct' | 'a4-custom-direct' = 'none') => {
@@ -3532,6 +3548,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
         return;
       }
 
+      // Held keys must never repeat financial save commands.
+      if (e.repeat && (e.ctrlKey || e.metaKey || e.key === 'F10' || e.key === 'F5')) return;
       // 1. Dynamic button shortcut check
       const matchingBtn = posButtons.find(
         b => b.isVisible && b.shortcut && matchKeyboardShortcut(e, b.shortcut)
@@ -3668,18 +3686,24 @@ const getInitialPosDraft = (): PosFullDraftData => {
                 <span className="bg-amber-950/70 text-amber-200 text-[10px] px-2 py-0.5 rounded-full font-bold">حماية البيانات 100%</span>
               </div>
               <div className="text-[11px] text-amber-200/90 mt-0.5">
-                تم إلغاء المزامنة الأوفلاين منعاً لأي فقدان في البيانات. كافة البنود والأسعار والزبون محفوظة على الشاشة ولن يتم تفريغها، وسيتم الحفظ والترحيل تلقائياً فور استعادة الاتصال بالسيرفر.
+                المدخلات باقية على الشاشة. لن نعيد إرسال حفظ مالي تلقائياً بعد انقطاع الاتصال؛ تحقق من النسخة المعتمدة في سجل الفواتير قبل إعادة المحاولة.
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => handleSaveInvoice(offlinePendingPrintMode || 'none')}
+              onClick={() => {
+                if (currentEditingInvoiceIdRef.current) {
+                  alert('قبل إعادة اعتماد تعديل سند محفوظ، تحقق من النسخة المعتمدة في سجل الفواتير ومن اتصال الخادم؛ ربما اكتمل الحفظ السابق ولم يصل تأكيده. افتح الفاتورة المعتمدة من السجل للمراجعة.');
+                  return;
+                }
+                handleSaveInvoice(offlinePendingPrintMode || 'none');
+              }}
               className="bg-white text-amber-900 hover:bg-amber-100 font-black text-xs px-3.5 py-1.5 rounded-lg shadow-md flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
             >
               <span>🔄</span>
-              <span>إعادة محاولة الترحيل الآن</span>
+              <span>{currentEditingInvoiceIdRef.current ? 'التحقق قبل إعادة تعديل السند' : 'إعادة محاولة الترحيل الآن'}</span>
             </button>
           </div>
         </div>
