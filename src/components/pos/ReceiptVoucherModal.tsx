@@ -177,6 +177,15 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
  const submit=async(print=false)=>{
   if(saving)return;
   setError('');
+  // Printing an existing receipt is a READ-ONLY action. Re-running the
+  // amendment transaction just to test the print layout can alter ledgers
+  // and previously never opened the preview (confirmed stayed null).
+  if(print && currentVoucher){
+   const authoritativeReceipt=vouchers.find(v=>v.id===currentVoucher.id) || currentVoucher;
+   setSelectedVoucherForPrint(authoritativeReceipt);
+   onClose();
+   return;
+  }
   if(!selected){setError('اختر الجهة واسم صاحب السند من السجلات المعتمدة.');return;}
   if(!(Number.isFinite(entered)&&entered>0)){
    setError('يجب إدخال مبلغ قبض صحيح أكبر من صفر.');return;
@@ -424,7 +433,10 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
     <button type="button" onClick={onClose} className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-slate-700 font-bold">إلغاء</button>
     <div className="flex items-center gap-2">
      <button disabled={saving} onClick={()=>void submit(true)} type="button"
-      className="flex items-center gap-2 bg-blue-100 text-blue-800 font-bold rounded-md px-5 py-2.5 disabled:opacity-50"><Printer size={16}/>حفظ وطباعة</button>
+      title={currentVoucher?'طباعة السند المحفوظ دون إعادة تسجيل أو حفظ أي تعديل غير معتمد':'اعتماد السند الجديد ثم فتح معاينة الطباعة'}
+      className="flex items-center gap-2 bg-blue-100 text-blue-800 font-bold rounded-md px-5 py-2.5 disabled:opacity-50">
+      <Printer size={16}/>{currentVoucher?'طباعة السند':'حفظ وطباعة'}
+     </button>
      <button disabled={saving} onClick={()=>void submit(false)} type="button"
       aria-keyshortcuts="Control+S" title="حفظ السند (Ctrl+S)"
       className="flex items-center gap-2 bg-emerald-600 text-white font-bold rounded-md px-6 py-2.5 disabled:opacity-50">
