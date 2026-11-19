@@ -45,9 +45,6 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
   throw new InputError('RECEIPT_INVOICE_LINKED_DISCOUNT_USE_INVOICE_SETTLEMENT',422);
  if(!Number.isFinite(rate)||rate<=0||Math.round(amountMinor*rate)!==baseMinor)
    throw new InputError('RECEIPT_CURRENCY_CONVERSION_MISMATCH',422);
- if(!/^\d{4}-\d{2}-\d{2}$/.test(String(voucher.date||''))||
-  !/^RCT-\d{4}-\d{4,}$/.test(String(voucher.voucherNumber||'')))
-   throw new InputError('RECEIPT_DATE_OR_SERIAL_INVALID',422);
  if(!voucher.id||!voucher.partyId||!voucher.partyName||voucher.partyType==='supplier'||
     voucher.partyType==='employee'||voucher.accountCode!=='1201'||
     voucher.relatedDocId||voucher.relatedDocType)
@@ -58,6 +55,31 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
    (cash&&voucher.paymentMethod!=='cash')||
    (!cash&&!bankMethods.has(voucher.paymentMethod)))
    throw new InputError('RECEIPT_TREASURY_METHOD_MISMATCH',422);
+ // The workspace row is already locked by SyncService.pushInTx.
+ // Allocate the RCT number here, not from an expensive full browser bootstrap.
+ // AUTO-RECEIPT is deliberately invalid on older servers (safe rollback).
+ if(voucher.voucherNumber==='AUTO-RECEIPT'){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(voucher.date||'')))
+   throw new InputError('RECEIPT_DATE_OR_SERIAL_INVALID',422);
+  const year=String(voucher.date).slice(0,4);
+  const sequence=await client.query(
+   "SELECT COALESCE(MAX(CAST(substring(value->>'voucherNumber' FROM '^RCT-[0-9]{4}-([0-9]+)$') AS bigint)),0) AS max_seq FROM sync_records WHERE workspace=$1 AND entity='vouchers' AND value->>'voucherNumber' LIKE $2",
+   [workspace,'RCT-'+year+'-%']);
+  const current=Number(sequence.rows[0]?.max_seq??0);
+  if(!Number.isSafeInteger(current)||current<0||current>=999999999)
+   throw new InputError('RECEIPT_SERIAL_EXHAUSTED',409);
+  voucher={...voucher,voucherNumber:'RCT-'+year+'-'+String(current+1).padStart(4,'0')};
+  const update=await client.query(
+   "UPDATE sync_records SET value=$4,updated_at=now() WHERE workspace=$1 AND entity=$2 AND record_id=$3 AND version=1",
+   [workspace,'vouchers',voucher.id,voucher]);
+  if(update.rowCount!==1)throw new InputError('RECEIPT_ATOMIC_SERIAL_UPDATE_FAILED',409);
+  const record=applied.find(x=>x.entity==='vouchers'&&x.id===voucher.id);
+  if(!record)throw new InputError('RECEIPT_APPLIED_RECORD_MISSING',409);
+  record.value=voucher;
+ }
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(String(voucher.date||''))||
+  !/^RCT-\d{4}-\d{4,}$/.test(String(voucher.voucherNumber||'')))
+   throw new InputError('RECEIPT_DATE_OR_SERIAL_INVALID',422);
  const duplicate=await client.query(
   "SELECT record_id FROM sync_records WHERE workspace=$1 AND entity='vouchers' AND record_id<>$2 AND value->>'voucherNumber'=$3 LIMIT 1",
   [workspace,voucher.id,voucher.voucherNumber]);

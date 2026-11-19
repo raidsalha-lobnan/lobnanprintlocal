@@ -88,3 +88,24 @@ test('negative discount refuses receipt',async()=>{
   /RECEIPT_DISCOUNT_INVALID/);
  assert.equal(f.inserts.length,0);
 });
+
+test('server issues next sequential RCT number within the same locked receipt transaction',async()=>{
+ const f=fixture();const original=f.client.query;
+ let serialWritten=null;
+ f.client.query=async(sql,params)=>{
+  if(sql.startsWith('SELECT COALESCE(MAX('))return {rows:[{max_seq:'41'}]};
+  if(sql.startsWith('UPDATE sync_records SET value=$4')){
+   serialWritten=params[3].voucherNumber;
+   return {rowCount:1,rows:[]};
+  }
+  return original(sql,params);
+ };
+ f.voucher.voucherNumber='AUTO-RECEIPT';
+ const applied=[{entity:'vouchers',id:f.voucher.id,value:{...f.voucher},version:1}];
+ await postNewCustomerReceipt(f.client,'lobnan_main',f.voucher,applied);
+ assert.equal(serialWritten,'RCT-2026-0042');
+ assert.equal(applied[0].value.voucherNumber,'RCT-2026-0042');
+ assert.equal(applied.find(x=>x.entity==='journalEntries').value.entryNumber,'JE-RCT-2026-0042');
+ assert.equal(applied.find(x=>x.entity==='treasuries').value.balance,2860);
+ assert.equal(applied.find(x=>x.entity==='parties').value.balance,131);
+});

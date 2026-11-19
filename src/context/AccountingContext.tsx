@@ -9264,25 +9264,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       throw Error('قبض الموردين والموظفين يحتاج حساب تسوية معتمدًا مختلفًا.');
     const config=getLocalSyncConfig();
     const remote=new LocalHttpSyncTransport(config.url,config.token,config.workspace);
-    const snapshot=await remote.fetchAuthoritativeBootstrap();
-    const voucherRows=snapshot.records.filter(r=>r.entity==='vouchers'&&r.value);
-    const year=String(draft.date||new Date().toISOString().slice(0,10)).slice(0,4);
-    let max=0;
-    for(const row of voucherRows){
-      const match=/^RCT-(\d{4})-(\d+)$/.exec(String(row.value?.voucherNumber||''));
-      if(match&&match[1]===year)max=Math.max(max,Number(match[2]));
-    }
-    const seq=max+1;
-    const serial='RCT-'+year+'-'+String(seq).padStart(4,'0');
+    // The final serial is allocated by PostgreSQL in the voucher transaction.
+    // Do not load the entire database snapshot before saving one receipt.
+    const serial='AUTO-RECEIPT';
     const treasuryCode=draft.paymentMethod==='cash'
       ?MAIN_CASH_TREASURY_CODE:canonicalTreasuryCode(draft.treasuryAccountCode);
-    const target=snapshot.records.find(r=>r.entity==='treasuries'&&r.value?.accountCode===treasuryCode);
-    const party=snapshot.records.find(r=>r.entity==='parties'&&r.id===draft.partyId&&r.value);
-    if(!target||!party)throw Error('العميل أو الصندوق غير موجود في قاعدة PostgreSQL المعتمدة.');
-    if(target.value?.status!=='active')throw Error('الصندوق غير فعال.');
-    if(draft.paymentMethod==='cash'&&target.value?.type!=='cash_box')
+    const target=treasuries.find(t=>t.accountCode===treasuryCode);
+    const party=parties.find(p=>p.id===draft.partyId);
+    if(!target||!party)throw Error('العميل أو الصندوق غير موجود في السجلات المحملة. حدّث البيانات قبل الحفظ.');
+    if(target.status!=='active')throw Error('الصندوق غير فعال.');
+    if(draft.paymentMethod==='cash'&&target.type!=='cash_box')
       throw Error('النقدي للصندوق الرئيسي فقط.');
-    if(draft.paymentMethod!=='cash'&&target.value?.type==='cash_box')
+    if(draft.paymentMethod!=='cash'&&target.type==='cash_box')
       throw Error('اختر صندوقًا بنكيًا أو محفظة.');
     const amount=Number(draft.amount);
     const rate=Number(draft.exchangeRate||1);
@@ -9290,20 +9283,53 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if(!Number.isFinite(amount)||amount<=0||!Number.isFinite(rate)||rate<=0||
        Math.abs(amount*100-Math.round(amount*100))>0.00001)
       throw Error('مبلغ القبض أو سعر الصرف غير صحيح.');
-    const id='vch-'+crypto.randomUUID();
+    // Keep the same PostgreSQL command ID when a network reply is ambiguous.
+    // A retry of the same draft cannot double-post the ledger.
+    const attemptKey='lobnan_receipt_atomic_attempt_v3';
+    // The modal supplies temporary IDs which change on every click;
+    // exclude them so a transport retry truly reuses the same operation.
+    const {id:_ignoredId,voucherNumber:_ignoredSerial,...stableDraft}=
+      draft as PaymentVoucher;
+    const signatureInput=JSON.stringify({draft:stableDraft,treasuryCode,partyId:party.id});
+    const signatureBytes=new Uint8Array(await crypto.subtle.digest(
+      'SHA-256',new TextEncoder().encode(signatureInput)));
+    const signature=Array.from(signatureBytes,b=>b.toString(16).padStart(2,'0')).join('');
+    let prior:{signature:string;id:string;commandId:string;createdAt:number}|null=null;
+    try {
+      const stored=sessionStorage.getItem(attemptKey);
+      if(stored)prior=JSON.parse(stored);
+    }catch{prior=null;}
+    const reuse=!!prior&&prior.signature===signature&&
+      Date.now()-prior.createdAt>=0&&Date.now()-prior.createdAt<30*60*1000&&
+      /^vch-[\w-]+$/.test(prior.id)&&/^receipt-post-[\w-]+$/.test(prior.commandId);
+    const id=reuse?prior!.id:'vch-'+crypto.randomUUID();
+    const commandId=reuse?prior!.commandId:'receipt-post-'+crypto.randomUUID();
+    if(!reuse){
+      try{sessionStorage.setItem(attemptKey,JSON.stringify({
+        signature,id,commandId,createdAt:Date.now()
+      }));}catch{/* Remain fail-closed if browser persistence is unavailable. */}
+    }
     const voucher:PaymentVoucher={
       ...draft,id,voucherNumber:serial,
-      partyType:'customer',partyName:String(party.value?.name),
+      partyType:'customer',partyName:String(party.name),
       accountCode:'1201',treasuryAccountCode:treasuryCode,
       currency:draft.currency||'ILS',exchangeRate:rate,baseAmount:base
     };
-    const commandId='receipt-post-'+crypto.randomUUID();
-    const receipt=await remote.push({
+    let receipt;
+    try {
+      receipt=await remote.push({
       id:commandId,workspaceId:config.workspace,
       changes:[{entity:'vouchers',id,expectedVersion:0,
         value:JSON.parse(JSON.stringify(voucher)) as JsonObject}],
       createdAt:Date.now(),attempts:0,retryAt:0,status:'pending'
-    });
+      });
+    }catch(error){
+      if(error instanceof Error &&
+        /Failed to fetch|NetworkError|fetch failed|LOCAL_SYNC_HTTP_TIMEOUT/i.test(error.message)){
+        throw new Error('تعذّر تأكيد وصول السند للخادم. أعد المحاولة من نفس السند دون تغيير بياناته؛ سيُستخدم معرّف العملية نفسه لمنع تكرار القيد.');
+      }
+      throw error;
+    }
     const changed=Array.isArray(receipt.changes)?receipt.changes:[];
     const saved=changed.find(row=>row.entity==='vouchers'&&row.id===id&&row.value);
     const journal=changed.find(row=>row.entity==='journalEntries'&&row.value?.referenceId===id);
@@ -9322,6 +9348,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if(row.entity==='accounts')setAccounts(prev=>prev.map(a=>a.code===row.value?.code?row.value as unknown as Account:a));
       if(row.entity==='invoices')setInvoices(prev=>prev.map(inv=>inv.id===row.id?row.value as unknown as Invoice:inv));
     }
+    try{
+      const stored=sessionStorage.getItem(attemptKey);
+      if(stored&&JSON.parse(stored).commandId===commandId)
+        sessionStorage.removeItem(attemptKey);
+    }catch{}
     return saved.value as unknown as PaymentVoucher;
   };
 
