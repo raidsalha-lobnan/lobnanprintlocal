@@ -79,3 +79,19 @@ test('historic thumbnails have no unauthorized cloud fetch and remain untouched'
    'data:image/jpeg;base64,abc');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
+
+test('independent line attachment is never fetched as a statement thumbnail',async()=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lobnan-independent-attachment-'));
+ try{
+  const separate={...attachment(),galleryPrintIndex:undefined};
+  const result=await hydrateOriginalPrintPhotos({
+   invoices:[{customerId:'cust-a',date:'2026-11-17',items:[{attachments:[separate]}]}]
+  },{
+   type:'customer_statement',partyId:'cust-a',workspace:'workspace-one',dir,
+   findAttachment:async()=>{throw Error('INDEPENDENT_ATTACHMENT_SHOULD_NOT_BE_LOADED')},
+   downloadAttachment:async()=>{throw Error('INDEPENDENT_ATTACHMENT_SHOULD_NOT_BE_DOWNLOADED')}
+  });
+  assert.equal(result.count,0);
+  assert.equal(separate.data,undefined);
+ }finally{await fs.rm(dir,{recursive:true,force:true})}
+});

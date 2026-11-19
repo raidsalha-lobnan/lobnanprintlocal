@@ -39,6 +39,9 @@ export async function hydrateOriginalPrintPhotos(snapshot,{
     for(const item of invoice.items||[]){
       for(const attachment of item.attachments||[]){
         const mime=String(attachment?.type||'').toLowerCase();
+        // Only historic thumbnail-linked originals belong in the photo gallery.
+        // A normal attachment must never be fetched as a thumbnail or block a PDF.
+        if(!Number.isInteger(attachment.galleryPrintIndex)||attachment.galleryPrintIndex<0)continue;
         if(!IMAGE_TYPES.has(mime)||!attachment.driveFileId)continue;
         if(!VALID_ID.test(attachment.driveFileId))continue;
         pending.push(attachment);
