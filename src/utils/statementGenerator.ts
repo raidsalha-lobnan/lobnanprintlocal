@@ -5,6 +5,7 @@ import {
   PurchaseReturn,
   SalesReturn,
   PaymentVoucher,
+  Treasury,
   PrintJobOrder,
   JournalEntry,
   DebtClearingRecord,
@@ -60,6 +61,8 @@ export interface StatementRow {
   currencySymbol?: string;
   paymentMethod?: string;
   paymentMethodLabel?: string;
+  receiptAmount?: number;
+  receiptDiscount?: number;
   chequeNumber?: string;
   chequeBank?: string;
   chequeDueDate?: string;
@@ -106,6 +109,7 @@ export function generateAccountStatement(params: {
   purchaseReturns?: PurchaseReturn[];
   salesReturns?: SalesReturn[];
   vouchers: PaymentVoucher[];
+  treasuries?: Treasury[];
   printOrders?: PrintJobOrder[];
   journalEntries?: JournalEntry[];
   debtClearings?: DebtClearingRecord[];
@@ -121,6 +125,7 @@ export function generateAccountStatement(params: {
     purchaseReturns = [],
     salesReturns = [],
     vouchers = [],
+    treasuries = [],
     printOrders = [],
     journalEntries = [],
     debtClearings = []
@@ -147,6 +152,8 @@ export function generateAccountStatement(params: {
     currencySymbol?: string;
     paymentMethod?: string;
     paymentMethodLabel?: string;
+    receiptAmount?: number;
+    receiptDiscount?: number;
     chequeNumber?: string;
     chequeBank?: string;
     chequeDueDate?: string;
@@ -508,10 +515,24 @@ export function generateAccountStatement(params: {
 
     if (isTarget) {
       const vchNote = (vch as any).notes || vch.description;
+      const treasuryCode = vch.treasuryAccountCode || vch.accountCode;
+      const treasury = treasuries.find(t => t.accountCode === treasuryCode || t.id === treasuryCode);
+      const treasuryName = String(treasury?.name || '').trim();
+      // The account name is taken from the selected treasury, not from a fixed
+      // payment-method label. Keep the actual payment channel recognizable.
+      const walletName = treasuryName.includes('جوال باي') && treasuryName.includes('طلة لبنان')
+        ? 'جوال باي طلة لبنان'
+        : treasuryName;
+      const isWallet = treasury?.type === 'digital_wallet' ||
+        vch.paymentMethod === 'e_wallet' || vch.paymentMethod === 'electronic';
       const paymentMethodLabel =
-        vch.paymentMethod === 'cash' ? 'نقداً (الصندوق)' :
-        vch.paymentMethod === 'cheque' ? 'شيك بنكي' :
-        vch.paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : 'أخرى';
+        vch.paymentMethod === 'cash' ? `نقداً${treasuryName ? ' - ' + treasuryName : ''}` :
+        vch.paymentMethod === 'cheque' ? `شيك بنكي${treasuryName ? ' - ' + treasuryName : ''}` :
+        isWallet ? `حوالة مالية على حساب ${walletName || treasuryCode || 'المحفظة الإلكترونية'}` :
+        vch.paymentMethod === 'bank_transfer' ? `حوالة بنكية على حساب ${treasuryName || treasuryCode || 'البنك'}` :
+        vch.paymentMethod === 'card' || vch.paymentMethod === 'pos'
+          ? `دفع إلكتروني${treasuryName ? ' - ' + treasuryName : ''}`
+          : (treasuryName || vch.paymentMethod || 'غير محددة');
 
       if (vch.type === 'receipt') {
         // Customer debt is settled by BOTH actual cash and the approved
@@ -520,8 +541,7 @@ export function generateAccountStatement(params: {
         const rebateBase=Number(vch.baseDiscountAmount??
           (Number(vch.discountAmount||0)*Number(vch.exchangeRate||1)));
         const receiptCredit=Number((cashBase+rebateBase).toFixed(2));
-        const rebateNote=Number(vch.discountAmount||0)>0?
-          ` [المقبوض: ${Number(vch.amount).toFixed(2)} ${vch.currencySymbol||'₪'}؛ خصم التسوية: ${Number(vch.discountAmount).toFixed(2)} ${vch.currencySymbol||'₪'}]`:'';
+
         allTx.push({
           id: vch.id,
           date: vch.date,
@@ -530,10 +550,13 @@ export function generateAccountStatement(params: {
           type: 'receipt',
           category: 'receipt',
           typeLabel: 'سند قبض',
-          description: (vch.description || 'سند قبض وتحصيل دفعة نقدية من العميل')+rebateNote,
+          description: vch.description || 'سند قبض وتحصيل دفعة من العميل',
           voucherNotes: vchNote,
           paymentMethod: vch.paymentMethod,
           paymentMethodLabel,
+          receiptAmount: cashBase,
+          receiptDiscount: rebateBase,
+          treasuryName,
           chequeNumber: vch.chequeNumber,
           chequeBank: vch.chequeBank,
           chequeDueDate: vch.chequeDueDate,
@@ -703,6 +726,8 @@ export function generateAccountStatement(params: {
       currencySymbol: tx.currencySymbol,
       paymentMethod: tx.paymentMethod,
       paymentMethodLabel: tx.paymentMethodLabel,
+      receiptAmount: tx.receiptAmount,
+      receiptDiscount: tx.receiptDiscount,
       chequeNumber: tx.chequeNumber,
       chequeBank: tx.chequeBank,
       chequeDueDate: tx.chequeDueDate,

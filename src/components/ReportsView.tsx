@@ -415,6 +415,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
       purchaseReturns,
       salesReturns,
       vouchers,
+      treasuries,
       printOrders,
       journalEntries,
       debtClearings,
@@ -435,7 +436,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
       fromDate,
       toDate
     };
-  }, [parties, selectedCustomerId, selectedSubCustomerId, subCustomersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, printOrders, journalEntries, debtClearings, fromDate, toDate]);
+  }, [parties, selectedCustomerId, selectedSubCustomerId, subCustomersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, treasuries, printOrders, journalEntries, debtClearings, fromDate, toDate]);
 
   // -----------------------------------------------------------------------------------
   // REPORT 2: Customer Items Aggregated (كشف حساب الأصناف للعميل مع تجميع الأصناف المتشابهة)
@@ -546,6 +547,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
       purchaseReturns,
       salesReturns,
       vouchers,
+      treasuries,
       printOrders,
       journalEntries,
       debtClearings,
@@ -566,7 +568,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
       fromDate,
       toDate
     };
-  }, [parties, selectedSupplierId, selectedSubSupplierId, subSuppliersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, printOrders, journalEntries, debtClearings, fromDate, toDate]);
+  }, [parties, selectedSupplierId, selectedSubSupplierId, subSuppliersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, treasuries, printOrders, journalEntries, debtClearings, fromDate, toDate]);
 
   // -----------------------------------------------------------------------------------
   // REPORT 4: Supplier Items Aggregated (كشف حساب الأصناف للمورد مع تجميع الأصناف المتشابهة)

@@ -70,6 +70,7 @@ export const AccountStatementModal: React.FC = () => {
     purchaseReturns,
     salesReturns,
     vouchers,
+    treasuries,
     printOrders,
     journalEntries,
     employeeAdvances,
@@ -190,11 +191,12 @@ export const AccountStatementModal: React.FC = () => {
       purchaseReturns,
       salesReturns,
       vouchers,
+      treasuries,
       printOrders,
       journalEntries,
       debtClearings
     });
-  }, [statementMode, currentParty, fromDate, toDate, invoices, purchases, purchaseReturns, salesReturns, vouchers, printOrders, journalEntries, debtClearings]);
+  }, [statementMode, currentParty, fromDate, toDate, invoices, purchases, purchaseReturns, salesReturns, vouchers, treasuries, printOrders, journalEntries, debtClearings]);
 
   // Generate Employee Statement
   const employeeStatement = useMemo(() => {

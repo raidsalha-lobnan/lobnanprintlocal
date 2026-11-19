@@ -1,9 +1,9 @@
 // local-server/report-ssr-entry.tsx
-import React7 from "react";
+import React8 from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 // src/components/ReportsView.tsx
-import { useState as useState3, useMemo as useMemo2, useEffect as useEffect4, useRef as useRef2 } from "react";
+import React7, { useState as useState4, useMemo as useMemo2, useEffect as useEffect4, useRef as useRef4 } from "react";
 
 // src/utils/accountStatementPdf.ts
 var cleanFilePart = (value) => String(value || "").replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().replace(/[. ]+$/, "");
@@ -27,6 +27,47 @@ function accountStatementPdfFilename(input) {
   segments.push(`\u0645\u0646 ${from} \u0625\u0644\u0649 ${to}`);
   const clean2 = segments.map(cleanFilePart).filter(Boolean).join(" - ").slice(0, 190).trim();
   return `${clean2}.pdf`;
+}
+
+// src/utils/statementPrintReadiness.ts
+async function waitForStatementPrintPhotos(timeoutMs = 18e3) {
+  const started = Date.now();
+  while (document.querySelector('[data-statement-photo-status="loading"]')) {
+    if (Date.now() - started > timeoutMs) return false;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  const incomplete = document.querySelector(
+    'img[data-statement-original-expected="true"]:not([data-statement-photo-status="original"])'
+  );
+  if (incomplete) return false;
+  const photos = Array.from(document.querySelectorAll(
+    'img[data-statement-photo-status="original"]'
+  ));
+  await Promise.all(photos.map((img) => img.decode().catch(() => {
+  })));
+  return photos.every((img) => img.complete && img.naturalWidth > 0);
+}
+
+// src/utils/nativeStatementPrint.ts
+function printStatementWithNativeBrowser(filename, printAction = () => window.print()) {
+  const originalTitle = document.title;
+  const proposedTitle = filename.replace(/\.pdf$/i, "").trim();
+  if (!proposedTitle) throw new Error("STATEMENT_PDF_FILENAME_REQUIRED");
+  let restored = false;
+  const restoreTitle = () => {
+    if (restored) return;
+    restored = true;
+    window.removeEventListener("afterprint", restoreTitle);
+    if (document.title === proposedTitle) document.title = originalTitle;
+  };
+  window.addEventListener("afterprint", restoreTitle, { once: true });
+  document.title = proposedTitle;
+  try {
+    printAction();
+  } catch (error) {
+    restoreTitle();
+    throw error;
+  }
 }
 
 // src/services/secureAuth.ts
@@ -105,8 +146,12 @@ async function downloadServerOfficialStatementPdf(request, filename) {
     if (response.status === 429) throw new Error("\u0627\u0644\u062E\u0627\u062F\u0645 \u0645\u0646\u0634\u063A\u0644 \u0628\u0625\u0646\u0634\u0627\u0621 \u0643\u0634\u0641 \u0622\u062E\u0631. \u0623\u0639\u062F \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629.");
     throw new Error("\u062A\u0639\u0630\u0651\u0631 \u0625\u0639\u062F\u0627\u062F PDF \u0639\u0644\u0649 \u0627\u0644\u062E\u0627\u062F\u0645 (" + reason + ").");
   }
+  const expectedOptions = "details=" + (request.showItemDetails !== false ? "1" : "0") + ";images=" + (request.showImages !== false ? "1" : "0");
+  const confirmedOptions = response.headers.get("x-lobnan-pdf-options");
+  if (confirmedOptions !== expectedOptions)
+    throw new Error("PDF_DISPLAY_OPTIONS_NOT_CONFIRMED");
   const blob = await response.blob();
-  if (blob.size < 500 || blob.size > 3e7 || await blob.slice(0, 5).text() !== "%PDF-")
+  if (blob.size < 500 || blob.size > 6e7 || await blob.slice(0, 5).text() !== "%PDF-")
     throw new Error("\u0631\u062F \u0627\u0644\u062E\u0627\u062F\u0645 \u0644\u064A\u0633 \u0645\u0644\u0641 PDF \u0635\u0627\u0644\u062D\u0627\u064B.");
   const url = URL.createObjectURL(blob);
   try {
@@ -150,6 +195,165 @@ var DateInput = ({ value, onChange, className, ...rest }) => {
     }
   );
 };
+
+// src/components/ReportsLivePreview.tsx
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ZoomIn, ZoomOut } from "lucide-react";
+import { jsx as jsx2, jsxs } from "react/jsx-runtime";
+var ReportsLivePreview = ({ reportKey, children }) => {
+  const stageRef = useRef(null);
+  const viewportRef = useRef(null);
+  const contentRef = useRef(null);
+  const latestRef = useRef({ page: 1, count: 1, step: 1 });
+  const lastWheelRef = useRef(0);
+  const [page, setPage] = useState(1);
+  const [count, setCount] = useState(1);
+  const [zoom, setZoom] = useState(1);
+  const [toolbar, setToolbar] = useState(null);
+  const setPageTo = useCallback((requested) => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const next = Math.max(1, Math.min(latestRef.current.count, requested));
+    latestRef.current.page = next;
+    setPage(next);
+    const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    const top = Math.min(maxScroll, (next - 1) * latestRef.current.step);
+    viewport.scrollTop = top;
+  }, []);
+  useLayoutEffect(() => {
+    setToolbar(document.getElementById("reports-pager-toolbar"));
+  }, []);
+  useLayoutEffect(() => {
+    latestRef.current.page = 1;
+    lastWheelRef.current = 0;
+    setPage(1);
+    setCount(1);
+    const viewport = viewportRef.current;
+    if (viewport) viewport.scrollTop = 0;
+    const stage = stageRef.current;
+    const content = contentRef.current;
+    if (!stage || !viewport || !content) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const step = Math.max(1, viewport.clientHeight - 14);
+      const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      const total = Math.max(1, Math.ceil(maxScroll / step) + 1);
+      latestRef.current.step = step;
+      latestRef.current.count = total;
+      setCount((previous) => previous === total ? previous : total);
+      const next = Math.min(latestRef.current.page, total);
+      latestRef.current.page = next;
+      setPage((previous) => previous === next ? previous : next);
+      viewport.scrollTop = Math.min(maxScroll, (next - 1) * step);
+    };
+    const requestMeasure = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    };
+    const resize = typeof ResizeObserver === "function" ? new ResizeObserver(requestMeasure) : null;
+    resize?.observe(stage);
+    resize?.observe(content);
+    const mutation = typeof MutationObserver === "function" ? new MutationObserver(requestMeasure) : null;
+    mutation?.observe(content, { childList: true, subtree: true, characterData: true });
+    content.addEventListener("load", requestMeasure, true);
+    window.addEventListener("resize", requestMeasure);
+    document.fonts?.ready?.then(requestMeasure).catch(() => void 0);
+    const wheel = (event) => {
+      if (event.ctrlKey) return;
+      event.preventDefault();
+      const delta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+      if (Math.abs(delta) < 6) return;
+      const now = performance.now();
+      if (now - lastWheelRef.current < 220) return;
+      lastWheelRef.current = now;
+      setPageTo(latestRef.current.page + Math.sign(delta));
+    };
+    viewport.addEventListener("wheel", wheel, { passive: false });
+    requestMeasure();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      resize?.disconnect();
+      mutation?.disconnect();
+      content.removeEventListener("load", requestMeasure, true);
+      viewport.removeEventListener("wheel", wheel);
+      window.removeEventListener("resize", requestMeasure);
+    };
+  }, [reportKey, zoom, setPageTo]);
+  return /* @__PURE__ */ jsxs("div", { className: "reports-live-stage print:block", ref: stageRef, "data-report-source": "live-react", children: [
+    toolbar && createPortal(
+      /* @__PURE__ */ jsxs("div", { className: "report-pager-controls print:hidden", dir: "rtl", "aria-label": "\u0627\u0644\u062A\u0646\u0642\u0644 \u0641\u064A \u0627\u0644\u0645\u0639\u0627\u064A\u0646\u0629", children: [
+        /* @__PURE__ */ jsx2("button", { type: "button", "aria-label": "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u0643\u0634\u0641", title: "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u0643\u0634\u0641", disabled: page <= 1, onClick: () => setPageTo(1), children: /* @__PURE__ */ jsx2(ChevronsRight, { className: "h-4 w-4" }) }),
+        /* @__PURE__ */ jsx2("button", { type: "button", "aria-label": "\u0627\u0644\u0645\u0642\u0637\u0639 \u0627\u0644\u0633\u0627\u0628\u0642", title: "\u0627\u0644\u0645\u0642\u0637\u0639 \u0627\u0644\u0633\u0627\u0628\u0642", disabled: page <= 1, onClick: () => setPageTo(page - 1), children: /* @__PURE__ */ jsx2(ChevronRight, { className: "h-4 w-4" }) }),
+        /* @__PURE__ */ jsxs("span", { className: "reports-page-label tabular-nums", title: "\u0645\u0642\u0627\u0637\u0639 \u0639\u0631\u0636 \u0645\u062A\u062A\u0627\u0628\u0639\u0629\u061B \u0642\u062F \u062A\u062E\u062A\u0644\u0641 \u0639\u0646 \u0635\u0641\u062D\u0627\u062A \u0627\u0644\u0637\u0628\u0627\u0639\u0629", children: [
+          "\u0639\u0631\u0636 ",
+          page,
+          " \u0645\u0646 ",
+          count
+        ] }),
+        /* @__PURE__ */ jsx2("button", { type: "button", "aria-label": "\u0627\u0644\u0645\u0642\u0637\u0639 \u0627\u0644\u062A\u0627\u0644\u064A", title: "\u0627\u0644\u0645\u0642\u0637\u0639 \u0627\u0644\u062A\u0627\u0644\u064A", disabled: page >= count, onClick: () => setPageTo(page + 1), children: /* @__PURE__ */ jsx2(ChevronLeft, { className: "h-4 w-4" }) }),
+        /* @__PURE__ */ jsx2("button", { type: "button", "aria-label": "\u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0643\u0634\u0641", title: "\u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0643\u0634\u0641", disabled: page >= count, onClick: () => setPageTo(count), children: /* @__PURE__ */ jsx2(ChevronsLeft, { className: "h-4 w-4" }) }),
+        /* @__PURE__ */ jsx2("button", { type: "button", "aria-label": "\u062A\u0643\u0628\u064A\u0631 \u0627\u0644\u0645\u0639\u0627\u064A\u0646\u0629", title: "\u062A\u0643\u0628\u064A\u0631 \u0627\u0644\u0645\u0639\u0627\u064A\u0646\u0629", disabled: zoom >= 1.6, onClick: () => setZoom((value) => Math.min(1.6, +(value + 0.1).toFixed(2))), children: /* @__PURE__ */ jsx2(ZoomIn, { className: "h-4 w-4" }) }),
+        /* @__PURE__ */ jsx2("button", { type: "button", "aria-label": "\u062A\u0635\u063A\u064A\u0631 \u0627\u0644\u0645\u0639\u0627\u064A\u0646\u0629", title: "\u062A\u0635\u063A\u064A\u0631 \u0627\u0644\u0645\u0639\u0627\u064A\u0646\u0629", disabled: zoom <= 0.8, onClick: () => setZoom((value) => Math.max(0.8, +(value - 0.1).toFixed(2))), children: /* @__PURE__ */ jsx2(ZoomOut, { className: "h-4 w-4" }) })
+      ] }),
+      toolbar
+    ),
+    /* @__PURE__ */ jsx2("div", { className: "reports-live-viewport", ref: viewportRef, children: /* @__PURE__ */ jsx2("div", { className: "reports-live-content", ref: contentRef, style: { zoom }, dir: "rtl", children }) })
+  ] });
+};
+
+// src/components/useReportsSidebarFit.ts
+import { useLayoutEffect as useLayoutEffect2, useRef as useRef2 } from "react";
+function useReportsSidebarFit() {
+  const sidebarRef = useRef2(null);
+  const sidebarContentRef = useRef2(null);
+  useLayoutEffect2(() => {
+    const sidebar = sidebarRef.current;
+    const content = sidebarContentRef.current;
+    const grid = sidebar?.parentElement;
+    if (!sidebar || !content || !grid) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const computed = getComputedStyle(sidebar);
+      const padding = parseFloat(computed.paddingTop || "0") + parseFloat(computed.paddingBottom || "0");
+      const headerHeight = sidebar.querySelector(".reports-dashboard-header")?.offsetHeight || 0;
+      const availableHeight = Math.max(160, grid.clientHeight - padding - headerHeight - 9);
+      sidebar.dataset.density = "compact";
+      content.style.zoom = "1";
+      content.style.width = "100%";
+      content.style.transform = "";
+      const unscaledHeight = Math.max(1, content.scrollHeight);
+      let ratio = Math.min(1, availableHeight / unscaledHeight);
+      content.style.zoom = String(ratio);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const actualHeight = content.getBoundingClientRect().height;
+        if (actualHeight <= availableHeight + 1) break;
+        ratio *= availableHeight / actualHeight;
+        content.style.zoom = String(ratio);
+      }
+    };
+    const schedule = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    };
+    const resize = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
+    resize?.observe(grid);
+    const mutation = typeof MutationObserver === "function" ? new MutationObserver(schedule) : null;
+    mutation?.observe(content, { childList: true, characterData: true, subtree: true });
+    window.addEventListener("resize", schedule);
+    document.fonts?.ready?.then(schedule).catch(() => void 0);
+    schedule();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      resize?.disconnect();
+      mutation?.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
+  }, []);
+  return { sidebarRef, sidebarContentRef };
+}
 
 // local-server/report-snapshot-context.ts
 var useAccounting = () => globalThis.__reportSnapshot ?? {};
@@ -256,6 +460,7 @@ function generateAccountStatement(params) {
     purchaseReturns = [],
     salesReturns = [],
     vouchers = [],
+    treasuries = [],
     printOrders = [],
     journalEntries = [],
     debtClearings = []
@@ -521,8 +726,16 @@ function generateAccountStatement(params) {
     const isTarget = party.isSubCustomer ? vch.partyId === party.id || vch.description && vch.description.includes(party.name) || vch.partyName && vch.partyName.includes(party.name) : vch.partyId === party.id && matchesVchSubCust;
     if (isTarget) {
       const vchNote = vch.notes || vch.description;
-      const paymentMethodLabel = vch.paymentMethod === "cash" ? "\u0646\u0642\u062F\u0627\u064B (\u0627\u0644\u0635\u0646\u062F\u0648\u0642)" : vch.paymentMethod === "cheque" ? "\u0634\u064A\u0643 \u0628\u0646\u0643\u064A" : vch.paymentMethod === "bank_transfer" ? "\u062A\u062D\u0648\u064A\u0644 \u0628\u0646\u0643\u064A" : "\u0623\u062E\u0631\u0649";
+      const treasuryCode = vch.treasuryAccountCode || vch.accountCode;
+      const treasury = treasuries.find((t) => t.accountCode === treasuryCode || t.id === treasuryCode);
+      const treasuryName2 = String(treasury?.name || "").trim();
+      const walletName = treasuryName2.includes("\u062C\u0648\u0627\u0644 \u0628\u0627\u064A") && treasuryName2.includes("\u0637\u0644\u0629 \u0644\u0628\u0646\u0627\u0646") ? "\u062C\u0648\u0627\u0644 \u0628\u0627\u064A \u0637\u0644\u0629 \u0644\u0628\u0646\u0627\u0646" : treasuryName2;
+      const isWallet = treasury?.type === "digital_wallet" || vch.paymentMethod === "e_wallet" || vch.paymentMethod === "electronic";
+      const paymentMethodLabel = vch.paymentMethod === "cash" ? `\u0646\u0642\u062F\u0627\u064B${treasuryName2 ? " - " + treasuryName2 : ""}` : vch.paymentMethod === "cheque" ? `\u0634\u064A\u0643 \u0628\u0646\u0643\u064A${treasuryName2 ? " - " + treasuryName2 : ""}` : isWallet ? `\u062D\u0648\u0627\u0644\u0629 \u0645\u0627\u0644\u064A\u0629 \u0639\u0644\u0649 \u062D\u0633\u0627\u0628 ${walletName || treasuryCode || "\u0627\u0644\u0645\u062D\u0641\u0638\u0629 \u0627\u0644\u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A\u0629"}` : vch.paymentMethod === "bank_transfer" ? `\u062D\u0648\u0627\u0644\u0629 \u0628\u0646\u0643\u064A\u0629 \u0639\u0644\u0649 \u062D\u0633\u0627\u0628 ${treasuryName2 || treasuryCode || "\u0627\u0644\u0628\u0646\u0643"}` : vch.paymentMethod === "card" || vch.paymentMethod === "pos" ? `\u062F\u0641\u0639 \u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A${treasuryName2 ? " - " + treasuryName2 : ""}` : treasuryName2 || vch.paymentMethod || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F\u0629";
       if (vch.type === "receipt") {
+        const cashBase = Number(vch.baseAmount ?? vch.amount);
+        const rebateBase = Number(vch.baseDiscountAmount ?? Number(vch.discountAmount || 0) * Number(vch.exchangeRate || 1));
+        const receiptCredit = Number((cashBase + rebateBase).toFixed(2));
         allTx.push({
           id: vch.id,
           date: vch.date,
@@ -531,10 +744,13 @@ function generateAccountStatement(params) {
           type: "receipt",
           category: "receipt",
           typeLabel: "\u0633\u0646\u062F \u0642\u0628\u0636",
-          description: vch.description || "\u0633\u0646\u062F \u0642\u0628\u0636 \u0648\u062A\u062D\u0635\u064A\u0644 \u062F\u0641\u0639\u0629 \u0646\u0642\u062F\u064A\u0629 \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644",
+          description: vch.description || "\u0633\u0646\u062F \u0642\u0628\u0636 \u0648\u062A\u062D\u0635\u064A\u0644 \u062F\u0641\u0639\u0629 \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644",
           voucherNotes: vchNote,
           paymentMethod: vch.paymentMethod,
           paymentMethodLabel,
+          receiptAmount: cashBase,
+          receiptDiscount: rebateBase,
+          treasuryName: treasuryName2,
           chequeNumber: vch.chequeNumber,
           chequeBank: vch.chequeBank,
           chequeDueDate: vch.chequeDueDate,
@@ -542,7 +758,7 @@ function generateAccountStatement(params) {
           accountCode: vch.treasuryAccountCode || vch.accountCode,
           subCustomerName: vch.subCustomerName,
           debit: 0,
-          credit: vch.amount
+          credit: receiptCredit
         });
       } else {
         const isCust = party.type === "customer";
@@ -675,6 +891,8 @@ function generateAccountStatement(params) {
       currencySymbol: tx.currencySymbol,
       paymentMethod: tx.paymentMethod,
       paymentMethodLabel: tx.paymentMethodLabel,
+      receiptAmount: tx.receiptAmount,
+      receiptDiscount: tx.receiptDiscount,
       chequeNumber: tx.chequeNumber,
       chequeBank: tx.chequeBank,
       chequeDueDate: tx.chequeDueDate,
@@ -1235,7 +1453,7 @@ function generateEmployeeStatement(params) {
 
 // src/components/common/PrintHeader.tsx
 import { Building2, MapPin, Hash } from "lucide-react";
-import { jsx as jsx2, jsxs } from "react/jsx-runtime";
+import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
 var PrintHeader = ({
   title,
   subtitle,
@@ -1273,8 +1491,8 @@ var PrintHeader = ({
     }
   }
   if (hasFullHeader) {
-    return /* @__PURE__ */ jsxs("div", { className: `print-header w-full mb-2 print:mb-1.5 print:block ${className}`, "data-component": "print-header", children: [
-      /* @__PURE__ */ jsx2("div", { className: "w-full overflow-hidden rounded-lg border border-slate-200/60 print:border-none print:rounded-none bg-white", children: /* @__PURE__ */ jsx2(
+    return /* @__PURE__ */ jsxs2("div", { className: `print-header w-full mb-2 print:mb-1.5 print:block ${className}`, "data-component": "print-header", children: [
+      /* @__PURE__ */ jsx3("div", { className: "w-full overflow-hidden rounded-lg border border-slate-200/60 print:border-none print:rounded-none bg-white", children: /* @__PURE__ */ jsx3(
         "img",
         {
           src: headerImageUrl,
@@ -1282,77 +1500,77 @@ var PrintHeader = ({
           className: "w-full max-h-40 sm:max-h-48 md:max-h-56 object-contain object-center print:max-h-44 mx-auto block"
         }
       ) }),
-      (title || docNumber || docDate || badge || extraMeta || qrCode) && /* @__PURE__ */ jsxs("div", { className: `mt-1 pt-1 pb-1 flex items-center justify-between gap-2 text-xs w-full ${showBorder ? "border-b-2 border-slate-900" : ""}`, children: [
-        /* @__PURE__ */ jsx2("div", { className: "w-1/3 text-right font-mono text-xs text-slate-900 font-bold truncate", children: docNumber && /* @__PURE__ */ jsxs("div", { className: "inline-flex items-center gap-1", children: [
-          /* @__PURE__ */ jsx2("span", { className: "text-slate-600 font-sans font-semibold text-xs", children: "\u0627\u0644\u0631\u0642\u0645:" }),
-          /* @__PURE__ */ jsx2("strong", { className: "text-slate-950 font-black text-sm", children: docNumber })
+      (title || docNumber || docDate || badge || extraMeta || qrCode) && /* @__PURE__ */ jsxs2("div", { className: `mt-1 pt-1 pb-1 flex items-center justify-between gap-2 text-xs w-full ${showBorder ? "border-b-2 border-slate-900" : ""}`, children: [
+        /* @__PURE__ */ jsx3("div", { className: "w-1/3 text-right font-mono text-xs text-slate-900 font-bold truncate", children: docNumber && /* @__PURE__ */ jsxs2("div", { className: "inline-flex items-center gap-1", children: [
+          /* @__PURE__ */ jsx3("span", { className: "text-slate-600 font-sans font-semibold text-xs", children: "\u0627\u0644\u0631\u0642\u0645:" }),
+          /* @__PURE__ */ jsx3("strong", { className: "text-slate-950 font-black text-sm", children: docNumber })
         ] }) }),
-        /* @__PURE__ */ jsxs("div", { className: "w-1/3 flex flex-col justify-center items-center", children: [
-          title && /* @__PURE__ */ jsx2("div", { className: "bg-[#2b3a67] text-white border-2 border-[#2b3a67] font-black text-xs sm:text-sm px-6 py-0.5 rounded-xl text-center whitespace-nowrap inline-block tracking-wide shadow-xs", children: title }),
-          badge && /* @__PURE__ */ jsx2("span", { className: `px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${badgeColor}`, children: badge })
+        /* @__PURE__ */ jsxs2("div", { className: "w-1/3 flex flex-col justify-center items-center", children: [
+          title && /* @__PURE__ */ jsx3("div", { className: "bg-[#2b3a67] text-white border-2 border-[#2b3a67] font-black text-xs sm:text-sm px-6 py-0.5 rounded-xl text-center whitespace-nowrap inline-block tracking-wide shadow-xs", children: title }),
+          badge && /* @__PURE__ */ jsx3("span", { className: `px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${badgeColor}`, children: badge })
         ] }),
-        /* @__PURE__ */ jsx2("div", { className: "w-1/3 text-left font-mono text-xs text-slate-900 font-bold truncate", children: docDate && /* @__PURE__ */ jsxs("div", { className: "inline-flex items-center gap-1", children: [
-          /* @__PURE__ */ jsx2("span", { className: "text-slate-600 font-sans font-semibold text-xs", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E:" }),
-          /* @__PURE__ */ jsx2("span", { className: "text-slate-950 font-bold text-xs", children: docDate })
+        /* @__PURE__ */ jsx3("div", { className: "w-1/3 text-left font-mono text-xs text-slate-900 font-bold truncate", children: docDate && /* @__PURE__ */ jsxs2("div", { className: "inline-flex items-center gap-1", children: [
+          /* @__PURE__ */ jsx3("span", { className: "text-slate-600 font-sans font-semibold text-xs", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E:" }),
+          /* @__PURE__ */ jsx3("span", { className: "text-slate-950 font-bold text-xs", children: docDate })
         ] }) })
       ] })
     ] });
   }
-  return /* @__PURE__ */ jsxs("div", { className: `print-header w-full mb-2 print:mb-1.5 print:block ${showBorder ? "border-b-2 border-slate-900 pb-1.5" : ""} ${className}`, "data-component": "print-header", children: [
-    /* @__PURE__ */ jsxs("div", { className: "flex flex-col sm:flex-row justify-between items-start gap-4", children: [
-      /* @__PURE__ */ jsxs("div", { className: "flex items-start gap-3.5 flex-1 min-w-0", children: [
-        hasLogo ? /* @__PURE__ */ jsx2("div", { className: "shrink-0 w-20 h-20 sm:w-24 sm:h-24 bg-white border border-slate-200 rounded-xl p-1.5 flex items-center justify-center shadow-2xs overflow-hidden", children: /* @__PURE__ */ jsx2(
+  return /* @__PURE__ */ jsxs2("div", { className: `print-header w-full mb-2 print:mb-1.5 print:block ${showBorder ? "border-b-2 border-slate-900 pb-1.5" : ""} ${className}`, "data-component": "print-header", children: [
+    /* @__PURE__ */ jsxs2("div", { className: "flex flex-col sm:flex-row justify-between items-start gap-4", children: [
+      /* @__PURE__ */ jsxs2("div", { className: "flex items-start gap-3.5 flex-1 min-w-0", children: [
+        hasLogo ? /* @__PURE__ */ jsx3("div", { className: "shrink-0 w-20 h-20 sm:w-24 sm:h-24 bg-white border border-slate-200 rounded-xl p-1.5 flex items-center justify-center shadow-2xs overflow-hidden", children: /* @__PURE__ */ jsx3(
           "img",
           {
             src: logoUrl,
             alt: businessName,
             className: "w-full h-full object-contain object-center"
           }
-        ) }) : /* @__PURE__ */ jsxs("div", { className: "shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 flex flex-col items-center justify-center font-bold text-xs p-1 shadow-2xs", children: [
-          /* @__PURE__ */ jsx2(Building2, { className: "w-6 h-6 mb-0.5 text-blue-600" }),
-          /* @__PURE__ */ jsx2("span", { className: "text-[9px] text-center leading-tight truncate max-w-full", children: settings.logoText || "\u0627\u0644\u0646\u0648\u0631" })
+        ) }) : /* @__PURE__ */ jsxs2("div", { className: "shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 flex flex-col items-center justify-center font-bold text-xs p-1 shadow-2xs", children: [
+          /* @__PURE__ */ jsx3(Building2, { className: "w-6 h-6 mb-0.5 text-blue-600" }),
+          /* @__PURE__ */ jsx3("span", { className: "text-[9px] text-center leading-tight truncate max-w-full", children: settings.logoText || "\u0627\u0644\u0646\u0648\u0631" })
         ] }),
-        /* @__PURE__ */ jsxs("div", { className: "min-w-0 flex-1", children: [
-          /* @__PURE__ */ jsx2("h1", { className: "text-lg sm:text-xl font-black text-slate-900 tracking-tight leading-snug", children: businessName }),
-          settings.businessNameEn && /* @__PURE__ */ jsx2("p", { className: "text-xs sm:text-sm text-slate-600 font-bold font-mono mt-0.5 tracking-tight", children: settings.businessNameEn }),
-          (settings.activityType || settings.description) && /* @__PURE__ */ jsx2("p", { className: "text-xs text-slate-600 font-medium mt-0.5", children: settings.activityType || settings.description }),
-          /* @__PURE__ */ jsxs("div", { className: "flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-700 font-mono mt-1.5", children: [
-            settings.taxNumber && settings.showTaxNumberInPrints !== false && /* @__PURE__ */ jsxs("span", { className: "inline-flex items-center gap-1 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 font-bold", children: [
-              /* @__PURE__ */ jsx2(Hash, { className: "w-3 h-3 text-slate-500" }),
-              /* @__PURE__ */ jsxs("span", { children: [
+        /* @__PURE__ */ jsxs2("div", { className: "min-w-0 flex-1", children: [
+          /* @__PURE__ */ jsx3("h1", { className: "text-lg sm:text-xl font-black text-slate-900 tracking-tight leading-snug", children: businessName }),
+          settings.businessNameEn && /* @__PURE__ */ jsx3("p", { className: "text-xs sm:text-sm text-slate-600 font-bold font-mono mt-0.5 tracking-tight", children: settings.businessNameEn }),
+          (settings.activityType || settings.description) && /* @__PURE__ */ jsx3("p", { className: "text-xs text-slate-600 font-medium mt-0.5", children: settings.activityType || settings.description }),
+          /* @__PURE__ */ jsxs2("div", { className: "flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-700 font-mono mt-1.5", children: [
+            settings.taxNumber && settings.showTaxNumberInPrints !== false && /* @__PURE__ */ jsxs2("span", { className: "inline-flex items-center gap-1 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 font-bold", children: [
+              /* @__PURE__ */ jsx3(Hash, { className: "w-3 h-3 text-slate-500" }),
+              /* @__PURE__ */ jsxs2("span", { children: [
                 "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0636\u0631\u064A\u0628\u064A: ",
                 settings.taxNumber
               ] })
             ] }),
-            (settings.crNumber || settings.commercialRegister) && settings.showCrNumberInPrints !== false && /* @__PURE__ */ jsx2("span", { className: "inline-flex items-center gap-1 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200", children: /* @__PURE__ */ jsxs("span", { children: [
+            (settings.crNumber || settings.commercialRegister) && settings.showCrNumberInPrints !== false && /* @__PURE__ */ jsx3("span", { className: "inline-flex items-center gap-1 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200", children: /* @__PURE__ */ jsxs2("span", { children: [
               "\u0633.\u062A: ",
               settings.crNumber || settings.commercialRegister
             ] }) })
           ] }),
-          pairedContactLines.length > 0 && /* @__PURE__ */ jsx2("div", { className: "space-y-0.5 text-[11px] text-slate-800 font-medium mt-1.5 font-sans", children: pairedContactLines.map((line, idx) => /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5 leading-tight", children: [
-            /* @__PURE__ */ jsx2(MapPin, { className: "w-3.5 h-3.5 text-slate-500 shrink-0" }),
-            /* @__PURE__ */ jsx2("span", { children: line })
+          pairedContactLines.length > 0 && /* @__PURE__ */ jsx3("div", { className: "space-y-0.5 text-[11px] text-slate-800 font-medium mt-1.5 font-sans", children: pairedContactLines.map((line, idx) => /* @__PURE__ */ jsxs2("div", { className: "flex items-center gap-1.5 leading-tight", children: [
+            /* @__PURE__ */ jsx3(MapPin, { className: "w-3.5 h-3.5 text-slate-500 shrink-0" }),
+            /* @__PURE__ */ jsx3("span", { children: line })
           ] }, idx)) })
         ] })
       ] }),
-      (qrCode || rightAction) && /* @__PURE__ */ jsxs("div", { className: "text-left shrink-0 flex flex-col items-end sm:min-w-[120px]", children: [
-        qrCode && /* @__PURE__ */ jsx2("div", { className: "mt-1", children: qrCode }),
-        rightAction && /* @__PURE__ */ jsx2("div", { className: "mt-1", children: rightAction })
+      (qrCode || rightAction) && /* @__PURE__ */ jsxs2("div", { className: "text-left shrink-0 flex flex-col items-end sm:min-w-[120px]", children: [
+        qrCode && /* @__PURE__ */ jsx3("div", { className: "mt-1", children: qrCode }),
+        rightAction && /* @__PURE__ */ jsx3("div", { className: "mt-1", children: rightAction })
       ] })
     ] }),
-    (title || docNumber || docDate || badge || extraMeta) && /* @__PURE__ */ jsxs("div", { className: "mt-1.5 pt-1 pb-0.5 flex items-center justify-between gap-2 text-xs w-full", children: [
-      /* @__PURE__ */ jsx2("div", { className: "w-1/3 text-right font-mono text-xs text-slate-900 font-bold truncate", children: docNumber && /* @__PURE__ */ jsxs("div", { className: "inline-flex items-center gap-1", children: [
-        /* @__PURE__ */ jsx2("span", { className: "text-slate-600 font-sans font-semibold text-xs", children: "\u0627\u0644\u0631\u0642\u0645:" }),
-        /* @__PURE__ */ jsx2("strong", { className: "text-slate-950 font-black text-sm", children: docNumber })
+    (title || docNumber || docDate || badge || extraMeta) && /* @__PURE__ */ jsxs2("div", { className: "mt-1.5 pt-1 pb-0.5 flex items-center justify-between gap-2 text-xs w-full", children: [
+      /* @__PURE__ */ jsx3("div", { className: "w-1/3 text-right font-mono text-xs text-slate-900 font-bold truncate", children: docNumber && /* @__PURE__ */ jsxs2("div", { className: "inline-flex items-center gap-1", children: [
+        /* @__PURE__ */ jsx3("span", { className: "text-slate-600 font-sans font-semibold text-xs", children: "\u0627\u0644\u0631\u0642\u0645:" }),
+        /* @__PURE__ */ jsx3("strong", { className: "text-slate-950 font-black text-sm", children: docNumber })
       ] }) }),
-      /* @__PURE__ */ jsxs("div", { className: "w-1/3 flex flex-col justify-center items-center", children: [
-        title && /* @__PURE__ */ jsx2("div", { className: "bg-[#2b3a67] text-white border-2 border-[#2b3a67] font-black text-xs sm:text-sm px-6 py-0.5 rounded-xl text-center whitespace-nowrap inline-block tracking-wide shadow-xs", children: title }),
-        badge && /* @__PURE__ */ jsx2("span", { className: `px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${badgeColor}`, children: badge })
+      /* @__PURE__ */ jsxs2("div", { className: "w-1/3 flex flex-col justify-center items-center", children: [
+        title && /* @__PURE__ */ jsx3("div", { className: "bg-[#2b3a67] text-white border-2 border-[#2b3a67] font-black text-xs sm:text-sm px-6 py-0.5 rounded-xl text-center whitespace-nowrap inline-block tracking-wide shadow-xs", children: title }),
+        badge && /* @__PURE__ */ jsx3("span", { className: `px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${badgeColor}`, children: badge })
       ] }),
-      /* @__PURE__ */ jsxs("div", { className: "w-1/3 text-left font-mono text-xs text-slate-900 font-bold truncate", children: [
-        docDate && /* @__PURE__ */ jsxs("div", { className: "inline-flex items-center gap-1", children: [
-          /* @__PURE__ */ jsx2("span", { className: "text-slate-600 font-sans font-semibold text-xs", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E:" }),
-          /* @__PURE__ */ jsx2("span", { className: "text-slate-950 font-bold text-xs", children: docDate })
+      /* @__PURE__ */ jsxs2("div", { className: "w-1/3 text-left font-mono text-xs text-slate-900 font-bold truncate", children: [
+        docDate && /* @__PURE__ */ jsxs2("div", { className: "inline-flex items-center gap-1", children: [
+          /* @__PURE__ */ jsx3("span", { className: "text-slate-600 font-sans font-semibold text-xs", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E:" }),
+          /* @__PURE__ */ jsx3("span", { className: "text-slate-950 font-bold text-xs", children: docDate })
         ] }),
         extraMeta
       ] })
@@ -1361,7 +1579,7 @@ var PrintHeader = ({
 };
 
 // src/components/UnifiedPartyStatementDocument.tsx
-import React3 from "react";
+import React4 from "react";
 
 // src/utils/unitsOfMeasure.ts
 function isSquareMeterUnit(unit, calculationType) {
@@ -1480,7 +1698,7 @@ function tafqeet(amount, currencyName = "\u0634\u064A\u0643\u0644", fractionalNa
 }
 
 // src/components/common/OfficialStamp.tsx
-import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
+import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
 var OfficialStamp = ({
   stampUrl: propStampUrl,
   size = "3.5cm",
@@ -1496,7 +1714,7 @@ var OfficialStamp = ({
   }
   const isFixed4cm = size === "4cm";
   const isFixed3_5cm = size === "3.5cm";
-  return /* @__PURE__ */ jsx3(
+  return /* @__PURE__ */ jsx4(
     "div",
     {
       className: `official-stamp inline-flex items-center justify-center relative select-none pointer-events-none rounded-full ${isFixed4cm ? "w-[4cm] h-[4cm] min-w-[4cm] min-h-[4cm] max-w-[4cm] max-h-[4cm]" : isFixed3_5cm ? "w-[3.5cm] h-[3.5cm] min-w-[3.5cm] min-h-[3.5cm] max-w-[3.5cm] max-h-[3.5cm]" : "w-24 h-24"} ${className}`,
@@ -1505,7 +1723,7 @@ var OfficialStamp = ({
         mixBlendMode: "multiply"
       },
       "data-stamp-cm": "true",
-      children: stampUrl ? /* @__PURE__ */ jsx3(
+      children: stampUrl ? /* @__PURE__ */ jsx4(
         "img",
         {
           src: stampUrl,
@@ -1519,18 +1737,18 @@ var OfficialStamp = ({
         }
       ) : showDefaultIfEmpty ? (
         /* Authentic Generated Circular Rubber Stamp */
-        /* @__PURE__ */ jsxs2("div", { className: "w-full h-full rounded-full border-[3px] border-double border-blue-900/80 text-blue-900 flex flex-col items-center justify-between p-2.5 text-center font-bold relative bg-blue-50/20 shadow-xs", children: [
-          /* @__PURE__ */ jsx3("div", { className: "w-[calc(100%-8px)] h-[calc(100%-8px)] rounded-full border border-dashed border-blue-800/60 absolute inset-1 m-auto pointer-events-none" }),
-          /* @__PURE__ */ jsxs2("span", { className: "text-[8.5px] font-black tracking-tight text-blue-950 uppercase mt-0.5 line-clamp-1 px-2 z-10", children: [
+        /* @__PURE__ */ jsxs3("div", { className: "w-full h-full rounded-full border-[3px] border-double border-blue-900/80 text-blue-900 flex flex-col items-center justify-between p-2.5 text-center font-bold relative bg-blue-50/20 shadow-xs", children: [
+          /* @__PURE__ */ jsx4("div", { className: "w-[calc(100%-8px)] h-[calc(100%-8px)] rounded-full border border-dashed border-blue-800/60 absolute inset-1 m-auto pointer-events-none" }),
+          /* @__PURE__ */ jsxs3("span", { className: "text-[8.5px] font-black tracking-tight text-blue-950 uppercase mt-0.5 line-clamp-1 px-2 z-10", children: [
             "\u2605 ",
             businessName,
             " \u2605"
           ] }),
-          /* @__PURE__ */ jsxs2("div", { className: "flex flex-col items-center justify-center my-auto z-10", children: [
-            /* @__PURE__ */ jsx3("span", { className: "text-[11px] font-black tracking-wider text-red-700/90 border-y border-red-700/60 py-0.5 px-3 uppercase bg-white/70", children: "\u0645\u0639\u062A\u0645\u062F OFFICIAL" }),
-            /* @__PURE__ */ jsx3("span", { className: "text-[7.5px] font-mono font-bold text-blue-900 mt-0.5", children: settings.taxNumber ? `\u0636\u0631\u064A\u0628\u064A: ${settings.taxNumber}` : "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u062D\u0627\u0633\u0628\u0629 \u0648\u0627\u0644\u0645\u0627\u0644\u064A\u0629" })
+          /* @__PURE__ */ jsxs3("div", { className: "flex flex-col items-center justify-center my-auto z-10", children: [
+            /* @__PURE__ */ jsx4("span", { className: "text-[11px] font-black tracking-wider text-red-700/90 border-y border-red-700/60 py-0.5 px-3 uppercase bg-white/70", children: "\u0645\u0639\u062A\u0645\u062F OFFICIAL" }),
+            /* @__PURE__ */ jsx4("span", { className: "text-[7.5px] font-mono font-bold text-blue-900 mt-0.5", children: settings.taxNumber ? `\u0636\u0631\u064A\u0628\u064A: ${settings.taxNumber}` : "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u062D\u0627\u0633\u0628\u0629 \u0648\u0627\u0644\u0645\u0627\u0644\u064A\u0629" })
           ] }),
-          /* @__PURE__ */ jsx3("span", { className: "text-[7.5px] font-mono text-blue-900/80 mb-0.5 z-10", children: (/* @__PURE__ */ new Date()).toISOString().split("T")[0] })
+          /* @__PURE__ */ jsx4("span", { className: "text-[7.5px] font-mono text-blue-900/80 mb-0.5 z-10", children: (/* @__PURE__ */ new Date()).toISOString().split("T")[0] })
         ] })
       ) : null
     }
@@ -1577,7 +1795,7 @@ function statementPhotoSources(items) {
 }
 
 // src/components/StatementPrintPhoto.tsx
-import { useEffect as useEffect2, useState } from "react";
+import { useEffect as useEffect2, useState as useState2 } from "react";
 
 // src/utils/fileStorage.ts
 var DB_NAME = "LobnanPrintFileStorage";
@@ -1639,7 +1857,7 @@ async function fetchCentralAttachmentBlob(fileId) {
 }
 
 // src/components/StatementPrintPhoto.tsx
-import { jsx as jsx4 } from "react/jsx-runtime";
+import { jsx as jsx5 } from "react/jsx-runtime";
 var StatementPrintPhoto = ({
   thumbnail,
   original,
@@ -1648,8 +1866,8 @@ var StatementPrintPhoto = ({
   onClick
 }) => {
   const inlinedOriginal = original?.data && original.type?.startsWith("image/") ? original.data : "";
-  const [source, setSource] = useState(inlinedOriginal || thumbnail);
-  const [pending, setPending] = useState(
+  const [source, setSource] = useState2(inlinedOriginal || thumbnail);
+  const [pending, setPending] = useState2(
     Boolean(original && !inlinedOriginal && (original.driveFileId || original.localBlobId))
   );
   useEffect2(() => {
@@ -1686,7 +1904,7 @@ var StatementPrintPhoto = ({
       if (url) URL.revokeObjectURL(url);
     };
   }, [inlinedOriginal, thumbnail, original?.driveFileId, original?.localBlobId, original?.id]);
-  return source ? /* @__PURE__ */ jsx4(
+  return source ? /* @__PURE__ */ jsx5(
     "img",
     {
       src: source,
@@ -1694,15 +1912,16 @@ var StatementPrintPhoto = ({
       className,
       onClick: () => onClick?.(source),
       "data-statement-photo-status": pending ? "loading" : source === thumbnail ? "thumbnail" : "original",
+      "data-statement-original-expected": original && (original.driveFileId || original.localBlobId) ? "true" : "false",
       title: pending ? "\u062C\u0627\u0631\u064A \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0635\u0648\u0631\u0629 \u0627\u0644\u0623\u0635\u0644\u064A\u0629 \u0644\u0644\u0637\u0628\u0627\u0639\u0629" : alt,
       loading: "eager",
       decoding: "sync"
     }
-  ) : /* @__PURE__ */ jsx4("span", { className: "block text-[9px] text-slate-400 text-center", "data-statement-photo-status": pending ? "loading" : "missing", children: pending ? "\u062C\u0627\u0631\u064A \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0635\u0648\u0631\u0629 \u0627\u0644\u0623\u0635\u0644\u064A\u0629" : "\u0627\u0644\u0635\u0648\u0631\u0629 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D\u0629" });
+  ) : /* @__PURE__ */ jsx5("span", { className: "block text-[9px] text-slate-400 text-center", "data-statement-photo-status": pending ? "loading" : "missing", children: pending ? "\u062C\u0627\u0631\u064A \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0635\u0648\u0631\u0629 \u0627\u0644\u0623\u0635\u0644\u064A\u0629" : "\u0627\u0644\u0635\u0648\u0631\u0629 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D\u0629" });
 };
 
 // src/components/UnifiedPartyStatementDocument.tsx
-import { Fragment, jsx as jsx5, jsxs as jsxs3 } from "react/jsx-runtime";
+import { Fragment, jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
 var UnifiedPartyStatementDocument = ({
   partyStatement,
   isCustomer,
@@ -1719,43 +1938,43 @@ var UnifiedPartyStatementDocument = ({
   const displayedPartyRows = partyStatement.rows.filter(
     (row) => filterType === "debit" ? row.debit > 0 : filterType === "credit" ? row.credit > 0 : true
   );
-  return /* @__PURE__ */ jsxs3(Fragment, { children: [
-    /* @__PURE__ */ jsx5(PrintHeader, {}),
-    /* @__PURE__ */ jsx5("div", { className: "border-b-2 border-slate-900 pb-2", children: /* @__PURE__ */ jsxs3("div", { className: "statement-document-heading text-center font-bold text-base mb-1.5 mt-2 text-slate-900 leading-relaxed", children: [
+  return /* @__PURE__ */ jsxs4(Fragment, { children: [
+    /* @__PURE__ */ jsx6(PrintHeader, {}),
+    /* @__PURE__ */ jsx6("div", { className: "border-b-2 border-slate-900 pb-2", children: /* @__PURE__ */ jsxs4("div", { className: "statement-document-heading text-center font-bold text-base mb-1.5 mt-2 text-slate-900 leading-relaxed", children: [
       isCustomer ? "\u0643\u0634\u0641 \u062D\u0633\u0627\u0628 \u0639\u0645\u064A\u0644 \u062A\u0641\u0635\u064A\u0644\u064A:" : "\u0643\u0634\u0641 \u062D\u0633\u0627\u0628 \u0645\u0648\u0631\u062F \u062A\u0641\u0635\u064A\u0644\u064A:",
       " ",
-      /* @__PURE__ */ jsx5("span", { className: isCustomer ? "text-blue-900" : "text-rose-900", children: clientDisplayName }),
-      /* @__PURE__ */ jsxs3("div", { className: "text-xs text-slate-600 mt-0.5 font-semibold", children: [
+      /* @__PURE__ */ jsx6("span", { className: isCustomer ? "text-blue-900" : "text-rose-900", children: /* @__PURE__ */ jsx6("bdi", { dir: "auto", children: clientDisplayName }) }),
+      /* @__PURE__ */ jsxs4("div", { className: "text-xs text-slate-600 mt-0.5 font-semibold", children: [
         "\u0645\u0646 \u062A\u0627\u0631\u064A\u062E: ",
-        /* @__PURE__ */ jsx5("span", { className: "font-mono", children: fromDate || "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u062A\u0639\u0627\u0645\u0644" }),
+        /* @__PURE__ */ jsx6("span", { className: "font-mono", children: fromDate || "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u062A\u0639\u0627\u0645\u0644" }),
         " ",
         "\u0625\u0644\u0649 \u062A\u0627\u0631\u064A\u062E: ",
-        /* @__PURE__ */ jsx5("span", { className: "font-mono", children: toDate || "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u064A\u0648\u0645" })
+        /* @__PURE__ */ jsx6("span", { className: "font-mono", children: toDate || "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u064A\u0648\u0645" })
       ] })
     ] }) }),
-    /* @__PURE__ */ jsxs3("div", { className: "space-y-3", children: [
-      /* @__PURE__ */ jsx5("div", { className: "border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-[440px] print:min-h-0 flex flex-col justify-between bg-white print:block print:overflow-visible print:border-none print:shadow-none", children: /* @__PURE__ */ jsxs3("table", { className: "w-full text-right report-table border-collapse h-full", children: [
-        /* @__PURE__ */ jsx5("thead", { children: /* @__PURE__ */ jsxs3("tr", { className: "bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900", children: [
-          /* @__PURE__ */ jsx5("th", { className: "w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400", children: "\u0645" }),
-          /* @__PURE__ */ jsx5("th", { className: "w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" }),
-          /* @__PURE__ */ jsx5("th", { className: "border-l border-slate-600 print:border-slate-400", children: "\u0627\u0644\u0628\u064A\u0627\u0646 \u0648\u0627\u0644\u0634\u0631\u062D \u0648\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0643\u0627\u0645\u0644\u0629" }),
-          /* @__PURE__ */ jsx5("th", { className: "w-[66px] min-w-[66px] text-center bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap", children: "\u0645\u062F\u064A\u0646" }),
-          /* @__PURE__ */ jsx5("th", { className: "w-[66px] min-w-[66px] text-center bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap", children: "\u062F\u0627\u0626\u0646" }),
-          /* @__PURE__ */ jsx5("th", { className: "w-[78px] min-w-[78px] text-center bg-slate-700 print:bg-slate-300 whitespace-nowrap", children: "\u0631\u0635\u064A\u062F" })
+    /* @__PURE__ */ jsxs4("div", { className: "space-y-3", children: [
+      /* @__PURE__ */ jsx6("div", { className: "border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-0 bg-white print:block print:overflow-visible print:border-none print:shadow-none", children: /* @__PURE__ */ jsxs4("table", { className: "w-full text-right report-table border-collapse", children: [
+        /* @__PURE__ */ jsx6("thead", { children: /* @__PURE__ */ jsxs4("tr", { className: "bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900", children: [
+          /* @__PURE__ */ jsx6("th", { className: "w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400", children: "\u0645" }),
+          /* @__PURE__ */ jsx6("th", { className: "w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" }),
+          /* @__PURE__ */ jsx6("th", { className: "border-l border-slate-600 print:border-slate-400", children: "\u0627\u0644\u0628\u064A\u0627\u0646 \u0648\u0627\u0644\u0634\u0631\u062D \u0648\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0643\u0627\u0645\u0644\u0629" }),
+          /* @__PURE__ */ jsx6("th", { className: "w-[66px] min-w-[66px] text-center bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap", children: "\u0645\u062F\u064A\u0646" }),
+          /* @__PURE__ */ jsx6("th", { className: "w-[66px] min-w-[66px] text-center bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap", children: "\u062F\u0627\u0626\u0646" }),
+          /* @__PURE__ */ jsx6("th", { className: "w-[78px] min-w-[78px] text-center bg-slate-700 print:bg-slate-300 whitespace-nowrap", children: "\u0631\u0635\u064A\u062F" })
         ] }) }),
-        /* @__PURE__ */ jsxs3("tbody", { className: "divide-y divide-slate-200 font-mono", children: [
-          /* @__PURE__ */ jsxs3("tr", { className: "bg-slate-100/90 font-bold border-b border-slate-300 text-slate-800", children: [
-            /* @__PURE__ */ jsx5("td", { className: "text-center text-slate-400 font-sans border-l border-slate-300", children: "-" }),
-            /* @__PURE__ */ jsx5("td", { className: "text-center text-slate-600 font-mono border-l border-slate-300", children: fromDate || "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u062A\u0639\u0627\u0645\u0644" }),
-            /* @__PURE__ */ jsxs3("td", { className: "font-sans text-slate-700 font-semibold border-l border-slate-300", children: [
+        /* @__PURE__ */ jsxs4("tbody", { className: "divide-y divide-slate-200 font-mono", children: [
+          /* @__PURE__ */ jsxs4("tr", { className: "bg-slate-100/90 font-bold border-b border-slate-300 text-slate-800", children: [
+            /* @__PURE__ */ jsx6("td", { className: "text-center text-slate-400 font-sans border-l border-slate-300", children: "-" }),
+            /* @__PURE__ */ jsx6("td", { className: "text-center text-slate-600 font-mono border-l border-slate-300", children: fromDate || "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u062A\u0639\u0627\u0645\u0644" }),
+            /* @__PURE__ */ jsxs4("td", { className: "font-sans text-slate-700 font-semibold border-l border-slate-300", children: [
               "\u0631\u0635\u064A\u062F \u0627\u0641\u062A\u062A\u0627\u062D\u064A \u0633\u0627\u0628\u0642 \u0645\u062F\u0648\u0631",
               fromDate ? ` \u2014 \u0627\u0644\u0631\u0635\u064A\u062F \u0645\u0627 \u0642\u0628\u0644 \u062A\u0627\u0631\u064A\u062E ${fromDate}` : " \u2014 \u0631\u0635\u064A\u062F \u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u062A\u0639\u0627\u0645\u0644"
             ] }),
-            /* @__PURE__ */ jsx5("td", { className: "text-left font-bold text-slate-700 font-mono whitespace-nowrap border-l border-slate-300", children: partyStatement.openingBalance > 0 ? partyStatement.openingBalance.toFixed(2) : "-" }),
-            /* @__PURE__ */ jsx5("td", { className: "text-left font-bold text-slate-700 font-mono whitespace-nowrap border-l border-slate-300", children: partyStatement.openingBalance < 0 ? Math.abs(partyStatement.openingBalance).toFixed(2) : "-" }),
-            /* @__PURE__ */ jsx5("td", { className: "text-left font-black text-slate-950 bg-slate-100 font-mono whitespace-nowrap", children: partyStatement.openingBalance.toFixed(2) })
+            /* @__PURE__ */ jsx6("td", { className: "text-left font-bold text-slate-700 font-mono whitespace-nowrap border-l border-slate-300", children: partyStatement.openingBalance > 0 ? partyStatement.openingBalance.toFixed(2) : "-" }),
+            /* @__PURE__ */ jsx6("td", { className: "text-left font-bold text-slate-700 font-mono whitespace-nowrap border-l border-slate-300", children: partyStatement.openingBalance < 0 ? Math.abs(partyStatement.openingBalance).toFixed(2) : "-" }),
+            /* @__PURE__ */ jsx6("td", { className: "text-left font-black text-slate-950 bg-slate-100 font-mono whitespace-nowrap", children: partyStatement.openingBalance.toFixed(2) })
           ] }),
-          displayedPartyRows.length === 0 ? /* @__PURE__ */ jsx5("tr", { children: /* @__PURE__ */ jsx5("td", { colSpan: 6, className: "py-8 text-center text-slate-400 font-sans font-bold", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u062D\u0631\u0643\u0627\u062A \u0645\u0627\u0644\u064A\u0629 \u0645\u0633\u062C\u0644\u0629 \u062E\u0644\u0627\u0644 \u0647\u0630\u0647 \u0627\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629." }) }) : displayedPartyRows.map((row, idx) => {
+          displayedPartyRows.length === 0 ? /* @__PURE__ */ jsx6("tr", { children: /* @__PURE__ */ jsx6("td", { colSpan: 6, className: "py-8 text-center text-slate-400 font-sans font-bold", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u062D\u0631\u0643\u0627\u062A \u0645\u0627\u0644\u064A\u0629 \u0645\u0633\u062C\u0644\u0629 \u062E\u0644\u0627\u0644 \u0647\u0630\u0647 \u0627\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629." }) }) : displayedPartyRows.map((row, idx) => {
             const typeLabel = row.typeLabel || (row.type === "invoice" ? "\u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0628\u064A\u0639\u0627\u062A" : row.type === "receipt" ? "\u0633\u0646\u062F \u0642\u0628\u0636" : row.type === "payment" ? "\u0633\u0646\u062F \u0635\u0631\u0641" : row.type === "purchase" ? "\u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0634\u062A\u0631\u064A\u0627\u062A" : row.type === "sales_return" ? "\u0645\u0631\u062F\u0648\u062F\u0627\u062A \u0645\u0628\u064A\u0639\u0627\u062A" : row.type === "purchase_return" ? "\u0645\u0631\u062F\u0648\u062F\u0627\u062A \u0645\u0634\u062A\u0631\u064A\u0627\u062A" : row.type === "clearance" ? "\u0645\u0642\u0627\u0635\u0629 \u062F\u064A\u0648\u0646" : row.type === "opening" ? "\u0631\u0635\u064A\u062F \u0633\u0627\u0628\u0642" : "\u062D\u0631\u0643\u0629 \u0645\u0627\u0644\u064A\u0629");
             let note = "";
             if (row.type === "invoice") {
@@ -1788,161 +2007,169 @@ var UnifiedPartyStatementDocument = ({
               note = row.description || "";
             }
             const trimmedNote = note.trim();
-            const hasReceiptExtraDetails = row.type === "receipt" && Boolean(
-              row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference || row.paymentMethodLabel && row.paymentMethodLabel !== "\u0646\u0642\u062F\u0627\u064B"
-            );
             const hasPaymentExtraDetails = row.type === "payment" && Boolean(
               row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference || row.paymentMethodLabel && row.paymentMethodLabel !== "\u0646\u0642\u062F\u0627\u064B"
             );
-            return /* @__PURE__ */ jsxs3(React3.Fragment, { children: [
-              /* @__PURE__ */ jsxs3(
+            return /* @__PURE__ */ jsxs4(React4.Fragment, { children: [
+              /* @__PURE__ */ jsxs4(
                 "tr",
                 {
-                  className: row.type === "invoice" ? "statement-invoice-title font-bold" : "bg-white print:bg-white",
+                  className: row.type === "invoice" || row.type === "receipt" ? "statement-invoice-title font-bold" : "bg-white print:bg-white",
                   children: [
-                    /* @__PURE__ */ jsx5("td", { className: "text-center text-slate-400 font-sans align-middle border-l border-slate-300", children: idx + 1 }),
-                    /* @__PURE__ */ jsx5("td", { className: "text-slate-700 whitespace-nowrap text-center align-middle font-mono border-l border-slate-300", children: formatDateDisplay(row.date) }),
-                    /* @__PURE__ */ jsxs3("td", { className: "font-sans text-slate-800 align-middle space-y-1 border-l border-slate-300", children: [
-                      /* @__PURE__ */ jsxs3("div", { className: "font-bold text-slate-900 leading-tight flex flex-wrap items-center gap-1", children: [
-                        /* @__PURE__ */ jsx5("span", { className: "text-slate-900 font-bold", children: typeLabel }),
-                        row.referenceNumber && row.referenceNumber !== "OPENING" && /* @__PURE__ */ jsxs3(Fragment, { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-400 font-normal", children: "-" }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-mono font-bold text-slate-800", children: row.referenceNumber })
+                    /* @__PURE__ */ jsx6("td", { className: "text-center text-slate-400 font-sans align-middle border-l border-slate-300", children: idx + 1 }),
+                    /* @__PURE__ */ jsx6("td", { className: "text-slate-700 whitespace-nowrap text-center align-middle font-mono border-l border-slate-300", dir: "ltr", children: formatDateDisplay(row.date) }),
+                    /* @__PURE__ */ jsxs4("td", { className: "font-sans text-slate-800 align-middle space-y-1 border-l border-slate-300", children: [
+                      /* @__PURE__ */ jsxs4("div", { className: "font-bold text-slate-900 leading-tight flex flex-wrap items-center gap-1", children: [
+                        /* @__PURE__ */ jsx6("span", { className: "text-slate-900 font-bold", children: typeLabel }),
+                        row.referenceNumber && row.referenceNumber !== "OPENING" && /* @__PURE__ */ jsxs4(Fragment, { children: [
+                          /* @__PURE__ */ jsx6("span", { className: "text-slate-400 font-normal", children: "-" }),
+                          /* @__PURE__ */ jsx6("bdi", { dir: "ltr", className: "inline-block font-mono font-bold text-slate-800", children: row.referenceNumber })
                         ] }),
-                        trimmedNote && /* @__PURE__ */ jsxs3(Fragment, { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-400 font-normal", children: "-" }),
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-700 font-medium", children: trimmedNote })
+                        trimmedNote && /* @__PURE__ */ jsxs4(Fragment, { children: [
+                          /* @__PURE__ */ jsx6("span", { className: "text-slate-400 font-normal", children: "-" }),
+                          /* @__PURE__ */ jsx6("bdi", { dir: "auto", className: "text-slate-700 font-medium", children: trimmedNote })
                         ] })
                       ] }),
-                      hasReceiptExtraDetails && /* @__PURE__ */ jsxs3("div", { className: "mt-1 p-1 bg-blue-50/60 border border-blue-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1", children: [
-                        row.paymentMethodLabel && row.paymentMethodLabel !== "\u0646\u0642\u062F\u0627\u064B" && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-500", children: "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0642\u0628\u0636: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-800", children: row.paymentMethodLabel })
+                      row.type === "clearance" && (row.counterPartyName || row.reason) && /* @__PURE__ */ jsxs4("div", { className: "mt-1 p-1 bg-teal-50/60 border border-teal-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-2", children: [
+                        row.counterPartyName && /* @__PURE__ */ jsxs4("div", { children: [
+                          /* @__PURE__ */ jsx6("span", { className: "text-teal-900 font-bold", children: "\u0627\u0644\u0637\u0631\u0641 \u0627\u0644\u0645\u0642\u0627\u0628\u0644: " }),
+                          /* @__PURE__ */ jsx6("span", { className: "font-medium text-slate-800", children: row.counterPartyName })
                         ] }),
-                        row.chequeNumber && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-500", children: "\u0631\u0642\u0645 \u0627\u0644\u0634\u064A\u0643: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-900 font-mono", children: row.chequeNumber })
-                        ] }),
-                        row.chequeBank && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-500", children: "\u0627\u0644\u0628\u0646\u0643 \u0627\u0644\u0645\u0633\u062D\u0648\u0628 \u0639\u0644\u064A\u0647: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-800", children: row.chequeBank })
-                        ] }),
-                        row.chequeDueDate && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-500", children: "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0627\u0633\u062A\u062D\u0642\u0627\u0642: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-900 font-mono", children: row.chequeDueDate })
-                        ] }),
-                        row.transferReference && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-500", children: "\u0631\u0642\u0645 \u0627\u0644\u062D\u0648\u0627\u0644\u0629: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-900 font-mono", children: row.transferReference })
+                        row.reason && /* @__PURE__ */ jsxs4("div", { children: [
+                          /* @__PURE__ */ jsx6("span", { className: "text-teal-900 font-bold", children: "\u0627\u0644\u0633\u0628\u0628: " }),
+                          /* @__PURE__ */ jsx6("span", { className: "text-slate-700", children: row.reason })
                         ] })
                       ] }),
-                      row.type === "clearance" && (row.counterPartyName || row.reason) && /* @__PURE__ */ jsxs3("div", { className: "mt-1 p-1 bg-teal-50/60 border border-teal-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-2", children: [
-                        row.counterPartyName && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-teal-900 font-bold", children: "\u0627\u0644\u0637\u0631\u0641 \u0627\u0644\u0645\u0642\u0627\u0628\u0644: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-medium text-slate-800", children: row.counterPartyName })
+                      hasPaymentExtraDetails && /* @__PURE__ */ jsxs4("div", { className: "mt-1 p-1 bg-amber-50/60 border border-amber-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1", children: [
+                        row.paymentMethodLabel && row.paymentMethodLabel !== "\u0646\u0642\u062F\u0627\u064B" && /* @__PURE__ */ jsxs4("div", { children: [
+                          /* @__PURE__ */ jsx6("span", { className: "text-slate-500", children: "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0635\u0631\u0641: " }),
+                          /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-800", children: row.paymentMethodLabel })
                         ] }),
-                        row.reason && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-teal-900 font-bold", children: "\u0627\u0644\u0633\u0628\u0628: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-700", children: row.reason })
-                        ] })
-                      ] }),
-                      hasPaymentExtraDetails && /* @__PURE__ */ jsxs3("div", { className: "mt-1 p-1 bg-amber-50/60 border border-amber-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1", children: [
-                        row.paymentMethodLabel && row.paymentMethodLabel !== "\u0646\u0642\u062F\u0627\u064B" && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-500", children: "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0635\u0631\u0641: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-800", children: row.paymentMethodLabel })
+                        row.chequeNumber && /* @__PURE__ */ jsxs4("div", { children: [
+                          /* @__PURE__ */ jsx6("span", { className: "text-slate-500", children: "\u0631\u0642\u0645 \u0627\u0644\u0634\u064A\u0643: " }),
+                          /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-900 font-mono", children: row.chequeNumber })
                         ] }),
-                        row.chequeNumber && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-500", children: "\u0631\u0642\u0645 \u0627\u0644\u0634\u064A\u0643: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-900 font-mono", children: row.chequeNumber })
+                        row.chequeBank && /* @__PURE__ */ jsxs4("div", { children: [
+                          /* @__PURE__ */ jsx6("span", { className: "text-slate-500", children: "\u0627\u0644\u0628\u0646\u0643: " }),
+                          /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-800", children: row.chequeBank })
                         ] }),
-                        row.chequeBank && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-500", children: "\u0627\u0644\u0628\u0646\u0643: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-800", children: row.chequeBank })
+                        row.chequeDueDate && /* @__PURE__ */ jsxs4("div", { children: [
+                          /* @__PURE__ */ jsx6("span", { className: "text-slate-500", children: "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0627\u0633\u062A\u062D\u0642\u0627\u0642: " }),
+                          /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-900 font-mono", children: row.chequeDueDate })
                         ] }),
-                        row.chequeDueDate && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-500", children: "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0627\u0633\u062A\u062D\u0642\u0627\u0642: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-900 font-mono", children: row.chequeDueDate })
-                        ] }),
-                        row.transferReference && /* @__PURE__ */ jsxs3("div", { children: [
-                          /* @__PURE__ */ jsx5("span", { className: "text-slate-500", children: "\u0631\u0642\u0645 \u0627\u0644\u062D\u0648\u0627\u0644\u0629: " }),
-                          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-900 font-mono", children: row.transferReference })
+                        row.transferReference && /* @__PURE__ */ jsxs4("div", { children: [
+                          /* @__PURE__ */ jsx6("span", { className: "text-slate-500", children: "\u0631\u0642\u0645 \u0627\u0644\u062D\u0648\u0627\u0644\u0629: " }),
+                          /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-900 font-mono", children: row.transferReference })
                         ] })
                       ] })
                     ] }),
-                    /* @__PURE__ */ jsx5("td", { className: "text-left font-bold text-rose-700 font-mono align-middle whitespace-nowrap border-l border-slate-300", children: row.debit > 0 ? row.debit.toFixed(2) : "-" }),
-                    /* @__PURE__ */ jsx5("td", { className: "text-left font-bold text-emerald-700 font-mono align-middle whitespace-nowrap border-l border-slate-300", children: row.credit > 0 ? row.credit.toFixed(2) : "-" }),
-                    /* @__PURE__ */ jsx5("td", { className: "text-left font-black text-slate-900 bg-transparent font-mono align-middle whitespace-nowrap", children: row.runningBalance.toFixed(2) })
+                    /* @__PURE__ */ jsx6("td", { className: "text-left font-bold text-rose-700 font-mono align-middle whitespace-nowrap border-l border-slate-300", children: row.debit > 0 ? row.debit.toFixed(2) : "-" }),
+                    /* @__PURE__ */ jsx6("td", { className: "text-left font-bold text-emerald-700 font-mono align-middle whitespace-nowrap border-l border-slate-300", children: row.credit > 0 ? row.credit.toFixed(2) : "-" }),
+                    /* @__PURE__ */ jsx6("td", { className: "text-left font-black text-slate-900 bg-transparent font-mono align-middle whitespace-nowrap", children: row.runningBalance.toFixed(2) })
                   ]
                 }
               ),
-              showItemDetails && row.items && row.items.length > 0 && /* @__PURE__ */ jsx5("tr", { className: "bg-white print:bg-white print-allow-break", children: /* @__PURE__ */ jsx5("td", { colSpan: 6, className: "p-0 border-b border-slate-300 print-allow-break report-subtable-cell", children: /* @__PURE__ */ jsxs3("div", { className: "w-full bg-white print:border-none print:rounded-none print:overflow-visible print:shadow-none print:block", children: [
-                /* @__PURE__ */ jsxs3("table", { className: "w-full text-right report-sub-table border-collapse", children: [
-                  /* @__PURE__ */ jsx5("thead", { children: /* @__PURE__ */ jsxs3("tr", { className: "bg-slate-100 text-slate-800 font-bold border-b border-slate-300", children: [
-                    /* @__PURE__ */ jsx5("th", { className: "text-center w-8 min-w-8 border-l border-slate-200", children: "\u0645" }),
-                    /* @__PURE__ */ jsx5("th", { className: "border-l border-slate-200", children: "\u0627\u0644\u0635\u0646\u0641 \u0648\u0627\u0644\u0628\u064A\u0627\u0646" }),
-                    /* @__PURE__ */ jsx5("th", { className: "text-center w-12 min-w-12 border-l border-slate-200", children: "\u0627\u0644\u0637\u0648\u0644" }),
-                    /* @__PURE__ */ jsx5("th", { className: "text-center w-12 min-w-12 border-l border-slate-200", children: "\u0627\u0644\u0639\u0631\u0636" }),
-                    /* @__PURE__ */ jsx5("th", { className: "text-center w-10 min-w-10 border-l border-slate-200", children: "\u0627\u0644\u0639\u062F\u062F" }),
-                    /* @__PURE__ */ jsx5("th", { className: "text-center w-12 min-w-12 border-l border-slate-200", children: "\u0627\u0644\u0643\u0645\u064A\u0629" }),
-                    /* @__PURE__ */ jsx5("th", { className: "text-left w-16 min-w-16 border-l border-slate-200", children: "\u0627\u0644\u0633\u0639\u0631" }),
-                    /* @__PURE__ */ jsx5("th", { className: "text-left w-18 min-w-18", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A" })
+              row.type === "receipt" && /* @__PURE__ */ jsx6("tr", { className: "report-receipt-detail-row bg-white print:bg-white break-inside-avoid", children: /* @__PURE__ */ jsx6("td", { colSpan: 6, className: "bg-white px-1.5 py-1 text-right font-sans text-[10px] text-slate-800 border-0", children: /* @__PURE__ */ jsxs4("div", { dir: "rtl", className: "flex flex-wrap items-center gap-x-1.5 gap-y-0.5", children: [
+                /* @__PURE__ */ jsxs4("span", { className: "font-medium", children: [
+                  "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639: ",
+                  /* @__PURE__ */ jsx6("bdi", { dir: "auto", className: "font-semibold", children: row.paymentMethodLabel || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F\u0629" })
+                ] }),
+                /* @__PURE__ */ jsx6("span", { "aria-hidden": "true", className: "inline-block h-3 w-px shrink-0 bg-slate-400" }),
+                /* @__PURE__ */ jsxs4("span", { className: "whitespace-nowrap", children: [
+                  "\u0627\u0644\u0645\u0628\u0644\u063A \u0627\u0644\u0645\u0642\u0628\u0648\u0636: ",
+                  /* @__PURE__ */ jsxs4("bdi", { dir: "ltr", className: "font-semibold tabular-nums", children: [
+                    (row.receiptAmount ?? row.credit).toFixed(2),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx6("span", { "aria-hidden": "true", className: "inline-block h-3 w-px shrink-0 bg-slate-400" }),
+                /* @__PURE__ */ jsxs4("span", { className: "whitespace-nowrap", children: [
+                  "\u0627\u0644\u062E\u0635\u0645: ",
+                  /* @__PURE__ */ jsxs4("bdi", { dir: "ltr", className: "font-semibold tabular-nums", children: [
+                    (row.receiptDiscount ?? 0).toFixed(2),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx6("span", { "aria-hidden": "true", className: "inline-block h-3 w-px shrink-0 bg-slate-400" }),
+                /* @__PURE__ */ jsxs4("span", { className: "whitespace-nowrap", children: [
+                  "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062F\u0627\u0626\u0646: ",
+                  /* @__PURE__ */ jsxs4("bdi", { dir: "ltr", className: "font-bold tabular-nums", children: [
+                    row.credit.toFixed(2),
+                    " ",
+                    settings.currency
+                  ] })
+                ] })
+              ] }) }) }),
+              row.items && row.items.length > 0 && (showItemDetails || showImageThumbnailsInStatement && statementPhotoSources(row.items).length > 0) && /* @__PURE__ */ jsx6("tr", { className: "bg-white print:bg-white print-allow-break", children: /* @__PURE__ */ jsx6("td", { colSpan: 6, className: "p-0 border-b border-slate-300 print-allow-break report-subtable-cell", children: /* @__PURE__ */ jsxs4("div", { className: "w-full bg-white print:border-none print:rounded-none print:overflow-visible print:shadow-none print:block", children: [
+                showItemDetails && /* @__PURE__ */ jsxs4("table", { className: "w-full text-right report-sub-table border-collapse", children: [
+                  /* @__PURE__ */ jsx6("thead", { children: /* @__PURE__ */ jsxs4("tr", { className: "bg-slate-100 text-slate-800 font-bold border-b border-slate-300", children: [
+                    /* @__PURE__ */ jsx6("th", { className: "text-center w-8 min-w-8 border-l border-slate-200", children: "\u0645" }),
+                    /* @__PURE__ */ jsx6("th", { className: "border-l border-slate-200", children: "\u0627\u0644\u0635\u0646\u0641 \u0648\u0627\u0644\u0628\u064A\u0627\u0646" }),
+                    /* @__PURE__ */ jsx6("th", { className: "text-center w-12 min-w-12 border-l border-slate-200", children: "\u0627\u0644\u0637\u0648\u0644" }),
+                    /* @__PURE__ */ jsx6("th", { className: "text-center w-12 min-w-12 border-l border-slate-200", children: "\u0627\u0644\u0639\u0631\u0636" }),
+                    /* @__PURE__ */ jsx6("th", { className: "text-center w-10 min-w-10 border-l border-slate-200", children: "\u0627\u0644\u0639\u062F\u062F" }),
+                    /* @__PURE__ */ jsx6("th", { className: "text-center w-12 min-w-12 border-l border-slate-200", children: "\u0627\u0644\u0643\u0645\u064A\u0629" }),
+                    /* @__PURE__ */ jsx6("th", { className: "text-left w-16 min-w-16 border-l border-slate-200", children: "\u0627\u0644\u0633\u0639\u0631" }),
+                    /* @__PURE__ */ jsx6("th", { className: "text-left w-18 min-w-18", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A" })
                   ] }) }),
-                  /* @__PURE__ */ jsx5("tbody", { className: "divide-y divide-slate-200", children: row.items.map((it, iIdx) => /* @__PURE__ */ jsxs3("tr", { className: "hover:bg-slate-50", children: [
-                    /* @__PURE__ */ jsx5("td", { className: "text-center font-mono font-bold text-slate-700 border-l border-slate-200 py-1", children: iIdx + 1 }),
-                    /* @__PURE__ */ jsx5("td", { className: "font-bold text-slate-900 border-l border-slate-200", children: /* @__PURE__ */ jsxs3("div", { children: [
-                      /* @__PURE__ */ jsx5("span", { children: it.itemName }),
-                      (it.notes || it.description) && it.notes !== it.itemName && /* @__PURE__ */ jsxs3("span", { className: "text-slate-600 font-medium", children: [
+                  /* @__PURE__ */ jsx6("tbody", { className: "divide-y divide-slate-200", children: row.items.map((it, iIdx) => /* @__PURE__ */ jsxs4("tr", { className: "hover:bg-slate-50", children: [
+                    /* @__PURE__ */ jsx6("td", { className: "text-center font-mono font-bold text-slate-700 border-l border-slate-200 py-1", children: iIdx + 1 }),
+                    /* @__PURE__ */ jsx6("td", { className: "font-bold text-slate-900 border-l border-slate-200", children: /* @__PURE__ */ jsxs4("div", { children: [
+                      /* @__PURE__ */ jsx6("bdi", { dir: "auto", children: it.itemName }),
+                      (it.notes || it.description) && it.notes !== it.itemName && /* @__PURE__ */ jsxs4("bdi", { dir: "auto", className: "text-slate-600 font-medium", children: [
                         " / ",
                         it.notes || it.description
                       ] })
                     ] }) }),
-                    /* @__PURE__ */ jsx5("td", { className: "text-center font-mono text-slate-800 border-l border-slate-200", children: displayDimension(it.length, hasVisibleInvoiceDimensions(it)) }),
-                    /* @__PURE__ */ jsx5("td", { className: "text-center font-mono text-slate-800 border-l border-slate-200", children: displayDimension(it.width, hasVisibleInvoiceDimensions(it)) }),
-                    /* @__PURE__ */ jsx5("td", { className: "text-center font-mono font-bold text-slate-800 border-l border-slate-200", children: hasVisibleInvoiceDimensions(it) ? it.count || 1 : "-" }),
-                    /* @__PURE__ */ jsx5("td", { className: "text-center font-mono font-bold text-slate-900 border-l border-slate-200", children: it.quantity }),
-                    /* @__PURE__ */ jsx5("td", { className: "text-left font-mono text-slate-800 border-l border-slate-200", children: it.unitPrice.toFixed(2) }),
-                    /* @__PURE__ */ jsx5("td", { className: "text-left font-mono font-bold text-slate-900", children: it.total.toFixed(2) })
+                    /* @__PURE__ */ jsx6("td", { className: "text-center font-mono text-slate-800 border-l border-slate-200", children: displayDimension(it.length, hasVisibleInvoiceDimensions(it)) }),
+                    /* @__PURE__ */ jsx6("td", { className: "text-center font-mono text-slate-800 border-l border-slate-200", children: displayDimension(it.width, hasVisibleInvoiceDimensions(it)) }),
+                    /* @__PURE__ */ jsx6("td", { className: "text-center font-mono font-bold text-slate-800 border-l border-slate-200", children: hasVisibleInvoiceDimensions(it) ? it.count || 1 : "-" }),
+                    /* @__PURE__ */ jsx6("td", { className: "text-center font-mono font-bold text-slate-900 border-l border-slate-200", children: it.quantity }),
+                    /* @__PURE__ */ jsx6("td", { className: "text-left font-mono text-slate-800 border-l border-slate-200", children: it.unitPrice.toFixed(2) }),
+                    /* @__PURE__ */ jsx6("td", { className: "text-left font-mono font-bold text-slate-900", children: it.total.toFixed(2) })
                   ] }, iIdx)) }),
-                  Boolean(row.discountTotal && row.discountTotal > 0 || row.taxAmount && row.taxAmount > 0) && /* @__PURE__ */ jsx5("tfoot", { className: "bg-slate-50 border-t border-slate-300 font-bold", children: /* @__PURE__ */ jsx5("tr", { children: /* @__PURE__ */ jsx5("td", { colSpan: 8, className: "py-1 px-1.5 text-left font-mono", children: /* @__PURE__ */ jsxs3("div", { className: "flex items-center justify-end gap-3 text-slate-800", children: [
-                    row.discountTotal !== void 0 && row.discountTotal > 0 && /* @__PURE__ */ jsxs3("span", { className: "text-rose-600 font-bold", children: [
+                  Boolean(row.discountTotal && row.discountTotal > 0 || row.taxAmount && row.taxAmount > 0) && /* @__PURE__ */ jsx6("tfoot", { className: "bg-slate-50 border-t border-slate-300 font-bold", children: /* @__PURE__ */ jsx6("tr", { children: /* @__PURE__ */ jsx6("td", { colSpan: 8, className: "py-1 px-1.5 text-left font-mono", children: /* @__PURE__ */ jsxs4("div", { className: "flex items-center justify-end gap-3 text-slate-800", children: [
+                    row.discountTotal !== void 0 && row.discountTotal > 0 && /* @__PURE__ */ jsxs4("span", { className: "text-rose-600 font-bold", children: [
                       "\u062E\u0635\u0645 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629: -",
                       row.discountTotal.toFixed(2)
                     ] }),
-                    row.taxAmount !== void 0 && row.taxAmount > 0 && /* @__PURE__ */ jsxs3("span", { className: "text-slate-600", children: [
+                    row.taxAmount !== void 0 && row.taxAmount > 0 && /* @__PURE__ */ jsxs4("span", { className: "text-slate-600", children: [
                       "\u0627\u0644\u0636\u0631\u064A\u0628\u0629: +",
                       row.taxAmount.toFixed(2)
                     ] })
                   ] }) }) }) })
                 ] }),
-                row.type === "invoice" && /* @__PURE__ */ jsx5("div", { className: "invoice-financial-strip grid grid-cols-6 items-center gap-x-1 border-t border-slate-300 bg-white px-1 py-1 font-bold text-slate-900", dir: "rtl", children: [
+                showItemDetails && row.type === "invoice" && /* @__PURE__ */ jsx6("div", { className: "invoice-financial-strip grid grid-cols-6 items-center gap-x-1 border-t border-slate-300 bg-white px-1 py-1 font-bold text-slate-900", dir: "rtl", children: [
                   ["\u0642\u0628\u0644 \u0627\u0644\u062E\u0635\u0645", row.subtotal ?? row.items.reduce((total, item) => total + item.total, 0)],
                   ["\u0627\u0644\u062E\u0635\u0645", row.discountTotal ?? 0],
                   ["\u0627\u0644\u0636\u0631\u064A\u0628\u0629", row.taxAmount ?? 0],
                   ["\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A", row.totalAmount ?? row.items.reduce((total, item) => total + item.total, 0)],
                   ["\u0627\u0644\u0645\u062F\u0641\u0648\u0639", row.paidAmount ?? 0],
                   ["\u0627\u0644\u0645\u062A\u0628\u0642\u064A", row.remainingAmount ?? (row.totalAmount ?? row.items.reduce((total, item) => total + item.total, 0)) - (row.paidAmount ?? 0)]
-                ].map(([label, amount]) => /* @__PURE__ */ jsxs3("span", { className: "inline-flex items-center gap-1 whitespace-nowrap", children: [
-                  /* @__PURE__ */ jsxs3("span", { className: "text-slate-600", children: [
+                ].map(([label, amount]) => /* @__PURE__ */ jsxs4("span", { className: "inline-flex items-center gap-1 whitespace-nowrap", children: [
+                  /* @__PURE__ */ jsxs4("span", { className: "text-slate-600", children: [
                     label,
                     ":"
                   ] }),
-                  /* @__PURE__ */ jsxs3("b", { className: "font-mono tabular-nums text-slate-950", dir: "ltr", children: [
+                  /* @__PURE__ */ jsxs4("b", { className: "font-mono tabular-nums text-slate-950", dir: "ltr", children: [
                     amount.toFixed(2),
                     " ",
                     row.currencySymbol || settings.currency
                   ] })
                 ] }, label)) }),
-                showImageThumbnailsInStatement && row.items && statementPhotoSources(row.items).length > 0 && /* @__PURE__ */ jsx5("div", { className: "bg-white p-2 border-t border-slate-200", children: /* @__PURE__ */ jsx5("div", { className: "grid grid-cols-7 gap-2.5 w-full print:grid-cols-7", children: statementPhotoSources(row.items).map((photo, idx2) => /* @__PURE__ */ jsx5(
+                showImageThumbnailsInStatement && row.items && statementPhotoSources(row.items).length > 0 && /* @__PURE__ */ jsx6("div", { className: "bg-white p-2 border-t border-slate-200", children: /* @__PURE__ */ jsx6("div", { className: "grid grid-cols-7 gap-2.5 w-full print:grid-cols-7", children: statementPhotoSources(row.items).map((photo, idx2) => /* @__PURE__ */ jsx6(
                   "div",
                   {
                     className: "flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group",
                     title: `\u0645\u0639\u0627\u064A\u0646\u0629 \u0635\u0648\u0631\u0629 "${photo.itemName}" (\u0628\u0646\u062F #${photo.itemSeq})`,
-                    children: /* @__PURE__ */ jsxs3("div", { className: "relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5", children: [
-                      /* @__PURE__ */ jsxs3("span", { className: "absolute top-0.5 right-0.5 bg-slate-900/80 text-white text-[8px] font-mono font-black px-1 rounded-xs z-10 print:bg-slate-800", children: [
+                    children: /* @__PURE__ */ jsxs4("div", { className: "relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5", children: [
+                      /* @__PURE__ */ jsxs4("span", { className: "absolute top-0.5 right-0.5 bg-slate-900/80 text-white text-[8px] font-mono font-black px-1 rounded-xs z-10 print:bg-slate-800", children: [
                         "#",
                         photo.itemSeq
                       ] }),
-                      /* @__PURE__ */ jsx5(
+                      /* @__PURE__ */ jsx6(
                         StatementPrintPhoto,
                         {
                           thumbnail: photo.preview,
@@ -1960,46 +2187,46 @@ var UnifiedPartyStatementDocument = ({
             ] }, `${row.id || "party-row"}-${idx}`);
           })
         ] }),
-        /* @__PURE__ */ jsx5("tfoot", { children: /* @__PURE__ */ jsxs3("tr", { className: "bg-slate-100 font-bold border-t border-slate-300 text-slate-900", children: [
-          /* @__PURE__ */ jsx5("td", { colSpan: 3, className: "text-left font-sans", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0639\u0627\u0645 \u0644\u0644\u062D\u0631\u0643\u0627\u062A \u0628\u0627\u0644\u0641\u062A\u0631\u0629:" }),
-          /* @__PURE__ */ jsx5("td", { className: "text-left font-mono text-rose-800 font-black whitespace-nowrap", children: partyStatement.totalDebit.toFixed(2) }),
-          /* @__PURE__ */ jsx5("td", { className: "text-left font-mono text-emerald-800 font-black whitespace-nowrap", children: partyStatement.totalCredit.toFixed(2) }),
-          /* @__PURE__ */ jsxs3("td", { className: "text-left font-mono text-slate-900 font-black bg-slate-200/80 whitespace-nowrap", children: [
+        /* @__PURE__ */ jsx6("tfoot", { children: /* @__PURE__ */ jsxs4("tr", { className: "bg-slate-100 font-bold border-t border-slate-300 text-slate-900", children: [
+          /* @__PURE__ */ jsx6("td", { colSpan: 3, className: "text-left font-sans", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0639\u0627\u0645 \u0644\u0644\u062D\u0631\u0643\u0627\u062A \u0628\u0627\u0644\u0641\u062A\u0631\u0629:" }),
+          /* @__PURE__ */ jsx6("td", { className: "text-left font-mono text-rose-800 font-black whitespace-nowrap", children: partyStatement.totalDebit.toFixed(2) }),
+          /* @__PURE__ */ jsx6("td", { className: "text-left font-mono text-emerald-800 font-black whitespace-nowrap", children: partyStatement.totalCredit.toFixed(2) }),
+          /* @__PURE__ */ jsxs4("td", { className: "text-left font-mono text-slate-900 font-black bg-slate-200/80 whitespace-nowrap", children: [
             partyStatement.closingBalance.toFixed(2),
             " ",
             settings.currency
           ] })
         ] }) })
       ] }) }),
-      /* @__PURE__ */ jsxs3("div", { className: "mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300", children: [
-        /* @__PURE__ */ jsxs3("div", { className: "grid grid-cols-4 gap-1.5 text-[10px]", children: [
-          /* @__PURE__ */ jsxs3("div", { className: "bg-white border border-slate-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs", children: [
-            /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-700 text-[10px] whitespace-nowrap", children: "\u0631\u0635\u064A\u062F \u0633\u0627\u0628\u0642:" }),
-            /* @__PURE__ */ jsxs3("div", { className: "font-black font-mono text-slate-900 text-[11px] flex items-center gap-1 whitespace-nowrap", children: [
-              /* @__PURE__ */ jsx5("span", { children: partyStatement.openingBalance.toFixed(2) }),
-              /* @__PURE__ */ jsx5("span", { className: "text-[9px] font-sans font-bold text-slate-500", children: settings.currency })
+      /* @__PURE__ */ jsxs4("div", { className: "mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300", children: [
+        /* @__PURE__ */ jsxs4("div", { className: "grid grid-cols-4 gap-1.5 text-[10px]", children: [
+          /* @__PURE__ */ jsxs4("div", { className: "bg-white border border-slate-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs", children: [
+            /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-700 text-[10px] whitespace-nowrap", children: "\u0631\u0635\u064A\u062F \u0633\u0627\u0628\u0642:" }),
+            /* @__PURE__ */ jsxs4("div", { className: "font-black font-mono text-slate-900 text-[11px] flex items-center gap-1 whitespace-nowrap", children: [
+              /* @__PURE__ */ jsx6("span", { children: partyStatement.openingBalance.toFixed(2) }),
+              /* @__PURE__ */ jsx6("span", { className: "text-[9px] font-sans font-bold text-slate-500", children: settings.currency })
             ] })
           ] }),
-          /* @__PURE__ */ jsxs3("div", { className: `bg-white border ${isCustomer ? "border-rose-300" : "border-emerald-300"} rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs`, children: [
-            /* @__PURE__ */ jsx5("span", { className: `font-bold text-[10px] whitespace-nowrap ${isCustomer ? "text-rose-900" : "text-emerald-900"}`, children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0645\u062F\u064A\u0646:" }),
-            /* @__PURE__ */ jsxs3("div", { className: `font-black font-mono text-[11px] ${isCustomer ? "text-rose-700" : "text-emerald-700"} flex items-center gap-1 whitespace-nowrap`, children: [
-              /* @__PURE__ */ jsx5("span", { children: partyStatement.totalDebit.toFixed(2) }),
-              /* @__PURE__ */ jsx5("span", { className: "text-[9px] font-sans font-bold opacity-75", children: settings.currency })
+          /* @__PURE__ */ jsxs4("div", { className: `bg-white border ${isCustomer ? "border-rose-300" : "border-emerald-300"} rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs`, children: [
+            /* @__PURE__ */ jsx6("span", { className: `font-bold text-[10px] whitespace-nowrap ${isCustomer ? "text-rose-900" : "text-emerald-900"}`, children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0645\u062F\u064A\u0646:" }),
+            /* @__PURE__ */ jsxs4("div", { className: `font-black font-mono text-[11px] ${isCustomer ? "text-rose-700" : "text-emerald-700"} flex items-center gap-1 whitespace-nowrap`, children: [
+              /* @__PURE__ */ jsx6("span", { children: partyStatement.totalDebit.toFixed(2) }),
+              /* @__PURE__ */ jsx6("span", { className: "text-[9px] font-sans font-bold opacity-75", children: settings.currency })
             ] })
           ] }),
-          /* @__PURE__ */ jsxs3("div", { className: `bg-white border ${isCustomer ? "border-emerald-300" : "border-rose-300"} rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs`, children: [
-            /* @__PURE__ */ jsx5("span", { className: `font-bold text-[10px] whitespace-nowrap ${isCustomer ? "text-emerald-900" : "text-rose-900"}`, children: "\u0625\u062C\u0645\u0627\u0644\u064A \u062F\u0627\u0626\u0646:" }),
-            /* @__PURE__ */ jsxs3("div", { className: `font-black font-mono text-[11px] ${isCustomer ? "text-emerald-700" : "text-rose-700"} flex items-center gap-1 whitespace-nowrap`, children: [
-              /* @__PURE__ */ jsx5("span", { children: partyStatement.totalCredit.toFixed(2) }),
-              /* @__PURE__ */ jsx5("span", { className: "text-[9px] font-sans font-bold opacity-75", children: settings.currency })
+          /* @__PURE__ */ jsxs4("div", { className: `bg-white border ${isCustomer ? "border-emerald-300" : "border-rose-300"} rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs`, children: [
+            /* @__PURE__ */ jsx6("span", { className: `font-bold text-[10px] whitespace-nowrap ${isCustomer ? "text-emerald-900" : "text-rose-900"}`, children: "\u0625\u062C\u0645\u0627\u0644\u064A \u062F\u0627\u0626\u0646:" }),
+            /* @__PURE__ */ jsxs4("div", { className: `font-black font-mono text-[11px] ${isCustomer ? "text-emerald-700" : "text-rose-700"} flex items-center gap-1 whitespace-nowrap`, children: [
+              /* @__PURE__ */ jsx6("span", { children: partyStatement.totalCredit.toFixed(2) }),
+              /* @__PURE__ */ jsx6("span", { className: "text-[9px] font-sans font-bold opacity-75", children: settings.currency })
             ] })
           ] }),
-          /* @__PURE__ */ jsxs3("div", { className: `bg-white border rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs ${partyStatement.closingBalance > 0 ? isCustomer ? "border-amber-400 bg-amber-50/20" : "border-rose-400 bg-rose-50/20" : partyStatement.closingBalance < 0 ? isCustomer ? "border-blue-400 bg-blue-50/20" : "border-emerald-400 bg-emerald-50/20" : "border-slate-300"}`, children: [
-            /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-900 text-[10px] whitespace-nowrap", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A:" }),
-            /* @__PURE__ */ jsxs3("div", { className: `font-black font-mono text-[11px] flex items-center gap-1 whitespace-nowrap ${partyStatement.closingBalance > 0 ? isCustomer ? "text-amber-700" : "text-rose-700" : partyStatement.closingBalance < 0 ? isCustomer ? "text-blue-700" : "text-emerald-700" : "text-slate-800"}`, children: [
-              /* @__PURE__ */ jsx5("span", { children: Math.abs(partyStatement.closingBalance).toFixed(2) }),
-              /* @__PURE__ */ jsx5("span", { className: "text-[9px] font-sans font-bold opacity-75", children: settings.currency }),
-              /* @__PURE__ */ jsxs3("span", { className: "text-[9.5px] font-sans font-bold", children: [
+          /* @__PURE__ */ jsxs4("div", { className: `bg-white border rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs ${partyStatement.closingBalance > 0 ? isCustomer ? "border-amber-400 bg-amber-50/20" : "border-rose-400 bg-rose-50/20" : partyStatement.closingBalance < 0 ? isCustomer ? "border-blue-400 bg-blue-50/20" : "border-emerald-400 bg-emerald-50/20" : "border-slate-300"}`, children: [
+            /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-900 text-[10px] whitespace-nowrap", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A:" }),
+            /* @__PURE__ */ jsxs4("div", { className: `font-black font-mono text-[11px] flex items-center gap-1 whitespace-nowrap ${partyStatement.closingBalance > 0 ? isCustomer ? "text-amber-700" : "text-rose-700" : partyStatement.closingBalance < 0 ? isCustomer ? "text-blue-700" : "text-emerald-700" : "text-slate-800"}`, children: [
+              /* @__PURE__ */ jsx6("span", { children: Math.abs(partyStatement.closingBalance).toFixed(2) }),
+              /* @__PURE__ */ jsx6("span", { className: "text-[9px] font-sans font-bold opacity-75", children: settings.currency }),
+              /* @__PURE__ */ jsxs4("span", { className: "text-[9.5px] font-sans font-bold", children: [
                 "(",
                 partyStatement.closingBalance > 0 ? "\u0645\u062F\u064A\u0646" : partyStatement.closingBalance < 0 ? "\u062F\u0627\u0626\u0646" : "\u0645\u062A\u0632\u0646",
                 ")"
@@ -2007,10 +2234,10 @@ var UnifiedPartyStatementDocument = ({
             ] })
           ] })
         ] }),
-        /* @__PURE__ */ jsxs3("div", { className: "bg-white p-1.5 rounded border border-slate-200", children: [
-          /* @__PURE__ */ jsxs3("div", { className: "flex items-center justify-between text-[10.5px] mb-0.5", children: [
-            /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-700", children: "\u0627\u0644\u0645\u0628\u0644\u063A \u0643\u062A\u0627\u0628\u0629 \u0648\u062A\u0641\u0642\u064A\u0637\u0627\u064B:" }),
-            /* @__PURE__ */ jsxs3("span", { className: "font-bold text-slate-900 font-mono text-[11px]", children: [
+        /* @__PURE__ */ jsxs4("div", { className: "bg-white p-1.5 rounded border border-slate-200", children: [
+          /* @__PURE__ */ jsxs4("div", { className: "flex items-center justify-between text-[10.5px] mb-0.5", children: [
+            /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-700", children: "\u0627\u0644\u0645\u0628\u0644\u063A \u0643\u062A\u0627\u0628\u0629 \u0648\u062A\u0641\u0642\u064A\u0637\u0627\u064B:" }),
+            /* @__PURE__ */ jsxs4("span", { className: "font-bold text-slate-900 font-mono text-[11px]", children: [
               "\u0627\u0644\u0631\u0635\u064A\u062F \u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A (",
               partyStatement.closingBalance > 0 ? "\u0645\u062F\u064A\u0646" : partyStatement.closingBalance < 0 ? "\u062F\u0627\u0626\u0646" : "\u0645\u062A\u0632\u0646",
               "): ",
@@ -2019,13 +2246,13 @@ var UnifiedPartyStatementDocument = ({
               settings.currency
             ] })
           ] }),
-          /* @__PURE__ */ jsx5("div", { className: "text-[10.5px] font-semibold text-slate-800 bg-slate-50 p-1 rounded border border-slate-200 font-arabic", children: partyTafqeet })
+          /* @__PURE__ */ jsx6("div", { className: "text-[10.5px] font-semibold text-slate-800 bg-slate-50 p-1 rounded border border-slate-200 font-arabic", children: partyTafqeet })
         ] })
       ] }),
-      isCustomer ? /* @__PURE__ */ jsx5("div", { className: "statement-stamp-only flex justify-start pt-3 mt-3 border-t border-slate-300", dir: "ltr", children: /* @__PURE__ */ jsxs3("div", { className: "relative w-[4.3cm] h-[4.3cm] flex items-center justify-center", dir: "rtl", children: [
-        /* @__PURE__ */ jsx5("span", { className: "absolute inset-x-0 bottom-[0.85cm] z-0 text-center text-[11px] font-bold text-slate-600", children: "\u0627\u0644\u062E\u062A\u0645 \u0648\u0627\u0644\u062A\u0648\u0642\u064A\u0639" }),
-        settings.stampUrl && /* @__PURE__ */ jsx5("div", { className: "absolute inset-0 z-10 flex items-center justify-center", children: /* @__PURE__ */ jsx5(OfficialStamp, { size: "3.5cm" }) }),
-        settings.signatureUrl && /* @__PURE__ */ jsx5(
+      isCustomer ? /* @__PURE__ */ jsx6("div", { className: "statement-stamp-only flex justify-start pt-3 mt-3 border-t border-slate-300", dir: "ltr", children: /* @__PURE__ */ jsxs4("div", { className: "relative w-[4.3cm] h-[4.3cm] flex items-center justify-center", dir: "rtl", children: [
+        /* @__PURE__ */ jsx6("span", { className: "absolute inset-x-0 bottom-[0.85cm] z-0 text-center text-[11px] font-bold text-slate-600", children: "\u0627\u0644\u062E\u062A\u0645 \u0648\u0627\u0644\u062A\u0648\u0642\u064A\u0639" }),
+        settings.stampUrl && /* @__PURE__ */ jsx6("div", { className: "absolute inset-0 z-10 flex items-center justify-center", children: /* @__PURE__ */ jsx6(OfficialStamp, { size: "3.5cm" }) }),
+        settings.signatureUrl && /* @__PURE__ */ jsx6(
           "img",
           {
             src: settings.signatureUrl,
@@ -2033,22 +2260,22 @@ var UnifiedPartyStatementDocument = ({
             className: "absolute bottom-[0.8cm] left-1/2 z-20 max-h-12 max-w-[120px] -translate-x-1/2 object-contain mix-blend-multiply opacity-85 pointer-events-none"
           }
         )
-      ] }) }) : /* @__PURE__ */ jsx5(Fragment, { children: /* @__PURE__ */ jsxs3("div", { className: "pt-4 border-t border-slate-300 grid grid-cols-3 gap-4 text-center text-[10px] mt-4", children: [
-        /* @__PURE__ */ jsxs3("div", { className: "space-y-4 flex flex-col items-center justify-end", children: [
-          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-700 block mb-auto", children: "\u0625\u0639\u062F\u0627\u062F \u0648\u062A\u062F\u0642\u064A\u0642 \u0627\u0644\u0645\u062D\u0627\u0633\u0628" }),
-          /* @__PURE__ */ jsx5("div", { className: "border-b border-dashed border-slate-400 w-28 mx-auto mt-6" }),
-          /* @__PURE__ */ jsx5("span", { className: "text-[10px] text-slate-400 block font-mono", children: "\u0627\u0644\u062A\u0648\u0642\u064A\u0639 \u0648\u0627\u0644\u062A\u0627\u0631\u064A\u062E" })
+      ] }) }) : /* @__PURE__ */ jsx6(Fragment, { children: /* @__PURE__ */ jsxs4("div", { className: "pt-4 border-t border-slate-300 grid grid-cols-3 gap-4 text-center text-[10px] mt-4", children: [
+        /* @__PURE__ */ jsxs4("div", { className: "space-y-4 flex flex-col items-center justify-end", children: [
+          /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-700 block mb-auto", children: "\u0625\u0639\u062F\u0627\u062F \u0648\u062A\u062F\u0642\u064A\u0642 \u0627\u0644\u0645\u062D\u0627\u0633\u0628" }),
+          /* @__PURE__ */ jsx6("div", { className: "border-b border-dashed border-slate-400 w-28 mx-auto mt-6" }),
+          /* @__PURE__ */ jsx6("span", { className: "text-[10px] text-slate-400 block font-mono", children: "\u0627\u0644\u062A\u0648\u0642\u064A\u0639 \u0648\u0627\u0644\u062A\u0627\u0631\u064A\u062E" })
         ] }),
-        /* @__PURE__ */ jsxs3("div", { className: "space-y-4 flex flex-col items-center justify-end", children: [
-          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-700 block mb-auto", children: "\u062A\u0648\u0642\u064A\u0639 \u0648\u0645\u0637\u0627\u0628\u0642\u0629 \u0627\u0644\u0645\u0648\u0631\u062F" }),
-          /* @__PURE__ */ jsx5("div", { className: "border-b border-dashed border-slate-400 w-28 mx-auto mt-6" }),
-          /* @__PURE__ */ jsx5("span", { className: "text-[10px] text-slate-400 block font-mono", children: "\u0627\u0644\u0645\u0648\u0631\u062F" })
+        /* @__PURE__ */ jsxs4("div", { className: "space-y-4 flex flex-col items-center justify-end", children: [
+          /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-700 block mb-auto", children: "\u062A\u0648\u0642\u064A\u0639 \u0648\u0645\u0637\u0627\u0628\u0642\u0629 \u0627\u0644\u0645\u0648\u0631\u062F" }),
+          /* @__PURE__ */ jsx6("div", { className: "border-b border-dashed border-slate-400 w-28 mx-auto mt-6" }),
+          /* @__PURE__ */ jsx6("span", { className: "text-[10px] text-slate-400 block font-mono", children: "\u0627\u0644\u0645\u0648\u0631\u062F" })
         ] }),
-        /* @__PURE__ */ jsxs3("div", { className: "space-y-2 flex flex-col items-center justify-end", children: [
-          /* @__PURE__ */ jsx5("span", { className: "font-bold text-slate-700 block mb-auto", children: "\u0627\u0639\u062A\u0645\u0627\u062F \u0627\u0644\u0625\u062F\u0627\u0631\u0629 / \u0627\u0644\u062A\u0648\u0642\u064A\u0639" }),
-          /* @__PURE__ */ jsx5("div", { className: "min-h-[4.2cm] flex items-center justify-center relative", children: settings.stampUrl ? /* @__PURE__ */ jsxs3("div", { className: "relative flex items-center justify-center", children: [
-            /* @__PURE__ */ jsx5(OfficialStamp, { size: "3.5cm" }),
-            settings.signatureUrl && /* @__PURE__ */ jsx5(
+        /* @__PURE__ */ jsxs4("div", { className: "space-y-2 flex flex-col items-center justify-end", children: [
+          /* @__PURE__ */ jsx6("span", { className: "font-bold text-slate-700 block mb-auto", children: "\u0627\u0639\u062A\u0645\u0627\u062F \u0627\u0644\u0625\u062F\u0627\u0631\u0629 / \u0627\u0644\u062A\u0648\u0642\u064A\u0639" }),
+          /* @__PURE__ */ jsx6("div", { className: "min-h-[4.2cm] flex items-center justify-center relative", children: settings.stampUrl ? /* @__PURE__ */ jsxs4("div", { className: "relative flex items-center justify-center", children: [
+            /* @__PURE__ */ jsx6(OfficialStamp, { size: "3.5cm" }),
+            settings.signatureUrl && /* @__PURE__ */ jsx6(
               "img",
               {
                 src: settings.signatureUrl,
@@ -2056,15 +2283,15 @@ var UnifiedPartyStatementDocument = ({
                 className: "absolute bottom-1 max-h-12 max-w-[120px] object-contain mix-blend-multiply opacity-85 pointer-events-none"
               }
             )
-          ] }) : settings.signatureUrl ? /* @__PURE__ */ jsx5(
+          ] }) : settings.signatureUrl ? /* @__PURE__ */ jsx6(
             "img",
             {
               src: settings.signatureUrl,
               alt: "Signature",
               className: "max-h-16 max-w-[140px] object-contain mix-blend-multiply opacity-90"
             }
-          ) : /* @__PURE__ */ jsx5("div", { className: "border-b border-dashed border-slate-400 w-36 mx-auto mt-10" }) }),
-          /* @__PURE__ */ jsx5("span", { className: "text-[11px] text-slate-400 block font-mono mt-2", children: "\u0627\u0644\u062E\u062A\u0645 \u0648\u0627\u0644\u062A\u0648\u0642\u064A\u0639 \u0627\u0644\u0645\u0639\u062A\u0645\u062F" })
+          ) : /* @__PURE__ */ jsx6("div", { className: "border-b border-dashed border-slate-400 w-36 mx-auto mt-10" }) }),
+          /* @__PURE__ */ jsx6("span", { className: "text-[11px] text-slate-400 block font-mono mt-2", children: "\u0627\u0644\u062E\u062A\u0645 \u0648\u0627\u0644\u062A\u0648\u0642\u064A\u0639 \u0627\u0644\u0645\u0639\u062A\u0645\u062F" })
         ] })
       ] }) })
     ] })
@@ -2072,8 +2299,8 @@ var UnifiedPartyStatementDocument = ({
 };
 
 // src/components/UnifiedEmployeeStatementDocument.tsx
-import React4 from "react";
-import { Fragment as Fragment2, jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
+import React5 from "react";
+import { Fragment as Fragment2, jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
 var UnifiedEmployeeStatementDocument = ({
   statement,
   settings,
@@ -2095,8 +2322,8 @@ var UnifiedEmployeeStatementDocument = ({
     ["\u062E\u0635\u0648\u0645\u0627\u062A", statement.totalPaid],
     ["\u0631\u0635\u064A\u062F", Math.abs(statement.closingBalance)]
   ];
-  return /* @__PURE__ */ jsxs4(Fragment2, { children: [
-    /* @__PURE__ */ jsx6("style", { children: `
+  return /* @__PURE__ */ jsxs5(Fragment2, { children: [
+    /* @__PURE__ */ jsx7("style", { children: `
         /* Highlight the entire sales invoice heading, on screen and A4 print. */
         .employee-sales-invoice-heading,
         .employee-sales-invoice-heading > td {
@@ -2118,117 +2345,117 @@ var UnifiedEmployeeStatementDocument = ({
           .employee-sales-invoice-heading { break-inside: avoid; }
         }
       ` }),
-    /* @__PURE__ */ jsx6(PrintHeader, {}),
-    /* @__PURE__ */ jsx6("div", { className: "border-b-2 border-slate-900 pb-2", children: /* @__PURE__ */ jsxs4("div", { className: "statement-document-heading text-center font-bold text-base mb-1.5 mt-2 text-slate-900 leading-relaxed", children: [
+    /* @__PURE__ */ jsx7(PrintHeader, {}),
+    /* @__PURE__ */ jsx7("div", { className: "border-b-2 border-slate-900 pb-2", children: /* @__PURE__ */ jsxs5("div", { className: "statement-document-heading text-center font-bold text-base mb-1.5 mt-2 text-slate-900 leading-relaxed", children: [
       "\u0643\u0634\u0641 \u062D\u0633\u0627\u0628 \u0645\u0648\u0638\u0641 \u062A\u0641\u0635\u064A\u0644\u064A: ",
-      /* @__PURE__ */ jsx6("span", { className: "text-purple-900", children: statement.employee.name }),
-      /* @__PURE__ */ jsxs4("div", { className: "text-xs text-slate-600 mt-0.5 font-semibold", children: [
+      /* @__PURE__ */ jsx7("span", { className: "text-purple-900", children: statement.employee.name }),
+      /* @__PURE__ */ jsxs5("div", { className: "text-xs text-slate-600 mt-0.5 font-semibold", children: [
         "\u0645\u0646 \u062A\u0627\u0631\u064A\u062E: ",
-        /* @__PURE__ */ jsx6("span", { className: "font-mono", children: fromDate || "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u0639\u0645\u0644" }),
+        /* @__PURE__ */ jsx7("span", { className: "font-mono", children: fromDate || "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u0639\u0645\u0644" }),
         " ",
         "\u0625\u0644\u0649 \u062A\u0627\u0631\u064A\u062E: ",
-        /* @__PURE__ */ jsx6("span", { className: "font-mono", children: toDate || "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u064A\u0648\u0645" })
+        /* @__PURE__ */ jsx7("span", { className: "font-mono", children: toDate || "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u064A\u0648\u0645" })
       ] })
     ] }) }),
-    /* @__PURE__ */ jsxs4("div", { className: "space-y-3", children: [
-      /* @__PURE__ */ jsxs4("div", { className: "flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-700 border-b border-slate-200 py-1.5", children: [
-        /* @__PURE__ */ jsxs4("span", { children: [
+    /* @__PURE__ */ jsxs5("div", { className: "space-y-3", children: [
+      /* @__PURE__ */ jsxs5("div", { className: "flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-700 border-b border-slate-200 py-1.5", children: [
+        /* @__PURE__ */ jsxs5("span", { children: [
           "\u0631\u0642\u0645 \u0627\u0644\u0645\u0648\u0638\u0641: ",
-          /* @__PURE__ */ jsx6("strong", { className: "font-mono", children: statement.employee.code || "\u2014" })
+          /* @__PURE__ */ jsx7("strong", { className: "font-mono", children: statement.employee.code || "\u2014" })
         ] }),
-        /* @__PURE__ */ jsxs4("span", { children: [
+        /* @__PURE__ */ jsxs5("span", { children: [
           "\u0627\u0644\u0645\u0633\u0645\u0649 \u0627\u0644\u0648\u0638\u064A\u0641\u064A: ",
-          /* @__PURE__ */ jsx6("strong", { children: statement.employee.jobTitle || statement.employee.position || "\u2014" })
+          /* @__PURE__ */ jsx7("strong", { children: statement.employee.jobTitle || statement.employee.position || "\u2014" })
         ] }),
-        /* @__PURE__ */ jsxs4("span", { children: [
+        /* @__PURE__ */ jsxs5("span", { children: [
           "\u0639\u062F\u062F \u0627\u0644\u062D\u0631\u0643\u0627\u062A: ",
-          /* @__PURE__ */ jsx6("strong", { children: statement.rows.length })
+          /* @__PURE__ */ jsx7("strong", { children: statement.rows.length })
         ] })
       ] }),
-      /* @__PURE__ */ jsx6("div", { className: "border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-[440px] print:min-h-0 flex flex-col justify-between bg-white print:block print:overflow-visible print:border-none print:shadow-none", children: /* @__PURE__ */ jsxs4("table", { className: "w-full text-right report-table border-collapse h-full", children: [
-        /* @__PURE__ */ jsx6("thead", { children: /* @__PURE__ */ jsxs4("tr", { className: "bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900", children: [
-          /* @__PURE__ */ jsx6("th", { className: "w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400", children: "\u0645" }),
-          /* @__PURE__ */ jsx6("th", { className: "w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" }),
-          /* @__PURE__ */ jsx6("th", { className: "border-l border-slate-600 print:border-slate-400", children: "\u0627\u0644\u0628\u064A\u0627\u0646 \u0648\u0627\u0644\u0634\u0631\u062D \u0648\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0643\u0627\u0645\u0644\u0629" }),
-          /* @__PURE__ */ jsx6("th", { className: "w-[75px] min-w-[75px] text-center bg-purple-950/40 print:bg-purple-50 border-l border-slate-600 print:border-slate-400", children: "\u0627\u0633\u062A\u062D\u0642\u0627\u0642 (+)" }),
-          /* @__PURE__ */ jsx6("th", { className: "w-[75px] min-w-[75px] text-center bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400", children: "\u0645\u0646\u0635\u0631\u0641 / \u062E\u0635\u0645 (-)" }),
-          /* @__PURE__ */ jsx6("th", { className: "w-[80px] min-w-[80px] text-center bg-slate-700 print:bg-slate-300", children: "\u0627\u0644\u0631\u0635\u064A\u062F" })
+      /* @__PURE__ */ jsx7("div", { className: "border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-0 bg-white print:block print:overflow-visible print:border-none print:shadow-none", children: /* @__PURE__ */ jsxs5("table", { className: "w-full text-right report-table border-collapse", children: [
+        /* @__PURE__ */ jsx7("thead", { children: /* @__PURE__ */ jsxs5("tr", { className: "bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900", children: [
+          /* @__PURE__ */ jsx7("th", { className: "w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400", children: "\u0645" }),
+          /* @__PURE__ */ jsx7("th", { className: "w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" }),
+          /* @__PURE__ */ jsx7("th", { className: "border-l border-slate-600 print:border-slate-400", children: "\u0627\u0644\u0628\u064A\u0627\u0646 \u0648\u0627\u0644\u0634\u0631\u062D \u0648\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0643\u0627\u0645\u0644\u0629" }),
+          /* @__PURE__ */ jsx7("th", { className: "w-[75px] min-w-[75px] text-center bg-purple-950/40 print:bg-purple-50 border-l border-slate-600 print:border-slate-400", children: "\u0627\u0633\u062A\u062D\u0642\u0627\u0642 (+)" }),
+          /* @__PURE__ */ jsx7("th", { className: "w-[75px] min-w-[75px] text-center bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400", children: "\u0645\u0646\u0635\u0631\u0641 / \u062E\u0635\u0645 (-)" }),
+          /* @__PURE__ */ jsx7("th", { className: "w-[80px] min-w-[80px] text-center bg-slate-700 print:bg-slate-300", children: "\u0627\u0644\u0631\u0635\u064A\u062F" })
         ] }) }),
-        /* @__PURE__ */ jsxs4("tbody", { className: "divide-y divide-slate-200 font-mono", children: [
-          /* @__PURE__ */ jsxs4("tr", { className: "bg-slate-100/90 font-bold border-b border-slate-300", children: [
-            /* @__PURE__ */ jsx6("td", { className: "text-center border-l border-slate-300", children: "\u2014" }),
-            /* @__PURE__ */ jsx6("td", { className: "text-center border-l border-slate-300", children: fromDate || "\u0627\u0644\u0631\u0635\u064A\u062F \u0627\u0644\u0633\u0627\u0628\u0642" }),
-            /* @__PURE__ */ jsx6("td", { className: "border-l border-slate-300 font-sans", children: "\u0631\u0635\u064A\u062F \u0623\u0648\u0644 \u0627\u0644\u0641\u062A\u0631\u0629 / \u0627\u0644\u0631\u0635\u064A\u062F \u0627\u0644\u0645\u0631\u062D\u0651\u0644 \u0645\u0646 \u0627\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0633\u0627\u0628\u0642\u0629" }),
-            /* @__PURE__ */ jsx6("td", { className: "text-left border-l border-slate-300 whitespace-nowrap", children: statement.openingBalance > 0 ? number2(statement.openingBalance) : "\u2014" }),
-            /* @__PURE__ */ jsx6("td", { className: "text-left border-l border-slate-300 whitespace-nowrap", children: statement.openingBalance < 0 ? number2(-statement.openingBalance) : "\u2014" }),
-            /* @__PURE__ */ jsx6("td", { className: "text-left bg-slate-100 whitespace-nowrap", children: number2(statement.openingBalance) })
+        /* @__PURE__ */ jsxs5("tbody", { className: "divide-y divide-slate-200 font-mono", children: [
+          /* @__PURE__ */ jsxs5("tr", { className: "bg-slate-100/90 font-bold border-b border-slate-300", children: [
+            /* @__PURE__ */ jsx7("td", { className: "text-center border-l border-slate-300", children: "\u2014" }),
+            /* @__PURE__ */ jsx7("td", { className: "text-center border-l border-slate-300", children: fromDate || "\u0627\u0644\u0631\u0635\u064A\u062F \u0627\u0644\u0633\u0627\u0628\u0642" }),
+            /* @__PURE__ */ jsx7("td", { className: "border-l border-slate-300 font-sans", children: "\u0631\u0635\u064A\u062F \u0623\u0648\u0644 \u0627\u0644\u0641\u062A\u0631\u0629 / \u0627\u0644\u0631\u0635\u064A\u062F \u0627\u0644\u0645\u0631\u062D\u0651\u0644 \u0645\u0646 \u0627\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0633\u0627\u0628\u0642\u0629" }),
+            /* @__PURE__ */ jsx7("td", { className: "text-left border-l border-slate-300 whitespace-nowrap", children: statement.openingBalance > 0 ? number2(statement.openingBalance) : "\u2014" }),
+            /* @__PURE__ */ jsx7("td", { className: "text-left border-l border-slate-300 whitespace-nowrap", children: statement.openingBalance < 0 ? number2(-statement.openingBalance) : "\u2014" }),
+            /* @__PURE__ */ jsx7("td", { className: "text-left bg-slate-100 whitespace-nowrap", children: number2(statement.openingBalance) })
           ] }),
-          displayRows.length === 0 && /* @__PURE__ */ jsx6("tr", { children: /* @__PURE__ */ jsx6("td", { colSpan: 6, className: "py-8 text-center font-sans text-slate-500", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u062D\u0631\u0643\u0627\u062A \u0644\u0644\u0645\u0648\u0638\u0641 \u0641\u064A \u0627\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629." }) }),
+          displayRows.length === 0 && /* @__PURE__ */ jsx7("tr", { children: /* @__PURE__ */ jsx7("td", { colSpan: 6, className: "py-8 text-center font-sans text-slate-500", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u062D\u0631\u0643\u0627\u062A \u0644\u0644\u0645\u0648\u0638\u0641 \u0641\u064A \u0627\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629." }) }),
           displayRows.map((row, index) => {
             const paid = row.advance + row.deduction + row.disbursement;
             const notes = [row.description, row.notes && row.notes !== row.description ? row.notes : ""].filter(Boolean).join(" \u2014 ");
-            return /* @__PURE__ */ jsxs4(React4.Fragment, { children: [
-              /* @__PURE__ */ jsxs4("tr", { className: row.type === "invoice" ? "employee-sales-invoice-heading" : index % 2 ? "bg-slate-50/40" : "bg-white", children: [
-                /* @__PURE__ */ jsx6("td", { className: "text-center text-slate-500 font-sans border-l border-slate-300", children: index + 1 }),
-                /* @__PURE__ */ jsx6("td", { className: "text-center text-slate-700 whitespace-nowrap border-l border-slate-300", children: formatDateDisplay(row.date) }),
-                /* @__PURE__ */ jsxs4("td", { className: "font-sans text-slate-800 border-l border-slate-300", children: [
-                  /* @__PURE__ */ jsxs4("div", { className: "flex flex-wrap items-center gap-1 leading-tight", children: [
-                    /* @__PURE__ */ jsx6("strong", { className: "text-slate-900", children: row.typeLabel }),
-                    row.referenceNumber && /* @__PURE__ */ jsxs4("span", { className: "font-mono font-semibold text-slate-700", children: [
+            return /* @__PURE__ */ jsxs5(React5.Fragment, { children: [
+              /* @__PURE__ */ jsxs5("tr", { className: row.type === "invoice" ? "employee-sales-invoice-heading" : index % 2 ? "bg-slate-50/40" : "bg-white", children: [
+                /* @__PURE__ */ jsx7("td", { className: "text-center text-slate-500 font-sans border-l border-slate-300", children: index + 1 }),
+                /* @__PURE__ */ jsx7("td", { className: "text-center text-slate-700 whitespace-nowrap border-l border-slate-300", children: formatDateDisplay(row.date) }),
+                /* @__PURE__ */ jsxs5("td", { className: "font-sans text-slate-800 border-l border-slate-300", children: [
+                  /* @__PURE__ */ jsxs5("div", { className: "flex flex-wrap items-center gap-1 leading-tight", children: [
+                    /* @__PURE__ */ jsx7("strong", { className: "text-slate-900", children: row.typeLabel }),
+                    row.referenceNumber && /* @__PURE__ */ jsxs5("span", { className: "font-semibold text-slate-700", children: [
                       "\u2014 ",
-                      row.referenceNumber
+                      /* @__PURE__ */ jsx7("bdi", { dir: "ltr", className: "inline-block font-mono", children: row.referenceNumber })
                     ] }),
-                    notes && /* @__PURE__ */ jsxs4("span", { className: "text-slate-600", children: [
+                    notes && /* @__PURE__ */ jsxs5("span", { className: "text-slate-600", children: [
                       "\u2014 ",
-                      notes
+                      /* @__PURE__ */ jsx7("bdi", { dir: "auto", children: notes })
                     ] })
                   ] }),
-                  (row.period || row.paymentMethod) && /* @__PURE__ */ jsxs4("div", { className: "text-[10px] text-slate-500 mt-1", children: [
-                    row.period && /* @__PURE__ */ jsxs4("span", { children: [
+                  (row.period || row.paymentMethod) && /* @__PURE__ */ jsxs5("div", { className: "text-[10px] text-slate-500 mt-1", children: [
+                    row.period && /* @__PURE__ */ jsxs5("span", { children: [
                       "\u0627\u0644\u0641\u062A\u0631\u0629: ",
                       row.period,
                       " "
                     ] }),
-                    row.paymentMethod && /* @__PURE__ */ jsxs4("span", { children: [
+                    row.paymentMethod && /* @__PURE__ */ jsxs5("span", { children: [
                       "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0635\u0631\u0641: ",
                       row.paymentMethod === "cash" ? "\u0646\u0642\u062F\u064B\u0627" : "\u0628\u0646\u0643\u064A / \u0645\u062D\u0641\u0638\u0629"
                     ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx6("td", { className: "text-left font-bold text-purple-800 border-l border-slate-300 whitespace-nowrap", children: row.entitlement ? number2(row.entitlement) : "\u2014" }),
-                /* @__PURE__ */ jsx6("td", { className: "text-left font-bold text-rose-800 border-l border-slate-300 whitespace-nowrap", children: paid ? number2(paid) : "\u2014" }),
-                /* @__PURE__ */ jsx6("td", { className: "text-left font-black bg-slate-50 whitespace-nowrap", children: number2(row.runningBalance) })
+                /* @__PURE__ */ jsx7("td", { className: "text-left font-bold text-purple-800 border-l border-slate-300 whitespace-nowrap", children: row.entitlement ? number2(row.entitlement) : "\u2014" }),
+                /* @__PURE__ */ jsx7("td", { className: "text-left font-bold text-rose-800 border-l border-slate-300 whitespace-nowrap", children: paid ? number2(paid) : "\u2014" }),
+                /* @__PURE__ */ jsx7("td", { className: "text-left font-black bg-slate-50 whitespace-nowrap", children: number2(row.runningBalance) })
               ] }),
-              showItemDetails && !!row.items?.length && /* @__PURE__ */ jsx6("tr", { className: "bg-white print:bg-white print-allow-break", children: /* @__PURE__ */ jsx6("td", { colSpan: 6, className: "p-0 border-b border-slate-300 print-allow-break report-subtable-cell", children: /* @__PURE__ */ jsxs4("div", { className: "w-full bg-white print:border-none print:block", children: [
-                /* @__PURE__ */ jsxs4("table", { className: "w-full text-right report-sub-table border-collapse", children: [
-                  /* @__PURE__ */ jsx6("thead", { children: /* @__PURE__ */ jsxs4("tr", { className: "bg-slate-100 text-slate-800 font-bold border-b border-slate-300", children: [
-                    /* @__PURE__ */ jsx6("th", { className: "text-center w-8 border-l border-slate-200", children: "\u0645" }),
-                    /* @__PURE__ */ jsx6("th", { className: "border-l border-slate-200", children: "\u0627\u0644\u0635\u0646\u0641 \u0648\u0627\u0644\u0628\u064A\u0627\u0646" }),
-                    /* @__PURE__ */ jsx6("th", { className: "text-center w-12 border-l border-slate-200", children: "\u0627\u0644\u0637\u0648\u0644" }),
-                    /* @__PURE__ */ jsx6("th", { className: "text-center w-12 border-l border-slate-200", children: "\u0627\u0644\u0639\u0631\u0636" }),
-                    /* @__PURE__ */ jsx6("th", { className: "text-center w-10 border-l border-slate-200", children: "\u0627\u0644\u0639\u062F\u062F" }),
-                    /* @__PURE__ */ jsx6("th", { className: "text-center w-12 border-l border-slate-200", children: "\u0627\u0644\u0643\u0645\u064A\u0629" }),
-                    /* @__PURE__ */ jsx6("th", { className: "text-left w-16 border-l border-slate-200", children: "\u0627\u0644\u0633\u0639\u0631" }),
-                    /* @__PURE__ */ jsx6("th", { className: "text-left w-18", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A" })
+              showItemDetails && !!row.items?.length && /* @__PURE__ */ jsx7("tr", { className: "bg-white print:bg-white print-allow-break", children: /* @__PURE__ */ jsx7("td", { colSpan: 6, className: "p-0 border-b border-slate-300 print-allow-break report-subtable-cell", children: /* @__PURE__ */ jsxs5("div", { className: "w-full bg-white print:border-none print:block", children: [
+                /* @__PURE__ */ jsxs5("table", { className: "w-full text-right report-sub-table border-collapse", children: [
+                  /* @__PURE__ */ jsx7("thead", { children: /* @__PURE__ */ jsxs5("tr", { className: "bg-slate-100 text-slate-800 font-bold border-b border-slate-300", children: [
+                    /* @__PURE__ */ jsx7("th", { className: "text-center w-8 border-l border-slate-200", children: "\u0645" }),
+                    /* @__PURE__ */ jsx7("th", { className: "border-l border-slate-200", children: "\u0627\u0644\u0635\u0646\u0641 \u0648\u0627\u0644\u0628\u064A\u0627\u0646" }),
+                    /* @__PURE__ */ jsx7("th", { className: "text-center w-12 border-l border-slate-200", children: "\u0627\u0644\u0637\u0648\u0644" }),
+                    /* @__PURE__ */ jsx7("th", { className: "text-center w-12 border-l border-slate-200", children: "\u0627\u0644\u0639\u0631\u0636" }),
+                    /* @__PURE__ */ jsx7("th", { className: "text-center w-10 border-l border-slate-200", children: "\u0627\u0644\u0639\u062F\u062F" }),
+                    /* @__PURE__ */ jsx7("th", { className: "text-center w-12 border-l border-slate-200", children: "\u0627\u0644\u0643\u0645\u064A\u0629" }),
+                    /* @__PURE__ */ jsx7("th", { className: "text-left w-16 border-l border-slate-200", children: "\u0627\u0644\u0633\u0639\u0631" }),
+                    /* @__PURE__ */ jsx7("th", { className: "text-left w-18", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A" })
                   ] }) }),
-                  /* @__PURE__ */ jsx6("tbody", { className: "divide-y divide-slate-200", children: row.items.map((item, ii) => /* @__PURE__ */ jsxs4("tr", { children: [
-                    /* @__PURE__ */ jsx6("td", { className: "text-center border-l border-slate-200 font-mono", children: ii + 1 }),
-                    /* @__PURE__ */ jsxs4("td", { className: "border-l border-slate-200", children: [
-                      /* @__PURE__ */ jsx6("strong", { children: item.itemName }),
-                      (item.notes || item.description) && /* @__PURE__ */ jsxs4("span", { className: "font-medium text-slate-600", children: [
+                  /* @__PURE__ */ jsx7("tbody", { className: "divide-y divide-slate-200", children: row.items.map((item, ii) => /* @__PURE__ */ jsxs5("tr", { children: [
+                    /* @__PURE__ */ jsx7("td", { className: "text-center border-l border-slate-200 font-mono", children: ii + 1 }),
+                    /* @__PURE__ */ jsxs5("td", { className: "border-l border-slate-200", children: [
+                      /* @__PURE__ */ jsx7("strong", { children: /* @__PURE__ */ jsx7("bdi", { dir: "auto", children: item.itemName }) }),
+                      (item.notes || item.description) && /* @__PURE__ */ jsxs5("bdi", { dir: "auto", className: "font-medium text-slate-600", children: [
                         " / ",
                         item.notes || item.description
                       ] })
                     ] }),
-                    /* @__PURE__ */ jsx6("td", { className: "text-center font-mono border-l border-slate-200", children: displayDimension(item.length, hasVisibleInvoiceDimensions(item)) }),
-                    /* @__PURE__ */ jsx6("td", { className: "text-center font-mono border-l border-slate-200", children: displayDimension(item.width, hasVisibleInvoiceDimensions(item)) }),
-                    /* @__PURE__ */ jsx6("td", { className: "text-center font-mono border-l border-slate-200", children: hasVisibleInvoiceDimensions(item) ? item.count || 1 : "\u2014" }),
-                    /* @__PURE__ */ jsx6("td", { className: "text-center font-mono border-l border-slate-200 font-bold", children: item.quantity }),
-                    /* @__PURE__ */ jsx6("td", { className: "text-left font-mono border-l border-slate-200", children: number2(item.unitPrice) }),
-                    /* @__PURE__ */ jsx6("td", { className: "text-left font-mono font-bold", children: number2(item.total) })
+                    /* @__PURE__ */ jsx7("td", { className: "text-center font-mono border-l border-slate-200", children: displayDimension(item.length, hasVisibleInvoiceDimensions(item)) }),
+                    /* @__PURE__ */ jsx7("td", { className: "text-center font-mono border-l border-slate-200", children: displayDimension(item.width, hasVisibleInvoiceDimensions(item)) }),
+                    /* @__PURE__ */ jsx7("td", { className: "text-center font-mono border-l border-slate-200", children: hasVisibleInvoiceDimensions(item) ? item.count || 1 : "\u2014" }),
+                    /* @__PURE__ */ jsx7("td", { className: "text-center font-mono border-l border-slate-200 font-bold", children: item.quantity }),
+                    /* @__PURE__ */ jsx7("td", { className: "text-left font-mono border-l border-slate-200", children: number2(item.unitPrice) }),
+                    /* @__PURE__ */ jsx7("td", { className: "text-left font-mono font-bold", children: number2(item.total) })
                   ] }, ii)) })
                 ] }),
-                row.type === "invoice" && /* @__PURE__ */ jsxs4("div", { className: "invoice-financial-strip grid grid-cols-6 items-center gap-x-1 border-t border-slate-300 bg-white px-1 py-1 font-bold text-slate-900", dir: "rtl", children: [
+                row.type === "invoice" && /* @__PURE__ */ jsxs5("div", { className: "invoice-financial-strip grid grid-cols-6 items-center gap-x-1 border-t border-slate-300 bg-white px-1 py-1 font-bold text-slate-900", dir: "rtl", children: [
                   [
                     ["\u0642\u0628\u0644 \u0627\u0644\u062E\u0635\u0645", row.subtotal ?? row.items.reduce((total, item) => total + item.total, 0)],
                     ["\u0627\u0644\u062E\u0635\u0645", row.discountTotal ?? 0],
@@ -2236,38 +2463,38 @@ var UnifiedEmployeeStatementDocument = ({
                     ["\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A", row.totalAmount ?? row.items.reduce((total, item) => total + item.total, 0)],
                     ["\u0627\u0644\u0645\u062F\u0641\u0648\u0639", row.paidAmount ?? 0],
                     ["\u0627\u0644\u0645\u062A\u0628\u0642\u064A", row.remainingAmount ?? (row.totalAmount ?? 0) - (row.paidAmount ?? 0)]
-                  ].map(([label, amount]) => /* @__PURE__ */ jsxs4("span", { className: "inline-flex items-center gap-1 whitespace-nowrap text-[9px]", children: [
-                    /* @__PURE__ */ jsxs4("span", { className: "text-slate-600", children: [
+                  ].map(([label, amount]) => /* @__PURE__ */ jsxs5("span", { className: "inline-flex items-center gap-1 whitespace-nowrap text-[9px]", children: [
+                    /* @__PURE__ */ jsxs5("span", { className: "text-slate-600", children: [
                       label,
                       ":"
                     ] }),
-                    /* @__PURE__ */ jsx6("span", { className: "font-mono", children: number2(amount) })
+                    /* @__PURE__ */ jsx7("span", { className: "font-mono", children: number2(amount) })
                   ] }, label)),
-                  row.invoiceCurrency && row.invoiceCurrency !== "ILS" && /* @__PURE__ */ jsxs4("span", { className: "col-span-6 text-[9px] text-slate-500", children: [
+                  row.invoiceCurrency && row.invoiceCurrency !== "ILS" && /* @__PURE__ */ jsxs5("span", { className: "col-span-6 text-[9px] text-slate-500", children: [
                     "\u0642\u064A\u0645 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0628\u0639\u0645\u0644\u0629 ",
                     row.invoiceCurrency,
                     "\u060C \u0628\u064A\u0646\u0645\u0627 \u0631\u0635\u064A\u062F \u0627\u0644\u0645\u0648\u0638\u0641 \u0645\u062D\u062A\u0633\u0628 \u0628\u0627\u0644\u0639\u0645\u0644\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064A\u0629 \u20AA"
                   ] }),
-                  row.additionalCharges !== void 0 && row.additionalCharges > 0 && /* @__PURE__ */ jsxs4("span", { className: "col-span-6 text-[9px] text-slate-600", children: [
+                  row.additionalCharges !== void 0 && row.additionalCharges > 0 && /* @__PURE__ */ jsxs5("span", { className: "col-span-6 text-[9px] text-slate-600", children: [
                     "\u0625\u0636\u0627\u0641\u0627\u062A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629: ",
                     number2(row.additionalCharges)
                   ] }),
-                  row.invoiceNotes && /* @__PURE__ */ jsxs4("span", { className: "col-span-6 text-[9px] font-normal text-slate-700", children: [
+                  row.invoiceNotes && /* @__PURE__ */ jsxs5("span", { className: "col-span-6 text-[9px] font-normal text-slate-700", children: [
                     "\u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629: ",
                     row.invoiceNotes
                   ] })
                 ] })
               ] }) }) }),
-              showItemDetails && row.payrollDetails && /* @__PURE__ */ jsx6("tr", { className: "bg-white print:bg-white print-allow-break", children: /* @__PURE__ */ jsxs4("td", { colSpan: 6, className: "p-0 border-b border-slate-300 report-subtable-cell", children: [
-                /* @__PURE__ */ jsxs4("table", { className: "w-full text-right report-sub-table border-collapse", children: [
-                  /* @__PURE__ */ jsx6("thead", { children: /* @__PURE__ */ jsxs4("tr", { className: "bg-slate-100 text-slate-800 font-bold", children: [
-                    /* @__PURE__ */ jsx6("th", { className: "w-8 text-center border-l border-slate-200", children: "\u0645" }),
-                    /* @__PURE__ */ jsx6("th", { className: "border-l border-slate-200", children: "\u062A\u0641\u0627\u0635\u064A\u0644 \u0645\u0633\u064A\u0631 \u0627\u0644\u0631\u0627\u062A\u0628 \u0627\u0644\u0645\u0639\u062A\u0645\u062F" }),
-                    /* @__PURE__ */ jsx6("th", { className: "text-left w-24 border-l border-slate-200", children: "\u0627\u0633\u062A\u062D\u0642\u0627\u0642 (+)" }),
-                    /* @__PURE__ */ jsx6("th", { className: "text-left w-24 border-l border-slate-200", children: "\u0627\u0633\u062A\u0642\u0637\u0627\u0639 / \u0635\u0631\u0641 (-)" }),
-                    /* @__PURE__ */ jsx6("th", { className: "text-right", children: "\u0627\u0644\u0628\u064A\u0627\u0646" })
+              showItemDetails && row.payrollDetails && /* @__PURE__ */ jsx7("tr", { className: "bg-white print:bg-white print-allow-break", children: /* @__PURE__ */ jsxs5("td", { colSpan: 6, className: "p-0 border-b border-slate-300 report-subtable-cell", children: [
+                /* @__PURE__ */ jsxs5("table", { className: "w-full text-right report-sub-table border-collapse", children: [
+                  /* @__PURE__ */ jsx7("thead", { children: /* @__PURE__ */ jsxs5("tr", { className: "bg-slate-100 text-slate-800 font-bold", children: [
+                    /* @__PURE__ */ jsx7("th", { className: "w-8 text-center border-l border-slate-200", children: "\u0645" }),
+                    /* @__PURE__ */ jsx7("th", { className: "border-l border-slate-200", children: "\u062A\u0641\u0627\u0635\u064A\u0644 \u0645\u0633\u064A\u0631 \u0627\u0644\u0631\u0627\u062A\u0628 \u0627\u0644\u0645\u0639\u062A\u0645\u062F" }),
+                    /* @__PURE__ */ jsx7("th", { className: "text-left w-24 border-l border-slate-200", children: "\u0627\u0633\u062A\u062D\u0642\u0627\u0642 (+)" }),
+                    /* @__PURE__ */ jsx7("th", { className: "text-left w-24 border-l border-slate-200", children: "\u0627\u0633\u062A\u0642\u0637\u0627\u0639 / \u0635\u0631\u0641 (-)" }),
+                    /* @__PURE__ */ jsx7("th", { className: "text-right", children: "\u0627\u0644\u0628\u064A\u0627\u0646" })
                   ] }) }),
-                  /* @__PURE__ */ jsx6("tbody", { className: "divide-y divide-slate-200 text-[10px]", children: [
+                  /* @__PURE__ */ jsx7("tbody", { className: "divide-y divide-slate-200 text-[10px]", children: [
                     ["\u0627\u0644\u0631\u0627\u062A\u0628 \u0627\u0644\u0623\u0633\u0627\u0633\u064A", row.payrollDetails.basicSalary, 0, "\u0627\u0633\u062A\u062D\u0642\u0627\u0642 \u0645\u0639\u062A\u0645\u062F"],
                     ["\u0627\u0644\u0628\u062F\u0644\u0627\u062A", row.payrollDetails.allowances, 0, "\u0628\u062F\u0644\u0627\u062A \u0627\u0644\u0645\u0648\u0638\u0641"],
                     ["\u0627\u0644\u062D\u0648\u0627\u0641\u0632 \u0648\u0627\u0644\u0645\u0643\u0627\u0641\u0622\u062A", row.payrollDetails.incentives, 0, "\u062D\u0648\u0627\u0641\u0632 \u0645\u0639\u062A\u0645\u062F\u0629 \u0636\u0645\u0646 \u0627\u0644\u0645\u0633\u064A\u0631"],
@@ -2281,38 +2508,38 @@ var UnifiedEmployeeStatementDocument = ({
                     ]
                   ].filter(
                     ([label, plus, minus]) => plus !== 0 || minus !== 0 || label === "\u0627\u0644\u0631\u0627\u062A\u0628 \u0627\u0644\u0623\u0633\u0627\u0633\u064A" || label === "\u0627\u0644\u0633\u0644\u0641 \u0627\u0644\u0645\u0633\u062A\u0642\u0637\u0639\u0629 \u0633\u0627\u0628\u0642\u064B\u0627" && row.payrollDetails.advancesDeducted > 0
-                  ).map(([label, plus, minus, description], ii) => /* @__PURE__ */ jsxs4("tr", { children: [
-                    /* @__PURE__ */ jsx6("td", { className: "text-center font-mono border-l border-slate-200", children: ii + 1 }),
-                    /* @__PURE__ */ jsx6("td", { className: "border-l border-slate-200 font-bold", children: label }),
-                    /* @__PURE__ */ jsx6("td", { className: "text-left font-mono border-l border-slate-200 text-purple-800", children: plus ? number2(plus) : "\u2014" }),
-                    /* @__PURE__ */ jsx6("td", { className: "text-left font-mono border-l border-slate-200 text-rose-800", children: minus ? number2(minus) : "\u2014" }),
-                    /* @__PURE__ */ jsx6("td", { className: "text-slate-600 font-sans", children: description })
+                  ).map(([label, plus, minus, description], ii) => /* @__PURE__ */ jsxs5("tr", { children: [
+                    /* @__PURE__ */ jsx7("td", { className: "text-center font-mono border-l border-slate-200", children: ii + 1 }),
+                    /* @__PURE__ */ jsx7("td", { className: "border-l border-slate-200 font-bold", children: label }),
+                    /* @__PURE__ */ jsx7("td", { className: "text-left font-mono border-l border-slate-200 text-purple-800", children: plus ? number2(plus) : "\u2014" }),
+                    /* @__PURE__ */ jsx7("td", { className: "text-left font-mono border-l border-slate-200 text-rose-800", children: minus ? number2(minus) : "\u2014" }),
+                    /* @__PURE__ */ jsx7("td", { className: "text-slate-600 font-sans", children: description })
                   ] }, label)) })
                 ] }),
-                /* @__PURE__ */ jsxs4("div", { className: "invoice-financial-strip bg-slate-50 border-t border-slate-200 flex flex-wrap justify-between gap-x-3 gap-y-1 p-1.5 text-[10px] font-bold", children: [
-                  /* @__PURE__ */ jsxs4("span", { children: [
+                /* @__PURE__ */ jsxs5("div", { className: "invoice-financial-strip bg-slate-50 border-t border-slate-200 flex flex-wrap justify-between gap-x-3 gap-y-1 p-1.5 text-[10px] font-bold", children: [
+                  /* @__PURE__ */ jsxs5("span", { children: [
                     "\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u0633\u064A\u0631: ",
                     row.payrollDetails.period || "\u2014"
                   ] }),
-                  /* @__PURE__ */ jsxs4("span", { children: [
+                  /* @__PURE__ */ jsxs5("span", { children: [
                     "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0633\u062A\u062D\u0642\u0627\u062A: ",
                     number2(row.payrollDetails.basicSalary + row.payrollDetails.allowances + row.payrollDetails.incentives),
                     " ",
                     settings.currency
                   ] }),
-                  /* @__PURE__ */ jsxs4("span", { children: [
+                  /* @__PURE__ */ jsxs5("span", { children: [
                     "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062E\u0635\u0648\u0645\u0627\u062A: ",
                     number2(row.payrollDetails.deductions),
                     " ",
                     settings.currency
                   ] }),
-                  /* @__PURE__ */ jsxs4("span", { children: [
+                  /* @__PURE__ */ jsxs5("span", { children: [
                     "\u0633\u0644\u0641 \u0633\u0627\u0628\u0642\u0629 \u0645\u0642\u062A\u0637\u0639\u0629: ",
                     number2(row.payrollDetails.advancesDeducted),
                     " ",
                     settings.currency
                   ] }),
-                  /* @__PURE__ */ jsxs4("span", { children: [
+                  /* @__PURE__ */ jsxs5("span", { children: [
                     "\u0635\u0627\u0641\u064A \u0627\u0644\u0645\u0635\u0631\u0648\u0641: ",
                     number2(row.payrollDetails.netSalary),
                     " ",
@@ -2323,59 +2550,59 @@ var UnifiedEmployeeStatementDocument = ({
             ] }, row.id + "-" + index);
           })
         ] }),
-        /* @__PURE__ */ jsx6("tfoot", { children: /* @__PURE__ */ jsxs4("tr", { className: "bg-slate-100 font-bold border-t border-slate-300", children: [
-          /* @__PURE__ */ jsx6("td", { colSpan: 3, className: "text-left font-sans", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062D\u0631\u0643\u0627\u062A \u0641\u064A \u0627\u0644\u0641\u062A\u0631\u0629:" }),
-          /* @__PURE__ */ jsx6("td", { className: "text-left font-mono text-purple-800", children: number2(statement.totalEntitlements) }),
-          /* @__PURE__ */ jsx6("td", { className: "text-left font-mono text-rose-800", children: number2(statement.totalPaid) }),
-          /* @__PURE__ */ jsxs4("td", { className: "text-left font-mono font-black", children: [
+        /* @__PURE__ */ jsx7("tfoot", { children: /* @__PURE__ */ jsxs5("tr", { className: "bg-slate-100 font-bold border-t border-slate-300", children: [
+          /* @__PURE__ */ jsx7("td", { colSpan: 3, className: "text-left font-sans", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062D\u0631\u0643\u0627\u062A \u0641\u064A \u0627\u0644\u0641\u062A\u0631\u0629:" }),
+          /* @__PURE__ */ jsx7("td", { className: "text-left font-mono text-purple-800", children: number2(statement.totalEntitlements) }),
+          /* @__PURE__ */ jsx7("td", { className: "text-left font-mono text-rose-800", children: number2(statement.totalPaid) }),
+          /* @__PURE__ */ jsxs5("td", { className: "text-left font-mono font-black", children: [
             number2(statement.closingBalance),
             " ",
             settings.currency
           ] })
         ] }) })
       ] }) }),
-      /* @__PURE__ */ jsxs4("div", { className: "mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300", children: [
-        /* @__PURE__ */ jsx6("div", { className: "grid grid-cols-4 gap-1.5 text-[10px]", children: summary.map(([label, value], i) => /* @__PURE__ */ jsxs4("div", { className: "bg-white border border-slate-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5", children: [
-          /* @__PURE__ */ jsxs4("span", { className: "font-bold text-slate-700 whitespace-nowrap", children: [
+      /* @__PURE__ */ jsxs5("div", { className: "mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300", children: [
+        /* @__PURE__ */ jsx7("div", { className: "grid grid-cols-4 gap-1.5 text-[10px]", children: summary.map(([label, value], i) => /* @__PURE__ */ jsxs5("div", { className: "bg-white border border-slate-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5", children: [
+          /* @__PURE__ */ jsxs5("span", { className: "font-bold text-slate-700 whitespace-nowrap", children: [
             label,
             ":"
           ] }),
-          /* @__PURE__ */ jsxs4("span", { className: "font-black font-mono text-[11px] whitespace-nowrap " + (i === 1 ? "text-purple-800" : i === 2 ? "text-rose-800" : "text-slate-900"), children: [
+          /* @__PURE__ */ jsxs5("span", { className: "font-black font-mono text-[11px] whitespace-nowrap " + (i === 1 ? "text-purple-800" : i === 2 ? "text-rose-800" : "text-slate-900"), children: [
             number2(value),
             " ",
-            /* @__PURE__ */ jsx6("span", { className: "text-[9px]", children: settings.currency })
+            /* @__PURE__ */ jsx7("span", { className: "text-[9px]", children: settings.currency })
           ] })
         ] }, label)) }),
-        /* @__PURE__ */ jsxs4("div", { className: "bg-white p-1.5 rounded border border-slate-200", children: [
-          /* @__PURE__ */ jsxs4("div", { className: "flex items-center justify-between text-[10.5px] mb-1", children: [
-            /* @__PURE__ */ jsxs4("span", { className: "font-bold text-slate-700", children: [
+        /* @__PURE__ */ jsxs5("div", { className: "bg-white p-1.5 rounded border border-slate-200", children: [
+          /* @__PURE__ */ jsxs5("div", { className: "flex items-center justify-between text-[10.5px] mb-1", children: [
+            /* @__PURE__ */ jsxs5("span", { className: "font-bold text-slate-700", children: [
               "\u0627\u0644\u0631\u0635\u064A\u062F \u0627\u0644\u062E\u062A\u0627\u0645\u064A \u2014 ",
               balanceMeaning,
               ":"
             ] }),
-            /* @__PURE__ */ jsxs4("strong", { className: "font-mono", children: [
+            /* @__PURE__ */ jsxs5("strong", { className: "font-mono", children: [
               number2(Math.abs(statement.closingBalance)),
               " ",
               settings.currency
             ] })
           ] }),
-          /* @__PURE__ */ jsx6("div", { className: "bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px] font-semibold", children: tafqeet(Math.abs(statement.closingBalance), "\u0634\u064A\u0643\u0644", "\u0623\u063A\u0648\u0631\u0629") })
+          /* @__PURE__ */ jsx7("div", { className: "bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px] font-semibold", children: tafqeet(Math.abs(statement.closingBalance), "\u0634\u064A\u0643\u0644", "\u0623\u063A\u0648\u0631\u0629") })
         ] })
       ] }),
-      /* @__PURE__ */ jsxs4("div", { className: "pt-4 border-t border-slate-300 grid grid-cols-3 gap-4 text-center text-[10px] mt-4", children: [
-        /* @__PURE__ */ jsxs4("div", { className: "flex flex-col items-center gap-3", children: [
-          /* @__PURE__ */ jsx6("strong", { children: "\u0625\u0639\u062F\u0627\u062F \u0648\u062A\u062F\u0642\u064A\u0642 \u0627\u0644\u0645\u062D\u0627\u0633\u0628" }),
-          /* @__PURE__ */ jsx6("div", { className: "border-b border-dashed border-slate-400 w-28 mt-5" }),
-          /* @__PURE__ */ jsx6("span", { className: "text-slate-400", children: "\u0627\u0644\u062A\u0648\u0642\u064A\u0639 \u0648\u0627\u0644\u062A\u0627\u0631\u064A\u062E" })
+      /* @__PURE__ */ jsxs5("div", { className: "pt-4 border-t border-slate-300 grid grid-cols-3 gap-4 text-center text-[10px] mt-4", children: [
+        /* @__PURE__ */ jsxs5("div", { className: "flex flex-col items-center gap-3", children: [
+          /* @__PURE__ */ jsx7("strong", { children: "\u0625\u0639\u062F\u0627\u062F \u0648\u062A\u062F\u0642\u064A\u0642 \u0627\u0644\u0645\u062D\u0627\u0633\u0628" }),
+          /* @__PURE__ */ jsx7("div", { className: "border-b border-dashed border-slate-400 w-28 mt-5" }),
+          /* @__PURE__ */ jsx7("span", { className: "text-slate-400", children: "\u0627\u0644\u062A\u0648\u0642\u064A\u0639 \u0648\u0627\u0644\u062A\u0627\u0631\u064A\u062E" })
         ] }),
-        /* @__PURE__ */ jsxs4("div", { className: "flex flex-col items-center gap-3", children: [
-          /* @__PURE__ */ jsx6("strong", { children: "\u0627\u0637\u0644\u0627\u0639 \u0648\u062A\u0648\u0642\u064A\u0639 \u0627\u0644\u0645\u0648\u0638\u0641" }),
-          /* @__PURE__ */ jsx6("div", { className: "border-b border-dashed border-slate-400 w-28 mt-5" }),
-          /* @__PURE__ */ jsx6("span", { className: "text-slate-400", children: statement.employee.name })
+        /* @__PURE__ */ jsxs5("div", { className: "flex flex-col items-center gap-3", children: [
+          /* @__PURE__ */ jsx7("strong", { children: "\u0627\u0637\u0644\u0627\u0639 \u0648\u062A\u0648\u0642\u064A\u0639 \u0627\u0644\u0645\u0648\u0638\u0641" }),
+          /* @__PURE__ */ jsx7("div", { className: "border-b border-dashed border-slate-400 w-28 mt-5" }),
+          /* @__PURE__ */ jsx7("span", { className: "text-slate-400", children: statement.employee.name })
         ] }),
-        /* @__PURE__ */ jsxs4("div", { className: "flex flex-col items-center gap-2", children: [
-          /* @__PURE__ */ jsx6("strong", { children: "\u0627\u0639\u062A\u0645\u0627\u062F \u0627\u0644\u0625\u062F\u0627\u0631\u0629 / \u0627\u0644\u062E\u062A\u0645" }),
-          settings.stampUrl ? /* @__PURE__ */ jsx6(OfficialStamp, { size: "3.5cm" }) : /* @__PURE__ */ jsx6("div", { className: "border-b border-dashed border-slate-400 w-28 mt-7" })
+        /* @__PURE__ */ jsxs5("div", { className: "flex flex-col items-center gap-2", children: [
+          /* @__PURE__ */ jsx7("strong", { children: "\u0627\u0639\u062A\u0645\u0627\u062F \u0627\u0644\u0625\u062F\u0627\u0631\u0629 / \u0627\u0644\u062E\u062A\u0645" }),
+          settings.stampUrl ? /* @__PURE__ */ jsx7(OfficialStamp, { size: "3.5cm" }) : /* @__PURE__ */ jsx7("div", { className: "border-b border-dashed border-slate-400 w-28 mt-7" })
         ] })
       ] })
     ] })
@@ -2383,7 +2610,7 @@ var UnifiedEmployeeStatementDocument = ({
 };
 
 // src/components/common/ReportSignatures.tsx
-import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
+import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
 var ReportSignatures = ({
   columns = 2,
   rightLabel = "\u062A\u0648\u0642\u064A\u0639 \u0648\u062E\u062A\u0645 \u0627\u0644\u0645\u0633\u062A\u0644\u0645",
@@ -2391,14 +2618,14 @@ var ReportSignatures = ({
   leftLabel = "\u0627\u0644\u062E\u062A\u0645"
 }) => {
   const { settings } = useAccounting();
-  return /* @__PURE__ */ jsxs5("div", { className: `pt-6 border-t border-slate-300 grid gap-6 text-center text-xs mt-6 ${columns === 2 ? "grid-cols-2" : "grid-cols-3"}`, children: [
-    /* @__PURE__ */ jsx7("div", { className: "space-y-4 flex flex-col items-center justify-end min-h-[80px]", children: /* @__PURE__ */ jsx7("span", { className: "font-bold text-slate-800 text-sm block mb-auto", children: rightLabel }) }),
-    columns === 3 && /* @__PURE__ */ jsx7("div", { className: "space-y-4 flex flex-col items-center justify-end min-h-[80px]", children: /* @__PURE__ */ jsx7("span", { className: "font-bold text-slate-800 text-sm block mb-auto", children: centerLabel }) }),
-    /* @__PURE__ */ jsxs5("div", { className: "space-y-2 flex flex-col items-center justify-end min-h-[80px]", children: [
-      /* @__PURE__ */ jsx7("span", { className: "font-bold text-slate-800 text-sm block mb-auto", children: leftLabel }),
-      /* @__PURE__ */ jsx7("div", { className: "min-h-[3.8cm] flex items-center justify-center relative", children: settings.stampUrl ? /* @__PURE__ */ jsxs5("div", { className: "relative flex items-center justify-center", children: [
-        /* @__PURE__ */ jsx7(OfficialStamp, { size: "3.2cm" }),
-        settings.signatureUrl && /* @__PURE__ */ jsx7(
+  return /* @__PURE__ */ jsxs6("div", { className: `pt-6 border-t border-slate-300 grid gap-6 text-center text-xs mt-6 ${columns === 2 ? "grid-cols-2" : "grid-cols-3"}`, children: [
+    /* @__PURE__ */ jsx8("div", { className: "space-y-4 flex flex-col items-center justify-end min-h-[80px]", children: /* @__PURE__ */ jsx8("span", { className: "font-bold text-slate-800 text-sm block mb-auto", children: rightLabel }) }),
+    columns === 3 && /* @__PURE__ */ jsx8("div", { className: "space-y-4 flex flex-col items-center justify-end min-h-[80px]", children: /* @__PURE__ */ jsx8("span", { className: "font-bold text-slate-800 text-sm block mb-auto", children: centerLabel }) }),
+    /* @__PURE__ */ jsxs6("div", { className: "space-y-2 flex flex-col items-center justify-end min-h-[80px]", children: [
+      /* @__PURE__ */ jsx8("span", { className: "font-bold text-slate-800 text-sm block mb-auto", children: leftLabel }),
+      /* @__PURE__ */ jsx8("div", { className: "min-h-[3.8cm] flex items-center justify-center relative", children: settings.stampUrl ? /* @__PURE__ */ jsxs6("div", { className: "relative flex items-center justify-center", children: [
+        /* @__PURE__ */ jsx8(OfficialStamp, { size: "3.2cm" }),
+        settings.signatureUrl && /* @__PURE__ */ jsx8(
           "img",
           {
             src: settings.signatureUrl,
@@ -2406,7 +2633,7 @@ var ReportSignatures = ({
             className: "absolute bottom-1 max-h-12 max-w-[120px] object-contain mix-blend-multiply opacity-85 pointer-events-none"
           }
         )
-      ] }) : settings.signatureUrl ? /* @__PURE__ */ jsx7(
+      ] }) : settings.signatureUrl ? /* @__PURE__ */ jsx8(
         "img",
         {
           src: settings.signatureUrl,
@@ -2419,8 +2646,8 @@ var ReportSignatures = ({
 };
 
 // src/components/common/AutocompleteCombobox.tsx
-import { useState as useState2, useRef, useEffect as useEffect3, useMemo, useCallback } from "react";
-import { createPortal } from "react-dom";
+import { useState as useState3, useRef as useRef3, useEffect as useEffect3, useMemo, useCallback as useCallback2 } from "react";
+import { createPortal as createPortal2 } from "react-dom";
 import {
   Search,
   User,
@@ -2519,25 +2746,25 @@ function formatInvoiceCustomerDisplay(inv, parties) {
 }
 
 // src/components/common/AutocompleteCombobox.tsx
-import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
+import { jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
 function normalizeText(text) {
   if (!text) return "";
   return text.toLowerCase().trim().replace(/[\u064B-\u065F\u0670]/g, "").replace(/[إأآا]/g, "\u0627").replace(/ة/g, "\u0647").replace(/[يى]/g, "\u064A").replace(/ؤ/g, "\u0648").replace(/ئ/g, "\u064A").replace(/[-_.,()/\\]/g, " ");
 }
 function HighlightMatch({ text, query }) {
-  if (!query.trim() || !text) return /* @__PURE__ */ jsx8("span", { children: text });
+  if (!query.trim() || !text) return /* @__PURE__ */ jsx9("span", { children: text });
   const normalizedText = normalizeText(text);
   const normalizedQuery = normalizeText(query);
   const index = normalizedText.indexOf(normalizedQuery);
   if (index === -1) {
-    return /* @__PURE__ */ jsx8("span", { children: text });
+    return /* @__PURE__ */ jsx9("span", { children: text });
   }
   const before = text.substring(0, index);
   const match = text.substring(index, index + query.length);
   const after = text.substring(index + query.length);
-  return /* @__PURE__ */ jsxs6("span", { children: [
+  return /* @__PURE__ */ jsxs7("span", { children: [
     before,
-    /* @__PURE__ */ jsx8("span", { className: "bg-amber-200/80 text-amber-900 font-bold px-0.5 rounded-xs underline decoration-amber-500", children: match }),
+    /* @__PURE__ */ jsx9("span", { className: "bg-amber-200/80 text-amber-900 font-bold px-0.5 rounded-xs underline decoration-amber-500", children: match }),
     after
   ] });
 }
@@ -2548,6 +2775,7 @@ var AutocompleteCombobox = ({
   onSelect,
   onChangeText,
   onQuickAdd,
+  quickAddButtonLabel,
   entityType = "customer",
   placeholder,
   disabled = false,
@@ -2561,14 +2789,14 @@ var AutocompleteCombobox = ({
   id
 }) => {
   const { addParty, addInventoryItem, addEmployee } = useAccounting();
-  const [isOpen, setIsOpen] = useState2(false);
-  const [inputText, setInputText] = useState2(value || "");
-  const [highlightedIndex, setHighlightedIndex] = useState2(-1);
-  const [coords, setCoords] = useState2(null);
-  const containerRef = useRef(null);
-  const internalInputRef = useRef(null);
+  const [isOpen, setIsOpen] = useState3(false);
+  const [inputText, setInputText] = useState3(value || "");
+  const [highlightedIndex, setHighlightedIndex] = useState3(-1);
+  const [coords, setCoords] = useState3(null);
+  const containerRef = useRef3(null);
+  const internalInputRef = useRef3(null);
   const activeInputRef = externalInputRef || internalInputRef;
-  const dropdownRef = useRef(null);
+  const dropdownRef = useRef3(null);
   useEffect3(() => {
     if (value !== void 0) {
       setInputText(value);
@@ -2650,7 +2878,7 @@ var AutocompleteCombobox = ({
     if (!norm) return true;
     return items.some((i) => normalizeText(i.name) === norm);
   }, [items, inputText]);
-  const updatePosition = useCallback(() => {
+  const updatePosition = useCallback2(() => {
     if (!activeInputRef.current) return;
     const rect = activeInputRef.current.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
@@ -2825,10 +3053,10 @@ var AutocompleteCombobox = ({
     if (activeInputRef.current) activeInputRef.current.focus();
   };
   const IconComponent = entityMeta.icon;
-  return /* @__PURE__ */ jsxs6("div", { ref: containerRef, className: `relative font-sans text-xs ${className}`, children: [
-    /* @__PURE__ */ jsxs6("div", { className: "relative flex items-center", children: [
-      /* @__PURE__ */ jsx8("div", { className: "absolute right-2.5 text-slate-400 pointer-events-none flex items-center", children: /* @__PURE__ */ jsx8(Search, { className: "w-3.5 h-3.5" }) }),
-      /* @__PURE__ */ jsx8(
+  return /* @__PURE__ */ jsxs7("div", { ref: containerRef, className: `relative font-sans text-xs ${className}`, children: [
+    /* @__PURE__ */ jsxs7("div", { className: "relative flex items-center", children: [
+      /* @__PURE__ */ jsx9("div", { className: "absolute right-2.5 text-slate-400 pointer-events-none flex items-center", children: /* @__PURE__ */ jsx9(Search, { className: "w-3.5 h-3.5" }) }),
+      /* @__PURE__ */ jsx9(
         "input",
         {
           ref: activeInputRef,
@@ -2866,18 +3094,18 @@ var AutocompleteCombobox = ({
           className: `w-full bg-white border border-slate-300 rounded-lg pr-8 pl-14 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium disabled:bg-slate-100 disabled:cursor-not-allowed ${inputClassName}`
         }
       ),
-      /* @__PURE__ */ jsxs6("div", { className: "absolute left-1.5 flex items-center gap-0.5", children: [
-        inputText && !disabled && /* @__PURE__ */ jsx8(
+      /* @__PURE__ */ jsxs7("div", { className: "absolute left-1.5 flex items-center gap-0.5", children: [
+        inputText && !disabled && /* @__PURE__ */ jsx9(
           "button",
           {
             type: "button",
             onClick: handleClear,
             className: "p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 cursor-pointer",
             title: "\u0645\u0633\u062D",
-            children: /* @__PURE__ */ jsx8(X, { className: "w-3 h-3" })
+            children: /* @__PURE__ */ jsx9(X, { className: "w-3 h-3" })
           }
         ),
-        /* @__PURE__ */ jsx8(
+        /* @__PURE__ */ jsx9(
           "button",
           {
             type: "button",
@@ -2890,13 +3118,13 @@ var AutocompleteCombobox = ({
             },
             className: "p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 cursor-pointer",
             title: `\u0639\u0631\u0636 \u0642\u0627\u0626\u0645\u0629 ${entityMeta.plural}`,
-            children: /* @__PURE__ */ jsx8(ChevronDown, { className: `w-3.5 h-3.5 transition-transform duration-150 ${isOpen ? "rotate-180" : ""}` })
+            children: /* @__PURE__ */ jsx9(ChevronDown, { className: `w-3.5 h-3.5 transition-transform duration-150 ${isOpen ? "rotate-180" : ""}` })
           }
         )
       ] })
     ] }),
-    isOpen && coords && createPortal(
-      /* @__PURE__ */ jsxs6(
+    isOpen && coords && createPortal2(
+      /* @__PURE__ */ jsxs7(
         "div",
         {
           ref: dropdownRef,
@@ -2910,73 +3138,73 @@ var AutocompleteCombobox = ({
           },
           className: "bg-white rounded-xl shadow-2xl border border-slate-300 overflow-hidden flex flex-col text-xs font-sans animate-in fade-in zoom-in-95 duration-100",
           children: [
-            /* @__PURE__ */ jsxs6("div", { className: "p-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-slate-600 text-[11px]", children: [
-              /* @__PURE__ */ jsxs6("span", { className: "font-bold flex items-center gap-1.5", children: [
-                /* @__PURE__ */ jsx8(IconComponent, { className: "w-3.5 h-3.5 text-blue-600" }),
-                /* @__PURE__ */ jsx8("span", { children: "\u0646\u062A\u0627\u0626\u062C \u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629:" }),
-                /* @__PURE__ */ jsx8("span", { className: "bg-blue-100 text-blue-800 font-mono px-1.5 py-0.5 rounded-full font-bold", children: filteredItems.length })
+            /* @__PURE__ */ jsxs7("div", { className: "p-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-slate-600 text-[11px]", children: [
+              /* @__PURE__ */ jsxs7("span", { className: "font-bold flex items-center gap-1.5", children: [
+                /* @__PURE__ */ jsx9(IconComponent, { className: "w-3.5 h-3.5 text-blue-600" }),
+                /* @__PURE__ */ jsx9("span", { children: "\u0646\u062A\u0627\u0626\u062C \u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629:" }),
+                /* @__PURE__ */ jsx9("span", { className: "bg-blue-100 text-blue-800 font-mono px-1.5 py-0.5 rounded-full font-bold", children: filteredItems.length })
               ] }),
-              !exactMatchExists && inputText.trim() && /* @__PURE__ */ jsxs6(
+              !exactMatchExists && inputText.trim() && /* @__PURE__ */ jsxs7(
                 "button",
                 {
                   type: "button",
                   onClick: handlePerformQuickAdd,
                   className: "text-[10px] text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 font-bold px-2 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors shadow-2xs",
-                  title: `\u0625\u0636\u0627\u0641\u0629 "${inputText.trim()}" \u0645\u0628\u0627\u0634\u0631\u0629`,
+                  title: quickAddButtonLabel ? `${quickAddButtonLabel}: ${inputText.trim()}` : `\u0625\u0636\u0627\u0641\u0629 "${inputText.trim()}" \u0645\u0628\u0627\u0634\u0631\u0629`,
                   children: [
-                    /* @__PURE__ */ jsx8(Plus, { className: "w-3 h-3 text-emerald-600" }),
-                    /* @__PURE__ */ jsx8("span", { children: "+ \u0625\u0636\u0627\u0641\u0629 \u0645\u0628\u0627\u0634\u0631\u0629" })
+                    /* @__PURE__ */ jsx9(Plus, { className: "w-3 h-3 text-emerald-600" }),
+                    /* @__PURE__ */ jsx9("span", { children: quickAddButtonLabel || "+ \u0625\u0636\u0627\u0641\u0629 \u0645\u0628\u0627\u0634\u0631\u0629" })
                   ]
                 }
               )
             ] }),
-            /* @__PURE__ */ jsxs6("div", { className: "max-h-60 overflow-y-auto divide-y divide-slate-100", children: [
+            /* @__PURE__ */ jsxs7("div", { className: "max-h-60 overflow-y-auto divide-y divide-slate-100", children: [
               filteredItems.length > 0 ? filteredItems.map((item, idx) => {
                 const isSelected = item.id === selectedId;
                 const isHighlighted = idx === highlightedIndex;
-                return /* @__PURE__ */ jsxs6(
+                return /* @__PURE__ */ jsxs7(
                   "div",
                   {
                     onClick: () => handleSelect(item),
                     onMouseEnter: () => setHighlightedIndex(idx),
                     className: `p-2 flex items-center justify-between gap-2 cursor-pointer transition-colors ${isHighlighted ? "bg-blue-50" : isSelected ? "bg-blue-50/50 font-semibold" : "hover:bg-slate-50"}`,
                     children: [
-                      /* @__PURE__ */ jsxs6("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [
-                        showCode && item.code && /* @__PURE__ */ jsx8("span", { className: "font-mono text-[10px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded border border-slate-200 shrink-0", children: item.code }),
-                        /* @__PURE__ */ jsxs6("div", { className: "flex-1 min-w-0", children: [
-                          /* @__PURE__ */ jsxs6("div", { className: "flex items-center gap-1.5", children: [
-                            /* @__PURE__ */ jsx8("span", { className: `truncate text-xs ${isSelected ? "text-blue-700 font-bold" : "text-slate-800 font-medium"}`, children: /* @__PURE__ */ jsx8(HighlightMatch, { text: item.name, query: inputText }) }),
-                            isSelected && /* @__PURE__ */ jsx8(Check, { className: "w-3 h-3 text-blue-600 shrink-0" })
+                      /* @__PURE__ */ jsxs7("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [
+                        showCode && item.code && /* @__PURE__ */ jsx9("span", { className: "font-mono text-[10px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded border border-slate-200 shrink-0", children: item.code }),
+                        /* @__PURE__ */ jsxs7("div", { className: "flex-1 min-w-0", children: [
+                          /* @__PURE__ */ jsxs7("div", { className: "flex items-center gap-1.5", children: [
+                            /* @__PURE__ */ jsx9("span", { className: `truncate text-xs ${isSelected ? "text-blue-700 font-bold" : "text-slate-800 font-medium"}`, children: /* @__PURE__ */ jsx9(HighlightMatch, { text: item.name, query: inputText }) }),
+                            isSelected && /* @__PURE__ */ jsx9(Check, { className: "w-3 h-3 text-blue-600 shrink-0" })
                           ] }),
-                          entityType !== "item" && item.subText && /* @__PURE__ */ jsx8("div", { className: "text-[9px] text-slate-400 font-light truncate mt-0.5", children: item.subText })
+                          entityType !== "item" && item.subText && /* @__PURE__ */ jsx9("div", { className: "text-[9px] text-slate-400 font-light truncate mt-0.5", children: item.subText })
                         ] })
                       ] }),
-                      entityType !== "item" && item.badge && /* @__PURE__ */ jsx8("span", { className: "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 bg-slate-100 text-slate-700 border border-slate-200", children: item.badge })
+                      entityType !== "item" && item.badge && /* @__PURE__ */ jsx9("span", { className: "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 bg-slate-100 text-slate-700 border border-slate-200", children: item.badge })
                     ]
                   },
                   `ac-${item.id || idx}-${idx}`
                 );
-              }) : /* @__PURE__ */ jsx8("div", { className: "p-3 text-center text-slate-500", children: /* @__PURE__ */ jsxs6("p", { className: "text-xs", children: [
+              }) : /* @__PURE__ */ jsx9("div", { className: "p-3 text-center text-slate-500", children: /* @__PURE__ */ jsxs7("p", { className: "text-xs", children: [
                 "\u0644\u0627 \u064A\u0648\u062C\u062F ",
                 entityMeta.label,
                 " \u064A\u0637\u0627\u0628\u0642: ",
-                /* @__PURE__ */ jsxs6("span", { className: "font-bold text-slate-800", children: [
+                /* @__PURE__ */ jsxs7("span", { className: "font-bold text-slate-800", children: [
                   '"',
                   inputText,
                   '"'
                 ] })
               ] }) }),
-              !exactMatchExists && inputText.trim() && /* @__PURE__ */ jsx8("div", { className: "p-2 bg-emerald-50/60 border-t border-emerald-100", children: /* @__PURE__ */ jsxs6(
+              !exactMatchExists && inputText.trim() && /* @__PURE__ */ jsx9("div", { className: "p-2 bg-emerald-50/60 border-t border-emerald-100", children: /* @__PURE__ */ jsxs7(
                 "button",
                 {
                   type: "button",
                   onClick: handlePerformQuickAdd,
                   className: `w-full py-1.5 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-2xs ${highlightedIndex === filteredItems.length ? "bg-emerald-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}`,
                   children: [
-                    /* @__PURE__ */ jsx8(Plus, { className: "w-3.5 h-3.5" }),
-                    /* @__PURE__ */ jsxs6("span", { children: [
+                    /* @__PURE__ */ jsx9(Plus, { className: "w-3.5 h-3.5" }),
+                    /* @__PURE__ */ jsxs7("span", { children: [
                       "\u0625\u0636\u0627\u0641\u0629 ",
-                      /* @__PURE__ */ jsxs6("strong", { className: "underline mx-1", children: [
+                      /* @__PURE__ */ jsxs7("strong", { className: "underline mx-1", children: [
                         '"',
                         inputText.trim(),
                         '"'
@@ -3010,7 +3238,7 @@ function expensesForReport(rows, fromDate, toDate) {
 var sumReportAmounts = (rows, amount) => rows.reduce((total, row) => total + (Number(amount(row)) || 0), 0);
 
 // src/components/reports/OperationalReportDocument.tsx
-import { Fragment as Fragment3, jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
+import { Fragment as Fragment3, jsx as jsx10, jsxs as jsxs8 } from "react/jsx-runtime";
 var money = (v) => Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 var quantity = (v) => Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 4 });
 var th = "border border-slate-300 bg-slate-100 px-1.5 py-1.5 text-[10px] font-bold text-slate-900";
@@ -3024,64 +3252,64 @@ var OperationalReportDocument = ({ kind, fromDate, toDate }) => {
   const period = kind === "inventory_report" ? "\u0627\u0644\u0631\u0635\u064A\u062F \u0627\u0644\u062D\u0627\u0644\u064A" : "\u0645\u0646 " + (fromDate || "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u0646\u0634\u0627\u0637") + " \u0625\u0644\u0649 " + (toDate || "\u0627\u0644\u0622\u0646");
   const heading = kind === "purchases_report" ? ["\u0645", "\u0627\u0644\u062A\u0627\u0631\u064A\u062E", "\u0631\u0642\u0645 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629", "\u0627\u0644\u0645\u0648\u0631\u062F", "\u0627\u0644\u0623\u0635\u0646\u0627\u0641", "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A", "\u0627\u0644\u0645\u062F\u0641\u0648\u0639", "\u0627\u0644\u0645\u062A\u0628\u0642\u064A"] : kind === "inventory_report" ? ["\u0645", "\u0643\u0648\u062F \u0627\u0644\u0635\u0646\u0641", "\u0627\u0644\u0635\u0646\u0641", "\u0627\u0644\u0648\u062D\u062F\u0629", "\u0627\u0644\u0631\u0635\u064A\u062F", "\u0627\u0644\u062D\u062F \u0627\u0644\u0623\u062F\u0646\u0649", "\u0627\u0644\u0639\u062C\u0632", "\u0633\u0639\u0631 \u0627\u0644\u062A\u0643\u0644\u0641\u0629"] : ["\u0645", "\u0627\u0644\u062A\u0627\u0631\u064A\u062E", "\u0627\u0644\u062A\u0635\u0646\u064A\u0641", "\u0627\u0644\u062D\u0633\u0627\u0628", "\u0627\u0644\u0645\u0633\u062A\u0641\u064A\u062F", "\u0627\u0644\u0628\u064A\u0627\u0646 / \u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0627\u062A", "\u0627\u0644\u0635\u0646\u062F\u0648\u0642", "\u0627\u0644\u0645\u0628\u0644\u063A"];
   const len = kind === "purchases_report" ? purchasesRows.length : kind === "inventory_report" ? stocks.length : expenseRows.length;
-  return /* @__PURE__ */ jsxs7("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 space-y-3", dir: "rtl", "data-official-report-type": kind, children: [
-    /* @__PURE__ */ jsx9(PrintHeader, { title: titles[kind], subtitle: period }),
-    /* @__PURE__ */ jsxs7("div", { className: "flex items-center justify-between border-b pb-2", children: [
-      /* @__PURE__ */ jsx9("strong", { className: "text-sm text-slate-900", children: titles[kind] }),
-      /* @__PURE__ */ jsx9("span", { className: "text-xs text-slate-500", children: period })
+  return /* @__PURE__ */ jsxs8("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 space-y-3", dir: "rtl", "data-official-report-type": kind, children: [
+    /* @__PURE__ */ jsx10(PrintHeader, { title: titles[kind], subtitle: period }),
+    /* @__PURE__ */ jsxs8("div", { className: "flex items-center justify-between border-b pb-2", children: [
+      /* @__PURE__ */ jsx10("strong", { className: "text-sm text-slate-900", children: titles[kind] }),
+      /* @__PURE__ */ jsx10("span", { className: "text-xs text-slate-500", children: period })
     ] }),
-    /* @__PURE__ */ jsxs7("table", { className: "w-full table-fixed border-collapse text-right", children: [
-      /* @__PURE__ */ jsx9("thead", { children: /* @__PURE__ */ jsx9("tr", { children: heading.map((s) => /* @__PURE__ */ jsx9("th", { className: th, children: s }, s)) }) }),
-      /* @__PURE__ */ jsxs7("tbody", { children: [
-        kind === "purchases_report" && purchasesRows.map((r, i) => /* @__PURE__ */ jsxs7("tr", { className: "break-inside-avoid", children: [
-          /* @__PURE__ */ jsx9("td", { className: td, children: i + 1 }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.date }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.invoiceNumber }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.supplierName }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.items?.map((x) => x.itemName).filter(Boolean).join("\u060C ") || "-" }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: money(r.totalAmount) }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: money(r.paidAmount) }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: money(Math.max(0, (r.totalAmount || 0) - (r.paidAmount || 0))) })
+    /* @__PURE__ */ jsxs8("table", { className: "w-full table-fixed border-collapse text-right", children: [
+      /* @__PURE__ */ jsx10("thead", { children: /* @__PURE__ */ jsx10("tr", { children: heading.map((s) => /* @__PURE__ */ jsx10("th", { className: th, children: s }, s)) }) }),
+      /* @__PURE__ */ jsxs8("tbody", { children: [
+        kind === "purchases_report" && purchasesRows.map((r, i) => /* @__PURE__ */ jsxs8("tr", { className: "break-inside-avoid", children: [
+          /* @__PURE__ */ jsx10("td", { className: td, children: i + 1 }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.date }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.invoiceNumber }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.supplierName }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.items?.map((x) => x.itemName).filter(Boolean).join("\u060C ") || "-" }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: money(r.totalAmount) }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: money(r.paidAmount) }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: money(Math.max(0, (r.totalAmount || 0) - (r.paidAmount || 0))) })
         ] }, r.id)),
-        kind === "inventory_report" && stocks.map((r, i) => /* @__PURE__ */ jsxs7("tr", { className: "break-inside-avoid", children: [
-          /* @__PURE__ */ jsx9("td", { className: td, children: i + 1 }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.code }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.name }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.unit }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: quantity(r.stockQuantity) }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: quantity(r.minAlertQuantity) }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: quantity(Math.max(0, r.minAlertQuantity - r.stockQuantity)) }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: money(r.purchasePrice) })
+        kind === "inventory_report" && stocks.map((r, i) => /* @__PURE__ */ jsxs8("tr", { className: "break-inside-avoid", children: [
+          /* @__PURE__ */ jsx10("td", { className: td, children: i + 1 }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.code }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.name }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.unit }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: quantity(r.stockQuantity) }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: quantity(r.minAlertQuantity) }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: quantity(Math.max(0, r.minAlertQuantity - r.stockQuantity)) }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: money(r.purchasePrice) })
         ] }, r.id)),
-        kind === "expenses_report" && expenseRows.map((r, i) => /* @__PURE__ */ jsxs7("tr", { className: "break-inside-avoid", children: [
-          /* @__PURE__ */ jsx9("td", { className: td, children: i + 1 }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.date }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.categoryName }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.expenseAccountName }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.beneficiary }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.notes || "-" }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: r.treasuryName }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: money(r.amount) })
+        kind === "expenses_report" && expenseRows.map((r, i) => /* @__PURE__ */ jsxs8("tr", { className: "break-inside-avoid", children: [
+          /* @__PURE__ */ jsx10("td", { className: td, children: i + 1 }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.date }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.categoryName }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.expenseAccountName }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.beneficiary }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.notes || "-" }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: r.treasuryName }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: money(r.amount) })
         ] }, r.id))
       ] }),
-      /* @__PURE__ */ jsx9("tfoot", { children: /* @__PURE__ */ jsxs7("tr", { className: "break-inside-avoid bg-slate-100 font-bold", children: [
-        /* @__PURE__ */ jsxs7("td", { className: th, colSpan: 5, children: [
+      /* @__PURE__ */ jsx10("tfoot", { children: /* @__PURE__ */ jsxs8("tr", { className: "break-inside-avoid bg-slate-100 font-bold", children: [
+        /* @__PURE__ */ jsxs8("td", { className: th, colSpan: 5, children: [
           "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0633\u062C\u0644\u0627\u062A: ",
           len
         ] }),
-        kind === "purchases_report" ? /* @__PURE__ */ jsxs7(Fragment3, { children: [
-          /* @__PURE__ */ jsx9("td", { className: td, children: money(sumReportAmounts(purchasesRows, (r) => r.totalAmount)) }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: money(sumReportAmounts(purchasesRows, (r) => r.paidAmount)) }),
-          /* @__PURE__ */ jsx9("td", { className: td, children: money(sumReportAmounts(purchasesRows, (r) => Math.max(0, (r.totalAmount || 0) - (r.paidAmount || 0)))) })
-        ] }) : /* @__PURE__ */ jsx9("td", { className: td, colSpan: 3, children: kind === "inventory_report" ? "\u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u0646\u0627\u0642\u0635\u0629" : money(sumReportAmounts(expenseRows, (r) => r.amount)) + " " + settings.currency })
+        kind === "purchases_report" ? /* @__PURE__ */ jsxs8(Fragment3, { children: [
+          /* @__PURE__ */ jsx10("td", { className: td, children: money(sumReportAmounts(purchasesRows, (r) => r.totalAmount)) }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: money(sumReportAmounts(purchasesRows, (r) => r.paidAmount)) }),
+          /* @__PURE__ */ jsx10("td", { className: td, children: money(sumReportAmounts(purchasesRows, (r) => Math.max(0, (r.totalAmount || 0) - (r.paidAmount || 0)))) })
+        ] }) : /* @__PURE__ */ jsx10("td", { className: td, colSpan: 3, children: kind === "inventory_report" ? "\u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u0646\u0627\u0642\u0635\u0629" : money(sumReportAmounts(expenseRows, (r) => r.amount)) + " " + settings.currency })
       ] }) })
     ] }),
-    /* @__PURE__ */ jsx9(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0648\u0645\u0631\u0627\u062C\u0639\u0629", centerLabel: "\u062A\u062F\u0642\u064A\u0642 \u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A", leftLabel: "\u0627\u0644\u062E\u062A\u0645 \u0648\u0627\u0644\u062A\u0648\u0642\u064A\u0639" })
+    /* @__PURE__ */ jsx10(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0648\u0645\u0631\u0627\u062C\u0639\u0629", centerLabel: "\u062A\u062F\u0642\u064A\u0642 \u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A", leftLabel: "\u0627\u0644\u062E\u062A\u0645 \u0648\u0627\u0644\u062A\u0648\u0642\u064A\u0639" })
   ] });
 };
 
 // src/components/ReportsView.tsx
-import { jsx as jsx10, jsxs as jsxs8 } from "react/jsx-runtime";
+import { jsx as jsx11, jsxs as jsxs9 } from "react/jsx-runtime";
 var ReportsView = ({ initialReport, exportSelection }) => {
   const {
     accounts,
@@ -3104,23 +3332,36 @@ var ReportsView = ({ initialReport, exportSelection }) => {
     employeeIncentives,
     debtClearings
   } = useAccounting();
-  const [activeReport, setActiveReport] = useState3(initialReport || "customer_statement");
+  const [activeReport, setActiveReport] = useState4(initialReport || "customer_statement");
+  const reportsConsoleRef = useRef4(null);
+  const { sidebarRef, sidebarContentRef } = useReportsSidebarFit();
+  React7.useLayoutEffect(() => {
+    const node = reportsConsoleRef.current;
+    if (!node) return;
+    const fit = () => {
+      const top = node.getBoundingClientRect().top;
+      node.style.height = Math.max(350, window.innerHeight - top - 7) + "px";
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
   useEffect4(() => {
     if (initialReport) {
       setActiveReport(initialReport);
     }
   }, [initialReport]);
-  const [fromDate, setFromDate] = useState3(exportSelection?.fromDate || "");
-  const [toDate, setToDate] = useState3(exportSelection?.toDate || "");
-  const [searchQuery, setSearchQuery] = useState3("");
+  const [fromDate, setFromDate] = useState4(exportSelection?.fromDate || "");
+  const [toDate, setToDate] = useState4(exportSelection?.toDate || "");
+  const [searchQuery, setSearchQuery] = useState4("");
   const mainCustomers = useMemo2(() => {
     return parties.filter((p) => (p.type === "customer" || p.type === "both") && !p.parentPartyId && !p.isSubCustomer);
   }, [parties]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState3(() => {
+  const [selectedCustomerId, setSelectedCustomerId] = useState4(() => {
     const target = parties.find((p) => p.id === exportSelection?.partyId);
     return target?.parentPartyId || target?.parentCustomerId || target?.id || mainCustomers[0]?.id || "";
   });
-  const [selectedSubCustomerId, setSelectedSubCustomerId] = useState3(() => {
+  const [selectedSubCustomerId, setSelectedSubCustomerId] = useState4(() => {
     const target = parties.find((p) => p.id === exportSelection?.partyId);
     return exportSelection?.subPartyId || (target?.parentPartyId || target?.parentCustomerId ? target.id : "all");
   });
@@ -3154,11 +3395,11 @@ var ReportsView = ({ initialReport, exportSelection }) => {
   const mainSuppliers = useMemo2(() => {
     return parties.filter((p) => (p.type === "supplier" || p.type === "both") && !p.parentPartyId && !p.isSubCustomer);
   }, [parties]);
-  const [selectedSupplierId, setSelectedSupplierId] = useState3(() => {
+  const [selectedSupplierId, setSelectedSupplierId] = useState4(() => {
     const target = parties.find((p) => p.id === exportSelection?.partyId);
     return target?.parentPartyId || target?.parentCustomerId || target?.id || mainSuppliers[0]?.id || "";
   });
-  const [selectedSubSupplierId, setSelectedSubSupplierId] = useState3(() => {
+  const [selectedSubSupplierId, setSelectedSubSupplierId] = useState4(() => {
     const target = parties.find((p) => p.id === exportSelection?.partyId);
     return exportSelection?.subPartyId || (target?.parentPartyId || target?.parentCustomerId ? target.id : "all");
   });
@@ -3215,16 +3456,38 @@ var ReportsView = ({ initialReport, exportSelection }) => {
       raw: emp
     }));
   }, [employees]);
-  const [receiptTreasuryFilter, setReceiptTreasuryFilter] = useState3("all");
-  const [paymentTreasuryFilter, setPaymentTreasuryFilter] = useState3("all");
-  const [selectedEmpId, setSelectedEmpId] = useState3(exportSelection?.employeeId || employees[0]?.id || "");
-  const [selectedTreasuryCode, setSelectedTreasuryCode] = useState3("all");
+  const [receiptTreasuryFilter, setReceiptTreasuryFilter] = useState4("all");
+  const [paymentTreasuryFilter, setPaymentTreasuryFilter] = useState4("all");
+  const [selectedEmpId, setSelectedEmpId] = useState4(exportSelection?.employeeId || employees[0]?.id || "");
+  const [selectedTreasuryCode, setSelectedTreasuryCode] = useState4("all");
   const supportsDetailedStatementPdf = activeReport === "customer_statement" || activeReport === "supplier_statement" || activeReport === "employee_statement";
   const handlePrint = () => {
-    window.print();
+    void (async () => {
+      const ready = await waitForStatementPrintPhotos();
+      if (!ready && !window.confirm("\u0644\u0645 \u062A\u0643\u062A\u0645\u0644 \u0628\u0639\u0636 \u0627\u0644\u0635\u0648\u0631 \u0627\u0644\u0623\u0635\u0644\u064A\u0629 \u0639\u0627\u0644\u064A\u0629 \u0627\u0644\u062F\u0642\u0629. \u0647\u0644 \u062A\u0631\u063A\u0628 \u0628\u0627\u0644\u0637\u0628\u0627\u0639\u0629 \u0628\u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0644\u0635\u0648\u0631 \u0627\u0644\u0645\u0635\u063A\u0651\u0631\u0629 \u0627\u0644\u0645\u062A\u0627\u062D\u0629\u061F")) return;
+      window.print();
+    })();
   };
-  const [serverPdfDownloading, setServerPdfDownloading] = useState3(false);
-  const serverPdfInFlight = useRef2(false);
+  const [serverPdfDownloading, setServerPdfDownloading] = useState4(false);
+  const [directPdfOptionsReady, setDirectPdfOptionsReady] = useState4(false);
+  useEffect4(() => {
+    const controller = new AbortController();
+    let mounted = true;
+    try {
+      fetch(publicSyncApiUrl() + "/api/v1/health", { cache: "no-store", signal: controller.signal }).then((response) => response.ok ? response.json() : null).then((data) => {
+        if (mounted) setDirectPdfOptionsReady(data?.features?.pdfDisplayOptionsV1 === true);
+      }).catch(() => {
+        if (mounted) setDirectPdfOptionsReady(false);
+      });
+    } catch {
+      setDirectPdfOptionsReady(false);
+    }
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, []);
+  const serverPdfInFlight = useRef4(false);
   const handleDownloadDetailedStatementPdf = async () => {
     if (!supportsDetailedStatementPdf || serverPdfInFlight.current) return;
     let filename;
@@ -3262,6 +3525,10 @@ var ReportsView = ({ initialReport, exportSelection }) => {
         kind: "employee"
       });
     }
+    if (!directPdfOptionsReady) {
+      printStatementWithNativeBrowser(filename, handlePrint);
+      return;
+    }
     serverPdfInFlight.current = true;
     setServerPdfDownloading(true);
     try {
@@ -3276,6 +3543,11 @@ var ReportsView = ({ initialReport, exportSelection }) => {
         showImages: showStatementImageThumbnails
       }, filename);
     } catch (error) {
+      if (error instanceof Error && error.message === "PDF_DISPLAY_OPTIONS_NOT_CONFIRMED") {
+        setDirectPdfOptionsReady(false);
+        printStatementWithNativeBrowser(filename, handlePrint);
+        return;
+      }
       console.error("Server Chrome statement PDF generation failed", error);
       alert("\u062A\u0639\u0630\u0651\u0631 \u0625\u0646\u0634\u0627\u0621 \u0645\u0644\u0641 PDF \u0645\u0628\u0627\u0634\u0631\u0629 \u0645\u0646 \u0627\u0644\u062E\u0627\u062F\u0645. \u0644\u0645 \u062A\u062A\u063A\u064A\u0631 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0645\u062D\u0627\u0633\u0628\u064A\u0629. \u064A\u0645\u0643\u0646 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \xAB\u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u062A\u0642\u0631\u064A\u0631\xBB \u062B\u0645 Save as PDF \u0639\u0646\u062F \u0627\u0644\u062D\u0627\u062C\u0629. " + (error instanceof Error ? error.message : ""));
     } finally {
@@ -3292,9 +3564,9 @@ var ReportsView = ({ initialReport, exportSelection }) => {
     link.download = `${filename}_${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.csv`;
     link.click();
   };
-  const [showStatementItemDetails, setShowStatementItemDetails] = useState3(exportSelection?.showItemDetails ?? true);
-  const [showStatementImageThumbnails, setShowStatementImageThumbnails] = useState3(exportSelection?.showImages ?? true);
-  const [previewModalImage, setPreviewModalImage] = useState3(null);
+  const [showStatementItemDetails, setShowStatementItemDetails] = useState4(exportSelection?.showItemDetails ?? true);
+  const [showStatementImageThumbnails, setShowStatementImageThumbnails] = useState4(exportSelection?.showImages ?? true);
+  const [previewModalImage, setPreviewModalImage] = useState4(null);
   const selectedSubCustObj = useMemo2(() => {
     if (!selectedSubCustomerId || selectedSubCustomerId === "all") return null;
     return subCustomersForSelected.find((s) => s.id === selectedSubCustomerId);
@@ -3313,6 +3585,7 @@ var ReportsView = ({ initialReport, exportSelection }) => {
       purchaseReturns,
       salesReturns,
       vouchers,
+      treasuries,
       printOrders,
       journalEntries,
       debtClearings,
@@ -3332,7 +3605,7 @@ var ReportsView = ({ initialReport, exportSelection }) => {
       fromDate,
       toDate
     };
-  }, [parties, selectedCustomerId, selectedSubCustomerId, subCustomersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, printOrders, journalEntries, debtClearings, fromDate, toDate]);
+  }, [parties, selectedCustomerId, selectedSubCustomerId, subCustomersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, treasuries, printOrders, journalEntries, debtClearings, fromDate, toDate]);
   const customerItemsData = useMemo2(() => {
     const cust = parties.find((p) => p.id === selectedCustomerId);
     if (!cust) return { party: null, items: [], totalQuantity: 0, totalAmount: 0 };
@@ -3409,6 +3682,7 @@ var ReportsView = ({ initialReport, exportSelection }) => {
       purchaseReturns,
       salesReturns,
       vouchers,
+      treasuries,
       printOrders,
       journalEntries,
       debtClearings,
@@ -3428,7 +3702,7 @@ var ReportsView = ({ initialReport, exportSelection }) => {
       fromDate,
       toDate
     };
-  }, [parties, selectedSupplierId, selectedSubSupplierId, subSuppliersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, printOrders, journalEntries, debtClearings, fromDate, toDate]);
+  }, [parties, selectedSupplierId, selectedSubSupplierId, subSuppliersForSelected, invoices, purchases, purchaseReturns, salesReturns, vouchers, treasuries, printOrders, journalEntries, debtClearings, fromDate, toDate]);
   const supplierItemsData = useMemo2(() => {
     const supp = parties.find((p) => p.id === selectedSupplierId);
     if (!supp) return { party: null, items: [], totalQuantity: 0, totalAmount: 0 };
@@ -3827,1128 +4101,1121 @@ var ReportsView = ({ initialReport, exportSelection }) => {
       ]
     }
   ];
-  return /* @__PURE__ */ jsxs8("div", { className: "space-y-5", dir: "rtl", children: [
-    /* @__PURE__ */ jsxs8("div", { className: "bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 print:hidden", children: [
-      /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-2.5", children: [
-        /* @__PURE__ */ jsx10("div", { className: "w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold", children: /* @__PURE__ */ jsx10(BarChart3, { className: "w-5 h-5" }) }),
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsx10("h1", { className: "text-base font-bold text-slate-900", children: "\u0645\u0631\u0643\u0632 \u0627\u0644\u062A\u0642\u0627\u0631\u064A\u0631 \u0627\u0644\u0645\u062D\u0627\u0633\u0628\u064A\u0629 \u0648\u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A\u0629" }),
-          /* @__PURE__ */ jsx10("p", { className: "text-[10px] text-slate-400 font-light", children: "\u0643\u0634\u0648\u0641\u0627\u062A \u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A \u0627\u0644\u0645\u0639\u062A\u0645\u062F\u0629\u060C \u062D\u0631\u0643\u0627\u062A \u0648\u062A\u062C\u0645\u064A\u0639 \u0627\u0644\u0623\u0635\u0646\u0627\u0641\u060C \u0633\u0646\u062F\u0627\u062A \u0627\u0644\u0642\u0628\u0636 \u0648\u0627\u0644\u0635\u0631\u0641\u060C \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0648\u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0648\u0627\u0644\u0642\u0648\u0627\u0626\u0645 \u0627\u0644\u0645\u0627\u0644\u064A\u0629" })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-2", children: [
-        supportsDetailedStatementPdf && /* @__PURE__ */ jsxs8(
-          "button",
-          {
-            type: "button",
-            onClick: () => {
-              void handleDownloadDetailedStatementPdf();
-            },
-            disabled: serverPdfDownloading,
-            className: "flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer",
-            title: "\u062D\u0641\u0638 PDF \u0645\u0628\u0627\u0634\u0631\u0629 \u0628\u0645\u062D\u0631\u0643 Chrome \u0639\u0644\u0649 \u0627\u0644\u062E\u0627\u062F\u0645\u060C \u062F\u0648\u0646 \u0641\u062A\u062D \u0646\u0627\u0641\u0630\u0629 \u0627\u0644\u0637\u0628\u0627\u0639\u0629",
-            children: [
-              /* @__PURE__ */ jsx10(Download, { className: "w-4 h-4" }),
-              /* @__PURE__ */ jsx10("span", { children: serverPdfDownloading ? "\u062C\u0627\u0631\u064A \u0625\u0646\u0634\u0627\u0621 PDF..." : "\u062D\u0641\u0638 PDF \u0645\u0628\u0627\u0634\u0631" })
-            ]
-          }
-        ),
-        /* @__PURE__ */ jsxs8(
-          "button",
-          {
-            onClick: handlePrint,
-            className: "flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer",
-            children: [
-              /* @__PURE__ */ jsx10(Printer, { className: "w-4 h-4" }),
-              /* @__PURE__ */ jsx10("span", { children: "\u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u062A\u0642\u0631\u064A\u0631" })
-            ]
-          }
-        )
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxs8("div", { className: "bg-white p-3 rounded-xl border border-slate-200 shadow-xs print:hidden space-y-2", children: [
-      /* @__PURE__ */ jsx10("div", { className: "flex items-center gap-1 text-[11px] text-slate-400 font-bold mb-1", children: /* @__PURE__ */ jsx10("span", { children: "\u0627\u062E\u062A\u0631 \u0627\u0644\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u0645\u0637\u0644\u0648\u0628:" }) }),
-      /* @__PURE__ */ jsx10("div", { className: "flex flex-wrap gap-1.5", children: reportsCategories.flatMap((cat) => cat.items).map((item) => {
-        const Icon = item.icon;
-        const isSelected = activeReport === item.id;
-        return /* @__PURE__ */ jsxs8(
-          "button",
-          {
-            onClick: () => setActiveReport(item.id),
-            className: `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${isSelected ? "bg-blue-600 text-white shadow-xs font-bold" : "bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200"}`,
-            children: [
-              /* @__PURE__ */ jsx10(Icon, { className: "w-3.5 h-3.5" }),
-              /* @__PURE__ */ jsx10("span", { children: item.name })
-            ]
-          },
-          item.id
-        );
-      }) })
-    ] }),
-    /* @__PURE__ */ jsxs8("div", { className: "bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3 print:hidden text-xs", children: [
-      /* @__PURE__ */ jsxs8("div", { className: "flex flex-wrap items-center gap-3", children: [
-        (activeReport === "customer_statement" || activeReport === "customer_items") && /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-2 flex-wrap min-w-[280px]", children: [
-          /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs", children: [
-            /* @__PURE__ */ jsx10("div", { className: "p-1 rounded bg-blue-100 text-blue-700", children: /* @__PURE__ */ jsx10(Users, { className: "w-3.5 h-3.5" }) }),
-            /* @__PURE__ */ jsx10("span", { children: "\u0627\u0644\u0632\u0628\u0648\u0646 / \u0627\u0644\u0639\u0645\u064A\u0644:" })
+  return /* @__PURE__ */ jsxs9("div", { ref: reportsConsoleRef, className: "reports-dashboard flex flex-col gap-0 min-h-0 print:block", dir: "rtl", children: [
+    /* @__PURE__ */ jsxs9("div", { className: "reports-dashboard-grid grid grid-cols-1 lg:grid-cols-[minmax(390px,32%)_minmax(0,1fr)] gap-3 items-stretch flex-1 min-h-0 print:block print:space-y-0", children: [
+      /* @__PURE__ */ jsxs9("aside", { ref: sidebarRef, className: "reports-sidebar self-start print:hidden bg-white rounded-xl border border-slate-200 shadow-xs p-2.5 flex flex-col gap-2 min-h-0 overflow-visible", "aria-label": "\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u062A\u0642\u0631\u064A\u0631 \u0648\u0625\u0639\u062F\u0627\u062F\u0627\u062A\u0647", children: [
+        /* @__PURE__ */ jsxs9("header", { className: "reports-dashboard-header flex items-center justify-start gap-1.5 px-1 py-1 border-b border-slate-100 min-w-0 print:hidden", children: [
+          /* @__PURE__ */ jsxs9("div", { className: "reports-header-title flex items-center gap-1 min-w-0", title: "\u0645\u0631\u0643\u0632 \u0627\u0644\u062A\u0642\u0627\u0631\u064A\u0631 \u0627\u0644\u0645\u062D\u0627\u0633\u0628\u064A\u0629 \u0648\u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A\u0629", children: [
+            /* @__PURE__ */ jsx11("div", { className: "w-5 h-5 rounded bg-blue-50 text-blue-600 flex items-center justify-center shrink-0", children: /* @__PURE__ */ jsx11(BarChart3, { className: "w-3.5 h-3.5" }) }),
+            /* @__PURE__ */ jsx11("h1", { className: "font-bold text-slate-900 text-xs truncate whitespace-nowrap", children: "\u0645\u0631\u0643\u0632 \u0627\u0644\u062A\u0642\u0627\u0631\u064A\u0631 \u0627\u0644\u0645\u062D\u0627\u0633\u0628\u064A\u0629 \u0648\u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A\u0629" })
           ] }),
-          /* @__PURE__ */ jsx10("div", { className: "w-64 sm:w-72", children: /* @__PURE__ */ jsx10(
-            AutocompleteCombobox,
-            {
-              items: customerComboboxOptions,
-              selectedId: selectedSubCustomerId !== "all" ? selectedSubCustomerId : selectedCustomerId,
-              value: parties.find((p) => p.id === (selectedSubCustomerId !== "all" ? selectedSubCustomerId : selectedCustomerId))?.name || "",
-              onSelect: (opt) => {
-                if (opt.raw) {
-                  if (opt.raw.parentPartyId) {
-                    setSelectedCustomerId(opt.raw.parentPartyId);
-                    setSelectedSubCustomerId(opt.raw.id);
-                  } else {
-                    setSelectedCustomerId(opt.raw.id);
-                    setSelectedSubCustomerId("all");
-                  }
-                }
-              },
-              entityType: "customer",
-              placeholder: "\u0627\u0628\u062D\u062B \u0648\u0627\u0643\u062A\u0628 \u0627\u0633\u0645 \u0627\u0644\u0632\u0628\u0648\u0646 \u0644\u0644\u0645\u0637\u0627\u0628\u0642\u0629...",
-              className: "w-full text-xs",
-              inputClassName: "py-1 px-2.5 text-xs font-bold bg-slate-50 border-slate-200"
-            }
-          ) }),
-          subCustomersForSelected.length > 0 && /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-1.5", children: [
-            /* @__PURE__ */ jsx10("span", { className: "font-bold text-slate-500", children: "\u0627\u0644\u0632\u0628\u0648\u0646 \u0627\u0644\u0641\u0631\u0639\u064A:" }),
-            /* @__PURE__ */ jsxs8(
-              "select",
+          /* @__PURE__ */ jsx11("div", { id: "reports-pager-toolbar", className: "reports-pager-toolbar min-w-0 print:hidden", "aria-label": "\u0627\u0644\u062A\u062D\u0643\u0645 \u0628\u0635\u0641\u062D\u0627\u062A \u0627\u0644\u062A\u0642\u0631\u064A\u0631" })
+        ] }),
+        /* @__PURE__ */ jsxs9("div", { ref: sidebarContentRef, className: "reports-sidebar-content", children: [
+          /* @__PURE__ */ jsxs9("div", { className: "reports-action-row grid grid-cols-2 gap-2", children: [
+            supportsDetailedStatementPdf && /* @__PURE__ */ jsxs9(
+              "button",
               {
-                value: selectedSubCustomerId,
-                onChange: (e) => setSelectedSubCustomerId(e.target.value),
-                className: "bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1 text-xs text-blue-900 font-semibold",
+                type: "button",
+                onClick: () => {
+                  void handleDownloadDetailedStatementPdf();
+                },
+                disabled: serverPdfDownloading,
+                className: "w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-bold px-3.5 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer",
+                title: directPdfOptionsReady ? "\u062D\u0641\u0638 PDF \u0645\u0628\u0627\u0634\u0631\u0629 \u0645\u0646 \u0627\u0644\u062E\u0627\u062F\u0645 \u0645\u0639 \u062A\u0637\u0628\u064A\u0642 \u0627\u0644\u0635\u0648\u0631 \u0648\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644" : "\u062D\u0641\u0638 \u0628\u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0646\u0627\u0641\u0630\u0629 \u0627\u0644\u0637\u0628\u0627\u0639\u0629 \u062B\u0645 Save as PDF \u062D\u062A\u0649 \u064A\u062A\u0645 \u062A\u062D\u062F\u064A\u062B \u062E\u062F\u0645\u0629 \u0627\u0644\u062E\u0627\u062F\u0645",
                 children: [
-                  /* @__PURE__ */ jsx10("option", { value: "all", children: "\u0643\u0644 \u0627\u0644\u0632\u0628\u0627\u0626\u0646 \u0627\u0644\u0641\u0631\u0639\u064A\u064A\u0646 \u0648\u0627\u0644\u062A\u0627\u0628\u0639\u0650\u064A\u0646" }),
-                  subCustomersForSelected.map((sub) => /* @__PURE__ */ jsx10("option", { value: sub.id, children: sub.name }, sub.id))
+                  /* @__PURE__ */ jsx11(Download, { className: "w-4 h-4" }),
+                  /* @__PURE__ */ jsx11("span", { children: serverPdfDownloading ? "\u062C\u0627\u0631\u064A \u0625\u0646\u0634\u0627\u0621 PDF..." : directPdfOptionsReady ? "\u062D\u0641\u0638 PDF \u0645\u0628\u0627\u0634\u0631" : "\u062D\u0641\u0638 PDF (\u0637\u0628\u0627\u0639\u0629)" })
+                ]
+              }
+            ),
+            /* @__PURE__ */ jsxs9(
+              "button",
+              {
+                onClick: handlePrint,
+                className: "w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer",
+                children: [
+                  /* @__PURE__ */ jsx11(Printer, { className: "w-4 h-4" }),
+                  /* @__PURE__ */ jsx11("span", { children: "\u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u062A\u0642\u0631\u064A\u0631" })
                 ]
               }
             )
           ] }),
-          activeReport === "customer_statement" && /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-1.5 flex-wrap", children: [
-            /* @__PURE__ */ jsx10("div", { className: "h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5" }),
-            /* @__PURE__ */ jsx10(
+          /* @__PURE__ */ jsx11("section", { className: "reports-selector border-t border-slate-200 pt-2 space-y-1", children: /* @__PURE__ */ jsx11("div", { className: "reports-report-selector-list flex flex-col gap-0.5", children: [...reportsCategories.slice(1, 5).flatMap((cat) => cat.items), ...reportsCategories[0].items, ...reportsCategories.slice(5).flatMap((cat) => cat.items)].map((item) => {
+            const Icon = item.icon;
+            const isSelected = activeReport === item.id;
+            return /* @__PURE__ */ jsxs9(
               "button",
               {
-                type: "button",
-                onClick: () => setShowStatementItemDetails((prev) => !prev),
-                className: `px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-colors flex items-center gap-1.5 border select-none ${showStatementItemDetails ? "bg-blue-600 text-white border-blue-700 shadow-xs" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"}`,
-                children: /* @__PURE__ */ jsx10("span", { children: showStatementItemDetails ? "\u0625\u062E\u0641\u0627\u0621 \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" : "\u0625\u0638\u0647\u0627\u0631 \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631 \u0648\u0627\u0644\u0645\u0642\u0627\u0633\u0627\u062A" })
-              }
-            ),
-            /* @__PURE__ */ jsxs8(
-              "button",
-              {
-                type: "button",
-                onClick: () => setShowStatementImageThumbnails((prev) => !prev),
-                className: `px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-all flex items-center gap-1 border select-none ${showStatementImageThumbnails ? "bg-purple-600 text-white border-purple-700 shadow-2xs hover:bg-purple-700" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"}`,
-                title: showStatementImageThumbnails ? "\u0625\u062E\u0641\u0627\u0621 \u0645\u0635\u063A\u0631\u0627\u062A \u0635\u0648\u0631 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0645\u0646 \u0627\u0644\u0643\u0634\u0641" : "\u0625\u0638\u0647\u0627\u0631 \u0645\u0635\u063A\u0631\u0627\u062A \u0635\u0648\u0631 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u062A\u062D\u062A \u062C\u062F\u0648\u0644 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",
+                onClick: () => setActiveReport(item.id),
+                "aria-pressed": isSelected,
+                className: `w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-right font-semibold transition-all cursor-pointer ${isSelected ? "bg-blue-600 text-white shadow-xs font-bold" : "bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200"}`,
                 children: [
-                  /* @__PURE__ */ jsx10(ImageIcon, { className: `w-3 h-3 ${showStatementImageThumbnails ? "text-amber-300" : "text-purple-600"}` }),
-                  /* @__PURE__ */ jsx10("span", { children: showStatementImageThumbnails ? "\u0625\u062E\u0641\u0627\u0621 \u0635\u0648\u0631 \u0627\u0644\u0623\u0635\u0646\u0627\u0641" : "\u0625\u0638\u0647\u0627\u0631 \u0635\u0648\u0631 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u{1F5BC}\uFE0F" })
+                  /* @__PURE__ */ jsx11(Icon, { className: "w-4 h-4 shrink-0" }),
+                  /* @__PURE__ */ jsx11("span", { className: "min-w-0", children: item.name })
                 ]
-              }
-            ),
-            /* @__PURE__ */ jsxs8("div", { className: "text-[10px] text-slate-500 font-bold bg-slate-100 border border-slate-200 rounded px-2 py-1 select-none", children: [
-              "\u0639\u062F\u062F \u0627\u0644\u062D\u0631\u0643\u0627\u062A: ",
-              /* @__PURE__ */ jsx10("strong", { className: "font-mono text-slate-900", children: customerStatementData?.rows?.length || 0 })
-            ] })
-          ] })
-        ] }),
-        (activeReport === "supplier_statement" || activeReport === "supplier_items") && /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-2 flex-wrap min-w-[280px]", children: [
-          /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs", children: [
-            /* @__PURE__ */ jsx10("div", { className: "p-1 rounded bg-amber-100 text-amber-700", children: /* @__PURE__ */ jsx10(Truck2, { className: "w-3.5 h-3.5" }) }),
-            /* @__PURE__ */ jsx10("span", { children: "\u0627\u0644\u0645\u0648\u0631\u062F:" })
-          ] }),
-          /* @__PURE__ */ jsx10("div", { className: "w-64 sm:w-72", children: /* @__PURE__ */ jsx10(
-            AutocompleteCombobox,
-            {
-              items: supplierComboboxOptions,
-              selectedId: selectedSubSupplierId !== "all" ? selectedSubSupplierId : selectedSupplierId,
-              value: parties.find((p) => p.id === (selectedSubSupplierId !== "all" ? selectedSubSupplierId : selectedSupplierId))?.name || "",
-              onSelect: (opt) => {
-                if (opt.raw) {
-                  if (opt.raw.parentPartyId) {
-                    setSelectedSupplierId(opt.raw.parentPartyId);
-                    setSelectedSubSupplierId(opt.raw.id);
-                  } else {
-                    setSelectedSupplierId(opt.raw.id);
-                    setSelectedSubSupplierId("all");
+              },
+              item.id
+            );
+          }) }) }),
+          /* @__PURE__ */ jsxs9("section", { className: "reports-filters border-t border-slate-200 pt-2 space-y-1 text-xs", children: [
+            /* @__PURE__ */ jsxs9("div", { className: "reports-filter-fields flex flex-col items-stretch gap-1.5 w-full min-w-0", children: [
+              (activeReport === "customer_statement" || activeReport === "customer_items") && /* @__PURE__ */ jsxs9("div", { className: "reports-entity-picker flex flex-col items-stretch gap-1 min-w-0 w-full", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs", children: [
+                  /* @__PURE__ */ jsx11("div", { className: "p-1 rounded bg-blue-100 text-blue-700", children: /* @__PURE__ */ jsx11(Users, { className: "w-3.5 h-3.5" }) }),
+                  /* @__PURE__ */ jsx11("span", { children: "\u0627\u0644\u0632\u0628\u0648\u0646 / \u0627\u0644\u0639\u0645\u064A\u0644:" })
+                ] }),
+                /* @__PURE__ */ jsx11("div", { className: "w-full min-w-0", children: /* @__PURE__ */ jsx11(
+                  AutocompleteCombobox,
+                  {
+                    items: customerComboboxOptions,
+                    selectedId: selectedSubCustomerId !== "all" ? selectedSubCustomerId : selectedCustomerId,
+                    value: parties.find((p) => p.id === (selectedSubCustomerId !== "all" ? selectedSubCustomerId : selectedCustomerId))?.name || "",
+                    onSelect: (opt) => {
+                      if (opt.raw) {
+                        if (opt.raw.parentPartyId) {
+                          setSelectedCustomerId(opt.raw.parentPartyId);
+                          setSelectedSubCustomerId(opt.raw.id);
+                        } else {
+                          setSelectedCustomerId(opt.raw.id);
+                          setSelectedSubCustomerId("all");
+                        }
+                      }
+                    },
+                    entityType: "customer",
+                    placeholder: "\u0627\u0628\u062D\u062B \u0648\u0627\u0643\u062A\u0628 \u0627\u0633\u0645 \u0627\u0644\u0632\u0628\u0648\u0646 \u0644\u0644\u0645\u0637\u0627\u0628\u0642\u0629...",
+                    className: "w-full text-xs",
+                    inputClassName: "py-1 px-2.5 text-xs font-bold bg-slate-50 border-slate-200"
                   }
-                }
-              },
-              entityType: "supplier",
-              placeholder: "\u0627\u0628\u062D\u062B \u0648\u0627\u0643\u062A\u0628 \u0627\u0633\u0645 \u0627\u0644\u0645\u0648\u0631\u062F \u0644\u0644\u0645\u0637\u0627\u0628\u0642\u0629...",
-              className: "w-full text-xs",
-              inputClassName: "py-1 px-2.5 text-xs font-bold bg-slate-50 border-slate-200"
-            }
-          ) }),
-          subSuppliersForSelected.length > 0 && /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-1.5", children: [
-            /* @__PURE__ */ jsx10("span", { className: "font-bold text-slate-500", children: "\u0627\u0644\u0641\u0631\u0639\u064A:" }),
-            /* @__PURE__ */ jsxs8(
-              "select",
-              {
-                value: selectedSubSupplierId,
-                onChange: (e) => setSelectedSubSupplierId(e.target.value),
-                className: "bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 text-xs text-amber-900 font-semibold",
-                children: [
-                  /* @__PURE__ */ jsx10("option", { value: "all", children: "\u0643\u0644 \u0627\u0644\u0641\u0631\u0648\u0639 \u0627\u0644\u062A\u0627\u0628\u0639\u0629" }),
-                  subSuppliersForSelected.map((sub) => /* @__PURE__ */ jsx10("option", { value: sub.id, children: sub.name }, sub.id))
-                ]
-              }
-            )
-          ] }),
-          activeReport === "supplier_statement" && /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-1.5 flex-wrap", children: [
-            /* @__PURE__ */ jsx10("div", { className: "h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5" }),
-            /* @__PURE__ */ jsx10(
-              "button",
-              {
-                type: "button",
-                onClick: () => setShowStatementItemDetails((prev) => !prev),
-                className: `px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-colors flex items-center gap-1.5 border select-none ${showStatementItemDetails ? "bg-amber-700 text-white border-amber-800 shadow-xs" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"}`,
-                children: /* @__PURE__ */ jsx10("span", { children: showStatementItemDetails ? "\u0625\u062E\u0641\u0627\u0621 \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" : "\u0625\u0638\u0647\u0627\u0631 \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631 \u0648\u0627\u0644\u0645\u0642\u0627\u0633\u0627\u062A" })
-              }
-            ),
-            /* @__PURE__ */ jsxs8("div", { className: "text-[10px] text-slate-500 font-bold bg-slate-100 border border-slate-200 rounded px-2 py-1 select-none", children: [
-              "\u0639\u062F\u062F \u0627\u0644\u062D\u0631\u0643\u0627\u062A: ",
-              /* @__PURE__ */ jsx10("strong", { className: "font-mono text-slate-900", children: supplierStatementData?.rows?.length || 0 })
-            ] })
-          ] })
-        ] }),
-        activeReport === "employee_statement" && /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-2 flex-wrap min-w-[280px]", children: [
-          /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs", children: [
-            /* @__PURE__ */ jsx10(UserCheck2, { className: "w-4 h-4 text-purple-600" }),
-            /* @__PURE__ */ jsx10("span", { children: "\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0645\u0648\u0638\u0641:" })
-          ] }),
-          /* @__PURE__ */ jsx10("div", { className: "w-64", children: /* @__PURE__ */ jsx10(
-            AutocompleteCombobox,
-            {
-              items: employeeComboboxOptions,
-              selectedId: selectedEmpId,
-              value: employees.find((employee) => employee.id === selectedEmpId)?.name || "",
-              onSelect: (employee) => setSelectedEmpId(employee.id),
-              entityType: "employee",
-              placeholder: "\u0627\u0628\u062D\u062B \u0628\u0627\u0644\u0627\u0633\u0645 \u0623\u0648 \u0631\u0642\u0645 \u0627\u0644\u0645\u0648\u0638\u0641..."
-            }
-          ) }),
-          /* @__PURE__ */ jsxs8("div", { className: "text-[10px] text-slate-500 font-bold bg-slate-100 border border-slate-200 rounded px-2 py-1 select-none", children: [
-            "\u0639\u062F\u062F \u0627\u0644\u062D\u0631\u0643\u0627\u062A: ",
-            /* @__PURE__ */ jsx10("strong", { className: "font-mono text-slate-900", children: employeeStatementData?.rows?.length || 0 })
-          ] })
-        ] }),
-        (activeReport === "treasuries_movement" || activeReport === "receipt_vouchers" || activeReport === "payment_vouchers") && /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-2", children: [
-          /* @__PURE__ */ jsx10("span", { className: "font-bold text-slate-700", children: "\u0627\u0644\u062E\u0632\u064A\u0646\u0629 / \u0627\u0644\u062D\u0633\u0627\u0628:" }),
-          /* @__PURE__ */ jsxs8(
-            "select",
-            {
-              value: activeReport === "treasuries_movement" ? selectedTreasuryCode : activeReport === "receipt_vouchers" ? receiptTreasuryFilter : paymentTreasuryFilter,
-              onChange: (e) => {
-                const val = e.target.value;
-                if (activeReport === "treasuries_movement") setSelectedTreasuryCode(val);
-                else if (activeReport === "receipt_vouchers") setReceiptTreasuryFilter(val);
-                else setPaymentTreasuryFilter(val);
-              },
-              className: "bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800",
-              children: [
-                /* @__PURE__ */ jsx10("option", { value: "all", children: "\u0643\u0644 \u0627\u0644\u062E\u0632\u0627\u0626\u0646 \u0648\u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A \u0627\u0644\u0628\u0646\u0643\u064A\u0629" }),
-                treasuries.map((t) => /* @__PURE__ */ jsx10("option", { value: t.accountCode, children: t.name }, t.id))
-              ]
-            }
-          )
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-2 text-slate-600", children: [
-        /* @__PURE__ */ jsx10("span", { className: "text-[11px] text-slate-400", children: "\u0645\u0646:" }),
-        /* @__PURE__ */ jsx10(
-          DateInput,
-          {
-            value: fromDate,
-            onChange: (e) => setFromDate(e.target.value),
-            className: "bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs"
-          }
-        ),
-        /* @__PURE__ */ jsx10("span", { className: "text-[11px] text-slate-400", children: "\u0625\u0644\u0649:" }),
-        /* @__PURE__ */ jsx10(
-          DateInput,
-          {
-            value: toDate,
-            onChange: (e) => setToDate(e.target.value),
-            className: "bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs"
-          }
-        ),
-        (fromDate || toDate) && /* @__PURE__ */ jsx10(
-          "button",
-          {
-            onClick: () => {
-              setFromDate("");
-              setToDate("");
-            },
-            className: "text-rose-600 text-[11px] font-bold hover:underline cursor-pointer",
-            children: "\u0625\u0644\u063A\u0627\u0621"
-          }
-        )
-      ] })
-    ] }),
-    activeReport === "customer_statement" && /* @__PURE__ */ jsx10("div", { className: "bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-6 space-y-3 print:p-0 print:border-0 print:shadow-none report-a4-container", children: customerStatementData.statement ? /* @__PURE__ */ jsx10(
-      UnifiedPartyStatementDocument,
-      {
-        partyStatement: customerStatementData.statement,
-        isCustomer: true,
-        settings,
-        clientDisplayName: customerStatementData.party?.name === "\u0632\u0628\u0648\u0646 \u0646\u0642\u062F\u064A" && selectedSubCustObj ? selectedSubCustObj.name : customerStatementData.party?.name || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F",
-        fromDate,
-        toDate,
-        showItemDetails: showStatementItemDetails,
-        showImageThumbnailsInStatement: showStatementImageThumbnails,
-        setPreviewModalImage
-      }
-    ) : /* @__PURE__ */ jsx10("div", { className: "text-center text-slate-500 p-8", children: "\u0627\u062E\u062A\u0631 \u0639\u0645\u064A\u0644\u0627\u064B \u0644\u0639\u0631\u0636 \u0643\u0634\u0641 \u062D\u0633\u0627\u0628\u0647" }) }),
-    activeReport === "customer_items" && /* @__PURE__ */ jsxs8("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
-      /* @__PURE__ */ jsx10(
-        PrintHeader,
-        {
-          title: "\u0643\u0634\u0641 \u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062A\u0631\u0627\u0643\u0645\u064A \u0644\u0644\u0639\u0645\u064A\u0644",
-          subtitle: customerItemsData.party ? `\u0627\u0644\u0639\u0645\u064A\u0644: ${customerItemsData.party.name}` : void 0,
-          docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
-        }
-      ),
-      /* @__PURE__ */ jsxs8("div", { className: "flex items-center justify-between border-b pb-2", children: [
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded", children: "\u062A\u0642\u0631\u064A\u0631 \u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062A\u0631\u0627\u0643\u0645\u064A" }),
-          /* @__PURE__ */ jsxs8("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: [
-            "\u0643\u0634\u0641 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u0645\u0633\u062D\u0648\u0628\u0629 \u0644\u0644\u0639\u0645\u064A\u0644: ",
-            customerItemsData.party?.name
-          ] }),
-          /* @__PURE__ */ jsx10("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u062A\u062C\u0645\u064A\u0639 \u0643\u0645\u064A\u0627\u062A \u0648\u0642\u064A\u0645 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0648\u0645\u0648\u0627\u062F \u0627\u0644\u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u0645\u0633\u062D\u0648\u0628\u0629 \u0645\u0646 \u0642\u0628\u0644 \u0627\u0644\u0639\u0645\u064A\u0644 \u0644\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629" })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "text-left", children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[11px] text-slate-400 block", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0642\u064A\u0645\u0629 \u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A:" }),
-          /* @__PURE__ */ jsxs8("strong", { className: "text-lg font-mono font-bold text-indigo-600", children: [
-            customerItemsData.totalAmount.toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] }),
-          /* @__PURE__ */ jsxs8("span", { className: "text-[10px] text-slate-400 block font-mono", children: [
-            "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0648\u062D\u062F\u0627\u062A: ",
-            customerItemsData.totalQuantity.toLocaleString("ar-SA")
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsx10("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs8("table", { className: "w-full text-right report-table border-collapse", children: [
-        /* @__PURE__ */ jsx10("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-10 min-w-10", children: "\u0645" }),
-          /* @__PURE__ */ jsx10("th", { children: "\u0627\u0633\u0645 \u0627\u0644\u0635\u0646\u0641 / \u0627\u0644\u0645\u0637\u0628\u0648\u0639" }),
-          /* @__PURE__ */ jsx10("th", { children: "\u0627\u0644\u062A\u0635\u0646\u064A\u0641" }),
-          /* @__PURE__ */ jsx10("th", { children: "\u0627\u0644\u0648\u062D\u062F\u0629" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-14 min-w-14", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0643\u0645\u064A\u0629" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-left w-20 min-w-20", children: "\u0645\u062A\u0648\u0633\u0637 \u0627\u0644\u0633\u0639\u0631" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-left w-24 min-w-24", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0642\u064A\u0645\u0629" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-20 min-w-20", children: "\u0622\u062E\u0631 \u0633\u062D\u0628" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-16 min-w-16", children: "\u0639\u062F\u062F \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" })
-        ] }) }),
-        /* @__PURE__ */ jsx10("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: customerItemsData.items.length === 0 ? /* @__PURE__ */ jsx10("tr", { children: /* @__PURE__ */ jsx10("td", { colSpan: 9, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u0645\u0633\u062D\u0648\u0628\u0627\u062A \u0623\u0635\u0646\u0627\u0641 \u0644\u0647\u0630\u0627 \u0627\u0644\u0639\u0645\u064A\u0644 \u062E\u0644\u0627\u0644 \u0627\u0644\u0641\u062A\u0631\u0629" }) }) : customerItemsData.items.map((item, itemIdx) => {
-          const avgPrice = item.totalQuantity > 0 ? item.totalAmount / item.totalQuantity : 0;
-          return /* @__PURE__ */ jsxs8("tr", { className: "hover:bg-slate-50", children: [
-            /* @__PURE__ */ jsx10("td", { className: "font-mono font-bold text-slate-600 text-center", children: itemIdx + 1 }),
-            /* @__PURE__ */ jsx10("td", { className: "font-bold text-slate-900", children: item.itemName }),
-            /* @__PURE__ */ jsx10("td", { className: "text-slate-600", children: item.category }),
-            /* @__PURE__ */ jsx10("td", { className: "text-slate-500", children: item.unit }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono font-bold text-indigo-700 text-center", children: item.totalQuantity.toLocaleString("ar-SA") }),
-            /* @__PURE__ */ jsxs8("td", { className: "font-mono text-slate-700 text-left", children: [
-              avgPrice.toLocaleString("ar-SA", { maximumFractionDigits: 2 }),
-              " ",
-              settings.currency
-            ] }),
-            /* @__PURE__ */ jsxs8("td", { className: "font-mono font-bold text-slate-900 text-left", children: [
-              item.totalAmount.toLocaleString("ar-SA"),
-              " ",
-              settings.currency
-            ] }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono text-slate-500 text-center", children: item.lastDate }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono text-blue-600 font-semibold text-center", children: item.invoiceCount })
-          ] }, `cust-item-${item.itemId || itemIdx}-${itemIdx}`);
-        }) }),
-        /* @__PURE__ */ jsx10("tfoot", { className: "bg-slate-100 font-bold border-t border-slate-300", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("td", { colSpan: 4, className: "text-slate-800", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0639\u0627\u0645:" }),
-          /* @__PURE__ */ jsx10("td", { className: "font-mono text-indigo-700 font-black text-center", children: customerItemsData.totalQuantity.toLocaleString("ar-SA") }),
-          /* @__PURE__ */ jsx10("td", {}),
-          /* @__PURE__ */ jsxs8("td", { className: "font-mono text-slate-900 font-black text-left", children: [
-            customerItemsData.totalAmount.toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] }),
-          /* @__PURE__ */ jsx10("td", { colSpan: 2 })
-        ] }) })
-      ] }) }),
-      /* @__PURE__ */ jsx10(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0627\u0644\u062A\u0642\u0631\u064A\u0631", centerLabel: "\u062A\u0648\u0642\u064A\u0639 \u0648\u062E\u062A\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0645\u0627\u0644\u064A \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
-    ] }),
-    activeReport === "supplier_statement" && /* @__PURE__ */ jsx10("div", { className: "bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-6 space-y-3 print:p-0 print:border-0 print:shadow-none report-a4-container", children: supplierStatementData.statement ? /* @__PURE__ */ jsx10(
-      UnifiedPartyStatementDocument,
-      {
-        partyStatement: supplierStatementData.statement,
-        isCustomer: false,
-        settings,
-        clientDisplayName: supplierStatementData.party?.name === "\u0632\u0628\u0648\u0646 \u0646\u0642\u062F\u064A" && selectedSubSuppObj ? selectedSubSuppObj.name : supplierStatementData.party?.name || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F",
-        fromDate,
-        toDate,
-        showItemDetails: showStatementItemDetails,
-        showImageThumbnailsInStatement: showStatementImageThumbnails,
-        setPreviewModalImage
-      }
-    ) : /* @__PURE__ */ jsx10("div", { className: "text-center text-slate-500 p-8", children: "\u0627\u062E\u062A\u0631 \u0645\u0648\u0631\u062F\u0627\u064B \u0644\u0639\u0631\u0636 \u0643\u0634\u0641 \u062D\u0633\u0627\u0628\u0647" }) }),
-    activeReport === "supplier_items" && /* @__PURE__ */ jsxs8("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
-      /* @__PURE__ */ jsx10(
-        PrintHeader,
-        {
-          title: "\u0643\u0634\u0641 \u0627\u0644\u062E\u0627\u0645\u0627\u062A \u0648\u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A \u0627\u0644\u062A\u0631\u0627\u0643\u0645\u064A \u0644\u0644\u0645\u0648\u0631\u062F",
-          subtitle: supplierItemsData.party ? `\u0627\u0644\u0645\u0648\u0631\u062F: ${supplierItemsData.party.name}` : void 0,
-          docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
-        }
-      ),
-      /* @__PURE__ */ jsxs8("div", { className: "flex items-center justify-between border-b pb-2", children: [
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[10px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded", children: "\u062A\u0642\u0631\u064A\u0631 \u062E\u0627\u0645\u0627\u062A \u0648\u0645\u0634\u062A\u0631\u064A\u0627\u062A \u0627\u0644\u0645\u0648\u0631\u062F \u0627\u0644\u062A\u0631\u0627\u0643\u0645\u064A" }),
-          /* @__PURE__ */ jsxs8("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: [
-            "\u0643\u0634\u0641 \u0627\u0644\u062E\u0627\u0645\u0627\u062A \u0627\u0644\u0645\u0648\u0631\u062F\u0629 \u0645\u0646: ",
-            supplierItemsData.party?.name
-          ] }),
-          /* @__PURE__ */ jsx10("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u062A\u062C\u0645\u064A\u0639 \u0627\u0644\u062E\u0627\u0645\u0627\u062A \u0648\u0645\u0633\u062A\u0644\u0632\u0645\u0627\u062A \u0627\u0644\u0625\u0646\u062A\u0627\u062C \u0648\u0623\u0644\u0648\u0627\u062D \u0627\u0644\u0648\u0631\u0642 \u0627\u0644\u0645\u0648\u0631\u062F\u0629 \u0645\u0646 \u0647\u0630\u0627 \u0627\u0644\u0645\u0648\u0631\u062F \u062E\u0644\u0627\u0644 \u0627\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629" })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "text-left", children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[11px] text-slate-400 block", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0642\u064A\u0645\u0629 \u0627\u0644\u062A\u0648\u0631\u064A\u062F\u0627\u062A:" }),
-          /* @__PURE__ */ jsxs8("strong", { className: "text-lg font-mono font-bold text-amber-700", children: [
-            supplierItemsData.totalAmount.toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] }),
-          /* @__PURE__ */ jsxs8("span", { className: "text-[10px] text-slate-400 block font-mono", children: [
-            "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0643\u0645\u064A\u0627\u062A: ",
-            supplierItemsData.totalQuantity.toLocaleString("ar-SA")
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsx10("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs8("table", { className: "w-full text-right report-table border-collapse", children: [
-        /* @__PURE__ */ jsx10("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("th", { children: "\u0627\u0633\u0645 \u0627\u0644\u062E\u0627\u0645\u0629 / \u0627\u0644\u0635\u0646\u0641" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-16 min-w-16", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0643\u0645\u064A\u0629" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-left w-24 min-w-24", children: "\u0645\u062A\u0648\u0633\u0637 \u0627\u0644\u062A\u0643\u0644\u0641\u0629" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-left w-24 min-w-24", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0642\u064A\u0645\u0629" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-20 min-w-20", children: "\u0622\u062E\u0631 \u062A\u0648\u0631\u064A\u062F" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-16 min-w-16", children: "\u0639\u062F\u062F \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" })
-        ] }) }),
-        /* @__PURE__ */ jsx10("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: supplierItemsData.items.length === 0 ? /* @__PURE__ */ jsx10("tr", { children: /* @__PURE__ */ jsx10("td", { colSpan: 6, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u062A\u0648\u0631\u064A\u062F\u0627\u062A \u0623\u0635\u0646\u0627\u0641 \u0645\u0646 \u0647\u0630\u0627 \u0627\u0644\u0645\u0648\u0631\u062F \u062E\u0644\u0627\u0644 \u0627\u0644\u0641\u062A\u0631\u0629" }) }) : supplierItemsData.items.map((item, itemIdx) => {
-          const avgCost = item.totalQuantity > 0 ? item.totalAmount / item.totalQuantity : 0;
-          return /* @__PURE__ */ jsxs8("tr", { className: "hover:bg-slate-50", children: [
-            /* @__PURE__ */ jsx10("td", { className: "font-bold text-slate-900", children: item.itemName }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono font-bold text-amber-700 text-center", children: item.totalQuantity.toLocaleString("ar-SA") }),
-            /* @__PURE__ */ jsxs8("td", { className: "font-mono text-slate-700 text-left", children: [
-              avgCost.toLocaleString("ar-SA", { maximumFractionDigits: 2 }),
-              " ",
-              settings.currency
-            ] }),
-            /* @__PURE__ */ jsxs8("td", { className: "font-mono font-bold text-slate-900 text-left", children: [
-              item.totalAmount.toLocaleString("ar-SA"),
-              " ",
-              settings.currency
-            ] }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono text-slate-500 text-center", children: item.lastDate }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono text-amber-600 font-semibold text-center", children: item.invoiceCount })
-          ] }, `supp-item-${item.itemId || itemIdx}-${itemIdx}`);
-        }) }),
-        /* @__PURE__ */ jsx10("tfoot", { className: "bg-slate-100 font-bold border-t border-slate-300", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("td", { className: "text-slate-800", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0639\u0627\u0645:" }),
-          /* @__PURE__ */ jsx10("td", { className: "font-mono text-amber-700 font-black text-center", children: supplierItemsData.totalQuantity.toLocaleString("ar-SA") }),
-          /* @__PURE__ */ jsx10("td", {}),
-          /* @__PURE__ */ jsxs8("td", { className: "font-mono text-slate-900 font-black text-left", children: [
-            supplierItemsData.totalAmount.toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] }),
-          /* @__PURE__ */ jsx10("td", { colSpan: 2 })
-        ] }) })
-      ] }) }),
-      /* @__PURE__ */ jsx10(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0627\u0644\u062A\u0642\u0631\u064A\u0631", centerLabel: "\u0645\u0635\u0627\u062F\u0642\u0629 \u0648\u062E\u062A\u0645 \u0627\u0644\u0645\u0648\u0631\u062F", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0645\u0627\u0644\u064A \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
-    ] }),
-    activeReport === "receipt_vouchers" && /* @__PURE__ */ jsxs8("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
-      /* @__PURE__ */ jsx10(
-        PrintHeader,
-        {
-          title: "\u062A\u0642\u0631\u064A\u0631 \u0648\u0643\u0634\u0641 \u0633\u0646\u062F\u0627\u062A \u0627\u0644\u0642\u0628\u0636",
-          subtitle: "\u0633\u062C\u0644 \u0627\u0644\u0645\u0628\u0627\u0644\u063A \u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0629 \u0648\u0627\u0644\u062A\u062D\u0635\u064A\u0644\u0627\u062A \u0627\u0644\u0645\u0627\u0644\u064A\u0629",
-          docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
-        }
-      ),
-      /* @__PURE__ */ jsxs8("div", { className: "flex items-center justify-between border-b pb-2", children: [
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded", children: "\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u062A\u062D\u0635\u064A\u0644\u0627\u062A \u0648\u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0627\u062A" }),
-          /* @__PURE__ */ jsx10("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: "\u0643\u0634\u0641 \u062A\u0641\u0635\u064A\u0644\u064A \u0644\u0633\u0646\u062F\u0627\u062A \u0627\u0644\u0642\u0628\u0636" }),
-          /* @__PURE__ */ jsx10("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u0633\u062C\u0644 \u0643\u0627\u0641\u0629 \u0627\u0644\u0645\u0628\u0627\u0644\u063A \u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0629 \u0645\u0646 \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0648\u062C\u0647\u0627\u062A \u0627\u0644\u062A\u062D\u0635\u064A\u0644 \u0627\u0644\u0645\u062E\u062A\u0644\u0641\u0629" })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "text-left", children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[11px] text-slate-400 block", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0627\u062A:" }),
-          /* @__PURE__ */ jsxs8("strong", { className: "text-lg font-mono font-bold text-emerald-600", children: [
-            receiptVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] }),
-          /* @__PURE__ */ jsxs8("span", { className: "text-[10px] text-slate-400 block", children: [
-            "\u0639\u062F\u062F \u0627\u0644\u0633\u0646\u062F\u0627\u062A: ",
-            receiptVouchersData.length
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsx10("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs8("table", { className: "w-full text-right report-table border-collapse", children: [
-        /* @__PURE__ */ jsx10("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-center", children: "\u0631\u0642\u0645 \u0627\u0644\u0633\u0646\u062F" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-center", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" }),
-          /* @__PURE__ */ jsx10("th", { children: "\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 / \u0627\u0644\u0645\u0633\u062A\u0644\u0645 \u0645\u0646\u0647" }),
-          /* @__PURE__ */ jsx10("th", { children: "\u0627\u0644\u0628\u064A\u0627\u0646 \u0648\u0627\u0644\u0634\u0631\u062D" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-center", children: "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0642\u0628\u0636" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-24 min-w-24", children: "\u0627\u0644\u062E\u0632\u064A\u0646\u0629" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-24 min-w-24 text-left", children: "\u0627\u0644\u0645\u0628\u0644\u063A \u0627\u0644\u0645\u0642\u0628\u0648\u0636" })
-        ] }) }),
-        /* @__PURE__ */ jsx10("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: receiptVouchersData.length === 0 ? /* @__PURE__ */ jsx10("tr", { children: /* @__PURE__ */ jsx10("td", { colSpan: 7, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u0633\u0646\u062F\u0627\u062A \u0642\u0628\u0636 \u0645\u0637\u0627\u0628\u0642\u0629" }) }) : receiptVouchersData.map((v, idx) => /* @__PURE__ */ jsxs8("tr", { className: "hover:bg-slate-50", children: [
-          /* @__PURE__ */ jsx10("td", { className: "font-mono font-bold text-emerald-700 text-center", children: v.voucherNumber }),
-          /* @__PURE__ */ jsx10("td", { className: "font-mono text-slate-600 text-center", children: v.date }),
-          /* @__PURE__ */ jsx10("td", { className: "font-semibold text-slate-900", children: v.partyName }),
-          /* @__PURE__ */ jsx10("td", { className: "text-slate-600 max-w-[200px] truncate", children: v.description }),
-          /* @__PURE__ */ jsx10("td", { className: "text-center", children: /* @__PURE__ */ jsx10("span", { className: "bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded text-[10.5px] font-medium", children: v.paymentMethod === "cash" ? "\u0646\u0642\u062F\u0627\u064B" : v.paymentMethod === "bank_transfer" ? "\u062A\u062D\u0648\u064A\u0644 \u0628\u0646\u0643\u064A" : "\u0634\u064A\u0643" }) }),
-          /* @__PURE__ */ jsx10("td", { className: "text-slate-600 font-medium", children: treasuries.find((t) => t.accountCode === v.accountCode || t.accountCode === v.treasuryAccountCode)?.name || "\u0627\u0644\u062E\u0632\u064A\u0646\u0629" }),
-          /* @__PURE__ */ jsxs8("td", { className: "font-mono font-bold text-emerald-700 text-left", children: [
-            v.amount.toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] })
-        ] }, `${v.id || "rec-v"}-${idx}`)) }),
-        /* @__PURE__ */ jsx10("tfoot", { className: "bg-slate-100 font-bold border-t border-slate-300", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("td", { colSpan: 6, className: "text-slate-800", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0627\u062A:" }),
-          /* @__PURE__ */ jsxs8("td", { className: "font-mono font-black text-emerald-700 text-left", children: [
-            receiptVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] })
-        ] }) })
-      ] }) }),
-      /* @__PURE__ */ jsx10(ReportSignatures, { rightLabel: "\u0623\u0645\u064A\u0646 \u0627\u0644\u0635\u0646\u062F\u0648\u0642 / \u0627\u0644\u0645\u062D\u0635\u0644", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0648\u0627\u0644\u0645\u062D\u0627\u0633\u0628", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0645\u0627\u0644\u064A \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
-    ] }),
-    activeReport === "payment_vouchers" && /* @__PURE__ */ jsxs8("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
-      /* @__PURE__ */ jsx10(
-        PrintHeader,
-        {
-          title: "\u062A\u0642\u0631\u064A\u0631 \u0648\u0643\u0634\u0641 \u0633\u0646\u062F\u0627\u062A \u0627\u0644\u0635\u0631\u0641",
-          subtitle: "\u0633\u062C\u0644 \u0627\u0644\u0645\u062F\u0641\u0648\u0639\u0627\u062A \u0648\u0627\u0644\u0645\u0646\u0635\u0631\u0641\u0627\u062A \u0648\u0627\u0644\u0645\u0633\u062F\u062F\u0627\u062A",
-          docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
-        }
-      ),
-      /* @__PURE__ */ jsxs8("div", { className: "flex items-center justify-between border-b pb-2", children: [
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[10px] text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded", children: "\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u0645\u062F\u0641\u0648\u0639\u0627\u062A \u0648\u0627\u0644\u0645\u0646\u0635\u0631\u0641\u0627\u062A" }),
-          /* @__PURE__ */ jsx10("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: "\u0643\u0634\u0641 \u062A\u0641\u0635\u064A\u0644\u064A \u0644\u0633\u0646\u062F\u0627\u062A \u0627\u0644\u0635\u0631\u0641" }),
-          /* @__PURE__ */ jsx10("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u0633\u062C\u0644 \u0627\u0644\u0645\u0628\u0627\u0644\u063A \u0627\u0644\u0645\u0633\u062F\u062F\u0629 \u0644\u0644\u0645\u0648\u0631\u062F\u064A\u0646 \u0648\u0627\u0644\u0645\u0635\u0631\u0648\u0641\u0627\u062A \u0648\u0627\u0644\u0639\u0647\u062F \u0627\u0644\u0646\u0642\u062F\u064A\u0629 \u0648\u0627\u0644\u0628\u0646\u0643\u064A\u0629" })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "text-left", children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[11px] text-slate-400 block", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0646\u0635\u0631\u0641\u0627\u062A:" }),
-          /* @__PURE__ */ jsxs8("strong", { className: "text-lg font-mono font-bold text-rose-600", children: [
-            paymentVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] }),
-          /* @__PURE__ */ jsxs8("span", { className: "text-[10px] text-slate-400 block", children: [
-            "\u0639\u062F\u062F \u0627\u0644\u0633\u0646\u062F\u0627\u062A: ",
-            paymentVouchersData.length
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsx10("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs8("table", { className: "w-full text-right report-table border-collapse", children: [
-        /* @__PURE__ */ jsx10("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-center", children: "\u0631\u0642\u0645 \u0627\u0644\u0633\u0646\u062F" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-center", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" }),
-          /* @__PURE__ */ jsx10("th", { children: "\u0627\u0644\u0645\u0633\u062A\u0641\u064A\u062F / \u0627\u0644\u0645\u0648\u0631\u062F" }),
-          /* @__PURE__ */ jsx10("th", { children: "\u0627\u0644\u0628\u064A\u0627\u0646 \u0648\u0627\u0644\u0634\u0631\u062D" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-center", children: "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0635\u0631\u0641" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-24 min-w-24", children: "\u0627\u0644\u062E\u0632\u064A\u0646\u0629" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-24 min-w-24 text-left", children: "\u0627\u0644\u0645\u0628\u0644\u063A \u0627\u0644\u0645\u0635\u0631\u0648\u0641" })
-        ] }) }),
-        /* @__PURE__ */ jsx10("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: paymentVouchersData.length === 0 ? /* @__PURE__ */ jsx10("tr", { children: /* @__PURE__ */ jsx10("td", { colSpan: 7, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u0633\u0646\u062F\u0627\u062A \u0635\u0631\u0641 \u0645\u0637\u0627\u0628\u0642\u0629" }) }) : paymentVouchersData.map((v, idx) => /* @__PURE__ */ jsxs8("tr", { className: "hover:bg-slate-50", children: [
-          /* @__PURE__ */ jsx10("td", { className: "font-mono font-bold text-rose-700 text-center", children: v.voucherNumber }),
-          /* @__PURE__ */ jsx10("td", { className: "font-mono text-slate-600 text-center", children: v.date }),
-          /* @__PURE__ */ jsx10("td", { className: "font-semibold text-slate-900", children: v.partyName }),
-          /* @__PURE__ */ jsx10("td", { className: "text-slate-600 max-w-[200px] truncate", children: v.description }),
-          /* @__PURE__ */ jsx10("td", { className: "text-center", children: /* @__PURE__ */ jsx10("span", { className: "bg-rose-50 text-rose-800 px-1.5 py-0.5 rounded text-[10.5px] font-medium", children: v.paymentMethod === "cash" ? "\u0646\u0642\u062F\u0627\u064B" : v.paymentMethod === "bank_transfer" ? "\u062A\u062D\u0648\u064A\u0644 \u0628\u0646\u0643\u064A" : "\u0634\u064A\u0643" }) }),
-          /* @__PURE__ */ jsx10("td", { className: "text-slate-600 font-medium", children: treasuries.find((t) => t.accountCode === v.accountCode || t.accountCode === v.treasuryAccountCode)?.name || "\u0627\u0644\u062E\u0632\u064A\u0646\u0629" }),
-          /* @__PURE__ */ jsxs8("td", { className: "font-mono font-bold text-rose-700 text-left", children: [
-            v.amount.toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] })
-        ] }, `${v.id || "pay-v"}-${idx}`)) }),
-        /* @__PURE__ */ jsx10("tfoot", { className: "bg-slate-100 font-bold border-t border-slate-300", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("td", { colSpan: 6, className: "text-slate-800", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0646\u0635\u0631\u0641\u0627\u062A:" }),
-          /* @__PURE__ */ jsxs8("td", { className: "font-mono font-black text-rose-700 text-left", children: [
-            paymentVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] })
-        ] }) })
-      ] }) }),
-      /* @__PURE__ */ jsx10(ReportSignatures, { rightLabel: "\u0623\u0645\u064A\u0646 \u0627\u0644\u0635\u0646\u062F\u0648\u0642 / \u0627\u0644\u0635\u0627\u0631\u0641", centerLabel: "\u0627\u0644\u0645\u0633\u062A\u0644\u0645 / \u0627\u0644\u0645\u0633\u062A\u0641\u064A\u062F", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0645\u0627\u0644\u064A \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
-    ] }),
-    activeReport === "employee_statement" && /* @__PURE__ */ jsx10("div", { className: "report-a4-container bg-white p-4 sm:p-6 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: employeeStatementData.statement ? /* @__PURE__ */ jsx10(
-      UnifiedEmployeeStatementDocument,
-      {
-        statement: employeeStatementData.statement,
-        settings,
-        fromDate,
-        toDate,
-        showItemDetails: true
-      }
-    ) : /* @__PURE__ */ jsx10("div", { className: "text-center text-slate-500 p-8", children: "\u0627\u062E\u062A\u0631 \u0645\u0648\u0638\u0641\u064B\u0627 \u0644\u0639\u0631\u0636 \u0643\u0634\u0641 \u062D\u0633\u0627\u0628\u0647 \u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A." }) }),
-    activeReport === "payroll_sheets" && /* @__PURE__ */ jsxs8("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
-      /* @__PURE__ */ jsx10(
-        PrintHeader,
-        {
-          title: "\u0643\u0634\u0641 \u0645\u0633\u064A\u0631\u0627\u062A \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0627\u0644\u0634\u0647\u0631\u064A\u0629",
-          subtitle: "\u0645\u0644\u062E\u0635 \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0648\u0627\u0644\u0628\u062F\u0644\u0627\u062A \u0648\u0627\u0644\u0627\u0633\u062A\u0642\u0637\u0627\u0639\u0627\u062A \u0627\u0644\u0645\u0639\u062A\u0645\u062F\u0629",
-          docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
-        }
-      ),
-      /* @__PURE__ */ jsxs8("div", { className: "flex items-center justify-between border-b pb-2", children: [
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded", children: "\u0634\u0624\u0648\u0646 \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646 \u0648\u0627\u0644\u0631\u0648\u0627\u062A\u0628" }),
-          /* @__PURE__ */ jsx10("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: "\u0643\u0634\u0641 \u0645\u0633\u064A\u0631\u0627\u062A \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0627\u0644\u0634\u0647\u0631\u064A\u0629" }),
-          /* @__PURE__ */ jsx10("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u0645\u0644\u062E\u0635 \u0627\u0644\u0645\u0633\u064A\u0631\u0627\u062A \u0627\u0644\u0645\u0639\u062A\u0645\u062F\u0629 \u0648\u0627\u0644\u0645\u0633\u0648\u062F\u0627\u062A \u0648\u0645\u0628\u0627\u0644\u063A \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A\u0629 \u0648\u0627\u0644\u0635\u0627\u0641\u064A\u0629" })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "text-left", children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[11px] text-slate-400 block", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0627\u0644\u0645\u0635\u0631\u0648\u0641\u0629:" }),
-          /* @__PURE__ */ jsxs8("strong", { className: "text-lg font-mono font-bold text-blue-700", children: [
-            payrollSheetsData.filter((s) => s.status === "approved").reduce((s, p) => s + p.totalNet, 0).toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsx10("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs8("table", { className: "w-full text-right report-table border-collapse", children: [
-        /* @__PURE__ */ jsx10("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-16 min-w-16", children: "\u0631\u0642\u0645 \u0627\u0644\u0645\u0633\u064A\u0631" }),
-          /* @__PURE__ */ jsx10("th", { children: "\u0634\u0647\u0631 \u0627\u0644\u0627\u0633\u062A\u062D\u0642\u0627\u0642" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-24 min-w-24", children: "\u0627\u0644\u062D\u0627\u0644\u0629" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-20 min-w-20", children: "\u0639\u062F\u062F \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-left w-20 min-w-20", children: "\u0627\u0644\u0623\u0633\u0627\u0633\u064A" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-left w-20 min-w-20", children: "\u0627\u0644\u0628\u062F\u0644\u0627\u062A" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-left w-20 min-w-20", children: "\u0627\u0644\u0627\u0633\u062A\u0642\u0637\u0627\u0639\u0627\u062A" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-left w-24 min-w-24", children: "\u0635\u0627\u0641\u064A \u0627\u0644\u0631\u0648\u0627\u062A\u0628" }),
-          /* @__PURE__ */ jsx10("th", { className: "text-center w-20 min-w-20", children: "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
-        ] }) }),
-        /* @__PURE__ */ jsx10("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: payrollSheetsData.length === 0 ? /* @__PURE__ */ jsx10("tr", { children: /* @__PURE__ */ jsx10("td", { colSpan: 9, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u0645\u0633\u064A\u0631\u0627\u062A \u0631\u0648\u0627\u062A\u0628 \u0645\u0633\u062C\u0644\u0629" }) }) : payrollSheetsData.map((sheet) => {
-          const sheetItems = sheet.items || sheet.lines || [];
-          const employeesCount = sheetItems.length || sheet.employeesCount || 0;
-          return /* @__PURE__ */ jsxs8("tr", { className: "hover:bg-slate-50", children: [
-            /* @__PURE__ */ jsx10("td", { className: "font-mono font-bold text-blue-600 text-center", children: sheet.sheetNumber }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono font-bold text-slate-900", children: sheet.period || sheet.periodMonth || sheet.title }),
-            /* @__PURE__ */ jsx10("td", { className: "text-center", children: /* @__PURE__ */ jsx10("span", { className: `px-1.5 py-0.5 rounded text-[10px] font-bold ${sheet.status === "approved" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`, children: sheet.status === "approved" ? "\u0645\u0639\u062A\u0645\u062F \u0648\u0645\u0635\u0631\u0648\u0641" : "\u0645\u0633\u0648\u062F\u0629 \u0642\u064A\u062F \u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629" }) }),
-            /* @__PURE__ */ jsxs8("td", { className: "font-mono text-center", children: [
-              employeesCount,
-              " \u0645\u0648\u0638\u0641"
-            ] }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono text-slate-700 text-left", children: sheet.totalBasic.toLocaleString("ar-SA") }),
-            /* @__PURE__ */ jsxs8("td", { className: "font-mono text-emerald-700 text-left", children: [
-              "+",
-              sheet.totalAllowances.toLocaleString("ar-SA")
-            ] }),
-            /* @__PURE__ */ jsxs8("td", { className: "font-mono text-rose-700 text-left", children: [
-              "-",
-              sheet.totalDeductions.toLocaleString("ar-SA")
-            ] }),
-            /* @__PURE__ */ jsxs8("td", { className: "font-mono font-bold text-slate-900 text-left", children: [
-              sheet.totalNet.toLocaleString("ar-SA"),
-              " ",
-              settings.currency
-            ] }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono text-slate-500 text-center", children: sheet.disbursedAt || sheet.approvedAt || sheet.createdAt || "-" })
-          ] }, sheet.id);
-        }) })
-      ] }) }),
-      /* @__PURE__ */ jsx10(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0634\u0624\u0648\u0646 \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u0645\u0627\u0644\u064A\u0629", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0639\u0627\u0645 \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
-    ] }),
-    activeReport === "treasuries_movement" && /* @__PURE__ */ jsxs8("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
-      /* @__PURE__ */ jsx10(
-        PrintHeader,
-        {
-          title: "\u0643\u0634\u0641 \u062D\u0631\u0643\u0627\u062A \u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0648\u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A \u0627\u0644\u0628\u0646\u0643\u064A\u0629",
-          subtitle: "\u0633\u062C\u0644 \u0627\u0644\u062A\u062F\u0641\u0642\u0627\u062A \u0627\u0644\u0646\u0642\u062F\u064A\u0629 \u0648\u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0627\u062A \u0648\u0627\u0644\u0645\u0646\u0635\u0631\u0641\u0627\u062A",
-          docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
-        }
-      ),
-      /* @__PURE__ */ jsxs8("div", { className: "flex flex-col md:flex-row md:items-center justify-between border-b pb-2 gap-2", children: [
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[10px] text-teal-700 font-bold bg-teal-50 px-2 py-0.5 rounded", children: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0633\u064A\u0648\u0644\u0629 \u0648\u0627\u0644\u062E\u0632\u0627\u0626\u0646" }),
-          /* @__PURE__ */ jsx10("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: "\u0643\u0634\u0641 \u062D\u0631\u0643\u0627\u062A \u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0648\u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A \u0627\u0644\u0628\u0646\u0643\u064A\u0629" }),
-          /* @__PURE__ */ jsx10("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u062A\u062F\u0641\u0642\u0627\u062A \u0627\u0644\u0646\u0642\u062F\u064A\u0629 \u0627\u0644\u062F\u0627\u062E\u0644\u0629 \u0648\u0627\u0644\u062E\u0627\u0631\u062C\u0629 \u0648\u062D\u0631\u0643\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u062A \u0627\u0644\u0641\u0639\u0644\u064A\u0629 \u0648\u0623\u0633\u0639\u0627\u0631 \u0627\u0644\u0635\u0631\u0641" })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "text-right sm:text-left space-y-1", children: [
-          /* @__PURE__ */ jsx10("span", { className: "text-[10px] text-slate-400 font-light block font-semibold", children: "\u0627\u0644\u0645\u0648\u062C\u0648\u062F\u0627\u062A \u0627\u0644\u0641\u0639\u0644\u064A\u0629 \u0641\u064A \u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0645\u062E\u062A\u0627\u0631\u0629:" }),
-          /* @__PURE__ */ jsx10("div", { className: "flex flex-wrap items-center gap-1.5 justify-end", children: Object.entries(treasuriesMovementData.targetHoldings).map(([currCode, amt]) => {
-            const currObj = currencies.find((c) => c.code === currCode);
-            const sym = currCode === "ILS" ? "\u20AA" : currObj?.symbol || currCode;
-            const name = currObj?.name || currCode;
-            const num = Number(amt) || 0;
-            return /* @__PURE__ */ jsxs8("div", { className: "bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-xs flex items-center gap-1", children: [
-              /* @__PURE__ */ jsxs8("span", { className: "text-slate-500 font-sans", children: [
-                name,
-                ":"
+                ) }),
+                subCustomersForSelected.length > 0 && /* @__PURE__ */ jsxs9("div", { className: "flex items-center gap-1.5", children: [
+                  /* @__PURE__ */ jsx11("span", { className: "font-bold text-slate-500", children: "\u0627\u0644\u0632\u0628\u0648\u0646 \u0627\u0644\u0641\u0631\u0639\u064A:" }),
+                  /* @__PURE__ */ jsxs9(
+                    "select",
+                    {
+                      value: selectedSubCustomerId,
+                      onChange: (e) => setSelectedSubCustomerId(e.target.value),
+                      className: "w-full bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-2 text-xs text-blue-900 font-semibold",
+                      children: [
+                        /* @__PURE__ */ jsx11("option", { value: "all", children: "\u0643\u0644 \u0627\u0644\u0632\u0628\u0627\u0626\u0646 \u0627\u0644\u0641\u0631\u0639\u064A\u064A\u0646 \u0648\u0627\u0644\u062A\u0627\u0628\u0639\u0650\u064A\u0646" }),
+                        subCustomersForSelected.map((sub) => /* @__PURE__ */ jsx11("option", { value: sub.id, children: sub.name }, sub.id))
+                      ]
+                    }
+                  )
+                ] })
               ] }),
-              /* @__PURE__ */ jsxs8("strong", { className: "font-mono text-slate-900", children: [
-                num.toLocaleString("ar-SA"),
-                " ",
-                sym
+              (activeReport === "supplier_statement" || activeReport === "supplier_items") && /* @__PURE__ */ jsxs9("div", { className: "reports-entity-picker flex flex-col items-stretch gap-1 min-w-0 w-full", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs", children: [
+                  /* @__PURE__ */ jsx11("div", { className: "p-1 rounded bg-amber-100 text-amber-700", children: /* @__PURE__ */ jsx11(Truck2, { className: "w-3.5 h-3.5" }) }),
+                  /* @__PURE__ */ jsx11("span", { children: "\u0627\u0644\u0645\u0648\u0631\u062F:" })
+                ] }),
+                /* @__PURE__ */ jsx11("div", { className: "w-full min-w-0", children: /* @__PURE__ */ jsx11(
+                  AutocompleteCombobox,
+                  {
+                    items: supplierComboboxOptions,
+                    selectedId: selectedSubSupplierId !== "all" ? selectedSubSupplierId : selectedSupplierId,
+                    value: parties.find((p) => p.id === (selectedSubSupplierId !== "all" ? selectedSubSupplierId : selectedSupplierId))?.name || "",
+                    onSelect: (opt) => {
+                      if (opt.raw) {
+                        if (opt.raw.parentPartyId) {
+                          setSelectedSupplierId(opt.raw.parentPartyId);
+                          setSelectedSubSupplierId(opt.raw.id);
+                        } else {
+                          setSelectedSupplierId(opt.raw.id);
+                          setSelectedSubSupplierId("all");
+                        }
+                      }
+                    },
+                    entityType: "supplier",
+                    placeholder: "\u0627\u0628\u062D\u062B \u0648\u0627\u0643\u062A\u0628 \u0627\u0633\u0645 \u0627\u0644\u0645\u0648\u0631\u062F \u0644\u0644\u0645\u0637\u0627\u0628\u0642\u0629...",
+                    className: "w-full text-xs",
+                    inputClassName: "py-1 px-2.5 text-xs font-bold bg-slate-50 border-slate-200"
+                  }
+                ) }),
+                subSuppliersForSelected.length > 0 && /* @__PURE__ */ jsxs9("div", { className: "flex items-center gap-1.5", children: [
+                  /* @__PURE__ */ jsx11("span", { className: "font-bold text-slate-500", children: "\u0627\u0644\u0641\u0631\u0639\u064A:" }),
+                  /* @__PURE__ */ jsxs9(
+                    "select",
+                    {
+                      value: selectedSubSupplierId,
+                      onChange: (e) => setSelectedSubSupplierId(e.target.value),
+                      className: "w-full bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 text-xs text-amber-900 font-semibold",
+                      children: [
+                        /* @__PURE__ */ jsx11("option", { value: "all", children: "\u0643\u0644 \u0627\u0644\u0641\u0631\u0648\u0639 \u0627\u0644\u062A\u0627\u0628\u0639\u0629" }),
+                        subSuppliersForSelected.map((sub) => /* @__PURE__ */ jsx11("option", { value: sub.id, children: sub.name }, sub.id))
+                      ]
+                    }
+                  )
+                ] })
+              ] }),
+              activeReport === "employee_statement" && /* @__PURE__ */ jsxs9("div", { className: "reports-entity-picker flex flex-col items-stretch gap-1 min-w-0 w-full", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs", children: [
+                  /* @__PURE__ */ jsx11(UserCheck2, { className: "w-4 h-4 text-purple-600" }),
+                  /* @__PURE__ */ jsx11("span", { children: "\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0645\u0648\u0638\u0641:" })
+                ] }),
+                /* @__PURE__ */ jsx11("div", { className: "w-full min-w-0", children: /* @__PURE__ */ jsx11(
+                  AutocompleteCombobox,
+                  {
+                    items: employeeComboboxOptions,
+                    selectedId: selectedEmpId,
+                    value: employees.find((employee) => employee.id === selectedEmpId)?.name || "",
+                    onSelect: (employee) => setSelectedEmpId(employee.id),
+                    entityType: "employee",
+                    placeholder: "\u0627\u0628\u062D\u062B \u0628\u0627\u0644\u0627\u0633\u0645 \u0623\u0648 \u0631\u0642\u0645 \u0627\u0644\u0645\u0648\u0638\u0641..."
+                  }
+                ) })
+              ] }),
+              (activeReport === "treasuries_movement" || activeReport === "receipt_vouchers" || activeReport === "payment_vouchers") && /* @__PURE__ */ jsxs9("div", { className: "reports-treasury-picker flex flex-col items-stretch gap-1 w-full", children: [
+                /* @__PURE__ */ jsx11("span", { className: "font-bold text-slate-700", children: "\u0627\u0644\u062E\u0632\u064A\u0646\u0629 / \u0627\u0644\u062D\u0633\u0627\u0628:" }),
+                /* @__PURE__ */ jsxs9(
+                  "select",
+                  {
+                    value: activeReport === "treasuries_movement" ? selectedTreasuryCode : activeReport === "receipt_vouchers" ? receiptTreasuryFilter : paymentTreasuryFilter,
+                    onChange: (e) => {
+                      const val = e.target.value;
+                      if (activeReport === "treasuries_movement") setSelectedTreasuryCode(val);
+                      else if (activeReport === "receipt_vouchers") setReceiptTreasuryFilter(val);
+                      else setPaymentTreasuryFilter(val);
+                    },
+                    className: "w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-800",
+                    children: [
+                      /* @__PURE__ */ jsx11("option", { value: "all", children: "\u0643\u0644 \u0627\u0644\u062E\u0632\u0627\u0626\u0646 \u0648\u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A \u0627\u0644\u0628\u0646\u0643\u064A\u0629" }),
+                      treasuries.map((t) => /* @__PURE__ */ jsx11("option", { value: t.accountCode, children: t.name }, t.id))
+                    ]
+                  }
+                )
               ] })
-            ] }, currCode);
-          }) }),
-          /* @__PURE__ */ jsxs8("div", { className: "text-[10px] text-slate-400", children: [
-            "\u0627\u0644\u0645\u0639\u0627\u062F\u0644 \u0627\u0644\u0645\u062D\u0627\u0633\u0628\u064A \u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A: ",
-            /* @__PURE__ */ jsxs8("strong", { className: "font-mono text-teal-700 font-bold", children: [
-              treasuriesMovementData.targetTreasuries.reduce((s, t) => s + t.balance, 0).toLocaleString("ar-SA"),
-              " \u20AA"
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { className: "reports-date-range grid grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 border-t border-slate-200 pt-2 text-slate-600", children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-xs font-bold text-slate-600", children: "\u0645\u0646 \u062A\u0627\u0631\u064A\u062E:" }),
+              /* @__PURE__ */ jsx11(
+                DateInput,
+                {
+                  value: fromDate,
+                  onChange: (e) => setFromDate(e.target.value),
+                  className: "w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs"
+                }
+              ),
+              /* @__PURE__ */ jsx11("span", { className: "text-xs font-bold text-slate-600", children: "\u0625\u0644\u0649 \u062A\u0627\u0631\u064A\u062E:" }),
+              /* @__PURE__ */ jsx11(
+                DateInput,
+                {
+                  value: toDate,
+                  onChange: (e) => setToDate(e.target.value),
+                  className: "w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs"
+                }
+              )
+            ] }),
+            (activeReport === "customer_statement" || activeReport === "supplier_statement" || activeReport === "employee_statement" || fromDate || toDate) && /* @__PURE__ */ jsxs9("div", { className: "reports-movement-toolbar flex items-center justify-between gap-2", children: [
+              (activeReport === "customer_statement" || activeReport === "supplier_statement" || activeReport === "employee_statement") && /* @__PURE__ */ jsxs9("span", { className: "reports-movement-count bg-slate-100 border border-slate-200 rounded-md px-2 py-1 font-bold text-slate-700", children: [
+                "\u0639\u062F\u062F \u0627\u0644\u062D\u0631\u0643\u0627\u062A: ",
+                /* @__PURE__ */ jsx11("strong", { className: "font-mono text-slate-900", children: activeReport === "customer_statement" ? customerStatementData?.rows?.length || 0 : activeReport === "supplier_statement" ? supplierStatementData?.rows?.length || 0 : employeeStatementData?.rows?.length || 0 })
+              ] }),
+              (fromDate || toDate) && /* @__PURE__ */ jsx11("button", { type: "button", onClick: () => {
+                setFromDate("");
+                setToDate("");
+              }, className: "reports-clear-date bg-rose-50 text-rose-700 border border-rose-200 rounded-md px-3 py-1 font-bold hover:bg-rose-100 cursor-pointer", children: "\u0625\u0644\u063A\u0627\u0621" })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { className: "reports-summary-options", children: [
+              activeReport === "customer_statement" && /* @__PURE__ */ jsxs9("div", { className: "reports-statement-options grid grid-cols-2 gap-1 w-full", children: [
+                /* @__PURE__ */ jsx11("div", { className: "h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5" }),
+                /* @__PURE__ */ jsx11(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: () => setShowStatementItemDetails((prev) => !prev),
+                    className: `px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-colors flex items-center gap-1.5 border select-none ${showStatementItemDetails ? "bg-blue-600 text-white border-blue-700 shadow-xs" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"}`,
+                    children: /* @__PURE__ */ jsx11("span", { children: showStatementItemDetails ? "\u0625\u062E\u0641\u0627\u0621 \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" : "\u0625\u0638\u0647\u0627\u0631 \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631 \u0648\u0627\u0644\u0645\u0642\u0627\u0633\u0627\u062A" })
+                  }
+                ),
+                /* @__PURE__ */ jsxs9(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: () => setShowStatementImageThumbnails((prev) => !prev),
+                    className: `px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-all flex items-center gap-1 border select-none ${showStatementImageThumbnails ? "bg-purple-600 text-white border-purple-700 shadow-2xs hover:bg-purple-700" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"}`,
+                    title: showStatementImageThumbnails ? "\u0625\u062E\u0641\u0627\u0621 \u0645\u0635\u063A\u0631\u0627\u062A \u0635\u0648\u0631 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0645\u0646 \u0627\u0644\u0643\u0634\u0641" : "\u0625\u0638\u0647\u0627\u0631 \u0645\u0635\u063A\u0631\u0627\u062A \u0635\u0648\u0631 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u062A\u062D\u062A \u062C\u062F\u0648\u0644 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",
+                    children: [
+                      /* @__PURE__ */ jsx11(ImageIcon, { className: `w-3 h-3 ${showStatementImageThumbnails ? "text-amber-300" : "text-purple-600"}` }),
+                      /* @__PURE__ */ jsx11("span", { children: showStatementImageThumbnails ? "\u0625\u062E\u0641\u0627\u0621 \u0635\u0648\u0631 \u0627\u0644\u0623\u0635\u0646\u0627\u0641" : "\u0625\u0638\u0647\u0627\u0631 \u0635\u0648\u0631 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u{1F5BC}\uFE0F" })
+                    ]
+                  }
+                )
+              ] }),
+              activeReport === "supplier_statement" && /* @__PURE__ */ jsxs9("div", { className: "reports-statement-options grid grid-cols-2 gap-1 w-full", children: [
+                /* @__PURE__ */ jsx11("div", { className: "h-6 w-px bg-slate-200 self-center hidden sm:block mx-0.5" }),
+                /* @__PURE__ */ jsx11(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: () => setShowStatementItemDetails((prev) => !prev),
+                    className: `px-2 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer transition-colors flex items-center gap-1.5 border select-none ${showStatementItemDetails ? "bg-amber-700 text-white border-amber-800 shadow-xs" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"}`,
+                    children: /* @__PURE__ */ jsx11("span", { children: showStatementItemDetails ? "\u0625\u062E\u0641\u0627\u0621 \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" : "\u0625\u0638\u0647\u0627\u0631 \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631 \u0648\u0627\u0644\u0645\u0642\u0627\u0633\u0627\u062A" })
+                  }
+                )
+              ] })
             ] })
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ jsx10("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs8("table", { className: "w-full text-right report-table border-collapse", children: [
-        /* @__PURE__ */ jsx10("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-center", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-24 min-w-24", children: "\u0627\u0644\u0635\u0646\u062F\u0648\u0642" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-center", children: "\u0627\u0644\u0639\u0645\u0644\u064A\u0629" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-16 min-w-16 text-center", children: "\u0627\u0644\u0645\u0633\u062A\u0646\u062F" }),
-          /* @__PURE__ */ jsx10("th", { children: "\u0627\u0644\u0637\u0631\u0641 / \u0627\u0644\u0645\u0633\u062A\u0641\u064A\u062F" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-left", children: "\u0627\u0644\u0645\u0628\u0644\u063A \u0627\u0644\u0641\u0639\u0644\u064A" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-16 min-w-16 text-center", children: "\u0627\u0644\u0635\u0631\u0641" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-left", children: "\u0648\u0627\u0631\u062F (\u20AA)" }),
-          /* @__PURE__ */ jsx10("th", { className: "w-20 min-w-20 text-left", children: "\u0645\u0646\u0635\u0631\u0641 (\u20AA)" }),
-          /* @__PURE__ */ jsx10("th", { children: "\u0627\u0644\u0628\u064A\u0627\u0646 \u0648\u0627\u0644\u0634\u0631\u062D" })
-        ] }) }),
-        /* @__PURE__ */ jsx10("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: treasuriesMovementData.rows.length === 0 ? /* @__PURE__ */ jsx10("tr", { children: /* @__PURE__ */ jsx10("td", { colSpan: 10, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u062D\u0631\u0643\u0627\u062A \u0645\u0633\u062C\u0644\u0629 \u0644\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u062E\u0644\u0627\u0644 \u0627\u0644\u0641\u062A\u0631\u0629" }) }) : treasuriesMovementData.rows.map((row, idx) => {
-          const currObj = currencies.find((c) => c.code === row.actualCurrency);
-          const sym = row.actualCurrency === "ILS" ? "\u20AA" : currObj?.symbol || row.actualCurrency;
-          return /* @__PURE__ */ jsxs8("tr", { className: "hover:bg-slate-50", children: [
-            /* @__PURE__ */ jsx10("td", { className: "font-mono text-slate-600 text-center whitespace-nowrap", children: row.date }),
-            /* @__PURE__ */ jsx10("td", { className: "font-semibold text-slate-900", children: row.treasuryName }),
-            /* @__PURE__ */ jsx10("td", { className: "text-center font-medium whitespace-nowrap", children: row.type }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono text-blue-600 font-bold text-center whitespace-nowrap", children: row.docNumber }),
-            /* @__PURE__ */ jsx10("td", { className: "text-slate-700", children: row.partyName }),
-            /* @__PURE__ */ jsxs8("td", { className: "font-mono font-bold text-slate-900 text-left whitespace-nowrap", children: [
-              row.actualAmount.toLocaleString("ar-SA"),
-              " ",
-              sym
+      /* @__PURE__ */ jsx11("div", { className: "reports-preview-area min-w-0 h-full min-h-0 overflow-hidden print:block", children: /* @__PURE__ */ jsxs9(ReportsLivePreview, { reportKey: activeReport, children: [
+        activeReport === "customer_statement" && /* @__PURE__ */ jsx11("div", { className: "bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-6 space-y-3 print:p-0 print:border-0 print:shadow-none report-a4-container", children: customerStatementData.statement ? /* @__PURE__ */ jsx11(
+          UnifiedPartyStatementDocument,
+          {
+            partyStatement: customerStatementData.statement,
+            isCustomer: true,
+            settings,
+            clientDisplayName: customerStatementData.party?.name === "\u0632\u0628\u0648\u0646 \u0646\u0642\u062F\u064A" && selectedSubCustObj ? selectedSubCustObj.name : customerStatementData.party?.name || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F",
+            fromDate,
+            toDate,
+            showItemDetails: showStatementItemDetails,
+            showImageThumbnailsInStatement: showStatementImageThumbnails,
+            setPreviewModalImage
+          }
+        ) : /* @__PURE__ */ jsx11("div", { className: "text-center text-slate-500 p-8", children: "\u0627\u062E\u062A\u0631 \u0639\u0645\u064A\u0644\u0627\u064B \u0644\u0639\u0631\u0636 \u0643\u0634\u0641 \u062D\u0633\u0627\u0628\u0647" }) }),
+        activeReport === "customer_items" && /* @__PURE__ */ jsxs9("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
+          /* @__PURE__ */ jsx11(
+            PrintHeader,
+            {
+              title: "\u0643\u0634\u0641 \u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062A\u0631\u0627\u0643\u0645\u064A \u0644\u0644\u0639\u0645\u064A\u0644",
+              subtitle: customerItemsData.party ? `\u0627\u0644\u0639\u0645\u064A\u0644: ${customerItemsData.party.name}` : void 0,
+              docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+            }
+          ),
+          /* @__PURE__ */ jsxs9("div", { className: "flex items-center justify-between border-b pb-2", children: [
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded", children: "\u062A\u0642\u0631\u064A\u0631 \u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062A\u0631\u0627\u0643\u0645\u064A" }),
+              /* @__PURE__ */ jsxs9("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: [
+                "\u0643\u0634\u0641 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u0645\u0633\u062D\u0648\u0628\u0629 \u0644\u0644\u0639\u0645\u064A\u0644: ",
+                customerItemsData.party?.name
+              ] }),
+              /* @__PURE__ */ jsx11("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u062A\u062C\u0645\u064A\u0639 \u0643\u0645\u064A\u0627\u062A \u0648\u0642\u064A\u0645 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0648\u0645\u0648\u0627\u062F \u0627\u0644\u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u0645\u0633\u062D\u0648\u0628\u0629 \u0645\u0646 \u0642\u0628\u0644 \u0627\u0644\u0639\u0645\u064A\u0644 \u0644\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629" })
             ] }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono text-center text-slate-500 whitespace-nowrap", children: row.exchangeRate.toFixed(4) }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono font-bold text-emerald-700 text-left whitespace-nowrap", children: row.inflow > 0 ? row.inflow.toLocaleString("ar-SA") : "-" }),
-            /* @__PURE__ */ jsx10("td", { className: "font-mono font-bold text-rose-700 text-left whitespace-nowrap", children: row.outflow > 0 ? row.outflow.toLocaleString("ar-SA") : "-" }),
-            /* @__PURE__ */ jsx10("td", { className: "text-slate-500 max-w-[150px] truncate", children: row.notes })
-          ] }, idx);
-        }) }),
-        /* @__PURE__ */ jsx10("tfoot", { className: "bg-slate-100 font-bold border-t border-slate-300", children: /* @__PURE__ */ jsxs8("tr", { children: [
-          /* @__PURE__ */ jsx10("td", { colSpan: 7, className: "text-slate-800", children: /* @__PURE__ */ jsxs8("div", { className: "space-y-1", children: [
-            /* @__PURE__ */ jsx10("span", { children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062A\u062F\u0641\u0642\u0627\u062A \u0627\u0644\u0645\u0643\u0627\u0641\u0626\u0629 (\u0634\u064A\u0643\u0644):" }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex flex-wrap gap-2 text-[10.5px] font-normal text-slate-600", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0635\u0627\u0641\u064A \u062D\u0631\u0643\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u062A:" }),
-              Object.entries(treasuriesMovementData.currencyMovements).map(([currCode, mov]) => {
-                const m = mov;
-                const net = m.in - m.out;
+            /* @__PURE__ */ jsxs9("div", { className: "text-left", children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[11px] text-slate-400 block", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0642\u064A\u0645\u0629 \u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A:" }),
+              /* @__PURE__ */ jsxs9("strong", { className: "text-lg font-mono font-bold text-indigo-600", children: [
+                customerItemsData.totalAmount.toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] }),
+              /* @__PURE__ */ jsxs9("span", { className: "text-[10px] text-slate-400 block font-mono", children: [
+                "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0648\u062D\u062F\u0627\u062A: ",
+                customerItemsData.totalQuantity.toLocaleString("ar-SA")
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx11("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs9("table", { className: "w-full text-right report-table border-collapse", children: [
+            /* @__PURE__ */ jsx11("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-10 min-w-10", children: "\u0645" }),
+              /* @__PURE__ */ jsx11("th", { children: "\u0627\u0633\u0645 \u0627\u0644\u0635\u0646\u0641 / \u0627\u0644\u0645\u0637\u0628\u0648\u0639" }),
+              /* @__PURE__ */ jsx11("th", { children: "\u0627\u0644\u062A\u0635\u0646\u064A\u0641" }),
+              /* @__PURE__ */ jsx11("th", { children: "\u0627\u0644\u0648\u062D\u062F\u0629" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-14 min-w-14", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0643\u0645\u064A\u0629" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-left w-20 min-w-20", children: "\u0645\u062A\u0648\u0633\u0637 \u0627\u0644\u0633\u0639\u0631" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-left w-24 min-w-24", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0642\u064A\u0645\u0629" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-20 min-w-20", children: "\u0622\u062E\u0631 \u0633\u062D\u0628" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-16 min-w-16", children: "\u0639\u062F\u062F \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" })
+            ] }) }),
+            /* @__PURE__ */ jsx11("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: customerItemsData.items.length === 0 ? /* @__PURE__ */ jsx11("tr", { children: /* @__PURE__ */ jsx11("td", { colSpan: 9, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u0645\u0633\u062D\u0648\u0628\u0627\u062A \u0623\u0635\u0646\u0627\u0641 \u0644\u0647\u0630\u0627 \u0627\u0644\u0639\u0645\u064A\u0644 \u062E\u0644\u0627\u0644 \u0627\u0644\u0641\u062A\u0631\u0629" }) }) : customerItemsData.items.map((item, itemIdx) => {
+              const avgPrice = item.totalQuantity > 0 ? item.totalAmount / item.totalQuantity : 0;
+              return /* @__PURE__ */ jsxs9("tr", { className: "hover:bg-slate-50", children: [
+                /* @__PURE__ */ jsx11("td", { className: "font-mono font-bold text-slate-600 text-center", children: itemIdx + 1 }),
+                /* @__PURE__ */ jsx11("td", { className: "font-bold text-slate-900", children: item.itemName }),
+                /* @__PURE__ */ jsx11("td", { className: "text-slate-600", children: item.category }),
+                /* @__PURE__ */ jsx11("td", { className: "text-slate-500", children: item.unit }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono font-bold text-indigo-700 text-center", children: item.totalQuantity.toLocaleString("ar-SA") }),
+                /* @__PURE__ */ jsxs9("td", { className: "font-mono text-slate-700 text-left", children: [
+                  avgPrice.toLocaleString("ar-SA", { maximumFractionDigits: 2 }),
+                  " ",
+                  settings.currency
+                ] }),
+                /* @__PURE__ */ jsxs9("td", { className: "font-mono font-bold text-slate-900 text-left", children: [
+                  item.totalAmount.toLocaleString("ar-SA"),
+                  " ",
+                  settings.currency
+                ] }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono text-slate-500 text-center", children: item.lastDate }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono text-blue-600 font-semibold text-center", children: item.invoiceCount })
+              ] }, `cust-item-${item.itemId || itemIdx}-${itemIdx}`);
+            }) }),
+            /* @__PURE__ */ jsx11("tfoot", { className: "bg-slate-100 font-bold border-t border-slate-300", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("td", { colSpan: 4, className: "text-slate-800", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0639\u0627\u0645:" }),
+              /* @__PURE__ */ jsx11("td", { className: "font-mono text-indigo-700 font-black text-center", children: customerItemsData.totalQuantity.toLocaleString("ar-SA") }),
+              /* @__PURE__ */ jsx11("td", {}),
+              /* @__PURE__ */ jsxs9("td", { className: "font-mono text-slate-900 font-black text-left", children: [
+                customerItemsData.totalAmount.toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] }),
+              /* @__PURE__ */ jsx11("td", { colSpan: 2 })
+            ] }) })
+          ] }) }),
+          /* @__PURE__ */ jsx11(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0627\u0644\u062A\u0642\u0631\u064A\u0631", centerLabel: "\u062A\u0648\u0642\u064A\u0639 \u0648\u062E\u062A\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0645\u0627\u0644\u064A \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
+        ] }),
+        activeReport === "supplier_statement" && /* @__PURE__ */ jsx11("div", { className: "bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-6 space-y-3 print:p-0 print:border-0 print:shadow-none report-a4-container", children: supplierStatementData.statement ? /* @__PURE__ */ jsx11(
+          UnifiedPartyStatementDocument,
+          {
+            partyStatement: supplierStatementData.statement,
+            isCustomer: false,
+            settings,
+            clientDisplayName: supplierStatementData.party?.name === "\u0632\u0628\u0648\u0646 \u0646\u0642\u062F\u064A" && selectedSubSuppObj ? selectedSubSuppObj.name : supplierStatementData.party?.name || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F",
+            fromDate,
+            toDate,
+            showItemDetails: showStatementItemDetails,
+            showImageThumbnailsInStatement: showStatementImageThumbnails,
+            setPreviewModalImage
+          }
+        ) : /* @__PURE__ */ jsx11("div", { className: "text-center text-slate-500 p-8", children: "\u0627\u062E\u062A\u0631 \u0645\u0648\u0631\u062F\u0627\u064B \u0644\u0639\u0631\u0636 \u0643\u0634\u0641 \u062D\u0633\u0627\u0628\u0647" }) }),
+        activeReport === "supplier_items" && /* @__PURE__ */ jsxs9("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
+          /* @__PURE__ */ jsx11(
+            PrintHeader,
+            {
+              title: "\u0643\u0634\u0641 \u0627\u0644\u062E\u0627\u0645\u0627\u062A \u0648\u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A \u0627\u0644\u062A\u0631\u0627\u0643\u0645\u064A \u0644\u0644\u0645\u0648\u0631\u062F",
+              subtitle: supplierItemsData.party ? `\u0627\u0644\u0645\u0648\u0631\u062F: ${supplierItemsData.party.name}` : void 0,
+              docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+            }
+          ),
+          /* @__PURE__ */ jsxs9("div", { className: "flex items-center justify-between border-b pb-2", children: [
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[10px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded", children: "\u062A\u0642\u0631\u064A\u0631 \u062E\u0627\u0645\u0627\u062A \u0648\u0645\u0634\u062A\u0631\u064A\u0627\u062A \u0627\u0644\u0645\u0648\u0631\u062F \u0627\u0644\u062A\u0631\u0627\u0643\u0645\u064A" }),
+              /* @__PURE__ */ jsxs9("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: [
+                "\u0643\u0634\u0641 \u0627\u0644\u062E\u0627\u0645\u0627\u062A \u0627\u0644\u0645\u0648\u0631\u062F\u0629 \u0645\u0646: ",
+                supplierItemsData.party?.name
+              ] }),
+              /* @__PURE__ */ jsx11("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u062A\u062C\u0645\u064A\u0639 \u0627\u0644\u062E\u0627\u0645\u0627\u062A \u0648\u0645\u0633\u062A\u0644\u0632\u0645\u0627\u062A \u0627\u0644\u0625\u0646\u062A\u0627\u062C \u0648\u0623\u0644\u0648\u0627\u062D \u0627\u0644\u0648\u0631\u0642 \u0627\u0644\u0645\u0648\u0631\u062F\u0629 \u0645\u0646 \u0647\u0630\u0627 \u0627\u0644\u0645\u0648\u0631\u062F \u062E\u0644\u0627\u0644 \u0627\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629" })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { className: "text-left", children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[11px] text-slate-400 block", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0642\u064A\u0645\u0629 \u0627\u0644\u062A\u0648\u0631\u064A\u062F\u0627\u062A:" }),
+              /* @__PURE__ */ jsxs9("strong", { className: "text-lg font-mono font-bold text-amber-700", children: [
+                supplierItemsData.totalAmount.toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] }),
+              /* @__PURE__ */ jsxs9("span", { className: "text-[10px] text-slate-400 block font-mono", children: [
+                "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0643\u0645\u064A\u0627\u062A: ",
+                supplierItemsData.totalQuantity.toLocaleString("ar-SA")
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx11("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs9("table", { className: "w-full text-right report-table border-collapse", children: [
+            /* @__PURE__ */ jsx11("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("th", { children: "\u0627\u0633\u0645 \u0627\u0644\u062E\u0627\u0645\u0629 / \u0627\u0644\u0635\u0646\u0641" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-16 min-w-16", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0643\u0645\u064A\u0629" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-left w-24 min-w-24", children: "\u0645\u062A\u0648\u0633\u0637 \u0627\u0644\u062A\u0643\u0644\u0641\u0629" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-left w-24 min-w-24", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0642\u064A\u0645\u0629" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-20 min-w-20", children: "\u0622\u062E\u0631 \u062A\u0648\u0631\u064A\u062F" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-16 min-w-16", children: "\u0639\u062F\u062F \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" })
+            ] }) }),
+            /* @__PURE__ */ jsx11("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: supplierItemsData.items.length === 0 ? /* @__PURE__ */ jsx11("tr", { children: /* @__PURE__ */ jsx11("td", { colSpan: 6, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u062A\u0648\u0631\u064A\u062F\u0627\u062A \u0623\u0635\u0646\u0627\u0641 \u0645\u0646 \u0647\u0630\u0627 \u0627\u0644\u0645\u0648\u0631\u062F \u062E\u0644\u0627\u0644 \u0627\u0644\u0641\u062A\u0631\u0629" }) }) : supplierItemsData.items.map((item, itemIdx) => {
+              const avgCost = item.totalQuantity > 0 ? item.totalAmount / item.totalQuantity : 0;
+              return /* @__PURE__ */ jsxs9("tr", { className: "hover:bg-slate-50", children: [
+                /* @__PURE__ */ jsx11("td", { className: "font-bold text-slate-900", children: item.itemName }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono font-bold text-amber-700 text-center", children: item.totalQuantity.toLocaleString("ar-SA") }),
+                /* @__PURE__ */ jsxs9("td", { className: "font-mono text-slate-700 text-left", children: [
+                  avgCost.toLocaleString("ar-SA", { maximumFractionDigits: 2 }),
+                  " ",
+                  settings.currency
+                ] }),
+                /* @__PURE__ */ jsxs9("td", { className: "font-mono font-bold text-slate-900 text-left", children: [
+                  item.totalAmount.toLocaleString("ar-SA"),
+                  " ",
+                  settings.currency
+                ] }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono text-slate-500 text-center", children: item.lastDate }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono text-amber-600 font-semibold text-center", children: item.invoiceCount })
+              ] }, `supp-item-${item.itemId || itemIdx}-${itemIdx}`);
+            }) }),
+            /* @__PURE__ */ jsx11("tfoot", { className: "bg-slate-100 font-bold border-t border-slate-300", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("td", { className: "text-slate-800", children: "\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0639\u0627\u0645:" }),
+              /* @__PURE__ */ jsx11("td", { className: "font-mono text-amber-700 font-black text-center", children: supplierItemsData.totalQuantity.toLocaleString("ar-SA") }),
+              /* @__PURE__ */ jsx11("td", {}),
+              /* @__PURE__ */ jsxs9("td", { className: "font-mono text-slate-900 font-black text-left", children: [
+                supplierItemsData.totalAmount.toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] }),
+              /* @__PURE__ */ jsx11("td", { colSpan: 2 })
+            ] }) })
+          ] }) }),
+          /* @__PURE__ */ jsx11(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0627\u0644\u062A\u0642\u0631\u064A\u0631", centerLabel: "\u0645\u0635\u0627\u062F\u0642\u0629 \u0648\u062E\u062A\u0645 \u0627\u0644\u0645\u0648\u0631\u062F", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0645\u0627\u0644\u064A \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
+        ] }),
+        activeReport === "receipt_vouchers" && /* @__PURE__ */ jsxs9("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
+          /* @__PURE__ */ jsx11(
+            PrintHeader,
+            {
+              title: "\u062A\u0642\u0631\u064A\u0631 \u0648\u0643\u0634\u0641 \u0633\u0646\u062F\u0627\u062A \u0627\u0644\u0642\u0628\u0636",
+              subtitle: "\u0633\u062C\u0644 \u0627\u0644\u0645\u0628\u0627\u0644\u063A \u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0629 \u0648\u0627\u0644\u062A\u062D\u0635\u064A\u0644\u0627\u062A \u0627\u0644\u0645\u0627\u0644\u064A\u0629",
+              docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+            }
+          ),
+          /* @__PURE__ */ jsxs9("div", { className: "flex items-center justify-between border-b pb-2", children: [
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded", children: "\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u062A\u062D\u0635\u064A\u0644\u0627\u062A \u0648\u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0627\u062A" }),
+              /* @__PURE__ */ jsx11("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: "\u0643\u0634\u0641 \u062A\u0641\u0635\u064A\u0644\u064A \u0644\u0633\u0646\u062F\u0627\u062A \u0627\u0644\u0642\u0628\u0636" }),
+              /* @__PURE__ */ jsx11("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u0633\u062C\u0644 \u0643\u0627\u0641\u0629 \u0627\u0644\u0645\u0628\u0627\u0644\u063A \u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0629 \u0645\u0646 \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0648\u062C\u0647\u0627\u062A \u0627\u0644\u062A\u062D\u0635\u064A\u0644 \u0627\u0644\u0645\u062E\u062A\u0644\u0641\u0629" })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { className: "text-left", children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[11px] text-slate-400 block", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0627\u062A:" }),
+              /* @__PURE__ */ jsxs9("strong", { className: "text-lg font-mono font-bold text-emerald-600", children: [
+                receiptVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] }),
+              /* @__PURE__ */ jsxs9("span", { className: "text-[10px] text-slate-400 block", children: [
+                "\u0639\u062F\u062F \u0627\u0644\u0633\u0646\u062F\u0627\u062A: ",
+                receiptVouchersData.length
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx11("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs9("table", { className: "w-full text-right report-table border-collapse", children: [
+            /* @__PURE__ */ jsx11("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-center", children: "\u0631\u0642\u0645 \u0627\u0644\u0633\u0646\u062F" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-center", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" }),
+              /* @__PURE__ */ jsx11("th", { children: "\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 / \u0627\u0644\u0645\u0633\u062A\u0644\u0645 \u0645\u0646\u0647" }),
+              /* @__PURE__ */ jsx11("th", { children: "\u0627\u0644\u0628\u064A\u0627\u0646 \u0648\u0627\u0644\u0634\u0631\u062D" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-center", children: "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0642\u0628\u0636" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-24 min-w-24", children: "\u0627\u0644\u062E\u0632\u064A\u0646\u0629" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-24 min-w-24 text-left", children: "\u0627\u0644\u0645\u0628\u0644\u063A \u0627\u0644\u0645\u0642\u0628\u0648\u0636" })
+            ] }) }),
+            /* @__PURE__ */ jsx11("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: receiptVouchersData.length === 0 ? /* @__PURE__ */ jsx11("tr", { children: /* @__PURE__ */ jsx11("td", { colSpan: 7, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u0633\u0646\u062F\u0627\u062A \u0642\u0628\u0636 \u0645\u0637\u0627\u0628\u0642\u0629" }) }) : receiptVouchersData.map((v, idx) => /* @__PURE__ */ jsxs9("tr", { className: "hover:bg-slate-50", children: [
+              /* @__PURE__ */ jsx11("td", { className: "font-mono font-bold text-emerald-700 text-center", children: v.voucherNumber }),
+              /* @__PURE__ */ jsx11("td", { className: "font-mono text-slate-600 text-center", children: v.date }),
+              /* @__PURE__ */ jsx11("td", { className: "font-semibold text-slate-900", children: v.partyName }),
+              /* @__PURE__ */ jsx11("td", { className: "text-slate-600 max-w-[200px] truncate", children: v.description }),
+              /* @__PURE__ */ jsx11("td", { className: "text-center", children: /* @__PURE__ */ jsx11("span", { className: "bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded text-[10.5px] font-medium", children: v.paymentMethod === "cash" ? "\u0646\u0642\u062F\u0627\u064B" : v.paymentMethod === "bank_transfer" ? "\u062A\u062D\u0648\u064A\u0644 \u0628\u0646\u0643\u064A" : "\u0634\u064A\u0643" }) }),
+              /* @__PURE__ */ jsx11("td", { className: "text-slate-600 font-medium", children: treasuries.find((t) => t.accountCode === v.accountCode || t.accountCode === v.treasuryAccountCode)?.name || "\u0627\u0644\u062E\u0632\u064A\u0646\u0629" }),
+              /* @__PURE__ */ jsxs9("td", { className: "font-mono font-bold text-emerald-700 text-left", children: [
+                v.amount.toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] })
+            ] }, `${v.id || "rec-v"}-${idx}`)) }),
+            /* @__PURE__ */ jsx11("tfoot", { className: "bg-slate-100 font-bold border-t border-slate-300", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("td", { colSpan: 6, className: "text-slate-800", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0627\u062A:" }),
+              /* @__PURE__ */ jsxs9("td", { className: "font-mono font-black text-emerald-700 text-left", children: [
+                receiptVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] })
+            ] }) })
+          ] }) }),
+          /* @__PURE__ */ jsx11(ReportSignatures, { rightLabel: "\u0623\u0645\u064A\u0646 \u0627\u0644\u0635\u0646\u062F\u0648\u0642 / \u0627\u0644\u0645\u062D\u0635\u0644", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0648\u0627\u0644\u0645\u062D\u0627\u0633\u0628", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0645\u0627\u0644\u064A \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
+        ] }),
+        activeReport === "payment_vouchers" && /* @__PURE__ */ jsxs9("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
+          /* @__PURE__ */ jsx11(
+            PrintHeader,
+            {
+              title: "\u062A\u0642\u0631\u064A\u0631 \u0648\u0643\u0634\u0641 \u0633\u0646\u062F\u0627\u062A \u0627\u0644\u0635\u0631\u0641",
+              subtitle: "\u0633\u062C\u0644 \u0627\u0644\u0645\u062F\u0641\u0648\u0639\u0627\u062A \u0648\u0627\u0644\u0645\u0646\u0635\u0631\u0641\u0627\u062A \u0648\u0627\u0644\u0645\u0633\u062F\u062F\u0627\u062A",
+              docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+            }
+          ),
+          /* @__PURE__ */ jsxs9("div", { className: "flex items-center justify-between border-b pb-2", children: [
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[10px] text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded", children: "\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u0645\u062F\u0641\u0648\u0639\u0627\u062A \u0648\u0627\u0644\u0645\u0646\u0635\u0631\u0641\u0627\u062A" }),
+              /* @__PURE__ */ jsx11("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: "\u0643\u0634\u0641 \u062A\u0641\u0635\u064A\u0644\u064A \u0644\u0633\u0646\u062F\u0627\u062A \u0627\u0644\u0635\u0631\u0641" }),
+              /* @__PURE__ */ jsx11("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u0633\u062C\u0644 \u0627\u0644\u0645\u0628\u0627\u0644\u063A \u0627\u0644\u0645\u0633\u062F\u062F\u0629 \u0644\u0644\u0645\u0648\u0631\u062F\u064A\u0646 \u0648\u0627\u0644\u0645\u0635\u0631\u0648\u0641\u0627\u062A \u0648\u0627\u0644\u0639\u0647\u062F \u0627\u0644\u0646\u0642\u062F\u064A\u0629 \u0648\u0627\u0644\u0628\u0646\u0643\u064A\u0629" })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { className: "text-left", children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[11px] text-slate-400 block", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0646\u0635\u0631\u0641\u0627\u062A:" }),
+              /* @__PURE__ */ jsxs9("strong", { className: "text-lg font-mono font-bold text-rose-600", children: [
+                paymentVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] }),
+              /* @__PURE__ */ jsxs9("span", { className: "text-[10px] text-slate-400 block", children: [
+                "\u0639\u062F\u062F \u0627\u0644\u0633\u0646\u062F\u0627\u062A: ",
+                paymentVouchersData.length
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx11("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs9("table", { className: "w-full text-right report-table border-collapse", children: [
+            /* @__PURE__ */ jsx11("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-center", children: "\u0631\u0642\u0645 \u0627\u0644\u0633\u0646\u062F" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-center", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" }),
+              /* @__PURE__ */ jsx11("th", { children: "\u0627\u0644\u0645\u0633\u062A\u0641\u064A\u062F / \u0627\u0644\u0645\u0648\u0631\u062F" }),
+              /* @__PURE__ */ jsx11("th", { children: "\u0627\u0644\u0628\u064A\u0627\u0646 \u0648\u0627\u0644\u0634\u0631\u062D" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-center", children: "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0635\u0631\u0641" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-24 min-w-24", children: "\u0627\u0644\u062E\u0632\u064A\u0646\u0629" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-24 min-w-24 text-left", children: "\u0627\u0644\u0645\u0628\u0644\u063A \u0627\u0644\u0645\u0635\u0631\u0648\u0641" })
+            ] }) }),
+            /* @__PURE__ */ jsx11("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: paymentVouchersData.length === 0 ? /* @__PURE__ */ jsx11("tr", { children: /* @__PURE__ */ jsx11("td", { colSpan: 7, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u0633\u0646\u062F\u0627\u062A \u0635\u0631\u0641 \u0645\u0637\u0627\u0628\u0642\u0629" }) }) : paymentVouchersData.map((v, idx) => /* @__PURE__ */ jsxs9("tr", { className: "hover:bg-slate-50", children: [
+              /* @__PURE__ */ jsx11("td", { className: "font-mono font-bold text-rose-700 text-center", children: v.voucherNumber }),
+              /* @__PURE__ */ jsx11("td", { className: "font-mono text-slate-600 text-center", children: v.date }),
+              /* @__PURE__ */ jsx11("td", { className: "font-semibold text-slate-900", children: v.partyName }),
+              /* @__PURE__ */ jsx11("td", { className: "text-slate-600 max-w-[200px] truncate", children: v.description }),
+              /* @__PURE__ */ jsx11("td", { className: "text-center", children: /* @__PURE__ */ jsx11("span", { className: "bg-rose-50 text-rose-800 px-1.5 py-0.5 rounded text-[10.5px] font-medium", children: v.paymentMethod === "cash" ? "\u0646\u0642\u062F\u0627\u064B" : v.paymentMethod === "bank_transfer" ? "\u062A\u062D\u0648\u064A\u0644 \u0628\u0646\u0643\u064A" : "\u0634\u064A\u0643" }) }),
+              /* @__PURE__ */ jsx11("td", { className: "text-slate-600 font-medium", children: treasuries.find((t) => t.accountCode === v.accountCode || t.accountCode === v.treasuryAccountCode)?.name || "\u0627\u0644\u062E\u0632\u064A\u0646\u0629" }),
+              /* @__PURE__ */ jsxs9("td", { className: "font-mono font-bold text-rose-700 text-left", children: [
+                v.amount.toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] })
+            ] }, `${v.id || "pay-v"}-${idx}`)) }),
+            /* @__PURE__ */ jsx11("tfoot", { className: "bg-slate-100 font-bold border-t border-slate-300", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("td", { colSpan: 6, className: "text-slate-800", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0646\u0635\u0631\u0641\u0627\u062A:" }),
+              /* @__PURE__ */ jsxs9("td", { className: "font-mono font-black text-rose-700 text-left", children: [
+                paymentVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] })
+            ] }) })
+          ] }) }),
+          /* @__PURE__ */ jsx11(ReportSignatures, { rightLabel: "\u0623\u0645\u064A\u0646 \u0627\u0644\u0635\u0646\u062F\u0648\u0642 / \u0627\u0644\u0635\u0627\u0631\u0641", centerLabel: "\u0627\u0644\u0645\u0633\u062A\u0644\u0645 / \u0627\u0644\u0645\u0633\u062A\u0641\u064A\u062F", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0645\u0627\u0644\u064A \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
+        ] }),
+        activeReport === "employee_statement" && /* @__PURE__ */ jsx11("div", { className: "report-a4-container bg-white p-4 sm:p-6 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: employeeStatementData.statement ? /* @__PURE__ */ jsx11(
+          UnifiedEmployeeStatementDocument,
+          {
+            statement: employeeStatementData.statement,
+            settings,
+            fromDate,
+            toDate,
+            showItemDetails: true
+          }
+        ) : /* @__PURE__ */ jsx11("div", { className: "text-center text-slate-500 p-8", children: "\u0627\u062E\u062A\u0631 \u0645\u0648\u0638\u0641\u064B\u0627 \u0644\u0639\u0631\u0636 \u0643\u0634\u0641 \u062D\u0633\u0627\u0628\u0647 \u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A." }) }),
+        activeReport === "payroll_sheets" && /* @__PURE__ */ jsxs9("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
+          /* @__PURE__ */ jsx11(
+            PrintHeader,
+            {
+              title: "\u0643\u0634\u0641 \u0645\u0633\u064A\u0631\u0627\u062A \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0627\u0644\u0634\u0647\u0631\u064A\u0629",
+              subtitle: "\u0645\u0644\u062E\u0635 \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0648\u0627\u0644\u0628\u062F\u0644\u0627\u062A \u0648\u0627\u0644\u0627\u0633\u062A\u0642\u0637\u0627\u0639\u0627\u062A \u0627\u0644\u0645\u0639\u062A\u0645\u062F\u0629",
+              docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+            }
+          ),
+          /* @__PURE__ */ jsxs9("div", { className: "flex items-center justify-between border-b pb-2", children: [
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded", children: "\u0634\u0624\u0648\u0646 \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646 \u0648\u0627\u0644\u0631\u0648\u0627\u062A\u0628" }),
+              /* @__PURE__ */ jsx11("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: "\u0643\u0634\u0641 \u0645\u0633\u064A\u0631\u0627\u062A \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0627\u0644\u0634\u0647\u0631\u064A\u0629" }),
+              /* @__PURE__ */ jsx11("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u0645\u0644\u062E\u0635 \u0627\u0644\u0645\u0633\u064A\u0631\u0627\u062A \u0627\u0644\u0645\u0639\u062A\u0645\u062F\u0629 \u0648\u0627\u0644\u0645\u0633\u0648\u062F\u0627\u062A \u0648\u0645\u0628\u0627\u0644\u063A \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A\u0629 \u0648\u0627\u0644\u0635\u0627\u0641\u064A\u0629" })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { className: "text-left", children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[11px] text-slate-400 block", children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0627\u0644\u0645\u0635\u0631\u0648\u0641\u0629:" }),
+              /* @__PURE__ */ jsxs9("strong", { className: "text-lg font-mono font-bold text-blue-700", children: [
+                payrollSheetsData.filter((s) => s.status === "approved").reduce((s, p) => s + p.totalNet, 0).toLocaleString("ar-SA"),
+                " ",
+                settings.currency
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx11("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs9("table", { className: "w-full text-right report-table border-collapse", children: [
+            /* @__PURE__ */ jsx11("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-16 min-w-16", children: "\u0631\u0642\u0645 \u0627\u0644\u0645\u0633\u064A\u0631" }),
+              /* @__PURE__ */ jsx11("th", { children: "\u0634\u0647\u0631 \u0627\u0644\u0627\u0633\u062A\u062D\u0642\u0627\u0642" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-24 min-w-24", children: "\u0627\u0644\u062D\u0627\u0644\u0629" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-20 min-w-20", children: "\u0639\u062F\u062F \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-left w-20 min-w-20", children: "\u0627\u0644\u0623\u0633\u0627\u0633\u064A" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-left w-20 min-w-20", children: "\u0627\u0644\u0628\u062F\u0644\u0627\u062A" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-left w-20 min-w-20", children: "\u0627\u0644\u0627\u0633\u062A\u0642\u0637\u0627\u0639\u0627\u062A" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-left w-24 min-w-24", children: "\u0635\u0627\u0641\u064A \u0627\u0644\u0631\u0648\u0627\u062A\u0628" }),
+              /* @__PURE__ */ jsx11("th", { className: "text-center w-20 min-w-20", children: "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
+            ] }) }),
+            /* @__PURE__ */ jsx11("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: payrollSheetsData.length === 0 ? /* @__PURE__ */ jsx11("tr", { children: /* @__PURE__ */ jsx11("td", { colSpan: 9, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u0645\u0633\u064A\u0631\u0627\u062A \u0631\u0648\u0627\u062A\u0628 \u0645\u0633\u062C\u0644\u0629" }) }) : payrollSheetsData.map((sheet) => {
+              const sheetItems = sheet.items || sheet.lines || [];
+              const employeesCount = sheetItems.length || sheet.employeesCount || 0;
+              return /* @__PURE__ */ jsxs9("tr", { className: "hover:bg-slate-50", children: [
+                /* @__PURE__ */ jsx11("td", { className: "font-mono font-bold text-blue-600 text-center", children: sheet.sheetNumber }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono font-bold text-slate-900", children: sheet.period || sheet.periodMonth || sheet.title }),
+                /* @__PURE__ */ jsx11("td", { className: "text-center", children: /* @__PURE__ */ jsx11("span", { className: `px-1.5 py-0.5 rounded text-[10px] font-bold ${sheet.status === "approved" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`, children: sheet.status === "approved" ? "\u0645\u0639\u062A\u0645\u062F \u0648\u0645\u0635\u0631\u0648\u0641" : "\u0645\u0633\u0648\u062F\u0629 \u0642\u064A\u062F \u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629" }) }),
+                /* @__PURE__ */ jsxs9("td", { className: "font-mono text-center", children: [
+                  employeesCount,
+                  " \u0645\u0648\u0638\u0641"
+                ] }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono text-slate-700 text-left", children: sheet.totalBasic.toLocaleString("ar-SA") }),
+                /* @__PURE__ */ jsxs9("td", { className: "font-mono text-emerald-700 text-left", children: [
+                  "+",
+                  sheet.totalAllowances.toLocaleString("ar-SA")
+                ] }),
+                /* @__PURE__ */ jsxs9("td", { className: "font-mono text-rose-700 text-left", children: [
+                  "-",
+                  sheet.totalDeductions.toLocaleString("ar-SA")
+                ] }),
+                /* @__PURE__ */ jsxs9("td", { className: "font-mono font-bold text-slate-900 text-left", children: [
+                  sheet.totalNet.toLocaleString("ar-SA"),
+                  " ",
+                  settings.currency
+                ] }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono text-slate-500 text-center", children: sheet.disbursedAt || sheet.approvedAt || sheet.createdAt || "-" })
+              ] }, sheet.id);
+            }) })
+          ] }) }),
+          /* @__PURE__ */ jsx11(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0634\u0624\u0648\u0646 \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u0645\u0627\u0644\u064A\u0629", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0639\u0627\u0645 \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
+        ] }),
+        activeReport === "treasuries_movement" && /* @__PURE__ */ jsxs9("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
+          /* @__PURE__ */ jsx11(
+            PrintHeader,
+            {
+              title: "\u0643\u0634\u0641 \u062D\u0631\u0643\u0627\u062A \u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0648\u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A \u0627\u0644\u0628\u0646\u0643\u064A\u0629",
+              subtitle: "\u0633\u062C\u0644 \u0627\u0644\u062A\u062F\u0641\u0642\u0627\u062A \u0627\u0644\u0646\u0642\u062F\u064A\u0629 \u0648\u0627\u0644\u0645\u0642\u0628\u0648\u0636\u0627\u062A \u0648\u0627\u0644\u0645\u0646\u0635\u0631\u0641\u0627\u062A",
+              docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+            }
+          ),
+          /* @__PURE__ */ jsxs9("div", { className: "flex flex-col md:flex-row md:items-center justify-between border-b pb-2 gap-2", children: [
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[10px] text-teal-700 font-bold bg-teal-50 px-2 py-0.5 rounded", children: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0633\u064A\u0648\u0644\u0629 \u0648\u0627\u0644\u062E\u0632\u0627\u0626\u0646" }),
+              /* @__PURE__ */ jsx11("h2", { className: "text-sm font-bold text-slate-900 mt-1", children: "\u0643\u0634\u0641 \u062D\u0631\u0643\u0627\u062A \u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0648\u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A \u0627\u0644\u0628\u0646\u0643\u064A\u0629" }),
+              /* @__PURE__ */ jsx11("p", { className: "text-[10px] text-slate-400 font-light mt-0.5", children: "\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u062A\u062F\u0641\u0642\u0627\u062A \u0627\u0644\u0646\u0642\u062F\u064A\u0629 \u0627\u0644\u062F\u0627\u062E\u0644\u0629 \u0648\u0627\u0644\u062E\u0627\u0631\u062C\u0629 \u0648\u062D\u0631\u0643\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u062A \u0627\u0644\u0641\u0639\u0644\u064A\u0629 \u0648\u0623\u0633\u0639\u0627\u0631 \u0627\u0644\u0635\u0631\u0641" })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { className: "text-right sm:text-left space-y-1", children: [
+              /* @__PURE__ */ jsx11("span", { className: "text-[10px] text-slate-400 font-light block font-semibold", children: "\u0627\u0644\u0645\u0648\u062C\u0648\u062F\u0627\u062A \u0627\u0644\u0641\u0639\u0644\u064A\u0629 \u0641\u064A \u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0645\u062E\u062A\u0627\u0631\u0629:" }),
+              /* @__PURE__ */ jsx11("div", { className: "flex flex-wrap items-center gap-1.5 justify-end", children: Object.entries(treasuriesMovementData.targetHoldings).map(([currCode, amt]) => {
                 const currObj = currencies.find((c) => c.code === currCode);
                 const sym = currCode === "ILS" ? "\u20AA" : currObj?.symbol || currCode;
-                return /* @__PURE__ */ jsxs8("span", { className: `font-mono font-bold px-1.5 py-0.5 rounded ${net >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: [
-                  currCode,
-                  ": ",
-                  net >= 0 ? "+" : "",
-                  net.toLocaleString("ar-SA"),
+                const name = currObj?.name || currCode;
+                const num = Number(amt) || 0;
+                return /* @__PURE__ */ jsxs9("div", { className: "bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-xs flex items-center gap-1", children: [
+                  /* @__PURE__ */ jsxs9("span", { className: "text-slate-500 font-sans", children: [
+                    name,
+                    ":"
+                  ] }),
+                  /* @__PURE__ */ jsxs9("strong", { className: "font-mono text-slate-900", children: [
+                    num.toLocaleString("ar-SA"),
+                    " ",
+                    sym
+                  ] })
+                ] }, currCode);
+              }) }),
+              /* @__PURE__ */ jsxs9("div", { className: "text-[10px] text-slate-400", children: [
+                "\u0627\u0644\u0645\u0639\u0627\u062F\u0644 \u0627\u0644\u0645\u062D\u0627\u0633\u0628\u064A \u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A: ",
+                /* @__PURE__ */ jsxs9("strong", { className: "font-mono text-teal-700 font-bold", children: [
+                  treasuriesMovementData.targetTreasuries.reduce((s, t) => s + t.balance, 0).toLocaleString("ar-SA"),
+                  " \u20AA"
+                ] })
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx11("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxs9("table", { className: "w-full text-right report-table border-collapse", children: [
+            /* @__PURE__ */ jsx11("thead", { className: "bg-slate-800 text-white font-semibold border-b", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-center", children: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-24 min-w-24", children: "\u0627\u0644\u0635\u0646\u062F\u0648\u0642" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-center", children: "\u0627\u0644\u0639\u0645\u0644\u064A\u0629" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-16 min-w-16 text-center", children: "\u0627\u0644\u0645\u0633\u062A\u0646\u062F" }),
+              /* @__PURE__ */ jsx11("th", { children: "\u0627\u0644\u0637\u0631\u0641 / \u0627\u0644\u0645\u0633\u062A\u0641\u064A\u062F" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-left", children: "\u0627\u0644\u0645\u0628\u0644\u063A \u0627\u0644\u0641\u0639\u0644\u064A" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-16 min-w-16 text-center", children: "\u0627\u0644\u0635\u0631\u0641" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-left", children: "\u0648\u0627\u0631\u062F (\u20AA)" }),
+              /* @__PURE__ */ jsx11("th", { className: "w-20 min-w-20 text-left", children: "\u0645\u0646\u0635\u0631\u0641 (\u20AA)" }),
+              /* @__PURE__ */ jsx11("th", { children: "\u0627\u0644\u0628\u064A\u0627\u0646 \u0648\u0627\u0644\u0634\u0631\u062D" })
+            ] }) }),
+            /* @__PURE__ */ jsx11("tbody", { className: "divide-y divide-slate-200 text-slate-700", children: treasuriesMovementData.rows.length === 0 ? /* @__PURE__ */ jsx11("tr", { children: /* @__PURE__ */ jsx11("td", { colSpan: 10, className: "py-6 text-center text-slate-400", children: "\u0644\u0627 \u062A\u0648\u062C\u062F \u062D\u0631\u0643\u0627\u062A \u0645\u0633\u062C\u0644\u0629 \u0644\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u062E\u0644\u0627\u0644 \u0627\u0644\u0641\u062A\u0631\u0629" }) }) : treasuriesMovementData.rows.map((row, idx) => {
+              const currObj = currencies.find((c) => c.code === row.actualCurrency);
+              const sym = row.actualCurrency === "ILS" ? "\u20AA" : currObj?.symbol || row.actualCurrency;
+              return /* @__PURE__ */ jsxs9("tr", { className: "hover:bg-slate-50", children: [
+                /* @__PURE__ */ jsx11("td", { className: "font-mono text-slate-600 text-center whitespace-nowrap", children: row.date }),
+                /* @__PURE__ */ jsx11("td", { className: "font-semibold text-slate-900", children: row.treasuryName }),
+                /* @__PURE__ */ jsx11("td", { className: "text-center font-medium whitespace-nowrap", children: row.type }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono text-blue-600 font-bold text-center whitespace-nowrap", children: row.docNumber }),
+                /* @__PURE__ */ jsx11("td", { className: "text-slate-700", children: row.partyName }),
+                /* @__PURE__ */ jsxs9("td", { className: "font-mono font-bold text-slate-900 text-left whitespace-nowrap", children: [
+                  row.actualAmount.toLocaleString("ar-SA"),
                   " ",
                   sym
-                ] }, currCode);
-              })
-            ] })
-          ] }) }),
-          /* @__PURE__ */ jsxs8("td", { className: "font-mono text-emerald-700 font-black text-left whitespace-nowrap", children: [
-            "+",
-            treasuriesMovementData.totalInflow.toLocaleString("ar-SA"),
-            " \u20AA"
-          ] }),
-          /* @__PURE__ */ jsxs8("td", { className: "font-mono text-rose-700 font-black text-left whitespace-nowrap", children: [
-            "-",
-            treasuriesMovementData.totalOutflow.toLocaleString("ar-SA"),
-            " \u20AA"
-          ] }),
-          /* @__PURE__ */ jsxs8("td", { className: "font-mono text-teal-700 font-black text-left whitespace-nowrap", children: [
-            "\u0635\u0627\u0641\u064A: ",
-            treasuriesMovementData.netMovement.toLocaleString("ar-SA"),
-            " \u20AA"
-          ] })
-        ] }) })
-      ] }) }),
-      /* @__PURE__ */ jsx10(ReportSignatures, { rightLabel: "\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0635\u0646\u062F\u0648\u0642", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u062F\u0627\u062E\u0644\u064A", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0645\u0627\u0644\u064A \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
-    ] }),
-    ["purchases_report", "inventory_report", "expenses_report"].includes(activeReport) && /* @__PURE__ */ jsx10(
-      OperationalReportDocument,
-      {
-        kind: activeReport,
-        fromDate,
-        toDate
-      }
-    ),
-    activeReport === "income" && /* @__PURE__ */ jsxs8("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
-      /* @__PURE__ */ jsx10(
-        PrintHeader,
-        {
-          title: "\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062F\u062E\u0644 \u0648\u0627\u0644\u0623\u0631\u0628\u0627\u062D \u0648\u0627\u0644\u062E\u0633\u0627\u0626\u0631",
-          subtitle: `\u0644\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u0646\u062A\u0647\u064A\u0629 \u0641\u064A ${(/* @__PURE__ */ new Date()).toLocaleDateString("ar-SA")}`,
-          docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
-        }
-      ),
-      /* @__PURE__ */ jsxs8("div", { className: "space-y-3 text-xs", children: [
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsxs8("div", { className: "font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300", children: [
-            /* @__PURE__ */ jsx10("span", { children: "\u0623\u0648\u0644\u0627\u064B: \u0627\u0644\u0625\u064A\u0631\u0627\u062F\u0627\u062A \u0627\u0644\u062A\u0634\u063A\u064A\u0644\u064A\u0629 (Revenues)" }),
-            /* @__PURE__ */ jsxs8("span", { className: "font-mono text-blue-700 font-black", children: [
-              totalRevenues.toLocaleString("ar-SA"),
-              " ",
-              settings.currency
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxs8("div", { className: "space-y-1 px-2 text-xs", children: [
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-slate-700", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0625\u064A\u0631\u0627\u062F\u0627\u062A \u0623\u0639\u0645\u0627\u0644 \u0648\u0645\u0637\u0628\u0648\u0639\u0627\u062A \u0627\u0644\u0645\u0637\u0628\u0639\u0629:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                revPrinting.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-slate-700", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0625\u064A\u0631\u0627\u062F\u0627\u062A \u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u0645\u0643\u062A\u0628\u0629 \u0648\u0627\u0644\u0642\u0631\u0637\u0627\u0633\u064A\u0629:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                revBookstore.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-slate-700", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0625\u064A\u0631\u0627\u062F\u0627\u062A \u062E\u062F\u0645\u0627\u062A \u0627\u0644\u062A\u0635\u0648\u064A\u0631 \u0648\u0627\u0644\u062A\u062C\u0644\u064A\u062F:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                revServices.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsxs8("div", { className: "font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300", children: [
-            /* @__PURE__ */ jsx10("span", { children: "\u062B\u0627\u0646\u064A\u0627\u064B: \u062A\u0643\u0644\u0641\u0629 \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A \u0648\u0627\u0644\u062E\u0627\u0645\u0627\u062A (Cost of Goods Sold)" }),
-            /* @__PURE__ */ jsxs8("span", { className: "font-mono text-rose-600 font-black", children: [
-              "(",
-              totalCogs.toLocaleString("ar-SA"),
-              ") ",
-              settings.currency
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxs8("div", { className: "space-y-1 px-2 text-xs", children: [
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-slate-700", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u062A\u0643\u0644\u0641\u0629 \u062E\u0627\u0645\u0627\u062A \u0648\u0623\u062D\u0628\u0627\u0631 \u0648\u0645\u0633\u062A\u0647\u0644\u0643\u0627\u062A \u0627\u0644\u0637\u0628\u0627\u0639\u0629:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                cogsPrinting.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-slate-700", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u062A\u0643\u0644\u0641\u0629 \u0628\u0636\u0627\u0639\u0629 \u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u0642\u0631\u0637\u0627\u0633\u064A\u0629 \u0648\u0627\u0644\u0643\u062A\u0628:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                cogsBookstore.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "bg-emerald-50 border border-emerald-300 p-2 rounded flex justify-between text-xs font-bold text-emerald-900", children: [
-          /* @__PURE__ */ jsx10("span", { children: "\u0645\u062C\u0645\u0644 \u0627\u0644\u0631\u0628\u062D (Gross Profit):" }),
-          /* @__PURE__ */ jsxs8("span", { className: "font-mono font-black", children: [
-            grossProfit.toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsxs8("div", { className: "font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300", children: [
-            /* @__PURE__ */ jsx10("span", { children: "\u062B\u0627\u0644\u062B\u0627\u064B: \u0627\u0644\u0645\u0635\u0631\u0648\u0641\u0627\u062A \u0627\u0644\u062A\u0634\u063A\u064A\u0644\u064A\u0629 \u0648\u0627\u0644\u0639\u0645\u0648\u0645\u064A\u0629 (Operating Expenses)" }),
-            /* @__PURE__ */ jsxs8("span", { className: "font-mono text-rose-600 font-black", children: [
-              "(",
-              totalExpenses.toLocaleString("ar-SA"),
-              ") ",
-              settings.currency
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxs8("div", { className: "space-y-1 px-2 text-xs", children: [
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-slate-700", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0645\u0635\u0631\u0648\u0641\u0627\u062A \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0648\u0627\u0644\u0623\u062C\u0648\u0631:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                expSalaries.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-slate-700", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0625\u064A\u062C\u0627\u0631 \u0627\u0644\u0645\u0639\u0631\u0636 \u0648\u0627\u0644\u0645\u0637\u0628\u0639\u0629:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                expRent.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-slate-700", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0645\u0635\u0631\u0648\u0641\u0627\u062A \u0635\u064A\u0627\u0646\u0629 \u0645\u0627\u0643\u064A\u0646\u0627\u062A \u0627\u0644\u0637\u0628\u0627\u0639\u0629:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                expMaintenance.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-slate-700", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0641\u0648\u0627\u062A\u064A\u0631 \u0627\u0644\u0643\u0647\u0631\u0628\u0627\u0621 \u0648\u0627\u0644\u0645\u064A\u0627\u0647:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                expUtilities.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-slate-700", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0645\u0635\u0631\u0648\u0641\u0627\u062A \u0639\u0645\u0648\u0645\u064A\u0629 \u0648\u062A\u0633\u0648\u064A\u0642:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                expGeneral.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "bg-slate-900 text-white p-2.5 rounded flex justify-between text-xs font-bold", children: [
-          /* @__PURE__ */ jsx10("span", { children: "\u0635\u0627\u0641\u064A \u0627\u0644\u0631\u0628\u062D \u0644\u0644\u0641\u062A\u0631\u0629 (Net Profit):" }),
-          /* @__PURE__ */ jsxs8("span", { className: "font-mono font-black text-emerald-400", children: [
-            netProfit.toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsx10(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0627\u0644\u0645\u062D\u0627\u0633\u0628 \u0627\u0644\u0642\u0627\u0646\u0648\u0646\u064A", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u0645\u0627\u0644\u064A", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0639\u0627\u0645 \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
-    ] }),
-    activeReport === "balance_sheet" && /* @__PURE__ */ jsxs8("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
-      /* @__PURE__ */ jsx10(
-        PrintHeader,
-        {
-          title: "\u0627\u0644\u0645\u064A\u0632\u0627\u0646\u064A\u0629 \u0627\u0644\u0639\u0645\u0648\u0645\u064A\u0629 \u0648\u0627\u0644\u0645\u0631\u0643\u0632 \u0627\u0644\u0645\u0627\u0644\u064A",
-          subtitle: `\u0643\u0645\u0627 \u0641\u064A \u062A\u0627\u0631\u064A\u062E ${(/* @__PURE__ */ new Date()).toLocaleDateString("ar-SA")}`,
-          docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
-        }
-      ),
-      /* @__PURE__ */ jsxs8("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3 text-xs", children: [
-        /* @__PURE__ */ jsxs8("div", { className: "space-y-2", children: [
-          /* @__PURE__ */ jsx10("h4", { className: "text-xs font-bold text-slate-900 bg-slate-100 p-1.5 rounded border border-slate-300", children: "\u0627\u0644\u062C\u0627\u0646\u0628 \u0627\u0644\u0623\u064A\u0645\u0646: \u0627\u0644\u0623\u0635\u0648\u0644 (Assets)" }),
-          /* @__PURE__ */ jsxs8("div", { className: "space-y-1 text-xs", children: [
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0646\u0642\u062F\u064A\u0629 \u0628\u0627\u0644\u0635\u0646\u062F\u0648\u0642 (\u0627\u0644\u0643\u0627\u0634\u064A\u0631):" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: assetCash.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0623\u0631\u0635\u062F\u0629 \u0627\u0644\u0628\u0646\u0648\u0643:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: assetBank.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0648\u0627\u0644\u0630\u0645\u0645 \u0627\u0644\u0645\u062F\u064A\u0646\u0629:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: assetReceivables.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0645\u062E\u0632\u0648\u0646 \u0627\u0644\u0643\u062A\u0628 \u0648\u0627\u0644\u0642\u0631\u0637\u0627\u0633\u064A\u0629:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: assetInventoryBooks.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0645\u062E\u0632\u0648\u0646 \u0627\u0644\u0648\u0631\u0642 \u0648\u062E\u0627\u0645\u0627\u062A \u0627\u0644\u0637\u0628\u0627\u0639\u0629:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: assetInventoryPrint.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between pt-1 border-t font-bold", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0623\u0635\u0648\u0644 \u0627\u0644\u0645\u062A\u062F\u0627\u0648\u0644\u0629:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono text-blue-700", children: totalCurrentAssets.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between pt-1", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0622\u0644\u0627\u062A \u0648\u0645\u0639\u062F\u0627\u062A \u0627\u0644\u0637\u0628\u0627\u0639\u0629 (\u0623\u0635\u0648\u0644 \u062B\u0627\u0628\u062A\u0629):" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: totalFixedAssets.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between bg-blue-50 border border-blue-200 p-1.5 rounded font-bold text-blue-900 mt-1", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0645\u062C\u0645\u0648\u0639 \u0627\u0644\u0623\u0635\u0648\u0644:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono", children: [
-                totalAssets.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "space-y-2", children: [
-          /* @__PURE__ */ jsx10("h4", { className: "text-xs font-bold text-slate-900 bg-slate-100 p-1.5 rounded border border-slate-300", children: "\u0627\u0644\u062C\u0627\u0646\u0628 \u0627\u0644\u0623\u064A\u0633\u0631: \u0627\u0644\u062E\u0635\u0648\u0645 \u0648\u062D\u0642\u0648\u0642 \u0627\u0644\u0645\u0644\u0643\u064A\u0629" }),
-          /* @__PURE__ */ jsxs8("div", { className: "space-y-1 text-xs", children: [
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0627\u0644\u0645\u0648\u0631\u062F\u0648\u0646 \u0648\u0627\u0644\u0630\u0645\u0645 \u0627\u0644\u062F\u0627\u0626\u0646\u0629:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: liabPayables.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0623\u0645\u0627\u0646\u0627\u062A \u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0642\u064A\u0645\u0629 \u0627\u0644\u0645\u0636\u0627\u0641\u0629:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: liabVat.toLocaleString("ar-SA") })
-            ] }),
-            liabDelivery > 0 && /* @__PURE__ */ jsxs8("div", { className: "flex justify-between text-amber-800", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0623\u0645\u0627\u0646\u0627\u062A \u0648\u0645\u0633\u062A\u062D\u0642\u0627\u062A \u0639\u0645\u0627\u0644 \u0627\u0644\u062A\u0648\u0635\u064A\u0644:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: liabDelivery.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between pt-1 border-t font-bold", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062E\u0635\u0648\u0645 \u0648\u0627\u0644\u0627\u0644\u062A\u0632\u0627\u0645\u0627\u062A:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono text-rose-700", children: totalLiabilities.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between pt-1", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0631\u0623\u0633 \u0627\u0644\u0645\u0627\u0644 \u0627\u0644\u0645\u062F\u0641\u0648\u0639:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: eqCapital.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0627\u0644\u0623\u0631\u0628\u0627\u062D \u0627\u0644\u0645\u0628\u0642\u0627\u0629 / \u0627\u0644\u0645\u062D\u062A\u062C\u0632\u0629:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold", children: eqRetained.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0623\u0631\u0628\u0627\u062D \u0627\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629:" }),
-              /* @__PURE__ */ jsx10("span", { className: "font-mono font-semibold text-emerald-600", children: netProfit.toLocaleString("ar-SA") })
-            ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between bg-blue-50 border border-blue-200 p-1.5 rounded font-bold text-blue-900 mt-1", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0645\u062C\u0645\u0648\u0639 \u0627\u0644\u062E\u0635\u0648\u0645 \u0648\u062D\u0642\u0648\u0642 \u0627\u0644\u0645\u0644\u0643\u064A\u0629:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono", children: [
-                totalEquity.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
-              ] })
-            ] })
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsx10(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0627\u0644\u0645\u062D\u0627\u0633\u0628 \u0627\u0644\u0642\u0627\u0646\u0648\u0646\u064A", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u0645\u0627\u0644\u064A", leftLabel: "\u0645\u062C\u0644\u0633 \u0627\u0644\u0625\u062F\u0627\u0631\u0629 \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
-    ] }),
-    activeReport === "vat" && /* @__PURE__ */ jsxs8("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
-      /* @__PURE__ */ jsx10(
-        PrintHeader,
-        {
-          title: "\u0625\u0642\u0631\u0627\u0631 \u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0642\u064A\u0645\u0629 \u0627\u0644\u0645\u0636\u0627\u0641\u0629 \u0627\u0644\u0645\u0639\u062A\u0645\u062F",
-          subtitle: `\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0636\u0631\u064A\u0628\u064A: ${settings.taxNumber || "-"}`,
-          docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
-        }
-      ),
-      /* @__PURE__ */ jsxs8("div", { className: "space-y-3 text-xs", children: [
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsxs8("div", { className: "font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300", children: [
-            /* @__PURE__ */ jsx10("span", { children: "1. \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A \u0648\u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0645\u062E\u0631\u062C\u0627\u062A:" }),
-            /* @__PURE__ */ jsxs8("span", { className: "font-mono text-blue-700 font-black", children: [
-              totalOutputVat.toLocaleString("ar-SA"),
-              " ",
-              settings.currency
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxs8("div", { className: "space-y-1 px-2 text-xs", children: [
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsxs8("span", { children: [
-                "\u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u062E\u0627\u0636\u0639\u0629 \u0644\u0644\u0646\u0633\u0628\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064A\u0629 (",
-                settings.vatRate || 0,
-                "%):"
+                ] }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono text-center text-slate-500 whitespace-nowrap", children: row.exchangeRate.toFixed(4) }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono font-bold text-emerald-700 text-left whitespace-nowrap", children: row.inflow > 0 ? row.inflow.toLocaleString("ar-SA") : "-" }),
+                /* @__PURE__ */ jsx11("td", { className: "font-mono font-bold text-rose-700 text-left whitespace-nowrap", children: row.outflow > 0 ? row.outflow.toLocaleString("ar-SA") : "-" }),
+                /* @__PURE__ */ jsx11("td", { className: "text-slate-500 max-w-[150px] truncate", children: row.notes })
+              ] }, idx);
+            }) }),
+            /* @__PURE__ */ jsx11("tfoot", { className: "bg-slate-100 font-bold border-t border-slate-300", children: /* @__PURE__ */ jsxs9("tr", { children: [
+              /* @__PURE__ */ jsx11("td", { colSpan: 7, className: "text-slate-800", children: /* @__PURE__ */ jsxs9("div", { className: "space-y-1", children: [
+                /* @__PURE__ */ jsx11("span", { children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062A\u062F\u0641\u0642\u0627\u062A \u0627\u0644\u0645\u0643\u0627\u0641\u0626\u0629 (\u0634\u064A\u0643\u0644):" }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex flex-wrap gap-2 text-[10.5px] font-normal text-slate-600", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0635\u0627\u0641\u064A \u062D\u0631\u0643\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u062A:" }),
+                  Object.entries(treasuriesMovementData.currencyMovements).map(([currCode, mov]) => {
+                    const m = mov;
+                    const net = m.in - m.out;
+                    const currObj = currencies.find((c) => c.code === currCode);
+                    const sym = currCode === "ILS" ? "\u20AA" : currObj?.symbol || currCode;
+                    return /* @__PURE__ */ jsxs9("span", { className: `font-mono font-bold px-1.5 py-0.5 rounded ${net >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: [
+                      currCode,
+                      ": ",
+                      net >= 0 ? "+" : "",
+                      net.toLocaleString("ar-SA"),
+                      " ",
+                      sym
+                    ] }, currCode);
+                  })
+                ] })
+              ] }) }),
+              /* @__PURE__ */ jsxs9("td", { className: "font-mono text-emerald-700 font-black text-left whitespace-nowrap", children: [
+                "+",
+                treasuriesMovementData.totalInflow.toLocaleString("ar-SA"),
+                " \u20AA"
               ] }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                totalSalesTaxable.toLocaleString("ar-SA"),
+              /* @__PURE__ */ jsxs9("td", { className: "font-mono text-rose-700 font-black text-left whitespace-nowrap", children: [
+                "-",
+                treasuriesMovementData.totalOutflow.toLocaleString("ar-SA"),
+                " \u20AA"
+              ] }),
+              /* @__PURE__ */ jsxs9("td", { className: "font-mono text-teal-700 font-black text-left whitespace-nowrap", children: [
+                "\u0635\u0627\u0641\u064A: ",
+                treasuriesMovementData.netMovement.toLocaleString("ar-SA"),
+                " \u20AA"
+              ] })
+            ] }) })
+          ] }) }),
+          /* @__PURE__ */ jsx11(ReportSignatures, { rightLabel: "\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0635\u0646\u062F\u0648\u0642", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u062F\u0627\u062E\u0644\u064A", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0645\u0627\u0644\u064A \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
+        ] }),
+        ["purchases_report", "inventory_report", "expenses_report"].includes(activeReport) && /* @__PURE__ */ jsx11(
+          OperationalReportDocument,
+          {
+            kind: activeReport,
+            fromDate,
+            toDate
+          }
+        ),
+        activeReport === "income" && /* @__PURE__ */ jsxs9("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
+          /* @__PURE__ */ jsx11(
+            PrintHeader,
+            {
+              title: "\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062F\u062E\u0644 \u0648\u0627\u0644\u0623\u0631\u0628\u0627\u062D \u0648\u0627\u0644\u062E\u0633\u0627\u0626\u0631",
+              subtitle: `\u0644\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u0645\u0646\u062A\u0647\u064A\u0629 \u0641\u064A ${(/* @__PURE__ */ new Date()).toLocaleDateString("ar-SA")}`,
+              docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+            }
+          ),
+          /* @__PURE__ */ jsxs9("div", { className: "space-y-3 text-xs", children: [
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsxs9("div", { className: "font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300", children: [
+                /* @__PURE__ */ jsx11("span", { children: "\u0623\u0648\u0644\u0627\u064B: \u0627\u0644\u0625\u064A\u0631\u0627\u062F\u0627\u062A \u0627\u0644\u062A\u0634\u063A\u064A\u0644\u064A\u0629 (Revenues)" }),
+                /* @__PURE__ */ jsxs9("span", { className: "font-mono text-blue-700 font-black", children: [
+                  totalRevenues.toLocaleString("ar-SA"),
+                  " ",
+                  settings.currency
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs9("div", { className: "space-y-1 px-2 text-xs", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-slate-700", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0625\u064A\u0631\u0627\u062F\u0627\u062A \u0623\u0639\u0645\u0627\u0644 \u0648\u0645\u0637\u0628\u0648\u0639\u0627\u062A \u0627\u0644\u0645\u0637\u0628\u0639\u0629:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    revPrinting.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-slate-700", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0625\u064A\u0631\u0627\u062F\u0627\u062A \u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u0645\u0643\u062A\u0628\u0629 \u0648\u0627\u0644\u0642\u0631\u0637\u0627\u0633\u064A\u0629:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    revBookstore.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-slate-700", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0625\u064A\u0631\u0627\u062F\u0627\u062A \u062E\u062F\u0645\u0627\u062A \u0627\u0644\u062A\u0635\u0648\u064A\u0631 \u0648\u0627\u0644\u062A\u062C\u0644\u064A\u062F:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    revServices.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsxs9("div", { className: "font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300", children: [
+                /* @__PURE__ */ jsx11("span", { children: "\u062B\u0627\u0646\u064A\u0627\u064B: \u062A\u0643\u0644\u0641\u0629 \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A \u0648\u0627\u0644\u062E\u0627\u0645\u0627\u062A (Cost of Goods Sold)" }),
+                /* @__PURE__ */ jsxs9("span", { className: "font-mono text-rose-600 font-black", children: [
+                  "(",
+                  totalCogs.toLocaleString("ar-SA"),
+                  ") ",
+                  settings.currency
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs9("div", { className: "space-y-1 px-2 text-xs", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-slate-700", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u062A\u0643\u0644\u0641\u0629 \u062E\u0627\u0645\u0627\u062A \u0648\u0623\u062D\u0628\u0627\u0631 \u0648\u0645\u0633\u062A\u0647\u0644\u0643\u0627\u062A \u0627\u0644\u0637\u0628\u0627\u0639\u0629:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    cogsPrinting.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-slate-700", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u062A\u0643\u0644\u0641\u0629 \u0628\u0636\u0627\u0639\u0629 \u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u0642\u0631\u0637\u0627\u0633\u064A\u0629 \u0648\u0627\u0644\u0643\u062A\u0628:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    cogsBookstore.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { className: "bg-emerald-50 border border-emerald-300 p-2 rounded flex justify-between text-xs font-bold text-emerald-900", children: [
+              /* @__PURE__ */ jsx11("span", { children: "\u0645\u062C\u0645\u0644 \u0627\u0644\u0631\u0628\u062D (Gross Profit):" }),
+              /* @__PURE__ */ jsxs9("span", { className: "font-mono font-black", children: [
+                grossProfit.toLocaleString("ar-SA"),
                 " ",
                 settings.currency
               ] })
             ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0645\u062E\u0631\u062C\u0627\u062A \u0627\u0644\u0645\u0633\u062A\u062D\u0642\u0629:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold text-blue-600", children: [
-                totalOutputVat.toLocaleString("ar-SA"),
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsxs9("div", { className: "font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300", children: [
+                /* @__PURE__ */ jsx11("span", { children: "\u062B\u0627\u0644\u062B\u0627\u064B: \u0627\u0644\u0645\u0635\u0631\u0648\u0641\u0627\u062A \u0627\u0644\u062A\u0634\u063A\u064A\u0644\u064A\u0629 \u0648\u0627\u0644\u0639\u0645\u0648\u0645\u064A\u0629 (Operating Expenses)" }),
+                /* @__PURE__ */ jsxs9("span", { className: "font-mono text-rose-600 font-black", children: [
+                  "(",
+                  totalExpenses.toLocaleString("ar-SA"),
+                  ") ",
+                  settings.currency
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs9("div", { className: "space-y-1 px-2 text-xs", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-slate-700", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0645\u0635\u0631\u0648\u0641\u0627\u062A \u0627\u0644\u0631\u0648\u0627\u062A\u0628 \u0648\u0627\u0644\u0623\u062C\u0648\u0631:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    expSalaries.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-slate-700", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0625\u064A\u062C\u0627\u0631 \u0627\u0644\u0645\u0639\u0631\u0636 \u0648\u0627\u0644\u0645\u0637\u0628\u0639\u0629:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    expRent.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-slate-700", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0645\u0635\u0631\u0648\u0641\u0627\u062A \u0635\u064A\u0627\u0646\u0629 \u0645\u0627\u0643\u064A\u0646\u0627\u062A \u0627\u0644\u0637\u0628\u0627\u0639\u0629:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    expMaintenance.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-slate-700", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0641\u0648\u0627\u062A\u064A\u0631 \u0627\u0644\u0643\u0647\u0631\u0628\u0627\u0621 \u0648\u0627\u0644\u0645\u064A\u0627\u0647:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    expUtilities.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-slate-700", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0645\u0635\u0631\u0648\u0641\u0627\u062A \u0639\u0645\u0648\u0645\u064A\u0629 \u0648\u062A\u0633\u0648\u064A\u0642:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    expGeneral.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { className: "bg-slate-900 text-white p-2.5 rounded flex justify-between text-xs font-bold", children: [
+              /* @__PURE__ */ jsx11("span", { children: "\u0635\u0627\u0641\u064A \u0627\u0644\u0631\u0628\u062D \u0644\u0644\u0641\u062A\u0631\u0629 (Net Profit):" }),
+              /* @__PURE__ */ jsxs9("span", { className: "font-mono font-black text-emerald-400", children: [
+                netProfit.toLocaleString("ar-SA"),
                 " ",
                 settings.currency
               ] })
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { children: [
-          /* @__PURE__ */ jsxs8("div", { className: "font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300", children: [
-            /* @__PURE__ */ jsx10("span", { children: "2. \u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A \u0648\u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0645\u062F\u062E\u0644\u0627\u062A:" }),
-            /* @__PURE__ */ jsxs8("span", { className: "font-mono text-emerald-700 font-black", children: [
-              totalInputVat.toLocaleString("ar-SA"),
-              " ",
-              settings.currency
             ] })
           ] }),
-          /* @__PURE__ */ jsxs8("div", { className: "space-y-1 px-2 text-xs", children: [
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A \u0627\u0644\u062E\u0627\u0636\u0639\u0629 \u0644\u0644\u0646\u0633\u0628\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064A\u0629:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold", children: [
-                totalPurchasesTaxable.toLocaleString("ar-SA"),
-                " ",
-                settings.currency
+          /* @__PURE__ */ jsx11(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0627\u0644\u0645\u062D\u0627\u0633\u0628 \u0627\u0644\u0642\u0627\u0646\u0648\u0646\u064A", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u0645\u0627\u0644\u064A", leftLabel: "\u0627\u0644\u0645\u062F\u064A\u0631 \u0627\u0644\u0639\u0627\u0645 \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
+        ] }),
+        activeReport === "balance_sheet" && /* @__PURE__ */ jsxs9("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
+          /* @__PURE__ */ jsx11(
+            PrintHeader,
+            {
+              title: "\u0627\u0644\u0645\u064A\u0632\u0627\u0646\u064A\u0629 \u0627\u0644\u0639\u0645\u0648\u0645\u064A\u0629 \u0648\u0627\u0644\u0645\u0631\u0643\u0632 \u0627\u0644\u0645\u0627\u0644\u064A",
+              subtitle: `\u0643\u0645\u0627 \u0641\u064A \u062A\u0627\u0631\u064A\u062E ${(/* @__PURE__ */ new Date()).toLocaleDateString("ar-SA")}`,
+              docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+            }
+          ),
+          /* @__PURE__ */ jsxs9("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3 text-xs", children: [
+            /* @__PURE__ */ jsxs9("div", { className: "space-y-2", children: [
+              /* @__PURE__ */ jsx11("h4", { className: "text-xs font-bold text-slate-900 bg-slate-100 p-1.5 rounded border border-slate-300", children: "\u0627\u0644\u062C\u0627\u0646\u0628 \u0627\u0644\u0623\u064A\u0645\u0646: \u0627\u0644\u0623\u0635\u0648\u0644 (Assets)" }),
+              /* @__PURE__ */ jsxs9("div", { className: "space-y-1 text-xs", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0646\u0642\u062F\u064A\u0629 \u0628\u0627\u0644\u0635\u0646\u062F\u0648\u0642 (\u0627\u0644\u0643\u0627\u0634\u064A\u0631):" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: assetCash.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0623\u0631\u0635\u062F\u0629 \u0627\u0644\u0628\u0646\u0648\u0643:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: assetBank.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0648\u0627\u0644\u0630\u0645\u0645 \u0627\u0644\u0645\u062F\u064A\u0646\u0629:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: assetReceivables.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0645\u062E\u0632\u0648\u0646 \u0627\u0644\u0643\u062A\u0628 \u0648\u0627\u0644\u0642\u0631\u0637\u0627\u0633\u064A\u0629:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: assetInventoryBooks.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0645\u062E\u0632\u0648\u0646 \u0627\u0644\u0648\u0631\u0642 \u0648\u062E\u0627\u0645\u0627\u062A \u0627\u0644\u0637\u0628\u0627\u0639\u0629:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: assetInventoryPrint.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between pt-1 border-t font-bold", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0623\u0635\u0648\u0644 \u0627\u0644\u0645\u062A\u062F\u0627\u0648\u0644\u0629:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono text-blue-700", children: totalCurrentAssets.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between pt-1", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0622\u0644\u0627\u062A \u0648\u0645\u0639\u062F\u0627\u062A \u0627\u0644\u0637\u0628\u0627\u0639\u0629 (\u0623\u0635\u0648\u0644 \u062B\u0627\u0628\u062A\u0629):" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: totalFixedAssets.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between bg-blue-50 border border-blue-200 p-1.5 rounded font-bold text-blue-900 mt-1", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0645\u062C\u0645\u0648\u0639 \u0627\u0644\u0623\u0635\u0648\u0644:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono", children: [
+                    totalAssets.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] })
               ] })
             ] }),
-            /* @__PURE__ */ jsxs8("div", { className: "flex justify-between", children: [
-              /* @__PURE__ */ jsx10("span", { children: "\u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0645\u062F\u062E\u0644\u0627\u062A \u0627\u0644\u0642\u0627\u0628\u0644\u0629 \u0644\u0644\u062E\u0635\u0645:" }),
-              /* @__PURE__ */ jsxs8("span", { className: "font-mono font-semibold text-emerald-600", children: [
-                totalInputVat.toLocaleString("ar-SA"),
+            /* @__PURE__ */ jsxs9("div", { className: "space-y-2", children: [
+              /* @__PURE__ */ jsx11("h4", { className: "text-xs font-bold text-slate-900 bg-slate-100 p-1.5 rounded border border-slate-300", children: "\u0627\u0644\u062C\u0627\u0646\u0628 \u0627\u0644\u0623\u064A\u0633\u0631: \u0627\u0644\u062E\u0635\u0648\u0645 \u0648\u062D\u0642\u0648\u0642 \u0627\u0644\u0645\u0644\u0643\u064A\u0629" }),
+              /* @__PURE__ */ jsxs9("div", { className: "space-y-1 text-xs", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0627\u0644\u0645\u0648\u0631\u062F\u0648\u0646 \u0648\u0627\u0644\u0630\u0645\u0645 \u0627\u0644\u062F\u0627\u0626\u0646\u0629:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: liabPayables.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0623\u0645\u0627\u0646\u0627\u062A \u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0642\u064A\u0645\u0629 \u0627\u0644\u0645\u0636\u0627\u0641\u0629:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: liabVat.toLocaleString("ar-SA") })
+                ] }),
+                liabDelivery > 0 && /* @__PURE__ */ jsxs9("div", { className: "flex justify-between text-amber-800", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0623\u0645\u0627\u0646\u0627\u062A \u0648\u0645\u0633\u062A\u062D\u0642\u0627\u062A \u0639\u0645\u0627\u0644 \u0627\u0644\u062A\u0648\u0635\u064A\u0644:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: liabDelivery.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between pt-1 border-t font-bold", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062E\u0635\u0648\u0645 \u0648\u0627\u0644\u0627\u0644\u062A\u0632\u0627\u0645\u0627\u062A:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono text-rose-700", children: totalLiabilities.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between pt-1", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0631\u0623\u0633 \u0627\u0644\u0645\u0627\u0644 \u0627\u0644\u0645\u062F\u0641\u0648\u0639:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: eqCapital.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0627\u0644\u0623\u0631\u0628\u0627\u062D \u0627\u0644\u0645\u0628\u0642\u0627\u0629 / \u0627\u0644\u0645\u062D\u062A\u062C\u0632\u0629:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold", children: eqRetained.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0623\u0631\u0628\u0627\u062D \u0627\u0644\u0641\u062A\u0631\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629:" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-mono font-semibold text-emerald-600", children: netProfit.toLocaleString("ar-SA") })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between bg-blue-50 border border-blue-200 p-1.5 rounded font-bold text-blue-900 mt-1", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0645\u062C\u0645\u0648\u0639 \u0627\u0644\u062E\u0635\u0648\u0645 \u0648\u062D\u0642\u0648\u0642 \u0627\u0644\u0645\u0644\u0643\u064A\u0629:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono", children: [
+                    totalEquity.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] })
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx11(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0627\u0644\u0645\u062D\u0627\u0633\u0628 \u0627\u0644\u0642\u0627\u0646\u0648\u0646\u064A", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u0645\u0627\u0644\u064A", leftLabel: "\u0645\u062C\u0644\u0633 \u0627\u0644\u0625\u062F\u0627\u0631\u0629 \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
+        ] }),
+        activeReport === "vat" && /* @__PURE__ */ jsxs9("div", { className: "report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3", children: [
+          /* @__PURE__ */ jsx11(
+            PrintHeader,
+            {
+              title: "\u0625\u0642\u0631\u0627\u0631 \u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0642\u064A\u0645\u0629 \u0627\u0644\u0645\u0636\u0627\u0641\u0629 \u0627\u0644\u0645\u0639\u062A\u0645\u062F",
+              subtitle: `\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0636\u0631\u064A\u0628\u064A: ${settings.taxNumber || "-"}`,
+              docDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+            }
+          ),
+          /* @__PURE__ */ jsxs9("div", { className: "space-y-3 text-xs", children: [
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsxs9("div", { className: "font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300", children: [
+                /* @__PURE__ */ jsx11("span", { children: "1. \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A \u0648\u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0645\u062E\u0631\u062C\u0627\u062A:" }),
+                /* @__PURE__ */ jsxs9("span", { className: "font-mono text-blue-700 font-black", children: [
+                  totalOutputVat.toLocaleString("ar-SA"),
+                  " ",
+                  settings.currency
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs9("div", { className: "space-y-1 px-2 text-xs", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsxs9("span", { children: [
+                    "\u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u062E\u0627\u0636\u0639\u0629 \u0644\u0644\u0646\u0633\u0628\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064A\u0629 (",
+                    settings.vatRate || 0,
+                    "%):"
+                  ] }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    totalSalesTaxable.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0645\u062E\u0631\u062C\u0627\u062A \u0627\u0644\u0645\u0633\u062A\u062D\u0642\u0629:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold text-blue-600", children: [
+                    totalOutputVat.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { children: [
+              /* @__PURE__ */ jsxs9("div", { className: "font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300", children: [
+                /* @__PURE__ */ jsx11("span", { children: "2. \u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A \u0648\u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0645\u062F\u062E\u0644\u0627\u062A:" }),
+                /* @__PURE__ */ jsxs9("span", { className: "font-mono text-emerald-700 font-black", children: [
+                  totalInputVat.toLocaleString("ar-SA"),
+                  " ",
+                  settings.currency
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs9("div", { className: "space-y-1 px-2 text-xs", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A \u0627\u0644\u062E\u0627\u0636\u0639\u0629 \u0644\u0644\u0646\u0633\u0628\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064A\u0629:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold", children: [
+                    totalPurchasesTaxable.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs9("div", { className: "flex justify-between", children: [
+                  /* @__PURE__ */ jsx11("span", { children: "\u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0645\u062F\u062E\u0644\u0627\u062A \u0627\u0644\u0642\u0627\u0628\u0644\u0629 \u0644\u0644\u062E\u0635\u0645:" }),
+                  /* @__PURE__ */ jsxs9("span", { className: "font-mono font-semibold text-emerald-600", children: [
+                    totalInputVat.toLocaleString("ar-SA"),
+                    " ",
+                    settings.currency
+                  ] })
+                ] })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs9("div", { className: "bg-slate-900 text-white p-2.5 rounded flex justify-between text-xs font-bold", children: [
+              /* @__PURE__ */ jsx11("span", { children: "\u0635\u0627\u0641\u064A \u0627\u0644\u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0645\u0633\u062A\u062D\u0642\u0629 \u0644\u0644\u0633\u062F\u0627\u062F:" }),
+              /* @__PURE__ */ jsxs9("span", { className: "font-mono font-black text-amber-400", children: [
+                netVatPayable.toLocaleString("ar-SA"),
                 " ",
                 settings.currency
               ] })
             ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "bg-slate-900 text-white p-2.5 rounded flex justify-between text-xs font-bold", children: [
-          /* @__PURE__ */ jsx10("span", { children: "\u0635\u0627\u0641\u064A \u0627\u0644\u0636\u0631\u064A\u0628\u0629 \u0627\u0644\u0645\u0633\u062A\u062D\u0642\u0629 \u0644\u0644\u0633\u062F\u0627\u062F:" }),
-          /* @__PURE__ */ jsxs8("span", { className: "font-mono font-black text-amber-400", children: [
-            netVatPayable.toLocaleString("ar-SA"),
-            " ",
-            settings.currency
-          ] })
+          ] }),
+          /* @__PURE__ */ jsx11(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0636\u0631\u0627\u0626\u0628", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u0642\u0627\u0646\u0648\u0646\u064A", leftLabel: "\u0627\u0644\u0645\u0641\u0648\u0636 \u0628\u0627\u0644\u062A\u0648\u0642\u064A\u0639 \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
         ] })
-      ] }),
-      /* @__PURE__ */ jsx10(ReportSignatures, { rightLabel: "\u0625\u0639\u062F\u0627\u062F \u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0636\u0631\u0627\u0626\u0628", centerLabel: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u0642\u0627\u0646\u0648\u0646\u064A", leftLabel: "\u0627\u0644\u0645\u0641\u0648\u0636 \u0628\u0627\u0644\u062A\u0648\u0642\u064A\u0639 \u0648\u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F" })
+      ] }) })
     ] }),
-    previewModalImage && /* @__PURE__ */ jsx10(
+    previewModalImage && /* @__PURE__ */ jsx11(
       "div",
       {
         className: "fixed inset-0 z-[150] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150 print:hidden",
         onClick: () => setPreviewModalImage(null),
-        children: /* @__PURE__ */ jsxs8(
+        children: /* @__PURE__ */ jsxs9(
           "div",
           {
             className: "bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 animate-in zoom-in-95 duration-150",
             onClick: (e) => e.stopPropagation(),
             children: [
-              /* @__PURE__ */ jsxs8("div", { className: "p-3.5 bg-slate-900 text-white flex items-center justify-between", children: [
-                /* @__PURE__ */ jsxs8("div", { className: "flex items-center gap-2", children: [
-                  /* @__PURE__ */ jsx10(ImageIcon, { className: "w-4 h-4 text-purple-400" }),
-                  /* @__PURE__ */ jsx10("span", { className: "font-bold text-sm truncate", children: previewModalImage.name })
+              /* @__PURE__ */ jsxs9("div", { className: "p-3.5 bg-slate-900 text-white flex items-center justify-between", children: [
+                /* @__PURE__ */ jsxs9("div", { className: "flex items-center gap-2", children: [
+                  /* @__PURE__ */ jsx11(ImageIcon, { className: "w-4 h-4 text-purple-400" }),
+                  /* @__PURE__ */ jsx11("span", { className: "font-bold text-sm truncate", children: previewModalImage.name })
                 ] }),
-                /* @__PURE__ */ jsx10(
+                /* @__PURE__ */ jsx11(
                   "button",
                   {
                     type: "button",
                     onClick: () => setPreviewModalImage(null),
                     className: "p-1 rounded-lg hover:bg-white/20 text-slate-300 hover:text-white cursor-pointer",
-                    children: /* @__PURE__ */ jsx10(X2, { className: "w-5 h-5" })
+                    children: /* @__PURE__ */ jsx11(X2, { className: "w-5 h-5" })
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsx10("div", { className: "p-4 bg-slate-950 flex items-center justify-center max-h-[75vh] overflow-hidden", children: /* @__PURE__ */ jsx10(
+              /* @__PURE__ */ jsx11("div", { className: "p-4 bg-slate-950 flex items-center justify-center max-h-[75vh] overflow-hidden", children: /* @__PURE__ */ jsx11(
                 "img",
                 {
                   src: previewModalImage.url,
@@ -4956,9 +5223,9 @@ var ReportsView = ({ initialReport, exportSelection }) => {
                   className: "max-h-[70vh] max-w-full object-contain rounded-lg shadow-lg"
                 }
               ) }),
-              /* @__PURE__ */ jsxs8("div", { className: "p-3 bg-slate-100 border-t border-slate-200 flex items-center justify-between text-xs", children: [
-                /* @__PURE__ */ jsx10("span", { className: "text-slate-600 font-medium", children: "\u0635\u0648\u0631\u0629 \u0645\u0635\u063A\u0631\u0629 \u0644\u0628\u0646\u062F \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0641\u064A \u0643\u0634\u0641 \u0627\u0644\u062D\u0633\u0627\u0628" }),
-                /* @__PURE__ */ jsx10(
+              /* @__PURE__ */ jsxs9("div", { className: "p-3 bg-slate-100 border-t border-slate-200 flex items-center justify-between text-xs", children: [
+                /* @__PURE__ */ jsx11("span", { className: "text-slate-600 font-medium", children: "\u0635\u0648\u0631\u0629 \u0645\u0635\u063A\u0631\u0629 \u0644\u0628\u0646\u062F \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0641\u064A \u0643\u0634\u0641 \u0627\u0644\u062D\u0633\u0627\u0628" }),
+                /* @__PURE__ */ jsx11(
                   "button",
                   {
                     type: "button",
@@ -5389,7 +5656,7 @@ function renderSalesReport(snapshot, { fromDate = "", toDate = "", periodLabel =
 function renderReport(snapshot, options = {}) {
   globalThis.__reportSnapshot = snapshot;
   try {
-    const html = renderToStaticMarkup(React7.createElement(ReportsView, {
+    const html = renderToStaticMarkup(React8.createElement(ReportsView, {
       initialReport: options.type || "customer_statement",
       exportSelection: {
         partyId: options.partyId,

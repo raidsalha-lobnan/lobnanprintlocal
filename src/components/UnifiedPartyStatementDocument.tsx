@@ -154,11 +154,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                         }
                         const trimmedNote = note.trim();
 
-                        const hasReceiptExtraDetails = row.type === 'receipt' && Boolean(
-                          row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
-                          (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
-                        );
-
                         const hasPaymentExtraDetails = row.type === 'payment' && Boolean(
                           row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
                           (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
@@ -167,7 +162,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                         return (
                         <React.Fragment key={`${row.id || 'party-row'}-${idx}`}>
                           <tr
-                            className={row.type === 'invoice'
+                            className={row.type === 'invoice' || row.type === 'receipt'
                               ? 'statement-invoice-title font-bold'
                               : 'bg-white print:bg-white'}
                           >
@@ -190,42 +185,6 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                   </>
                                 )}
                               </div>
-
-                              {/* تفاصيل إضافية لسند القبض بدون تكرار السند أو رقمه أو المبلغ */}
-                              {hasReceiptExtraDetails && (
-                                <div className="mt-1 p-1 bg-blue-50/60 border border-blue-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                                  {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
-                                    <div>
-                                      <span className="text-slate-500">طريقة القبض: </span>
-                                      <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
-                                    </div>
-                                  )}
-                                  {row.chequeNumber && (
-                                    <div>
-                                      <span className="text-slate-500">رقم الشيك: </span>
-                                      <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
-                                    </div>
-                                  )}
-                                  {row.chequeBank && (
-                                    <div>
-                                      <span className="text-slate-500">البنك المسحوب عليه: </span>
-                                      <span className="font-bold text-slate-800">{row.chequeBank}</span>
-                                    </div>
-                                  )}
-                                  {row.chequeDueDate && (
-                                    <div>
-                                      <span className="text-slate-500">تاريخ الاستحقاق: </span>
-                                      <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
-                                    </div>
-                                  )}
-                                  {row.transferReference && (
-                                    <div>
-                                      <span className="text-slate-500">رقم الحوالة: </span>
-                                      <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
 
                               {/* تفاصيل المقاصة */}
                               {row.type === 'clearance' && (row.counterPartyName || row.reason) && (
@@ -291,6 +250,31 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                               {row.runningBalance.toFixed(2)}
                             </td>
                           </tr>
+
+                          {/* تفاصيل سند القبض في سطر مستقل أبيض دون إطارات، لا يُحتسب كحركة جديدة */}
+                          {row.type === 'receipt' && (
+                            <tr className="report-receipt-detail-row bg-white print:bg-white break-inside-avoid">
+                              <td colSpan={6} className="bg-white px-1.5 py-1 text-right font-sans text-[10px] text-slate-800 border-0">
+                                <div dir="rtl" className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                                  <span className="font-medium">
+                                    طريقة الدفع: <bdi dir="auto" className="font-semibold">{row.paymentMethodLabel || 'غير محددة'}</bdi>
+                                  </span>
+                                  <span aria-hidden="true" className="inline-block h-3 w-px shrink-0 bg-slate-400" />
+                                  <span className="whitespace-nowrap">
+                                    المبلغ المقبوض: <bdi dir="ltr" className="font-semibold tabular-nums">{(row.receiptAmount ?? row.credit).toFixed(2)} {settings.currency}</bdi>
+                                  </span>
+                                  <span aria-hidden="true" className="inline-block h-3 w-px shrink-0 bg-slate-400" />
+                                  <span className="whitespace-nowrap">
+                                    الخصم: <bdi dir="ltr" className="font-semibold tabular-nums">{(row.receiptDiscount ?? 0).toFixed(2)} {settings.currency}</bdi>
+                                  </span>
+                                  <span aria-hidden="true" className="inline-block h-3 w-px shrink-0 bg-slate-400" />
+                                  <span className="whitespace-nowrap">
+                                    إجمالي الدائن: <bdi dir="ltr" className="font-bold tabular-nums">{row.credit.toFixed(2)} {settings.currency}</bdi>
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
 
                           {/* تفاصيل الفاتورة: جدول الأصناف ممتد بالكامل تحت أعمدة مدين ودائن ورصيد */}
                           {row.items && row.items.length > 0 && (showItemDetails || (showImageThumbnailsInStatement && statementPhotoSources(row.items).length > 0)) && (
