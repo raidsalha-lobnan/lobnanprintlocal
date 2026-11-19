@@ -4,6 +4,7 @@ import { tafqeet } from '../utils/tafqeet';
 import { Printer, X, Receipt } from 'lucide-react';
 import { PrintHeader } from './common/PrintHeader';
 import { ReportSignatures } from './common/ReportSignatures';
+import { OfficialStamp } from './common/OfficialStamp';
 
 export const VoucherPrintModal: React.FC = () => {
   const { selectedVoucherForPrint, setSelectedVoucherForPrint, settings, treasuries, parties } = useAccounting();
@@ -278,7 +279,28 @@ export const VoucherPrintModal: React.FC = () => {
 
           {/* 5. التوقيعات والختم (Signatures & Stamp Section) */}
           <div className="receipt-a5-signatures">
-            <ReportSignatures columns={2} rightLabel={isPayment ? 'توقيع المستلم' : 'توقيع المحاسب / المستلم'} leftLabel="الختم والاعتماد" />
+            {isPayment ? (
+              <ReportSignatures columns={2} rightLabel="توقيع المستلم" leftLabel="الختم والاعتماد" />
+            ) : (
+              <div className="receipt-a5-signature-grid" dir="rtl">
+                <div className="receipt-a5-signature-label">توقيع المحاسب / المستلم</div>
+                <div className="receipt-a5-hand-stamp">
+                  <span className="receipt-a5-hand-stamp-label">الختم والتوقيع</span>
+                  {settings.stampUrl && (
+                    <div className="receipt-a5-stamp-ink">
+                      <OfficialStamp size="3.5cm" />
+                    </div>
+                  )}
+                  {settings.signatureUrl && (
+                    <img
+                      src={settings.signatureUrl}
+                      alt="التوقيع المعتمد"
+                      className="receipt-a5-stamp-signature"
+                    />
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
           ))}

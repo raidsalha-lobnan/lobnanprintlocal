@@ -2555,3 +2555,144 @@ td.empty-row-shaded {
     line-height: 1.2 !important;
   }
 }
+
+/* Approved clean A5 receipt: no horizontal separators, larger content text,
+   and a real ink seal overlapping "الختم والتوقيع". Keep payment vouchers unchanged. */
+.receipt-a5-copy .receipt-a5-amount-row {
+  border-bottom: 0 !important;
+}
+.receipt-a5-copy .receipt-a5-fields {
+  font-size: 16px !important;
+  line-height: 1.45 !important;
+}
+.receipt-a5-copy .receipt-a5-fields > div {
+  align-items: baseline;
+}
+.receipt-a5-copy .receipt-a5-fields > div > span {
+  font-size: 16px !important;
+  line-height: 1.45 !important;
+}
+.receipt-a5-copy .receipt-a5-signatures {
+  margin-top: 10px !important;
+  padding-top: 0 !important;
+  border-top: 0 !important;
+}
+.receipt-a5-copy .receipt-a5-signature-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 7mm;
+  align-items: start;
+  min-height: 112px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #111827;
+}
+.receipt-a5-copy .receipt-a5-signature-label {
+  text-align: center;
+  padding-top: 10px;
+}
+.receipt-a5-copy .receipt-a5-hand-stamp {
+  position: relative;
+  height: 108px;
+  min-width: 0;
+  isolation: isolate;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.receipt-a5-copy .receipt-a5-hand-stamp-label {
+  position: absolute;
+  top: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  font-size: 16px;
+  font-weight: 800;
+  white-space: nowrap;
+  color: #111827;
+}
+.receipt-a5-copy .receipt-a5-stamp-ink {
+  position: absolute;
+  top: -5px;
+  left: 49%;
+  transform: translateX(-40%);
+  z-index: 2;
+  opacity: .84;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+.receipt-a5-copy .receipt-a5-stamp-signature {
+  position: absolute;
+  z-index: 3;
+  top: 29px;
+  left: 32%;
+  width: 95px;
+  height: auto;
+  max-height: 42px;
+  object-fit: contain;
+  opacity: .8;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+@media print {
+  .receipt-a5-copy[data-receipt-print-copy="1"] {
+    border-top: 0 !important;
+  }
+  .receipt-a5-sheet > .receipt-a5-copy {
+    /* Allow a blank bottom band after the seal on each A5 copy. */
+    padding-bottom: 5mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-title {
+    margin: 2mm 0 2mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-amount-row {
+    margin: 1.5mm 0 2.5mm !important;
+    padding: 0 !important;
+    border: 0 !important;
+  }
+  .receipt-a5-copy .receipt-a5-fields {
+    margin: 2mm 0 0 !important;
+    font-size: 14px !important;
+    line-height: 1.4 !important;
+  }
+  .receipt-a5-copy .receipt-a5-fields > div {
+    padding: .7mm 0 !important;
+    line-height: 1.4 !important;
+  }
+  .receipt-a5-copy .receipt-a5-fields > div + div {
+    margin-top: 2.1mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-fields > div > span {
+    font-size: 14px !important;
+    line-height: 1.4 !important;
+    min-width: 25mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-signatures {
+    margin: 6mm 0 9mm !important;
+    padding: 0 !important;
+    border: 0 !important;
+  }
+  .receipt-a5-copy .receipt-a5-signature-grid {
+    min-height: 34mm !important;
+    height: 34mm !important;
+    font-size: 13px !important;
+  }
+  .receipt-a5-copy .receipt-a5-signature-label {
+    padding-top: 9mm !important;
+    font-size: 13px !important;
+  }
+  .receipt-a5-copy .receipt-a5-hand-stamp {
+    height: 34mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-hand-stamp-label {
+    top: 10mm !important;
+    font-size: 13px !important;
+  }
+  .receipt-a5-copy .receipt-a5-stamp-ink {
+    top: -1mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-stamp-signature {
+    top: 10mm !important;
+    max-height: 16mm !important;
+  }
+}
