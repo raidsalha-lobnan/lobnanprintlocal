@@ -323,10 +323,17 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
       />
      </div>
      <div><label className={field}>الاسم الفرعي</label>
-      {subCustomers.length>0?<select className={box} value={subName} onChange={e=>setSubName(e.target.value)}>
-       <option value="">بدون اسم فرعي</option>
-       {subCustomers.map(p=><option value={p.name} key={p.id}>{p.name}</option>)}
-      </select>:<input className={box} value={subName} onChange={e=>setSubName(e.target.value)} placeholder="اختياري"/>}
+      <AutocompleteCombobox
+       items={subCustomers.map(p=>({id:p.id,name:p.name,code:p.code}))}
+       value={subName} selectedId={subCustomers.find(p=>p.name===subName)?.id}
+       onChangeText={setSubName}
+       onSelect={item=>setSubName(item.name)}
+       onQuickAdd={name=>setSubName(name.trim())}
+       quickAddButtonLabel="استخدام الاسم المكتوب"
+       entityType="general" showCode={false}
+       placeholder="اكتب الاسم الفرعي أو اختر..."
+       inputClassName="py-2 text-xs font-semibold" className="w-full"
+      />
      </div>
      <div><label className={field}>التاريخ</label>
       <DateInput value={date} onChange={e=>setDate(e.target.value)} className={box+' font-mono'}/>
