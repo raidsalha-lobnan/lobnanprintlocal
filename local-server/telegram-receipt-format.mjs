@@ -111,6 +111,18 @@ export function approvedReceiptTelegramText(row){
  const rate=number(voucher.exchangeRate??1);
  const balance=number(customer.value.balance);
  const txBase=number(tx.baseAmount);
+ const discount=number(voucher.discountAmount??0);
+ const baseDiscount=number(voucher.baseDiscountAmount??0);
+ if(discount===null||discount<0||baseDiscount===null||baseDiscount<0)
+  throw Error('TELEGRAM_RECEIPT_DISCOUNT_INVALID');
+ const postedLines=journal.value.lines||[];
+ const arCredit=postedLines.filter(line=>line.accountCode==='1201')
+  .reduce((sum,line)=>sum+Number(line.credit||0)-Number(line.debit||0),0);
+ const discountDebit=postedLines.filter(line=>line.accountCode==='5299')
+  .reduce((sum,line)=>sum+Number(line.debit||0)-Number(line.credit||0),0);
+ if(Math.abs(arCredit-(baseAmount+baseDiscount))>0.005||
+    Math.abs(discountDebit-baseDiscount)>0.005)
+  throw Error('TELEGRAM_RECEIPT_DISCOUNT_POSTING_UNPROVEN');
  if(amount===null||amount<=0||baseAmount===null||baseAmount<=0||
   rate===null||rate<=0||balance===null||txBase===null||
   Math.abs(txBase-baseAmount)>0.005)
@@ -127,8 +139,8 @@ export function approvedReceiptTelegramText(row){
  const paymentNotes=plain(voucher.transferReference||voucher.paymentNotes,350)||'—';
  const primary=plain(customer.value.name||voucher.partyName,160)||'—';
  const secondary=plain(voucher.subCustomerName,160)||'—';
- // New atomic customer receipts currently cannot post discounts. Always
- // show the actual ledger-supported zero, never a UI-only discount draft.
+ // The discount is read from the committed voucher and verified journal,
+ // never from an uncommitted UI draft.
  const lines=[
   '✅ '+(isAmendment?'تعديل':'إضافة')+' سند قيد معتمد '+serial,
   'التاريخ: '+formatDate(voucher.date),
@@ -136,7 +148,7 @@ export function approvedReceiptTelegramText(row){
   'الزبون الفرعي: '+secondary,
   'ملاحظة السند: '+notes,
   'المبلغ المقبوض: '+money(amount)+' '+currency,
-  'الخصم: 0.00 '+currency,
+  'الخصم: '+money(discount)+' '+currency,
   'رصيد الزبون بعد الاعتماد حتى '+asOfDate(row.committed_at)+': '+
    money(balance)+' '+baseCurrency,
   'طريقة القبض: '+payment,

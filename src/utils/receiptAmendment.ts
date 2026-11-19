@@ -22,7 +22,7 @@ const treasuryCode=(v:PaymentVoucher)=>v.treasuryAccountCode||
  (String(v.accountCode).startsWith('CASH-')?v.accountCode:'');
 export type EditableReceipt={
  partyId:string;date:string;description:string;amount:number;currency:string;
- exchangeRate:number;paymentMethod:PaymentVoucher['paymentMethod'];
+ exchangeRate:number;discountAmount?:number;paymentMethod:PaymentVoucher['paymentMethod'];
  treasuryAccountCode:string;subCustomerName?:string;transferReference?:string;
  chequeNumber?:string;chequeBank?:string;chequeDueDate?:string;
 };
@@ -54,6 +54,8 @@ export function buildReceiptAmendment(records:StoredRecord[],
     old.paymentMethod!==localBaseline.paymentMethod)
   throw Error('تم تعديل السند على جهاز آخر؛ حدث البيانات وأعد فتح السند.');
  const amount=c(draft.amount);if(amount<=0)throw Error('مبلغ القبض يجب أن يكون أكبر من صفر.');
+ if(c(draft.discountAmount??0)!==c(old.discountAmount??0))
+  throw Error('تعديل الخصم في سند معتمد يتطلب قيد تسوية جديدًا؛ لا يمكن تعديل الخصم أو حذفه دون إجراء معتمد.');
  const date=roundDates(draft.date);
  if(!draft.description||draft.description.length>1000)throw Error('اكتب بيان سند قبض صحيحاً.');
  if(draft.currency!==(old.currency||'ILS'))throw Error('تغيير عملة السند يتطلب إجراء تسوية مالية مستقلاً.');

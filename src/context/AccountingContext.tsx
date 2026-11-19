@@ -9310,7 +9310,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const treasuryChanged=changed.some(row=>row.entity==='treasuries'&&row.value?.accountCode===treasuryCode);
     const partyChanged=changed.some(row=>row.entity==='parties'&&row.id===draft.partyId);
     const accountsChanged=changed.filter(row=>row.entity==='accounts');
-    if(!saved||!journal||!treasuryChanged||!partyChanged||accountsChanged.length!==2)
+    const expectedAccounts=Number(voucher.baseDiscountAmount||0)>0?3:2;
+    if(!saved||!journal||!treasuryChanged||!partyChanged||accountsChanged.length!==expectedAccounts)
       throw Error('لم يؤكد الخادم ترحيل السند والقيود والصندوق والذمم كاملة. افحص المزامنة قبل إعادة المحاولة.');
     for(const row of changed){
       if(!row.value)continue;

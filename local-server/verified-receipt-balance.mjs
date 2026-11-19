@@ -44,7 +44,8 @@ export async function proveCustomerBalanceBeforeReceipt(client,workspace,partyRo
      v.subCustomerId||(v.currency&&v.currency!=='ILS')||
      Number(v.exchangeRate||1)!==1)return null;
   const amount=money(v.baseAmount??v.amount);
-  if(amount===null||amount<=0)return null;
+  const discount=money(v.baseDiscountAmount??0);
+  if(amount===null||amount<=0||discount===null||discount<0)return null;
   const journalRows=(await client.query(
    "SELECT value FROM sync_records WHERE workspace=$1 AND entity='journalEntries' AND value->>'referenceId'=$2 AND value->>'referenceType'='receipt'",
    [workspace,record_id])).rows;
@@ -54,13 +55,15 @@ export async function proveCustomerBalanceBeforeReceipt(client,workspace,partyRo
   const credit=lines.reduce((s,l)=>s+(money(l.credit)||0),0);
   const ar=lines.filter(l=>l.accountCode==='1201')
    .reduce((s,l)=>s+(money(l.credit)||0)-(money(l.debit)||0),0);
-  if(debit!==credit||ar!==amount)return null;
+  const allowed=lines.filter(l=>l.accountCode==='5299')
+   .reduce((s,l)=>s+(money(l.debit)||0)-(money(l.credit)||0),0);
+  if(debit!==credit||ar!==amount+discount||allowed!==discount)return null;
   const movements=(await client.query(
    "SELECT t.value AS treasury,x FROM sync_records t CROSS JOIN LATERAL jsonb_array_elements(COALESCE(t.value->'transactions','[]'::jsonb)) x WHERE t.workspace=$1 AND t.entity='treasuries' AND x->>'referenceId'=$2",
    [workspace,record_id])).rows;
   if(movements.length!==1||movements[0].treasury.accountCode!==v.treasuryAccountCode||
     money(movements[0].x.baseAmount??movements[0].x.amount)!==amount)return null;
-  total+=amount;
+  total+=amount+discount;
  }
  return (proof.balanceMinor-total)/100;
 }

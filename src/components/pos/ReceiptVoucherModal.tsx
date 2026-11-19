@@ -9,6 +9,7 @@ import {MAIN_CASH_TREASURY_CODE} from '../../utils/treasuryCodes';
 import {sortPartiesByCode} from '../../utils/partyUtils';
 import {verifiedReceiptCustomerBalance} from '../../utils/verifiedReceiptBalance';
 import {receiptSettlementPreview} from '../../utils/receiptSettlementPreview';
+import {publicSyncApiUrl} from '../../services/secureAuth';
 import {orderedReceiptVouchers,receiptVoucherPosition,receiptVoucherShortcut} from '../../utils/receiptVoucherNavigation';
 
 type TargetType='customer'|'supplier'|'employee';
@@ -127,7 +128,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
   setPaymentRoute(wasCash?'cash':'bank');
   setCurrency(existing?.currency||settings.baseCurrencyCode||'ILS');
   setRate(String(existing?.exchangeRate||1));
-  setDiscount('0');
+  setDiscount(String(existing?.discountAmount??0));
   setBankCode(!wasCash?(existing?.treasuryAccountCode||existing?.accountCode||''):'');
   setPaymentNote(existing?.transferReference||existing?.paymentNotes||'');
  };
@@ -188,7 +189,18 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
    setError('سعر الصرف يجب أن يكون أكبر من صفر.');return;
   }
   if(rebate>0){
-   setError('حقل الخصم جاهز؛ لا يمكن ترحيل خصم قبل اعتماد حساب الخصومات وقيوده المحاسبية.');return;
+   try{
+    const health=await fetch(publicSyncApiUrl().replace(/\/$/,'')+'/api/v1/health',{cache:'no-store'});
+    const state=health.ok?await health.json():null;
+    if(state?.features?.receiptDiscountV1!==true){
+     setError('خدمة ترحيل الخصم غير مفعّلة على الخادم حاليًا. لا يمكن اعتماد خصم قبل تشغيل المحرك المحاسبي الجديد.');return;
+    }
+   }catch{
+    setError('تعذّر التحقق من جاهزية الخادم لترحيل الخصم. لم يُحفظ السند.');return;
+   }
+  }
+  if(rebate>0&&rebate*Number(rate)<0.005){
+   setError('الخصم بعد تحويل العملة أقل من أصغر مبلغ محاسبي قابل للترحيل.');return;
   }
   if(targetType==='employee'||targetType==='supplier'){
    setError(targetType==='employee'?
@@ -216,6 +228,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
    voucherNumber:current?.voucherNumber||('RCT-'+Date.now().toString().slice(-6)),
    type:'receipt',date,partyId,partyName:selected.name,
    partyType:targetType,amount:entered,baseAmount:m(entered*appliedRate),
+   discountAmount:rebate,baseDiscountAmount:m(rebate*appliedRate),
    paymentMethod:method,accountCode:targetType==='supplier'?'2101':'1201',
    treasuryAccountCode:typeCode,description:note.trim()||'قبض وتسديد حساب',
    currency,currencySymbol:symbol,exchangeRate:appliedRate,
@@ -229,7 +242,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
    if(current){
     const result=await amendReceiptVoucher(current.id,current,{
      partyId,date,description:newVoucher.description,amount:entered,currency,
-     exchangeRate:appliedRate,paymentMethod:method,
+     exchangeRate:appliedRate,discountAmount:rebate,paymentMethod:method,
      treasuryAccountCode:typeCode,subCustomerName:subName,
      transferReference:paymentNote
     });
@@ -349,8 +362,8 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
      </div>
     </div>
     {rebate>0&&
-     <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
-      الخصم غير معتمد للترحيل حاليًا؛ لن يظهر رصيد متوقع حتى تصبح التسوية قابلة للحفظ.
+     <div role="status" className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-900">
+      الخصم المقبول ({rebate.toFixed(2)} {symbol}) يخفض مديونية العميل دون زيادة المبلغ المقبوض في البنك أو الصندوق.
      </div>}
     {hasCachedBalanceMismatch&&
      <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
@@ -409,7 +422,7 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
     {error&&<div role="alert" className="bg-rose-50 p-2.5 border border-rose-200 text-rose-700 font-medium rounded-md">{error}</div>}
     {savedVoucher&&<div className="text-emerald-700 font-semibold">تم تأكيد السند {savedVoucher.voucherNumber}</div>}
     <div className="text-[11px] text-slate-500 flex items-center gap-1"><Info size={13}/>
-     المبلغ يُدخل مرة واحدة؛ اختر نقدًا أو بنكيًا فقط. النقدي للصندوق الرئيسي، والبنكي يتطلب اختيار الصندوق. الخصومات وقبض الموردين والموظفين تُحمى من الترحيل غير المكتمل.
+     المبلغ المقبوض يدخل مرة واحدة، والخصم يُسوى مع ذمم العميل بقيد مستقل. النقدي للصندوق الرئيسي، والبنكي يتطلب اختيار الصندوق. قبض الموردين والموظفين محمي من الترحيل غير المكتمل.
     </div>
    </div>
    <footer className="px-4 py-3 flex items-center justify-between bg-white border-t border-slate-200 gap-3">

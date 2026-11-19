@@ -195,3 +195,19 @@ test('edited receipt snapshot is captured from the PostgreSQL transaction and no
  assert.equal(queries.length,3);
  assert.deepEqual(queries.map(q=>q.params[0]),['lobnan_main','lobnan_main','lobnan_main']);
 });
+
+test('approved receipt Telegram includes the posted discount and rejects unposted discount',()=>{
+ const row=makeRow({amount:860,baseAmount:860,cash:false,partyBalance:131});
+ row.changes[0].value.discountAmount=9;
+ row.changes[0].value.baseDiscountAmount=9;
+ assert.throws(()=>approvedReceiptTelegramText(row),/DISCOUNT_POSTING_UNPROVEN/);
+ row.changes[1].value.lines=[
+  {accountCode:'1102',debit:860,credit:0},
+  {accountCode:'5299',debit:9,credit:0},
+  {accountCode:'1201',debit:0,credit:869}
+ ];
+ const message=approvedReceiptTelegramText(row);
+ assert.match(message,/الخصم: 9\.00 شيكل/);
+ assert.match(message,/المبلغ المقبوض: 860\.00 شيكل/);
+ assert.match(message,/رصيد الزبون بعد الاعتماد[^:]*: 131\.00 شيكل/);
+});

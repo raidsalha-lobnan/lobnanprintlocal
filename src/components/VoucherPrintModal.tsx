@@ -193,6 +193,13 @@ export const VoucherPrintModal: React.FC = () => {
             </div>
           </div>
 
+          {!isPayment && Number(voucher.discountAmount||0)>0 && (
+            <div className="flex flex-wrap justify-between gap-2 px-3 py-2 mb-3 border border-slate-300 rounded-md text-sm font-bold">
+              <span>خصم تسوية العميل: <bdi dir="ltr">{Number(voucher.discountAmount).toFixed(2)} {currencySymbol}</bdi></span>
+              <span>إجمالي تخفيض الذمة: <bdi dir="ltr">{(Number(voucher.amount)+Number(voucher.discountAmount)).toFixed(2)} {currencySymbol}</bdi></span>
+            </div>
+          )}
+
           {/* 4. بنود السند - أسطر نظيفة بدون أسطر نقاط */}
           <div className="space-y-4 my-6 text-sm sm:text-[15px]">
             

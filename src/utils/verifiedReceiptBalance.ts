@@ -61,7 +61,8 @@ export function verifiedReceiptCustomerBalance(params:{
      (v.currency&&v.currency!=='ILS')||Number(v.exchangeRate||1)!==1)return null;
   seen.add(v.id);
   const amount=cents(v.baseAmount??v.amount);
-  if(amount===null||amount<=0)return null;
+  const discount=cents(v.baseDiscountAmount??0);
+  if(amount===null||amount<=0||discount===null||discount<0)return null;
   const entries=journalEntries.filter(j=>j.referenceType==='receipt'&&j.referenceId===v.id);
   if(entries.length!==1)return null;
   const j=entries[0];
@@ -69,12 +70,14 @@ export function verifiedReceiptCustomerBalance(params:{
   const credit=j.lines.reduce((s,l)=>s+(cents(l.credit)||0),0);
   const arCredit=j.lines.filter(l=>l.accountCode==='1201')
    .reduce((s,l)=>s+(cents(l.credit)||0)-(cents(l.debit)||0),0);
-  if(debit!==credit||arCredit!==amount)return null;
+  const discountDebit=j.lines.filter(l=>l.accountCode==='5299')
+   .reduce((s,l)=>s+(cents(l.debit)||0)-(cents(l.credit)||0),0);
+  if(debit!==credit||arCredit!==amount+discount||discountDebit!==discount)return null;
   const matching=treasuries.flatMap(t=>(t.transactions||[])
    .filter(tx=>tx.referenceId===v.id).map(tx=>({t,tx})));
   if(matching.length!==1||matching[0].t.accountCode!==v.treasuryAccountCode||
      cents(matching[0].tx.baseAmount??matching[0].tx.amount)!==amount)return null;
-  received+=amount;
+  received+=amount+discount;
  }
  return (invoiceMinor-received)/100;
 }

@@ -9,7 +9,7 @@ import type {PaymentVoucher} from '../types';
  * Changing the selected party must NOT add the old receipt to the new party.
  */
 type ExistingReceipt = Pick<PaymentVoucher,
- 'partyId'|'amount'|'baseAmount'|'exchangeRate'|'type'>;
+ 'partyId'|'amount'|'baseAmount'|'exchangeRate'|'discountAmount'|'baseDiscountAmount'|'type'>;
 
 type ReceiptSettlementInput={
  currentBalance:number|null;
@@ -42,13 +42,12 @@ export function receiptSettlementPreview({
 }:ReceiptSettlementInput):ReceiptSettlementPreview|null {
  if(!selectedPartyId||currentBalance===null||!Number.isFinite(exchangeRate)||
    exchangeRate<=0)return null;
- // Discounts cannot yet be posted by the receipt service. Never show a
- // fictitious discounted balance that the approved save would reject.
- if(!Number.isFinite(discount)||discount!==0)return null;
+ if(!Number.isFinite(discount)||discount<0)return null;
  const current=cents(currentBalance);
  const entered=cents(amount);
  const draftBase=cents(amount*exchangeRate);
- if(current===null||entered===null||entered<0||draftBase===null)return null;
+ const draftDiscountBase=cents(discount*exchangeRate);
+ if(current===null||entered===null||entered<0||draftBase===null||draftDiscountBase===null)return null;
 
  let priorBase=0;
  if(existingReceipt&&existingReceipt.type==='receipt'&&
@@ -58,17 +57,20 @@ export function receiptSettlementPreview({
     Number(existingReceipt.baseAmount);
   const original=cents(previous);
   if(original===null||original<0)return null;
-  priorBase=original;
+  const oldDiscount=cents(existingReceipt.baseDiscountAmount??
+   (Number(existingReceipt.discountAmount||0)*Number(existingReceipt.exchangeRate??1)));
+  if(oldDiscount===null||oldDiscount<0)return null;
+  priorBase=original+oldDiscount;
  }
  const before=current+priorBase;
- const after=before-draftBase;
+ const after=before-draftBase-draftDiscountBase;
  if(!Number.isSafeInteger(before)||!Number.isSafeInteger(after))return null;
  return {
   currentBalance:current/100,
   before:before/100,
   after:after/100,
   priorReceiptBase:priorBase/100,
-  draftReceiptBase:draftBase/100,
+  draftReceiptBase:(draftBase+draftDiscountBase)/100,
   deltaFromCurrent:(after-current)/100
  };
 }

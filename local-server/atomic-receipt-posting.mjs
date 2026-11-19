@@ -9,6 +9,15 @@ function cents(value,field){
   throw new InputError('INVALID_RECEIPT_'+field,422);
  return Math.round(n*100);
 }
+const DISCOUNT_ACCOUNT_CODE='5299';
+const DISCOUNT_ACCOUNT_NAME='خصومات مسموح بها للعملاء';
+function discountCents(value){
+ const n=Number(value??0);
+ if(!Number.isFinite(n)||n<0||!Number.isSafeInteger(Math.round(n*100))||
+  Math.abs(n*100-Math.round(n*100))>0.00001)
+  throw new InputError('RECEIPT_DISCOUNT_INVALID',422);
+ return Math.round(n*100);
+}
 const bankMethods=new Set(['bank_transfer','e_wallet','cheque','card','pos','electronic']);
 const safeArray=value=>Array.isArray(value)?value:[];
 const plus=(a,b)=>round(Number(a||0)+b);
@@ -25,6 +34,15 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
  const amountMinor=cents(voucher.amount,'AMOUNT');
  const baseMinor=cents(voucher.baseAmount,'BASE_AMOUNT');
  const rate=Number(voucher.exchangeRate??1);
+ const discountMinor=discountCents(voucher.discountAmount);
+ const baseDiscountMinor=discountCents(voucher.baseDiscountAmount);
+ if(!Number.isFinite(rate)||rate<=0||
+    Math.round(discountMinor*rate)!==baseDiscountMinor)
+  throw new InputError('RECEIPT_DISCOUNT_CURRENCY_CONVERSION_MISMATCH',422);
+ if(baseMinor+baseDiscountMinor>Number.MAX_SAFE_INTEGER)
+  throw new InputError('RECEIPT_SETTLEMENT_OVERFLOW',422);
+ if(discountMinor>0&&voucher.referenceInvoiceId)
+  throw new InputError('RECEIPT_INVOICE_LINKED_DISCOUNT_USE_INVOICE_SETTLEMENT',422);
  if(!Number.isFinite(rate)||rate<=0||Math.round(amountMinor*rate)!==baseMinor)
    throw new InputError('RECEIPT_CURRENCY_CONVERSION_MISMATCH',422);
  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(voucher.date||''))||
@@ -56,6 +74,19 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
  ]);
  if(rows.some(x=>x.rows.length!==1))throw new InputError('RECEIPT_LINKED_RECORD_NOT_UNIQUE',409);
  const [party,treasury,liquid,receivable]=rows.map(x=>x.rows[0]);
+ let discountAccount=null;
+ if(baseDiscountMinor>0){
+  const accounts=await client.query(
+   "SELECT record_id,version,value FROM sync_records WHERE workspace=$1 AND entity='accounts' AND value->>'code'=$2 FOR UPDATE",
+   [workspace,DISCOUNT_ACCOUNT_CODE]);
+  if(accounts.rows.length>1)throw new InputError('RECEIPT_DISCOUNT_ACCOUNT_NOT_UNIQUE',409);
+  discountAccount=accounts.rows[0]||null;
+  if(discountAccount&&(
+    discountAccount.value.type!=='expense'||
+    discountAccount.value.name!==DISCOUNT_ACCOUNT_NAME||
+    discountAccount.value.code!==DISCOUNT_ACCOUNT_CODE))
+   throw new InputError('RECEIPT_DISCOUNT_ACCOUNT_CONFLICT',409);
+ }
  let linkedInvoice=null;
  if(voucher.referenceInvoiceId){
   const linked=await client.query(
@@ -91,6 +122,8 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
  const local=Number(held[currency]??(currency==='ILS'?treasury.value.balance:0));
  if(!Number.isFinite(local))throw new InputError('RECEIPT_CURRENCY_BALANCE_INVALID',422);
  const amount=amountMinor/100,base=baseMinor/100;
+ const baseDiscount=baseDiscountMinor/100;
+ const receivableRelief=round(base+baseDiscount);
  const balance=plus(oldBalance,base),currencyBalance=plus(local,amount);
  const tx={id:'tx-receipt-'+voucher.id,treasuryId:treasury.record_id,
   treasuryName:treasury.value.name,date:voucher.date,type:'deposit',amount,
@@ -114,7 +147,10 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
   treasuryAccountCode:code,lines:[
    {accountCode:ledgerCode,accountName:liquid.value.name,debit:base,credit:0,
     description:'إيداع في '+code+' بموجب '+voucher.voucherNumber},
-   {accountCode:'1201',accountName:receivable.value.name,debit:0,credit:base,
+   ...(baseDiscountMinor>0?[{accountCode:DISCOUNT_ACCOUNT_CODE,
+    accountName:DISCOUNT_ACCOUNT_NAME,debit:baseDiscount,credit:0,
+    description:'خصم تسوية ممنوح للعميل بموجب '+voucher.voucherNumber}]:[]),
+   {accountCode:'1201',accountName:receivable.value.name,debit:0,credit:receivableRelief,
     description:'تسديد من '+voucher.partyName+' بموجب '+voucher.voucherNumber}
   ]};
  const updates=[
@@ -132,7 +168,7 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
     currencyBalances:{...held,[currency]:currencyBalance},
     transactions:[tx,...existingTx]}},
   {entity:'parties',row:party,value:{
-   ...party.value,balance:plus(partyBalance,-base),
+   ...party.value,balance:plus(partyBalance,-receivableRelief),
    ...(provenPartyBalance!==null&&Math.abs(cachedPartyBalance-provenPartyBalance)>0.005?{
     balanceReconciliations:[...(Array.isArray(party.value.balanceReconciliations)?
      party.value.balanceReconciliations:[]),{
@@ -144,8 +180,20 @@ export async function postNewCustomerReceipt(client,workspace,voucher,applied){
    }:{})
   }},
   {entity:'accounts',row:liquid,value:{...liquid.value,balance:plus(liquid.value.balance,base)}},
-  {entity:'accounts',row:receivable,value:{...receivable.value,balance:plus(receivable.value.balance,-base)}}
+  {entity:'accounts',row:receivable,value:{...receivable.value,balance:plus(receivable.value.balance,-receivableRelief)}},
+  ...(discountAccount?[{entity:'accounts',row:discountAccount,value:{
+   ...discountAccount.value,balance:plus(discountAccount.value.balance,baseDiscount)
+  }}]:[])
  ];
+ if(baseDiscountMinor>0&&!discountAccount){
+  const id='account-receipt-discount-'+DISCOUNT_ACCOUNT_CODE;
+  const value={code:DISCOUNT_ACCOUNT_CODE,name:DISCOUNT_ACCOUNT_NAME,
+   type:'expense',balance:baseDiscount,isSystem:true,
+   description:'خصومات تسوية العملاء المثبتة بسندات القبض'};
+  await client.query('INSERT INTO sync_records(workspace,entity,record_id,version,value) VALUES($1,$2,$3,1,$4)',
+   [workspace,'accounts',id,value]);
+  applied.push({entity:'accounts',id,version:1,value});
+ }
  await client.query('INSERT INTO sync_records(workspace,entity,record_id,version,value) VALUES($1,$2,$3,1,$4)',
  [workspace,'journalEntries',journalId,journal]);
  applied.push({entity:'journalEntries',id:journalId,version:1,value:journal});

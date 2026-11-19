@@ -581,6 +581,8 @@ export interface PaymentVoucher {
   currencySymbol?: string;    // e.g. '₪', '$', 'د.أ', '€'
   exchangeRate?: number;      // e.g. 3.70 for USD, 1.0 for ILS
   baseAmount?: number;        // المبلغ المعادل بالشيكل
+  discountAmount?: number;    // الخصم الممنوح للعميل بعملة السند
+  baseDiscountAmount?: number; // الخصم المعادل بالشيكل، غير نقدي
   subCustomerId?: string;     // معرف الزبون الفرعي إن وجد
   subCustomerName?: string;   // اسم الزبون الفرعي
   treasuryAccountCode?: string; // كود الصندوق / الحساب البنكي المستخدم

@@ -514,7 +514,14 @@ export function generateAccountStatement(params: {
         vch.paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : 'أخرى';
 
       if (vch.type === 'receipt') {
-        // Receipt from customer -> Credit
+        // Customer debt is settled by BOTH actual cash and the approved
+        // non-cash discount. Treasury receives only the cash component.
+        const cashBase=Number(vch.baseAmount??vch.amount);
+        const rebateBase=Number(vch.baseDiscountAmount??
+          (Number(vch.discountAmount||0)*Number(vch.exchangeRate||1)));
+        const receiptCredit=Number((cashBase+rebateBase).toFixed(2));
+        const rebateNote=Number(vch.discountAmount||0)>0?
+          ` [المقبوض: ${Number(vch.amount).toFixed(2)} ${vch.currencySymbol||'₪'}؛ خصم التسوية: ${Number(vch.discountAmount).toFixed(2)} ${vch.currencySymbol||'₪'}]`:'';
         allTx.push({
           id: vch.id,
           date: vch.date,
@@ -523,7 +530,7 @@ export function generateAccountStatement(params: {
           type: 'receipt',
           category: 'receipt',
           typeLabel: 'سند قبض',
-          description: vch.description || 'سند قبض وتحصيل دفعة نقدية من العميل',
+          description: (vch.description || 'سند قبض وتحصيل دفعة نقدية من العميل')+rebateNote,
           voucherNotes: vchNote,
           paymentMethod: vch.paymentMethod,
           paymentMethodLabel,
@@ -534,7 +541,7 @@ export function generateAccountStatement(params: {
           accountCode: vch.treasuryAccountCode || vch.accountCode,
           subCustomerName: vch.subCustomerName,
           debit: 0,
-          credit: vch.amount
+          credit: receiptCredit
         });
       } else {
         // Payment voucher -> If party is supplier: payment to supplier (debit)
