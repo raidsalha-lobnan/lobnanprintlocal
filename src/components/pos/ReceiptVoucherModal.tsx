@@ -9,7 +9,6 @@ import {MAIN_CASH_TREASURY_CODE} from '../../utils/treasuryCodes';
 import {sortPartiesByCode} from '../../utils/partyUtils';
 import {verifiedReceiptCustomerBalance} from '../../utils/verifiedReceiptBalance';
 import {receiptSettlementPreview} from '../../utils/receiptSettlementPreview';
-import {publicSyncApiUrl,authHeaders} from '../../services/secureAuth';
 import {orderedReceiptVouchers,receiptVoucherPosition,receiptVoucherShortcut} from '../../utils/receiptVoucherNavigation';
 
 type TargetType='customer'|'supplier'|'employee';
@@ -187,20 +186,6 @@ export const ReceiptVoucherModal:React.FC<ReceiptVoucherModalProps>=({
   }
   if(!Number.isFinite(Number(rate))||Number(rate)<=0){
    setError('سعر الصرف يجب أن يكون أكبر من صفر.');return;
-  }
-  if(rebate>0){
-   try{
-    const api=publicSyncApiUrl();
-    const health=await fetch(api+'/api/v1/health',{
-     cache:'no-store',headers:authHeaders(api)
-    });
-    const state=health.ok?await health.json():null;
-    if(state?.features?.receiptDiscountV1!==true){
-     setError('خدمة ترحيل الخصم غير مفعّلة على الخادم حاليًا. لا يمكن اعتماد خصم قبل تشغيل المحرك المحاسبي الجديد.');return;
-    }
-   }catch{
-    setError('تعذّر التحقق من جاهزية الخادم لترحيل الخصم. لم يُحفظ السند.');return;
-   }
   }
   if(rebate>0&&rebate*Number(rate)<0.005){
    setError('الخصم بعد تحويل العملة أقل من أصغر مبلغ محاسبي قابل للترحيل.');return;
