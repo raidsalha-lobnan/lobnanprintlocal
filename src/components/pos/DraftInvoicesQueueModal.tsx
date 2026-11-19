@@ -328,8 +328,6 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
     localStorage.setItem(STORAGE_KEY_URL, url);
   };
 
-  if (!isOpen) return null;
-
   // Stats calculation
   const totalDraftsAmount = draftInvoices.reduce((sum, d) => sum + (Number(d.totalAmount) || 0), 0);
   const selectedDrafts = draftInvoices.filter(d => d.selected);
@@ -1022,6 +1020,9 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
   const mainCustomerCandidates = useMemo(() => {
     return parties.filter(p => !p.isSubCustomer && (p.type === 'customer' || p.type === 'both'));
   }, [parties]);
+
+  // All hooks must run unconditionally, even while this modal is closed.
+  if (!isOpen) return null;
 
   return (
     <div className={`fixed inset-0 z-[120] bg-slate-950/90 backdrop-blur-xs flex items-center justify-center ${isFullscreen ? 'p-0' : 'p-2 sm:p-3'} text-slate-800`}>
