@@ -17,6 +17,16 @@ export const VoucherPrintModal: React.FC = () => {
   // Treasury / Account name
   const treasury = treasuries.find(t => t.accountCode === voucher.accountCode || t.accountCode === voucher.treasuryAccountCode);
   const treasuryName = treasury?.name || (voucher.paymentMethod === 'cash' ? 'الصندوق الرئيسي' : 'الحساب البنكي');
+  // These are independent fields: the voucher note must never include the
+  // transfer/payment channel or the receipt reference/note.
+  const voucherNote = voucher.description?.trim() || '';
+  const receiptNote = (voucher.paymentNotes || voucher.transferReference || '').trim();
+  const receiptPaymentLabel =
+    voucher.paymentMethod === 'cash'
+      ? 'نقداً'
+      : voucher.paymentMethod === 'cheque'
+        ? `شيك على (${treasuryName})`
+        : `حوالة على (${treasuryName})`;
 
   // Currency & fraction names for Tafqeet
   const getCurrencyNames = (currCode?: string) => {
@@ -66,6 +76,11 @@ export const VoucherPrintModal: React.FC = () => {
     }
     return voucher.date;
   })();
+
+  // Keep the printed receipt date in the familiar DD/MM/YYYY format.
+  const receiptHeaderDate = /^\d{4}-\d{2}-\d{2}$/.test(voucher.date || '')
+    ? `${voucher.date.slice(8, 10)}/${voucher.date.slice(5, 7)}/${voucher.date.slice(0, 4)}`
+    : formattedDate;
 
   // Party and Sub-Customer display (without code)
   const partyDisplayName = (() => {
@@ -162,18 +177,28 @@ export const VoucherPrintModal: React.FC = () => {
             <PrintHeader showBorder={false} />
           </div>
 
-          {/* 2. عنوان السند في الوسط وتحته مباشرة رقم السند دون كلمة رقم السند */}
-          <div className="text-center my-3 sm:my-4">
-            <div className="inline-block bg-black text-white px-10 py-1.5 sm:py-2 rounded-lg font-black text-base sm:text-xl tracking-wider shadow-xs">
-              {isPayment ? 'سند صرف' : 'سند قبض'}
+          {/* 2. سند القبض: الرقم أقصى اليمين، العنوان بالوسط، التاريخ أقصى اليسار في سطر واحد */}
+          {!isPayment ? (
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 my-3 sm:my-4" dir="rtl">
+              <span dir="ltr" className="justify-self-stretch text-right font-mono font-extrabold text-xs sm:text-sm text-slate-950 whitespace-nowrap">
+                {voucher.voucherNumber}
+              </span>
+              <span className="justify-self-center bg-black text-white px-6 sm:px-8 py-1.5 sm:py-2 rounded-lg font-black text-base sm:text-xl tracking-wide shadow-xs whitespace-nowrap">
+                سند قبض
+              </span>
+              <span className="justify-self-stretch text-left font-bold text-xs sm:text-sm text-slate-950 whitespace-nowrap">
+                التاريخ: <bdi dir="ltr" className="font-mono">{receiptHeaderDate}</bdi>
+              </span>
             </div>
-            <div className="mt-1.5 font-mono font-bold text-sm sm:text-base text-slate-900 tracking-wider">
-              {voucher.voucherNumber}
+          ) : (
+            <div className="text-center my-3 sm:my-4">
+              <div className="inline-block bg-black text-white px-10 py-1.5 sm:py-2 rounded-lg font-black text-base sm:text-xl tracking-wider shadow-xs">سند صرف</div>
+              <div className="mt-1.5 font-mono font-bold text-sm sm:text-base text-slate-900 tracking-wider">{voucher.voucherNumber}</div>
             </div>
-          </div>
+          )}
 
-          {/* 3. شريط المبلغ والعملة (في اليمين) والتاريخ (في اليسار) */}
-          <div className="flex items-end justify-between gap-4 mt-4 mb-6 pb-3 border-b border-slate-200">
+          {/* 3. المبلغ والعملة، وتاريخ سند الصرف فقط (تاريخ القبض أصبح في سطر العنوان) */}
+          <div className={`flex items-end gap-4 mt-4 mb-6 pb-3 border-b border-slate-200 ${isPayment ? 'justify-between' : 'justify-start'}`}>
             {/* جهة اليمين: العملة والخانة فيها المبلغ مع رمز العملة */}
             <div className="flex flex-col items-start text-right">
               <span className="text-xs font-bold text-slate-700 mb-1">{currName}</span>
@@ -184,13 +209,13 @@ export const VoucherPrintModal: React.FC = () => {
               </div>
             </div>
 
-            {/* جهة اليسار: التاريخ */}
-            <div className="flex items-center gap-2 text-sm sm:text-base font-bold pb-2 text-left">
-              <span className="text-black font-black">التاريخ:</span>
-              <span className="font-mono font-bold tracking-wider text-slate-900">
-                {formattedDate}
-              </span>
-            </div>
+            {/* سند الصرف يحتفظ بتاريخ السطر القديم؛ تاريخ سند القبض صار بجانب العنوان */}
+            {isPayment && (
+              <div className="flex items-center gap-2 text-sm sm:text-base font-bold pb-2 text-left">
+                <span className="text-black font-black">التاريخ:</span>
+                <span className="font-mono font-bold tracking-wider text-slate-900">{formattedDate}</span>
+              </div>
+            )}
           </div>
 
           {!isPayment && Number(voucher.discountAmount||0)>0 && (
@@ -223,15 +248,28 @@ export const VoucherPrintModal: React.FC = () => {
               </span>
             </div>
 
-            {/* السطر الثالث: ملاحظات / (ملاحظة السند متبوعة بآلية الدفع) */}
+            {/* ملاحظات سند القبض: النص المسجل في السند فقط، دون دمج طريقة الدفع */}
             <div className="flex items-baseline gap-2 py-1">
               <span className="font-black text-black whitespace-nowrap text-base min-w-[100px]">
                 ملاحظات /
               </span>
               <span className="font-bold text-slate-900 flex-1 px-1 text-right leading-relaxed">
-                {notesAndPaymentDetails}
+                {isPayment ? notesAndPaymentDetails : voucherNote}
               </span>
             </div>
+
+            {/* سطر مستقل لطريقة دفع سند القبض وملاحظة الإيصال */}
+            {!isPayment && (
+              <div className="flex items-baseline gap-2 py-1">
+                <span className="font-black text-black whitespace-nowrap text-base min-w-[100px]">
+                  طريقة الدفع /
+                </span>
+                <span className="font-bold text-slate-900 flex-1 px-1 text-right leading-relaxed">
+                  {receiptPaymentLabel}
+                  {receiptNote && <span> — ملاحظة الإيصال: {receiptNote}</span>}
+                </span>
+              </div>
+            )}
 
           </div>
 
