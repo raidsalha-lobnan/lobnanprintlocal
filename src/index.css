@@ -2294,3 +2294,95 @@ td.empty-row-shaded {
     min-height: 34px !important;
   }
 }
+
+/* Reports header: use the ENTIRE existing sidebar width and grow vertically.
+   Never squeeze the title/pager into the tiny single-line strip. */
+@media screen and (min-width: 1024px) {
+  .reports-sidebar .reports-dashboard-header {
+    box-sizing: border-box;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: center !important;
+    flex-wrap: nowrap !important;
+    gap: 9px !important;
+    padding: 7px 5px 11px !important;
+    margin-bottom: 9px !important;
+    overflow: visible !important;
+  }
+  .reports-sidebar .reports-header-title {
+    display: flex !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 7px !important;
+  }
+  .reports-sidebar .reports-header-title h1 {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    font-size: 19px !important;
+    line-height: 1.4 !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    text-align: right !important;
+    font-weight: 800 !important;
+  }
+  .reports-sidebar .reports-header-title > div {
+    width: 27px !important;
+    height: 27px !important;
+    flex-shrink: 0 !important;
+  }
+  .reports-sidebar .reports-header-title > div svg {
+    width: 19px !important;
+    height: 19px !important;
+  }
+  .reports-sidebar .reports-pager-toolbar {
+    display: flex !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    align-items: stretch !important;
+  }
+  .reports-sidebar .reports-pager-toolbar .report-pager-controls {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: stretch !important;
+    justify-content: space-between !important;
+    gap: 4px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    white-space: nowrap !important;
+  }
+  .reports-sidebar .reports-pager-toolbar .report-pager-controls button {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 42px !important;
+    padding: 5px 3px !important;
+    border-radius: 6px !important;
+  }
+  .reports-sidebar .reports-pager-toolbar .report-pager-controls button svg {
+    width: 20px !important;
+    height: 20px !important;
+  }
+  .reports-sidebar .reports-pager-toolbar .reports-page-label {
+    flex: 2 1 0 !important;
+    min-width: 0 !important;
+    height: 42px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 15px !important;
+    line-height: 1.25 !important;
+    padding: 6px 3px !important;
+    white-space: nowrap !important;
+  }
+}
