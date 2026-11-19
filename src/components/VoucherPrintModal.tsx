@@ -270,7 +270,7 @@ export const VoucherPrintModal: React.FC = () => {
                 </span>
                 <span className="font-bold text-slate-900 flex-1 px-1 text-right leading-relaxed">
                   {receiptPaymentLabel}
-                  {receiptNote && <span> — ملاحظة الإيصال: {receiptNote}</span>}
+                  {receiptNote && <span> / {receiptNote}</span>}
                 </span>
               </div>
             )}

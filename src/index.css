@@ -2696,3 +2696,32 @@ td.empty-row-shaded {
     max-height: 16mm !important;
   }
 }
+
+/* Receipt header alignment: serial/date stay within the visual letterhead edges. */
+.receipt-a5-copy .receipt-a5-title {
+  box-sizing: border-box !important;
+  width: 74% !important;
+  max-width: 74% !important;
+  margin-inline: auto !important;
+  column-gap: 5px !important;
+}
+.receipt-a5-copy .receipt-a5-title > span:first-child,
+.receipt-a5-copy .receipt-a5-title > span:last-child {
+  font-size: 14px !important;
+  line-height: 1.35 !important;
+  font-weight: 800 !important;
+  min-width: 0 !important;
+}
+@media print {
+  .receipt-a5-copy .receipt-a5-title {
+    width: 74% !important;
+    max-width: 74% !important;
+    margin: 2mm auto !important;
+    gap: 1.5mm !important;
+  }
+  .receipt-a5-copy .receipt-a5-title > span:first-child,
+  .receipt-a5-copy .receipt-a5-title > span:last-child {
+    font-size: 13px !important;
+    line-height: 1.3 !important;
+  }
+}
