@@ -218,6 +218,10 @@ export const AccountStatementModal: React.FC = () => {
     });
   }, [statementMode, currentEmployee, fromDate, toDate, vouchers, employeeAdvances, employeeDeductions, employeeIncentives, invoices, purchases, purchaseReturns, payrollSheets, journalEntries, debtClearings]);
 
+  // Hooks must run in the same order whether the modal is open or closed.
+  // An early return before these hooks caused React error #310 when reopened.
+  const [serverPdfDownloading,setServerPdfDownloading]=useState(false);
+  const pdfInFlight=useRef(false);
   const isOpen = Boolean(selectedPartyForStatement || selectedEmployeeForStatement);
 
   if (!isOpen) return null;
@@ -241,8 +245,6 @@ export const AccountStatementModal: React.FC = () => {
     })();
   };
 
-  const [serverPdfDownloading,setServerPdfDownloading]=useState(false);
-  const pdfInFlight=useRef(false);
   const handleSavePdf = async () => {
     if(pdfInFlight.current) return;
     if(statementMode==='party'&&!partyStatement) return;
