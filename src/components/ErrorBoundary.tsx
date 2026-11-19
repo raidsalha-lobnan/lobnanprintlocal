@@ -12,6 +12,30 @@ interface State {
 }
 
 export class ErrorBoundary extends (React.Component as any) {
+  private componentErrorStack = '';
+
+  private getDiagnosticText = (): string => {
+    const error = this.state.error as Error | null;
+    const trace = error?.stack || '';
+    return [
+      'الشاشة: ' + (this.props.fallbackTitle || 'التطبيق'),
+      'الرابط: ' + window.location.origin + window.location.pathname,
+      'الخطأ: ' + (error?.name || 'Error') + ': ' + (error?.message || 'غير معروف'),
+      'المتصفح: ' + navigator.userAgent,
+      'stack: ' + trace.slice(0, 3000),
+      'components: ' + this.componentErrorStack.slice(0, 2200),
+    ].join('\n');
+  };
+
+  private copyDiagnostics = () => {
+    const data = this.getDiagnosticText();
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(data).catch(() => window.prompt('انسخ تفاصيل الخطأ:', data));
+    } else {
+      window.prompt('انسخ تفاصيل الخطأ:', data);
+    }
+  };
+
   constructor(props: Props) {
     super(props);
     this.state = {
@@ -25,10 +49,12 @@ export class ErrorBoundary extends (React.Component as any) {
   }
 
   public componentDidCatch(error: Error, errorInfo: any) {
+    this.componentErrorStack = String(errorInfo?.componentStack || '');
     console.error('ErrorBoundary caught an error:', error, errorInfo);
   }
 
   private handleReset = () => {
+    this.componentErrorStack = '';
     this.setState({ hasError: false, error: null });
   };
 
@@ -48,6 +74,18 @@ export class ErrorBoundary extends (React.Component as any) {
           <p className="text-[10px] text-slate-400 font-light max-w-md mb-4 leading-relaxed">
             تم تفادي توقف البرنامج تلقائياً. يمكنك إعادة المحاولة أو المتابعة بأمان.
           </p>
+          {this.state.error && (
+            <details className="mb-3 w-full max-w-lg rounded border border-slate-200 bg-slate-50 p-2 text-right text-xs">
+              <summary className="cursor-pointer font-bold text-rose-700">عرض سبب الخطأ التقني</summary>
+              <code dir="ltr" className="mt-2 block break-all text-left text-[11px] text-slate-700">
+                {String(this.state.error?.message || 'خطأ غير معروف')}
+              </code>
+              <button type="button" onClick={this.copyDiagnostics}
+                className="mt-2 rounded border border-slate-300 bg-white px-2 py-1 text-slate-800">
+                نسخ تفاصيل الخطأ لإرسالها للدعم
+              </button>
+            </details>
+          )}
           <div className="flex items-center gap-2">
             <button
               onClick={this.handleReset}

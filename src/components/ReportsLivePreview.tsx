@@ -74,14 +74,18 @@ export const ReportsLivePreview: React.FC<Props> = ({ reportKey, children }) => 
       if (frame) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(measure);
     };
-    const resize = new ResizeObserver(requestMeasure);
-    resize.observe(stage);
-    resize.observe(content);
-    const mutation = new MutationObserver(requestMeasure);
-    mutation.observe(content, { childList: true, subtree: true, characterData: true });
+    // Secondary devices may run older browser engines: observers are optional.
+    // The preview must still open and be printable without either API.
+    const resize = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(requestMeasure) : null;
+    resize?.observe(stage);
+    resize?.observe(content);
+    const mutation = typeof MutationObserver === 'function'
+      ? new MutationObserver(requestMeasure) : null;
+    mutation?.observe(content, { childList: true, subtree: true, characterData: true });
     content.addEventListener('load', requestMeasure, true);
     window.addEventListener('resize', requestMeasure);
-    document.fonts?.ready.then(requestMeasure).catch(() => undefined);
+    document.fonts?.ready?.then(requestMeasure).catch(() => undefined);
 
     // Each wheel gesture is a single navigation step, not document scrolling.
     const wheel = (event: WheelEvent) => {
@@ -98,8 +102,8 @@ export const ReportsLivePreview: React.FC<Props> = ({ reportKey, children }) => 
     requestMeasure();
     return () => {
       if (frame) cancelAnimationFrame(frame);
-      resize.disconnect();
-      mutation.disconnect();
+      resize?.disconnect();
+      mutation?.disconnect();
       content.removeEventListener('load', requestMeasure, true);
       viewport.removeEventListener('wheel', wheel);
       window.removeEventListener('resize', requestMeasure);

@@ -48,18 +48,21 @@ export function useReportsSidebarFit() {
       if (frame) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(measure);
     };
-    const resize = new ResizeObserver(schedule);
-    resize.observe(grid);
-    const mutation = new MutationObserver(schedule);
-    mutation.observe(content, { childList: true, characterData: true, subtree: true });
+    // Fallback gracefully on secondary devices without observer APIs.
+    const resize = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(schedule) : null;
+    resize?.observe(grid);
+    const mutation = typeof MutationObserver === 'function'
+      ? new MutationObserver(schedule) : null;
+    mutation?.observe(content, { childList: true, characterData: true, subtree: true });
     window.addEventListener('resize', schedule);
-    document.fonts?.ready.then(schedule).catch(() => undefined);
+    document.fonts?.ready?.then(schedule).catch(() => undefined);
     schedule();
 
     return () => {
       if (frame) cancelAnimationFrame(frame);
-      resize.disconnect();
-      mutation.disconnect();
+      resize?.disconnect();
+      mutation?.disconnect();
       window.removeEventListener('resize', schedule);
     };
   }, []);
