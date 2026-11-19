@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../context/AccountingContext';
-import { Printer, X, FileText, QrCode } from 'lucide-react';
+import { Printer, X, FileText, QrCode, Download, FileDown, Settings2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
+import { SalesInvoicePrintPage } from './SalesInvoicePrintPage';
 import { PrintHeader, ThermalReceiptHeader } from './common/PrintHeader';
 import { ReportSignatures } from './common/ReportSignatures';
 import { formatDateDisplay } from '../utils/dateUtils';
@@ -20,8 +21,14 @@ const parseThumbnails = (val?: string): string[] => {
 };
 
 export const InvoicePrintModal: React.FC = () => {
-  const { selectedInvoiceForPrint, setSelectedInvoiceForPrint, directPrintOptions, setDirectPrintOptions, settings, parties } = useAccounting();
-  const [printFormat, setPrintFormat] = useState<'a4' | 'a4-custom' | 'thermal'>('thermal');
+  const { selectedInvoiceForPrint, setSelectedInvoiceForPrint, directPrintOptions, setDirectPrintOptions, settings, parties, treasuries } = useAccounting();
+  const [printFormat, setPrintFormat] = useState<'sales' | 'a4' | 'a4-custom' | 'thermal'>('sales');
+  const [salesPageIndex, setSalesPageIndex] = useState(0);
+  const [salesZoom, setSalesZoom] = useState(100);
+  const [salesOrientation, setSalesOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [salesMargins, setSalesMargins] = useState<'normal' | 'compact'>('normal');
+  const [salesSettingsOpen, setSalesSettingsOpen] = useState(false);
+  useEffect(() => { setSalesPageIndex(0); }, [selectedInvoiceForPrint?.id]);
 
   useEffect(() => {
     if (directPrintOptions) {
@@ -67,16 +74,46 @@ export const InvoicePrintModal: React.FC = () => {
   const totalPages = itemChunks.length;
   const isMultiPage = totalPages > 1;
 
+  const exportSalesCsv = () => {
+    // Keep the exact order of saved cashier invoice rows.
+    const data = [
+      ['م', 'الصنف / البيان', 'الطول', 'العرض', 'العدد', 'الكمية', 'السعر', 'الإجمالي'],
+      ...rawItems.map((it, index) => [
+        index + 1, [it.itemName, it.notes || it.description].filter(Boolean).join(' / '),
+        it.length ?? '', it.width ?? '', it.count ?? '', it.quantity, it.unitPrice, it.total,
+      ]),
+    ];
+    const csvCell = (value: unknown) => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+    const csv = '\uFEFF' + data.map(row => row.map(csvCell).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'فاتورة-مبيعات-' + String(inv.invoiceNumber).replace(/[\/:*?"<>|]/g, '-') + '.csv';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const changeSalesPage = (difference: number) => {
+    setSalesPageIndex(index => Math.min(Math.max(0, index + difference), totalPages - 1));
+  };
+
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:m-0 print:bg-white print:static print:overflow-visible print-modal-container">
       <div className={`bg-white rounded-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto transition-all duration-300 print:border-none print:shadow-none print:max-w-none print:w-full print:rounded-none print:overflow-visible ${
-        printFormat === 'thermal' ? 'max-w-[400px]' : 'max-w-[950px]'
+        printFormat === 'thermal' ? 'max-w-[400px]' : printFormat === 'sales' ? 'max-w-[1160px]' : 'max-w-[950px]'
       }`}>
         {/* Header Controls (Hidden during print) */}
         <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 print:hidden">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-semibold text-slate-600">طريقة العرض والطباعة:</span>
             <div className="bg-slate-200 p-0.5 rounded-lg flex text-xs">
+              <button type="button"
+                onClick={() => setPrintFormat('sales')}
+                className={['px-3 py-1 rounded-md font-semibold cursor-pointer',
+                  printFormat === 'sales' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'].join(' ')}>
+                فاتورة مبيعات
+              </button>
               <button
                 onClick={() => setPrintFormat('a4')}
                 className={`px-3 py-1 rounded-md font-semibold cursor-pointer ${
@@ -130,8 +167,76 @@ export const InvoicePrintModal: React.FC = () => {
           </div>
         </div>
 
+
+        {/* Functional toolbar for sales print preview. */}
+        {printFormat === 'sales' && (
+          <div className="sales-invoice-toolbar print:hidden" dir="rtl">
+            <div className="sales-invoice-toolbar-actions">
+              <span className="font-bold text-slate-800">معاينة فاتورة مبيعات</span>
+              <button type="button" onClick={handlePrint} className="sales-tool-primary" title="طباعة جميع الصفحات">
+                <Printer size={15} /> طباعة الآن
+              </button>
+              <button type="button" onClick={handlePrint} title="اختر Save as PDF من نافذة الطباعة للحفاظ على الجودة">
+                <FileDown size={15} /> حفظ PDF
+              </button>
+              <button type="button" onClick={exportSalesCsv} title="تصدير البنود بحسب ترتيب الكاشير">
+                <Download size={15} /> تصدير CSV
+              </button>
+              <button type="button" onClick={() => setSalesSettingsOpen(v => !v)} aria-expanded={salesSettingsOpen}>
+                <Settings2 size={15} /> إعدادات الطباعة
+              </button>
+            </div>
+            <div className="sales-invoice-toolbar-view">
+              <select aria-label="حجم المعاينة" value={salesZoom}
+                onChange={event => setSalesZoom(Number(event.target.value))}>
+                {[70, 80, 90, 100, 110, 125, 150].map(value => <option key={value} value={value}>{value}%</option>)}
+              </select>
+              <button type="button" title="تصغير" onClick={() => setSalesZoom(z => Math.max(70, z - 10))}>
+                <ZoomOut size={16} />
+              </button>
+              <button type="button" title="تكبير" onClick={() => setSalesZoom(z => Math.min(150, z + 10))}>
+                <ZoomIn size={16} />
+              </button>
+              <button type="button" title="الصفحة السابقة" disabled={salesPageIndex <= 0}
+                onClick={() => changeSalesPage(-1)}><ChevronRight size={16} /></button>
+              <strong className="sales-invoice-page-indicator" dir="ltr">{salesPageIndex + 1} / {totalPages}</strong>
+              <button type="button" title="الصفحة التالية" disabled={salesPageIndex >= totalPages - 1}
+                onClick={() => changeSalesPage(1)}><ChevronLeft size={16} /></button>
+              <select aria-label="مقاس واتجاه الورقة" value={salesOrientation} onChange={event =>
+                setSalesOrientation(event.target.value as 'portrait' | 'landscape')}>
+                <option value="portrait">A4 عمودي</option>
+                <option value="landscape">A4 أفقي</option>
+              </select>
+            </div>
+            {salesSettingsOpen && (
+              <div className="sales-invoice-toolbar-settings">
+                <label>هوامش الطباعة:
+                  <select value={salesMargins} onChange={event =>
+                    setSalesMargins(event.target.value as 'normal' | 'compact')}>
+                    <option value="normal">عادية</option>
+                    <option value="compact">ضيقة</option>
+                  </select>
+                </label>
+                <span>لحفظ PDF اختر «Save as PDF» من نافذة الطباعة للحصول على النصوص والصور بأعلى جودة.</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Invoice Body: A4 Standard Format */}
-        {printFormat === 'a4' ? (
+        {printFormat === 'sales' ? (
+          <div className={'sales-invoice-print-root sales-invoice-' + salesOrientation}
+            style={{ zoom: salesZoom / 100 }} dir="rtl">
+            {itemChunks.map((chunk, index) => (
+              <div key={index}
+                className={'sales-invoice-print-wrap' + (index !== salesPageIndex ? ' sales-preview-page-hidden' : '')}>
+                <SalesInvoicePrintPage invoice={inv} items={chunk}
+                  pageIndex={index} pageCount={totalPages} currency={settings.currency}
+                  treasuries={treasuries} compact={salesMargins === 'compact'} isDraft={isDraftPreview} />
+              </div>
+            ))}
+          </div>
+        ) : printFormat === 'a4' ? (
           <div className="p-8 space-y-8 text-slate-800 text-xs font-sans print:p-0">
             {itemChunks.map((chunk, chunkIdx) => {
               const pageNumber = chunkIdx + 1;
