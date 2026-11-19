@@ -153,6 +153,15 @@ export class LocalHttpSyncTransport implements SyncTransport {
     const r=await this.request<{events:ServerEvent[]}>(`events?workspace=${encodeURIComponent(this.workspaceId)}&after=${after}&limit=${pageSize}`);
     return r.events;
   }
+  /** Read the single versioned invoice before an edit; no full ledger snapshot. */
+  async fetchAuthoritativeInvoiceRecord(invoiceId:string):Promise<StoredRecord>{
+    const data=await this.request<{record:StoredRecord}>(
+      'invoices/record?workspace='+encodeURIComponent(this.workspaceId)+'&id='+encodeURIComponent(invoiceId)
+    );
+    if(!data.record||data.record.entity!=='invoices'||data.record.id!==invoiceId)
+      throw new Error('INVALID_AUTHORITATIVE_INVOICE_REPLY');
+    return data.record;
+  }
   async fetchAuthoritativeBootstrap():Promise<{records:StoredRecord[];cursor:ServerCursor}> {
     return this.request(`bootstrap?workspace=${encodeURIComponent(this.workspaceId)}`);
   }

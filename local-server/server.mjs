@@ -410,6 +410,23 @@ const srv=http.createServer(async(req,res)=>{
         Math.min(500,Number(url.searchParams.get('limit')||100)));
       return json(res,200,{events:STRICT_AUTH?filterEvents(pulled,access).map(event=>safeEvent(event,access)):pulled},cors);
     }
+    if(req.method==='GET' && url.pathname==='/api/v1/invoices/record'){
+      // Read one versioned invoice instead of sending the whole workspace.
+      if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);
+      const id=String(url.searchParams.get('id')||'');
+      if(!/^[a-zA-Z0-9_-]{1,200}$/.test(id))
+        throw new InputError('INVALID_INVOICE_ID',400);
+      const result=await pool.query(
+        "SELECT version,value FROM sync_records WHERE workspace=$1 AND entity='invoices' AND record_id=$2 LIMIT 1",
+        [workspace,id]
+      );
+      const value=result.rows[0]?.value;
+      if(!value || !access?.canRead('invoices',value,id))
+        throw new InputError('INVOICE_NOT_VISIBLE_IN_POSTGRES_SNAPSHOT',404);
+      const row={key:'invoices:'+id,entity:'invoices',id,
+        version:Number(result.rows[0].version),value};
+      return json(res,200,{record:safeSnapshot({records:[row]},access).records[0]},cors);
+    }
     if(req.method==='POST' && url.pathname==='/api/v1/invoices/revise'){
       // Financial amendments are routed through the authenticated, auditable
       // PostgreSQL correction engine instead of the legacy browser repost.

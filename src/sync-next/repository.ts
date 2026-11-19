@@ -86,23 +86,18 @@ export class UnifiedRepository {
   async getAuthoritativeInvoiceBaseline(invoiceId:string): Promise<LocalView> {
     if(!invoiceId)throw new Error('INVOICE_ID_REQUIRED');
     const remote=(this.sync as any).remote;
-    if(!remote||typeof remote.fetchAuthoritativeBootstrap!=='function')
-      throw new Error('POSTGRES_AUTHORITATIVE_SNAPSHOT_UNAVAILABLE');
-    // Fetch before inspecting local outbox so no stale cache is trusted.
-    const snapshot=await remote.fetchAuthoritativeBootstrap();
-    if(!Array.isArray(snapshot.records))
-      throw new Error('INVALID_POSTGRES_AUTHORITATIVE_SNAPSHOT');
-    const matches=snapshot.records.filter((r: any)=>
-      r.entity==='invoices'&&r.id===invoiceId&&r.value!==null);
-    if(matches.length!==1||!Number.isSafeInteger(matches[0].version)||
-       matches[0].version<1)
+    if(!remote||typeof remote.fetchAuthoritativeInvoiceRecord!=='function')
+      throw new Error('POSTGRES_AUTHORITATIVE_INVOICE_LOOKUP_UNAVAILABLE');
+    // Authoritative PostgreSQL row only; no multi-megabyte bootstrap.
+    const record=await remote.fetchAuthoritativeInvoiceRecord(invoiceId);
+    if(!record||record.entity!=='invoices'||record.id!==invoiceId||
+       !record.value||!Number.isSafeInteger(record.version)||record.version<1)
       throw new Error('INVOICE_NOT_VISIBLE_IN_POSTGRES_SNAPSHOT');
     const pending=await this.local.pending();
     if(pending.some(cmd=>cmd.changes.some(change=>
       change.entity==='invoices'&&change.id===invoiceId)))
       throw new Error('INVOICE_HAS_PENDING_LOCAL_CHANGES_REVIEW_FIRST');
-    return {id:invoiceId,value:matches[0].value,
-      version:matches[0].version,pending:false};
+    return {id:invoiceId,value:record.value,version:record.version,pending:false};
   }
 
   async getConflicts() {

@@ -12,10 +12,10 @@ function fixture({records=[{entity:'invoices',id:invoice.id,version:2,value:invo
     pending:async()=>pending
   };
   const remote={
-    fetchAuthoritativeBootstrap:async()=>{
+    fetchAuthoritativeInvoiceRecord:async(id:string)=>{
       reads++;
       if(remoteError)throw remoteError;
-      return {records,cursor:{seconds:0,nanoseconds:0,eventId:'head',sequence:1}};
+      return id===invoice.id?records[0]||null:null;
     }
   };
   const sync={remote};
@@ -47,9 +47,9 @@ test('never silently fall back to stale local row during a server outage',async(
  await assert.rejects(repo.getAuthoritativeInvoiceBaseline(invoice.id),
    /LOCAL_SYNC_HTTP_503/);
 });
-test('duplicate server invoice identities are rejected, not chosen arbitrarily',async()=>{
- const row={entity:'invoices',id:invoice.id,version:2,value:invoice};
- const {repo}=fixture({records:[row,row]});
+test('an invalid invoice version from PostgreSQL is rejected',async()=>{
+ const row={entity:'invoices',id:invoice.id,version:0,value:invoice};
+ const {repo}=fixture({records:[row]});
  await assert.rejects(repo.getAuthoritativeInvoiceBaseline(invoice.id),
    /INVOICE_NOT_VISIBLE_IN_POSTGRES_SNAPSHOT/);
 });
