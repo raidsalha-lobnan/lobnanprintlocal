@@ -1487,7 +1487,13 @@ const getInitialPosDraft = (): PosFullDraftData => {
       }catch(error){
         console.warn('PostgreSQL held invoice loading failed',error);
         if(active)try{
-          const cached=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
+          let cached=JSON.parse(localStorage.getItem(heldCacheKey)||'null');
+          if((!Array.isArray(cached)||!cached.length)&&
+             !localStorage.getItem('pos_held_migration_done_v1_'+currentUser.id)){
+            const owner=localStorage.getItem('pos_held_legacy_owner_v1');
+            if(!owner||owner===currentUser.id)
+              cached=JSON.parse(localStorage.getItem('pos_held_invoices')||'[]');
+          }
           if(Array.isArray(cached))setHeldInvoices(cached);
         }catch{}
       }finally{if(active)setHeldLoading(false);}

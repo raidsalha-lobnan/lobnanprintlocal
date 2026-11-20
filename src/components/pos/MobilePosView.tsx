@@ -375,7 +375,13 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       }catch(error){
         console.warn('Unable to load mobile holds from PostgreSQL',error);
         if(active)try{
-          const cached=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
+          let cached=JSON.parse(localStorage.getItem(heldCacheKey)||'null');
+          if((!Array.isArray(cached)||!cached.length)&&
+             !localStorage.getItem('pos_mobile_held_migration_done_v1_'+currentUser.id)){
+            const owner=localStorage.getItem('pos_mobile_held_legacy_owner_v1');
+            if(!owner||owner===currentUser.id)
+              cached=JSON.parse(localStorage.getItem('pos_mobile_held_invoices')||'[]');
+          }
           if(Array.isArray(cached))setHeldInvoices(cached);
         }catch{}
       }finally{if(active)setHeldLoading(false);}
@@ -2123,7 +2129,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                 </div>
                 <div>
                   <h3 className="text-xs font-black text-slate-900">الفواتير المعلقة ({heldInvoices.length})</h3>
-                  <p className="text-[10px] text-slate-500">معلّقات PostgreSQL تبقى محفوظة عند الاستئناف</p>
+                  <p className="text-[10px] text-slate-500">المعلّقات المؤكَّد حفظها تبقى قابلة للاستئناف</p>
                 </div>
               </div>
               <button

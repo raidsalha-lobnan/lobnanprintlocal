@@ -51,7 +51,7 @@ export const HeldInvoicesModal: React.FC<HeldInvoicesModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-sm">الفواتير المعلقة (F9)</h3>
-              <p className="text-[11px] text-slate-300">المعلّقات محفوظة في PostgreSQL ولا تُحذف عند الاستئناف</p>
+              <p className="text-[11px] text-slate-300">تُحفظ المعلّقات في قاعدة البيانات بعد تأكيد الحفظ، ولا تُحذف عند الاستئناف</p>
             </div>
           </div>
           <button
