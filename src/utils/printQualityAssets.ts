@@ -5,7 +5,11 @@ export const PRINT_HEADER_MAX_HEIGHT=900;
 // Do not place original multi-megabyte images into accounting event payloads.
 const MAX_HEADER_DATA_URL_CHARS=590_000;
 const MAX_THUMBNAIL_SOURCE_BYTES=50*1024*1024;
-const MAX_THUMBNAIL_DATA_URL_CHARS=70_000;
+// 32,000 ASCII characters ≈ 24 KiB of JPEG including the Base64 prefix.
+// A 400px long edge is sufficient for the seven-column A4 report gallery,
+// while original artwork is handled separately by the attachment workflow.
+export const INVOICE_THUMBNAIL_MAX_EDGE_PX=400;
+export const INVOICE_THUMBNAIL_DATA_URL_CHAR_LIMIT=32_000;
 
 function asDataUrl(file:File):Promise<string>{
   return new Promise((resolve,reject)=>{
@@ -68,8 +72,10 @@ export async function preparePrintLetterhead(file:File):Promise<string>{
 }
 
 /**
- * Self-contained, compressed thumbnail previews for invoices and statements.
- * Never writes to Drive/IndexedDB or to the item's independent attachments.
+ * Self-contained, compact previews for invoices and statements.
+ * Originals are independent attachments; never overwrite or mutate them.
+ * A thumbnail upload alone does NOT automatically upload the original.
+ * These previews are designed for small A4 report tiles, not enlargements.
  */
 export async function prepareInvoiceThumbnails(files:File[]):Promise<string[]>{
   const results:string[]=[];
@@ -90,8 +96,10 @@ export async function prepareInvoiceThumbnails(files:File[]):Promise<string[]>{
     const ctx=canvas.getContext('2d');
     if(!ctx)throw new Error('INVOICE_THUMBNAIL_CANVAS_UNAVAILABLE');
     let thumbnail='';
-    // 640px where possible; progressive resizing keeps sync payloads small.
-    for(const [maxSize,quality] of [[640,.82],[560,.80],[480,.78],[420,.75],[360,.72],[320,.68]]){
+    // Start with a 400px longest edge and JPEG 78% for readable A4 thumbnails.
+    // If complex artwork exceeds the fixed byte budget, progressively reduce
+    // its size. Keep the full source and any separately saved originals intact.
+    for(const [maxSize,quality] of [[400,.78],[360,.76],[320,.74],[280,.72],[240,.70],[200,.68]]){
       const scale=Math.min(1,maxSize/img.naturalWidth,maxSize/img.naturalHeight);
       canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));
       canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
@@ -101,9 +109,9 @@ export async function prepareInvoiceThumbnails(files:File[]):Promise<string[]>{
       ctx.fillRect(0,0,canvas.width,canvas.height);
       ctx.drawImage(img,0,0,canvas.width,canvas.height);
       const jpeg=canvas.toDataURL('image/jpeg',quality);
-      if(jpeg.length<=MAX_THUMBNAIL_DATA_URL_CHARS){thumbnail=jpeg;break}
+      if(jpeg.length<=INVOICE_THUMBNAIL_DATA_URL_CHAR_LIMIT){thumbnail=jpeg;break}
     }
-    if(!thumbnail)throw new Error('INVOICE_THUMBNAIL_TOO_LARGE');
+    if(!thumbnail)throw new Error('INVOICE_THUMBNAIL_TOO_LARGE: الصورة معقدة ولا يمكن ضغطها دون تجاوز الحد الآمن للمزامنة. احتفظ بالأصل وأرفقه في المرفقات بصورة مستقلة.');
     results.push(thumbnail);
   }
   return results;

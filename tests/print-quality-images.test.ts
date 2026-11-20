@@ -56,9 +56,14 @@ test('print header retains its full-res handling',()=>{
 test('invoice thumbnail compression is self-contained and never uploads original',()=>{
  const code=readFileSync(new URL('../src/utils/printQualityAssets.ts',import.meta.url),'utf8');
  const section=code.slice(code.indexOf('export async function prepareInvoiceThumbnails'));
- assert.ok(section.includes('[640,.82]'));
+ assert.ok(section.includes('[400,.78]'));
+ assert.ok(section.includes('[360,.76]'));
+ assert.ok(section.includes('[320,.74]'));
+ assert.ok(code.includes('INVOICE_THUMBNAIL_MAX_EDGE_PX=400'));
+ assert.ok(code.includes('INVOICE_THUMBNAIL_DATA_URL_CHAR_LIMIT=32_000'));
+ assert.ok(!section.includes('[640,.82]'));
  assert.ok(section.includes("canvas.toDataURL('image/jpeg',quality)"));
- assert.ok(section.includes('MAX_THUMBNAIL_DATA_URL_CHARS'));
+ assert.ok(section.includes('INVOICE_THUMBNAIL_DATA_URL_CHAR_LIMIT'));
  assert.ok(!section.includes('saveBinaryAttachment'));
  assert.ok(!section.includes('uploadCentralAttachment'));
 });
@@ -80,4 +85,17 @@ test('customer statement still supports legacy original fallbacks',()=>{
  assert.ok(code.includes('original={photo.original}'));
  assert.ok(code.includes('thumbnail={photo.preview}'));
  assert.deepEqual(splitInvoiceThumbnails(''),[]);
+});
+
+test('thumbnail compression policy does not mutate original attachment references or historic invoice images',()=>{
+ const code=readFileSync(new URL('../src/utils/printQualityAssets.ts',import.meta.url),'utf8');
+ const section=code.slice(code.indexOf('export async function prepareInvoiceThumbnails'));
+ const pos=readFileSync(new URL('../src/components/PosView.tsx',import.meta.url),'utf8');
+ const draft=readFileSync(new URL('../src/components/pos/DraftInvoicesQueueModal.tsx',import.meta.url),'utf8');
+ assert.ok(section.includes('INVOICE_THUMBNAIL_DATA_URL_CHAR_LIMIT'));
+ assert.ok(section.includes('results.push(thumbnail)'));
+ assert.ok(!section.includes('uploadCentralAttachment'));
+ assert.ok(!section.includes('deleteBinaryAttachment'));
+ assert.ok(pos.includes('prepareInvoiceThumbnails(Array.from(files))'));
+ assert.ok(draft.includes('prepareInvoiceThumbnails(Array.from(files))'));
 });
