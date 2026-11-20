@@ -434,7 +434,7 @@ const srv=http.createServer(async(req,res)=>{
       if(process.env.SYNC_ENABLE_INVOICE_REVISIONS==='0')
         throw new InputError('INVOICE_REVISION_MAINTENANCE_MODE',503);
       if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);
-      const request=await parseBody(req,350000);
+      const request=await parseBody(req,3_000_000);
       const receipt=await revisePostedInvoice(service,workspace,request,user.id,access);
       return json(res,200,receipt,cors);
     }
@@ -460,7 +460,7 @@ const srv=http.createServer(async(req,res)=>{
       return json(res,200,{receipts},cors);
     }
     if(req.method==='POST' && url.pathname==='/api/v1/push'){
-      const command=await parseBody(req,1024*1024);
+      const command=await parseBody(req,6_000_000);
       if(STRICT_AUTH){
         if(command?.changes?.some(change=>change?.entity==='users'||
            change?.entity==='roles')){

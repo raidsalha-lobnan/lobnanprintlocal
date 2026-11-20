@@ -143,8 +143,14 @@ export class LocalHttpSyncTransport implements SyncTransport {
    * This method is deliberately separate from the ordinary local invoice put.
    */
   async reviseInvoice(request:{commandId:string;invoiceId:string;expectedVersion:number;proposed:Record<string,unknown>}):Promise<CommitReceipt>{
+    const body=JSON.stringify(request);
+    const bytes=new TextEncoder().encode(body).length;
+    if(bytes>2_800_000){
+      throw new Error('POSTGRES_INVOICE_REVISION_TOO_LARGE: حجم تعديل الفاتورة '+
+        Math.ceil(bytes/1024)+' كيلوبايت. تحقق من حجم وعدد الصور المصغرة دون حذف المرفقات أو إعادة إنشاء الفاتورة.');
+    }
     return this.request('invoices/revise?workspace='+encodeURIComponent(this.workspaceId),{
-      method:'POST',body:JSON.stringify(request)
+      method:'POST',body
     });
   }
   async pull(cursor:ServerCursor|null,pageSize=100):Promise<ServerEvent[]> {

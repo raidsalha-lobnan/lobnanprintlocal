@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import { toJsonObject, validateChanges, VersionConflict, type SyncCommand } from '../src/sync-next/types';
 import { SyncCoordinator, type SyncTransport } from '../src/sync-next/coordinator';
 import type { LocalSyncDb } from '../src/sync-next/localDb';
@@ -13,6 +14,27 @@ test('optional undefined omitted without losing valid form entries', () => {
   assert.throws(() => toJsonObject({ total: NaN }), /non-finite/);
   const cyc: any = {}; cyc.self = cyc;
   assert.throws(() => toJsonObject(cyc), /Circular/);
+});
+
+test('PostgreSQL accepts an invoice sync payload larger than obsolete Firestore threshold',()=>{
+  const value={id:'invoice-with-previews',imageThumbnail:'a'.repeat(900_000)};
+  assert.doesNotThrow(()=>validateChanges([{entity:'invoices',id:value.id,value}]));
+});
+
+test('oversized PostgreSQL accounting transactions fail clearly without splitting financial changes',()=>{
+  const value={id:'invoice-over-limit',imageThumbnail:'a'.repeat(2_500_000)};
+  assert.throws(()=>validateChanges([{entity:'invoices',id:value.id,value}]),
+    /POSTGRES_SYNC_PAYLOAD_TOO_LARGE/);
+});
+
+test('sync size checks and server limits refer to PostgreSQL, not Firestore transactions',()=>{
+  const source=readFileSync(new URL('../src/sync-next/types.ts',import.meta.url),'utf8');
+  const server=readFileSync(new URL('../local-server/server.mjs',import.meta.url),'utf8');
+  const transport=readFileSync(new URL('../src/sync-next/httpTransport.ts',import.meta.url),'utf8');
+  assert.doesNotMatch(source,/single Firestore event/);
+  assert.match(server,/const command=await parseBody\(req,6_000_000\)/);
+  assert.match(server,/const request=await parseBody\(req,3_000_000\)/);
+  assert.match(transport,/POSTGRES_INVOICE_REVISION_TOO_LARGE/);
 });
 
 test('a nested list is not valid as one entity record', () => {

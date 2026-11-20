@@ -88,10 +88,15 @@ export function validateChanges(changes: ProposedChange[]): void {
       throw new Error(`Record ID mismatch: ${key}`);
     }
   }
-  // Fail before local queueing if JSON is not valid / exceeds reasonable event size.
+  // PostgreSQL sync keeps an invoice and its financial effects atomic.
+  // The prior 700 KB Firestore-era check blocked valid picture-heavy invoices.
+  // Enforce a bounded PostgreSQL payload instead of splitting accounting commands.
   const raw = JSON.stringify(changes);
-  if (!raw || new TextEncoder().encode(raw).length > 700_000) {
-    throw new Error('Operation too large for single Firestore event; split into independent transactions');
+  const bytes = raw ? new TextEncoder().encode(raw).length : 0;
+  if (!bytes || bytes > 2_400_000) {
+    throw new Error('POSTGRES_SYNC_PAYLOAD_TOO_LARGE: حجم بيانات عملية الحفظ ' +
+      Math.ceil(bytes / 1024) + ' كيلوبايت، والحد الأقصى 2344 كيلوبايت. ' +
+      'تحقق من عدد الصور المصغرة الكبيرة داخل الفاتورة؛ لا تقسّم القيود المالية إلى عمليات مستقلة.');
   }
   if (/"(?:NaN|Infinity)"/.test(raw)) { /* informative only: strings may legitimately use these names */ }
 }

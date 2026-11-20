@@ -1,8 +1,8 @@
 /** High-fidelity document images stay separate from lightweight POS previews. */
 export const PRINT_HEADER_MAX_WIDTH=3200;
 export const PRINT_HEADER_MAX_HEIGHT=900;
-// sync command payloads are limited to 1MB. Leave headroom for other
-// settings and JSON encoding; reject oversized banner data before saving.
+// Keep letterhead previews compact for settings sync and browser rendering.
+// Do not place original multi-megabyte images into accounting event payloads.
 const MAX_HEADER_DATA_URL_CHARS=590_000;
 const MAX_THUMBNAIL_SOURCE_BYTES=50*1024*1024;
 const MAX_THUMBNAIL_DATA_URL_CHARS=70_000;
