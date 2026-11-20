@@ -309,7 +309,10 @@ export class SyncCoordinator {
     if (this.busy || this.queueMaintenance || !this.online() || !this.cloudAllowed()) return;
 
     this.busy = true;
-    this.report({ running: true });
+    // Every network pass starts with a clean transient error marker; failures
+    // reported by receipt checks, pulls or pushes must not be overwritten by
+    // a misleading new 'lastSuccessAt' timestamp.
+    this.report({ running: true, lastError: null });
 
     try {
       while (
@@ -331,11 +334,10 @@ export class SyncCoordinator {
 
       await this.refreshCounts();
 
-      if (this.state.pending === 0 && this.state.conflict === 0) {
-        this.report({
-          lastSuccessAt: Date.now(),
-          lastError: null
-        });
+      if (this.state.pending === 0 && this.state.conflict === 0 && !this.state.lastError) {
+        // Only an error-free pass with an empty local outbox is confirmed.
+        // Archived historical work is separately disclosed, never claimed posted.
+        this.report({lastSuccessAt:Date.now()});
       }
     } catch (error) {
       this.report({

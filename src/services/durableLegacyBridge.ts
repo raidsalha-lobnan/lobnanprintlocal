@@ -60,15 +60,35 @@ export function onSnapshot(...args: any[]): () => void {
   if (onError) queueMicrotask(() => onError(noLegacyRead()));
   return () => {};
 }
+// A legacy form may update React before its promise settles. Always expose
+// whether IndexedDB actually accepted the write. Never report PostgreSQL ACK
+// from this bridge; the central coordinator alone owns that status.
+function notifySave(name:string,entity:string,writeId:string,error?:unknown){
+  if(typeof window==='undefined')return;
+  try{window.dispatchEvent(new CustomEvent(name,{
+    detail:{entity,writeId,...(error?{error:String(error)}:{})}
+  }));}catch{}
+}
+async function writeLegacy(operation:DurableWriteOperation,reference:Reference,payload?:unknown,
+  options?:{merge?:boolean}):Promise<void>{
+  const entity=String(reference?.path||'').split('/')[0]||'unknown';
+  const writeId='legacy-write-'+crypto.randomUUID();
+  notifySave('accounting_save_started',entity,writeId);
+  try{
+    if(!registeredWriter)throw new Error('DURABLE_REPOSITORY_NOT_INITIALIZED');
+    const persisted=await registeredWriter(operation,reference,payload,options);
+    if(!persisted)throw new Error('ENTITY_NOT_SUPPORTED_BY_DURABLE_REPOSITORY');
+    notifySave('accounting_local_saved',entity,writeId);
+  }catch(error){
+    notifySave('accounting_save_error',entity,writeId,error);
+    throw error;
+  }
+}
 export async function setDoc(reference: Reference, payload: unknown, options?: { merge?: boolean }): Promise<void> {
-  if (!registeredWriter) throw new Error('DURABLE_REPOSITORY_NOT_INITIALIZED');
-  const persisted = await registeredWriter('set', reference, payload, options);
-  if (!persisted) throw new Error('ENTITY_NOT_SUPPORTED_BY_DURABLE_REPOSITORY');
+  return writeLegacy('set',reference,payload,options);
 }
 export async function deleteDoc(reference: Reference): Promise<void> {
-  if (!registeredWriter) throw new Error('DURABLE_REPOSITORY_NOT_INITIALIZED');
-  const persisted = await registeredWriter('delete', reference);
-  if (!persisted) throw new Error('ENTITY_NOT_SUPPORTED_BY_DURABLE_REPOSITORY');
+  return writeLegacy('delete',reference);
 }
 export function writeBatch(_database: unknown): any {
   // Legacy direct batch operations bypass financial atomicity guarantees.

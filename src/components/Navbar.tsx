@@ -732,9 +732,12 @@ export const Navbar: React.FC = () => {
           title={isOnline ? 'الشبكة متاحة، ويمكن فحص حالة المزامنة من أدوات البرنامج' : 'الاتصال بالشبكة غير متاح'}
         >
           {isOnline ? <Wifi className="h-3.5 w-3.5 text-emerald-300" /> : <WifiOff className="h-3.5 w-3.5 text-amber-300" />}
-          <span>{!isOnline ? 'دون اتصال' : pendingSyncCount > 0 ? 'عمليات معلقة' : 'الشبكة متاحة'}</span>
+          <span>{!isOnline ? 'دون اتصال' : pendingSyncCount > 0 ? 'بانتظار PostgreSQL' :
+             syncCoordinatorState?.conflict>0 ? 'تعارضات للمراجعة' :
+             (syncCoordinatorState?.archived||0)>0 ? 'أرشيف غير مُرحّل' : 'الشبكة متاحة'}</span>
           {pendingSyncCount > 0 && <span className="rounded bg-amber-500 px-1 text-white">{pendingSyncCount}</span>}
-          {(syncCoordinatorState?.conflict ?? 0) > 0 && <span className="rounded bg-rose-600 px-1 text-white">تعارض</span>}
+          {(syncCoordinatorState?.conflict ?? 0) > 0 && <span className="rounded bg-rose-600 px-1 text-white">{syncCoordinatorState.conflict} مراجعة</span>}
+           {(syncCoordinatorState?.archived||0)>0 && <span className="rounded bg-amber-700 px-1 text-white">{syncCoordinatorState.archived} مؤرشف</span>}
         </div>
         {/* Left (in RTL): Classic Windows Window Controls (─, ▢, ✕) */}
         <div className="flex items-center gap-0.5 shrink-0">

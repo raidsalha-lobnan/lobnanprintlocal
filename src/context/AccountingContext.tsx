@@ -1409,7 +1409,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (!unmounted) {
             setSyncCoordinatorState(st);
             setPendingSyncCount(st.pending);
-            setHasUnsyncedChanges(st.pending > 0 || st.conflict > 0);
+            setHasUnsyncedChanges(st.pending > 0 || st.conflict > 0 || (st.archived||0)>0);
           }
         });
 
@@ -2090,6 +2090,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Route legacy screen mutations through the ONE durable local outbox.
   // No success is claimed until enqueue resolves. Old network writers are retired.
   const pushDeltaToServer = async (entity: string, op: 'upsert' | 'delete' = 'upsert', item?: any, items?: any[]): Promise<string | undefined> => {
+    // Report local-durability separately for every accounting entity.
+    const writeId='write-'+crypto.randomUUID();
+    try { window.dispatchEvent(new CustomEvent('accounting_save_started', {
+      detail:{entity,writeId}
+    })); } catch {}
     try {
       const repo = unifiedRepoRef.current;
       if (!repo) throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
@@ -2115,7 +2120,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         details: `محفوظ محلياً فقط وبانتظار تأكيد السحابة؛ العملية ${commandId}`
       });
       try { window.dispatchEvent(new CustomEvent('accounting_local_saved', {
-        detail: { entity, ids: operations.map(x => x.id), commandId }
+        detail: { entity, ids: operations.map(x => x.id), commandId, writeId }
       })); } catch {}
       return commandId;
     } catch (error) {
@@ -2123,7 +2128,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setHasUnsyncedChanges(true);
       lastSyncErrorRef.current = String(error);
       try { window.dispatchEvent(new CustomEvent('accounting_save_error', {
-        detail: { entity, error: String(error) }
+        detail: { entity, error: String(error), writeId }
       })); } catch {}
       throw error;
     }
@@ -2135,10 +2140,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const isDelete = listToSave.some(i => i && typeof i === 'object' && (i._deleted || i.deletedAt));
     void pushDeltaToServer(entity, isDelete ? 'delete' : 'upsert', item, items)
       .catch(error => {
+        // pushDeltaToServer has already emitted one precise failure signal.
         console.error('Durable local save failed:', entity, error);
-        try { window.dispatchEvent(new CustomEvent('accounting_save_error', {
-          detail: { entity, error: String(error) }
-        })); } catch {}
       });
   };
 

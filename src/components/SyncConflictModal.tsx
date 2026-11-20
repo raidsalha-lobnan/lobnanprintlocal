@@ -14,6 +14,7 @@ import {
   Layers
 } from 'lucide-react';
 import { SyncCommand } from '../sync-next/types';
+import {summarizeEntityQueue,SYNC_ENTITY_LABELS} from '../sync-next/entityCoverage';
 import type {QueueComparison} from '../sync-next/queueDiagnostics';
 import {classifyQueueSafety} from '../sync-next/queueSafety';
 import {explainSyncFailure} from '../sync-next/syncFailureGuide';
@@ -31,6 +32,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
   const { unifiedRepository, isOnline, invoices } = useAccounting();
   const [conflicts, setConflicts] = useState<SyncCommand[]>([]);
   const [pendingCommands, setPendingCommands] = useState<SyncCommand[]>([]);
+  const byEntity=summarizeEntityQueue(pendingCommands);
   const [privateBackupSnapshot,setPrivateBackupSnapshot]=useState<SyncCommand[]|null>(null);
   const [savedArchives,setSavedArchives]=useState<Array<{archiveId:string;archivedAt:string;counts:{quarantined:number}}>>([]);
   const [authoritativeComparison,setAuthoritativeComparison]=useState<QueueComparison[]|null>(null);
@@ -293,22 +295,8 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
     return `${mb.toFixed(1)} MB`;
   };
 
-  const getEntityLabel = (entity: string) => {
-    const map: Record<string, string> = {
-      invoices: 'فاتورة مبيعات',
-      vouchers: 'سند مالي',
-      purchases: 'فاتورة مشتريات',
-      parties: 'عميل / مورد',
-      inventory: 'صنف مخزني',
-      journalEntries: 'قيد محاسبي',
-      treasuries: 'صندوق / خزينة',
-      treasuryTransactions: 'حركة خزينة',
-      expenses: 'مصروف',
-      stockMovements: 'حركة مخزون',
-      printOrders: 'أمر شغل مطبعة'
-    };
-    return map[entity] || entity;
-  };
+  const getEntityLabel = (entity: string):string =>
+    SYNC_ENTITY_LABELS[entity as keyof typeof SYNC_ENTITY_LABELS]||entity;
 
   return (
     <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" dir="rtl">
@@ -392,17 +380,45 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                   <div>
                     <div className="text-[11px] text-slate-400">تخزين المتصفح المحلي</div>
                     <div className="text-sm font-bold text-emerald-300">
-                      {storageHealth?.usageBytes ? formatBytes(storageHealth.usageBytes) : 'نشط ومستقر'}
+                      {storageHealth?.idbAvailable === false ? 'غير متاح' :
+                        storageHealth?.usageBytes ? formatBytes(storageHealth.usageBytes) : 'لم يتم القياس'}
                     </div>
                   </div>
                 </div>
               </div>
 
+              {storageHealth?.persistent===false&&(
+                <div role="alert" className="rounded-lg border border-amber-500/30 bg-amber-950/40 p-2 text-xs text-amber-100">
+                  لم يؤكد المتصفح منح التخزين الدائم. لا تحذف بيانات الموقع قبل اعتماد جميع العمليات في PostgreSQL أو حفظ نسخة احتياطية آمنة.
+                </div>
+              )}
               {feedback && (
                 <div className="p-3 rounded-xl bg-blue-950/60 border border-blue-500/40 text-xs text-blue-200">
                   {feedback}
                 </div>
               )}
+
+              <div className="p-3 rounded-xl border border-slate-700 bg-slate-900/70 text-xs space-y-2">
+                <div className="font-bold text-slate-100">مزامنة جميع أقسام البرنامج — حسب الكيان</div>
+                {byEntity.length===0 ? (
+                  <div className="text-slate-400">لا توجد أوامر في طابور هذا المتصفح. مسودات الإدخال غير المعتمدة لا تُعد مرسلة.</div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {byEntity.map(item=>(
+                      <div key={item.entity} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2">
+                        <span className="font-semibold text-slate-100">{item.label}</span>
+                        <span className="text-slate-300">
+                          {item.pending>0&&<span className="text-sky-300 ml-2">{item.pending} انتظار</span>}
+                          {item.conflict>0&&<span className="text-amber-300 ml-2">{item.conflict} تعارض</span>}
+                          {item.rejected>0&&<span className="text-rose-300 ml-2">{item.rejected} رفض</span>}
+                          <span className="text-slate-500">{item.records} سجل</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="text-[11px] text-slate-400">أوامر هذا الجهاز حسب الكيان؛ قد يضم الأمر المالي الواحد سجلات متعددة ولا يجوز تقسيمه تلقائيًا.</div>
+              </div>
 
               {savedArchives.length>0 && (
                 <div className="p-3 rounded-lg border border-amber-800 bg-amber-950/30 text-xs text-amber-100 space-y-2">

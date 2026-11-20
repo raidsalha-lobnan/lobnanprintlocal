@@ -54,6 +54,7 @@ const MainLayout: React.FC = () => {
     hasUnsyncedChanges,
     unifiedRepository,
     syncCoordinatorState,
+    openConflictModal,
     settings,
     setActiveTab,
     hasPermission,
@@ -89,11 +90,26 @@ const MainLayout: React.FC = () => {
     };
   }, [setActiveTab]);
 
+  const [localWriteCount,setLocalWriteCount]=React.useState(0);
+  const outstandingLocalWrites=React.useRef(new Set<string>());
   const [localSaveFailure,setLocalSaveFailure]=React.useState<{
     entity:string;raw:string;title:string;explanation:string;nextStep:string
   }|null>(null);
   React.useEffect(()=>{
+    const onStarted=(event:Event)=>{
+      const writeId=(event as CustomEvent<{writeId?:string}>).detail?.writeId;
+      if(!writeId)return;
+      outstandingLocalWrites.current.add(writeId);
+      setLocalWriteCount(outstandingLocalWrites.current.size);
+    };
+    const onFinished=(event:Event)=>{
+      const writeId=(event as CustomEvent<{writeId?:string}>).detail?.writeId;
+      if(!writeId)return;
+      outstandingLocalWrites.current.delete(writeId);
+      setLocalWriteCount(outstandingLocalWrites.current.size);
+    };
     const onFailure=(event:Event)=>{
+      onFinished(event);
       const detail=(event as CustomEvent<{entity?:string;error?:string}>).detail;
       const raw=String(detail?.error||'UNKNOWN_LOCAL_WRITE_FAILURE');
       const entity=String(detail?.entity||'');
@@ -101,8 +117,14 @@ const MainLayout: React.FC = () => {
       setLocalSaveFailure({entity,raw,title:guide.title,
         explanation:guide.explanation,nextStep:guide.nextStep});
     };
+    window.addEventListener('accounting_save_started',onStarted);
+    window.addEventListener('accounting_local_saved',onFinished);
     window.addEventListener('accounting_save_error',onFailure);
-    return()=>window.removeEventListener('accounting_save_error',onFailure);
+    return()=>{
+      window.removeEventListener('accounting_save_started',onStarted);
+      window.removeEventListener('accounting_local_saved',onFinished);
+      window.removeEventListener('accounting_save_error',onFailure);
+    };
   },[]);
 
   const isPrintModalActive = Boolean(
@@ -555,6 +577,20 @@ const MainLayout: React.FC = () => {
         <Navbar />
       </div>
 
+      {localWriteCount>0 && !isPrintModalActive && (
+        <div role="status" className="shrink-0 print:hidden z-40 border-b border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-950">
+          جارٍ تأكيد حفظ {localWriteCount} عملية في قاعدة الجهاز المحلية (IndexedDB). لا تعتبرها محفوظة حتى يكتمل الحفظ؛ الاعتماد في PostgreSQL خطوة مستقلة.
+        </div>
+      )}
+      {(syncCoordinatorState.pending>0||syncCoordinatorState.conflict>0||
+        (syncCoordinatorState.archived||0)>0) && !isPrintModalActive && (
+        <button type="button" onClick={openConflictModal}
+          className="shrink-0 print:hidden z-30 w-full border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-right text-xs font-semibold text-amber-950">
+          المزامنة تشمل كل أقسام البرنامج: {syncCoordinatorState.pending} عملية محلية تنتظر PostgreSQL،
+          {syncCoordinatorState.conflict} متعارضة أو مرفوضة،
+          {syncCoordinatorState.archived||0} مؤرشفة للمراجعة. اضغط لعرض تفاصيلها.
+        </button>
+      )}
       {localSaveFailure && !isPrintModalActive && (
         <div role="alert" className="shrink-0 print:hidden z-40 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-slate-900">
           <div className="flex gap-3 items-start justify-between">
