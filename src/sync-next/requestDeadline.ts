@@ -34,7 +34,7 @@ export async function fetchWithSyncDeadline(
 export function deadlineForSyncPath(path:string):number{
   if(path.startsWith('bootstrap?'))return 45_000;
   if(path.startsWith('invoices/record?'))return 20_000;
-  if(path.startsWith('push/chunks/'))return 60_000;
+  if(path.startsWith('push/chunks'))return 60_000;
   if(path.startsWith('push?')||path.startsWith('invoices/revise?'))return 35_000;
   if(path.startsWith('events?'))return 20_000;
   return 12_000;
