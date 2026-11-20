@@ -11,6 +11,13 @@ export async function createUnifiedDataLayer(workspaceId:string){
   const config=getLocalSyncConfig();
   if(config.workspace!==workspaceId) throw new Error('WORKSPACE_MISMATCH');
   const local=new LocalSyncDb(workspaceId,'lobnan-offline-postgres-v1');
+  // Best-effort protection against browser quota eviction. This does not
+  // override private-mode deletion or explicit clearing of site storage.
+  if(typeof navigator!=='undefined' && navigator.storage?.persist){
+    void navigator.storage.persist().catch(error=>{
+      console.warn('Persistent browser storage request unavailable',error);
+    });
+  }
   const remote=new LocalHttpSyncTransport(config.url,config.token,workspaceId);
   const coordinator=new SyncCoordinator(local,remote,workspaceId);
   const repository=new UnifiedRepository(local,coordinator);
@@ -48,16 +55,13 @@ export async function createUnifiedDataLayer(workspaceId:string){
       localStorage.setItem('lobnan_postgres_reconciliation_required','true');
       throw new Error('EXISTING_LOCAL_DATA_REQUIRES_RECONCILIATION');
     } else {
-      // Previously initialized devices may retain old invoice amounts even
-      // with a seemingly current cursor. Refresh confirmed records directly
-      // from the single PostgreSQL source, preserving all offline outbox work.
-      // A temporary network outage must not make the offline app unusable.
-      try {
-        const snapshot=await remote.fetchAuthoritativeBootstrap();
-        await local.refreshAuthoritativeSnapshot(snapshot.records,snapshot.cursor);
-      } catch (error) {
-        console.warn('Authoritative startup refresh postponed; local offline work preserved',error);
-      }
+      // Device already has an authoritative snapshot and durable event cursor.
+      // DO NOT download the whole database again on every launch. The sync
+      // coordinator resumes from this cursor and pulls incremental events,
+      // preserving local records, financial outbox and pending user changes.
+      // Full refresh remains an explicit read-only repair workflow only.
+      const cursor=await local.cursor();
+      if(!cursor)throw new Error('EXISTING_LOCAL_DATA_REQUIRES_RECONCILIATION');
     }
     // The old global migration gate must remain for an unbootstrapped device.
     // Once a valid PostgreSQL cursor exists, it is safe to resume the durable

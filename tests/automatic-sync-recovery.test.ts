@@ -121,3 +121,40 @@ test('local receipt-review flag does not trigger the hazardous unbootstrapped mi
  assert.match(boot,/confirmedCursor/);
  assert.match(boot,/localStorage\.removeItem\('lobnan_postgres_reconciliation_required'\)/);
 });
+
+test('after initial bootstrap, opening an already-initialized device uses event cursor, not a full database download',()=>{
+ const boot=readFileSync(new URL('../src/sync-next/boot.ts',import.meta.url),'utf8');
+ assert.match(boot,/if\(status==='empty'\)/);
+ assert.equal(boot.split('await remote.fetchAuthoritativeBootstrap()').length-1,1,
+  'Only uninitialized devices may request the full PostgreSQL snapshot');
+ assert.doesNotMatch(boot,/await local\.refreshAuthoritativeSnapshot\(/);
+ assert.match(boot,/await coordinator\.start\(\)/);
+ const coordinator=readFileSync(new URL('../src/sync-next/coordinator.ts',import.meta.url),'utf8');
+ assert.match(coordinator,/let cursor = await this\.local\.cursor\(\)/);
+ assert.match(coordinator,/await this\.local\.applyEvent\(event\)/);
+});
+test('a desktop cashier active draft survives reload and preserves its invoice rows',()=>{
+ const pos=readFileSync(new URL('../src/components/PosView.tsx',import.meta.url),'utf8');
+ assert.match(pos,/localStorage\.getItem\(POS_FULL_DRAFT_KEY\)/);
+ assert.match(pos,/getInitialPosDraft\(currentUser\?\.id\)/);
+ assert.match(pos,/if\(savedPosDraft\.tableLines\?\.length\)return savedPosDraft\.tableLines/);
+ assert.doesNotMatch(pos,/Automatically hold or reset uncommitted cart when unmounting/);
+ assert.doesNotMatch(pos,/\/\/ عند فتح شاشة الكاشير دائماً تكون كأنها فاتورة جديدة/);
+ assert.match(pos,/if\(draft\.editingInvoiceId\)return \{\}/);
+});
+test('pending PostgreSQL outbox survives device shutdown and restarts with same immutable operation id',async()=>{
+ const workspace='persist-'+crypto.randomUUID();
+ const dbName='test-durable-'+crypto.randomUUID();
+ const first=new LocalSyncDb(workspace,dbName);
+ const original=await first.enqueue([{
+   entity:'inventory',id:'PRI-PERSIST',
+   value:{id:'PRI-PERSIST',name:'Local offline stock item',stockQuantity:1}
+ }]);
+ await first.close();
+ const reopened=new LocalSyncDb(workspace,dbName);
+ const found=(await reopened.pending()).find(cmd=>cmd.id===original.id);
+ assert.equal(found?.id,original.id);
+ assert.equal(found?.status,'pending');
+ assert.equal((found?.changes[0] as any)?.value?.name,'Local offline stock item');
+ await reopened.close();
+});

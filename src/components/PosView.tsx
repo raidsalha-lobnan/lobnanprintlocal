@@ -386,6 +386,8 @@ export const PosView: React.FC = () => {
 const POS_FULL_DRAFT_KEY = 'pos_active_full_draft';
 
 interface PosFullDraftData {
+  ownerId?: string;
+  editingInvoiceId?: string | null;
   tableLines?: PosTableLine[];
   posTargetType?: 'customer' | 'supplier' | 'employee';
   selectedCustomerId?: string;
@@ -416,9 +418,26 @@ interface PosFullDraftData {
   timestamp?: number;
 }
 
-const getInitialPosDraft = (): PosFullDraftData => {
-  // عند فتح شاشة الكاشير دائماً تكون كأنها فاتورة جديدة نظيفة دون استرجاع مسودات قديمة
-  return {};
+const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
+  // Restore a previously saved, non-posted cashier form after F5/power-off.
+  // Never load another user's draft or silently reopen an official edit as
+  // a new invoice; existing official invoices must be opened from history.
+  if(!ownerId)return {};
+  try {
+    const raw=localStorage.getItem(POS_FULL_DRAFT_KEY);
+    if(!raw)return {};
+    const draft=JSON.parse(raw) as PosFullDraftData;
+    if(!draft||typeof draft!=='object'||Array.isArray(draft))return {};
+    if(draft.ownerId && draft.ownerId!==ownerId)return {};
+    if(draft.editingInvoiceId)return {};
+    if(!Array.isArray(draft.tableLines)||!draft.tableLines.length)return {};
+    if(!draft.tableLines.every(line=>line&&typeof line==='object'&&
+      typeof line.id==='string'&&typeof line.itemName==='string'))return {};
+    return draft;
+  }catch(error){
+    console.warn('Unable to restore cashier form; existing local copy preserved',error);
+    return {};
+  }
 };
 
   // Active top tab in POS window
@@ -448,7 +467,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
 
 
   // Load persistent draft on initialization (لضمان بقاء كافة الإدخالات والبيانات عند التحديث F5)
-  const savedPosDraft = useMemo(() => getInitialPosDraft(), []);
+  const savedPosDraft = useMemo(() => getInitialPosDraft(currentUser?.id), [currentUser?.id]);
 
   // Customer & Invoice Header State (Strictly main customers, sub-customers are completely separate)
   const customers = useMemo(() => sortPartiesByCode(parties.filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer)), [parties]);
@@ -662,10 +681,12 @@ const getInitialPosDraft = (): PosFullDraftData => {
     'representative' | 'tax' | 'additional' | 'discount' | 'notes' | 'shipping' | 'details' | 'currency' | null
   >(null);
 
-  // Table Lines State - تبدأ دائماً كفاتورة جديدة فارغة عند فتح شاشة الكاشير
+  // Restore active, unsent lines (including dimensions/images/attachments).
+  // New users without a saved form still receive a clean first row.
   const pendingGalleryUploadsRef=useRef(0);
   const [preparingThumbnailIds,setPreparingThumbnailIds]=useState<Record<string,boolean>>({});
   const [tableLines, setTableLines] = useState<PosTableLine[]>(() => {
+    if(savedPosDraft.tableLines?.length)return savedPosDraft.tableLines;
     return [
       {
         id: generateUniqueLineId(),
@@ -689,21 +710,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
     ];
   });
 
-  // Confirmation dialog & auto-clear/hold when leaving POS screen or navigating away
-  useEffect(() => {
-    return () => {
-      // Check if there are active lines or selected items in the cart when leaving
-      const hasActiveLines = tableLines.some(l => (l.itemName && l.itemName.trim() !== '') || l.unitPrice > 0 || l.total > 0);
-      if (hasActiveLines) {
-        // Automatically hold or reset uncommitted cart when unmounting so new sessions always start clean!
-        try {
-          localStorage.removeItem(POS_FULL_DRAFT_KEY);
-          localStorage.removeItem('pos_active_draft_lines');
-        } catch {}
-      }
-    };
-  }, [tableLines]);
-
+  // Unmount/navigation must NEVER destroy unsent cashier work.
+  // Only an explicit cancel or a verified successful posting can clear it.
 
   const [activeRowId, setActiveRowId] = useState<string | null>(() => {
     return savedPosDraft.activeRowId || null;
@@ -724,6 +732,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
   useEffect(() => {
     try {
       const draft: PosFullDraftData = {
+        ownerId:currentUser?.id,
+        editingInvoiceId:editingPosInvoiceId,
         tableLines,
         posTargetType,
         selectedCustomerId,
@@ -783,7 +793,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
     shippingDetails,
     cashAmountInput,
     bankAmountInput,
-    activeRowId
+    activeRowId,
+    currentUser?.id,
+    editingPosInvoiceId
   ]);
 
   // حفظ عند إغلاق أو رفرش الصفحة فوراً
@@ -793,6 +805,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
         const activeEl = document.activeElement as HTMLElement | null;
         const focusedId = activeEl?.id || '';
         const draft: PosFullDraftData = {
+          ownerId:currentUser?.id,
+          editingInvoiceId:editingPosInvoiceId,
           tableLines,
           posTargetType,
           selectedCustomerId,
@@ -859,7 +873,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
     shippingDetails,
     cashAmountInput,
     bankAmountInput,
-    activeRowId
+    activeRowId,
+    currentUser?.id,
+    editingPosInvoiceId
   ]);
 
   // Add delivery service item automatically to table (يحدد له ملاحظات وسعر فقط)
@@ -3610,17 +3626,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
     }
   };
 
-  // عند فتح شاشة الكاشير دائماً تكون كأنها فاتورة جديدة
-  useEffect(() => {
-    try {
-      localStorage.removeItem(POS_FULL_DRAFT_KEY);
-      localStorage.removeItem('pos_active_draft_lines');
-    } catch {}
-
-    if (!editingPosInvoiceId && !currentEditingInvoiceIdRef.current) {
-      handleClearInvoiceDirect(true);
-    }
-  }, []);
+  // The active draft has already been restored by the state initializers.
+  // Never clear a draft automatically just because the app was reopened.
 
   // البدء بفاتورة جديدة فوراً وتفريغ الشاشة (جديد Ctrl+N)
   const handleStartNewInvoice = () => {
