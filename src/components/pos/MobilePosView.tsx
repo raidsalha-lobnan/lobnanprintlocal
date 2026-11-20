@@ -783,6 +783,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       return;
     }
     if (window.confirm('هل تريد إلغاء الفاتورة بالكامل وتفريغ البنود؟')) {
+      resumedMobileHeldIdRef.current=null;
       setCart([]);
       setGlobalDiscount('');
       setPaidAmountInput('');
@@ -1018,6 +1019,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
         setDirectPrintOptions({ format: 'thermal', autoPrint: true });
       }
 
+      // Keep the old hold available but never reuse its ID for the next sale.
+      resumedMobileHeldIdRef.current=null;
       // Reset
       try {
         localStorage.removeItem(MOBILE_POS_DRAFT_KEY);

@@ -2857,6 +2857,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
       setEditingPosInvoiceId(null);
     }
 
+    // The original hold stays available until the operator confirms the posting.
+    // A subsequent unrelated invoice must always get a NEW hold identity.
+    resumedHeldInvoiceIdRef.current=null;
     // Applies to both a confirmed edit and a newly approved POS sale.
     setInvoiceSeqNumber('');
 
@@ -3264,6 +3267,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
   const lastLoadedInvoiceIdRef = useRef<string | null>(null);
 
   const loadInvoiceToScreen = (inv: Invoice) => {
+    resumedHeldInvoiceIdRef.current=null;
     if (!inv) return;
     isInvoiceLoadingRef.current = true;
     currentEditingInvoiceIdRef.current = inv.id;
@@ -3511,6 +3515,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
   };
 
   const handleClearInvoiceDirect = (silent = false) => {
+    // Avoid reusing a held ID after abandoning a resumed invoice.
+    resumedHeldInvoiceIdRef.current=null;
     setEditingPosInvoiceId(null);
     currentEditingInvoiceIdRef.current = null;
     lastLoadedInvoiceIdRef.current = null;
