@@ -47,6 +47,7 @@ import { BarcodeScannerModal } from '../BarcodeScannerModal';
 import { matchItemByBarcode } from '../../utils/barcodeGenerator';
 import { posSound } from '../../utils/audio';
 import { isSquareMeterUnit } from '../../utils/unitsOfMeasure';
+import {listCentralHeldInvoices,saveCentralHeldInvoice,deleteCentralHeldInvoice} from '../../services/heldPosInvoices';
 
 interface MobilePosViewProps {
   onSwitchToDesktop?: () => void;
@@ -77,6 +78,7 @@ export interface MobileHeldInvoice {
   totalAmount: number;
   globalDiscount?: string;
   notes?: string;
+  fullDraft?: Record<string,any>;
 }
 
 export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop }) => {
@@ -340,23 +342,53 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const [deliveryFeeInput, setDeliveryFeeInput] = useState<string>('15');
   const [deliveryNotesInput, setDeliveryNotesInput] = useState<string>('');
 
-  // Held Invoices Persistence in LocalStorage
-  const [heldInvoices, setHeldInvoices] = useState<MobileHeldInvoice[]>(() => {
-    try {
-      const raw = localStorage.getItem('pos_mobile_held_invoices');
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('pos_mobile_held_invoices', JSON.stringify(heldInvoices));
-    } catch (e) {
-      console.error('Failed to store held invoices in localStorage', e);
-    }
-  }, [heldInvoices]);
+  // Central PostgreSQL holds; local browser data is a per-user fallback only.
+  const heldCacheKey='pos_mobile_held_private_cache_v1_'+String(currentUser?.id||'none');
+  const [heldInvoices,setHeldInvoices]=useState<MobileHeldInvoice[]>([]);
+  const [heldLoading,setHeldLoading]=useState(true);
+  const [heldBusy,setHeldBusy]=useState(false);
+  const heldOperationRef=useRef(false);
+  const resumedMobileHeldIdRef=useRef<string|null>(null);
+  useEffect(()=>{
+    let active=true;
+    const refresh=async()=>{
+      if(!currentUser?.id){if(active)setHeldLoading(false);return;}
+      if(active){setHeldLoading(true);setHeldInvoices([]);}
+      try{
+        let remote=await listCentralHeldInvoices<MobileHeldInvoice>('mobile');
+        const ownerKey='pos_mobile_held_legacy_owner_v1';
+        const migratedKey='pos_mobile_held_migration_done_v1_'+currentUser.id;
+        const previousOwner=localStorage.getItem(ownerKey);
+        if(!localStorage.getItem(migratedKey)&&(!previousOwner||previousOwner===currentUser.id)){
+          const old=JSON.parse(localStorage.getItem('pos_mobile_held_invoices')||'[]');
+          if(Array.isArray(old)){
+            for(const h of old){
+              if(!h?.id||!Array.isArray(h.cart)||remote.some(x=>x.id===h.id))continue;
+              await saveCentralHeldInvoice('mobile',h as MobileHeldInvoice);
+            }
+          }
+          localStorage.setItem(ownerKey,currentUser.id);
+          localStorage.setItem(migratedKey,'1');
+          remote=await listCentralHeldInvoices<MobileHeldInvoice>('mobile');
+        }
+        if(active)setHeldInvoices(remote);
+      }catch(error){
+        console.warn('Unable to load mobile holds from PostgreSQL',error);
+        if(active)try{
+          const cached=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
+          if(Array.isArray(cached))setHeldInvoices(cached);
+        }catch{}
+      }finally{if(active)setHeldLoading(false);}
+    };
+    void refresh();
+    window.addEventListener('online',refresh);
+    return ()=>{active=false;window.removeEventListener('online',refresh);};
+  },[currentUser?.id]);
+  useEffect(()=>{
+    if(!heldLoading&&currentUser?.id)try{
+      localStorage.setItem(heldCacheKey,JSON.stringify(heldInvoices));
+    }catch(error){console.warn('Mobile held cache unavailable',error);}
+  },[heldInvoices,heldLoading,currentUser?.id]);
 
   // 3. Unified Search & Barcode Input State (دمج البحث والباركود في خانة واحدة ذكية)
   const [searchBarcodeQuery, setSearchBarcodeQuery] = useState<string>('');
@@ -588,70 +620,82 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   // -------------------------------------------------------------
   // Shortcuts Toolbar Handlers (تعليق، فواتير معلقة، توصيل، تجميع، إلغاء، حذف)
   // -------------------------------------------------------------
-  const handleHoldInvoice = () => {
-    if (cart.length === 0) {
-      posSound.error();
-      alert('لا توجد بنود في الفاتورة لتعليقها.');
-      return;
+  const handleHoldInvoice = async () => {
+    if(heldBusy||heldOperationRef.current)return;
+    if(heldLoading){alert('جاري تحميل المعلّقات من قاعدة البيانات.');return;}
+    if(cart.length===0){posSound.error();alert('لا توجد بنود في الفاتورة لتعليقها.');return;}
+    if(heldInvoices.length>=50&&!resumedMobileHeldIdRef.current){
+      alert('الحد الأقصى 50 فاتورة معلقة.');return;
     }
-    const newHeld: MobileHeldInvoice = {
-      id: `held-${Date.now()}`,
-      heldAt: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
-      customerName: customerNameInput.trim() || 'زبون نقدي / عام',
-      customerId: selectedCustomerId,
-      subCustomerId: selectedSubCustomerId,
-      customSubCustomerName,
-      partyTypeMode,
-      cart: [...cart],
-      totalAmount: netTotal,
-      globalDiscount,
-      notes: invoiceNotes
-    };
-
-    setHeldInvoices(prev => [newHeld, ...prev]);
-    setCart([]);
-    setGlobalDiscount('');
-    setPaidAmountInput('');
-    setInvoiceNotes('');
-    setCustomSubCustomerName('');
-    setSelectedSubCustomerId('');
-    setCustomerNameInput('زبون نقدي / عام');
-    setSelectedCustomerId('');
-    setPartyTypeMode('walkin');
-    setIsPaymentModalOpen(false);
-    posSound.beep();
-    setSuccessNotification({
-      number: 'معلقة',
-      total: newHeld.totalAmount
-    });
-    setTimeout(() => setSuccessNotification(null), 3500);
-  };
-
-  const handleResumeHeldInvoice = (held: MobileHeldInvoice) => {
-    if (cart.length > 0) {
-      if (!window.confirm('توجد بنود في الفاتورة الحالية، هل تريد استبدالها بالفاتورة المعلقة؟')) {
-        return;
+    const newHeld:MobileHeldInvoice={
+      id:resumedMobileHeldIdRef.current||'held-'+crypto.randomUUID(),
+      heldAt:new Date().toLocaleString('ar-EG'),
+      customerName:customerNameInput.trim()||'زبون نقدي / عام',
+      customerId:selectedCustomerId,subCustomerId:selectedSubCustomerId,
+      customSubCustomerName,partyTypeMode,
+      cart:cart.map(ci=>({...ci})),totalAmount:netTotal,
+      globalDiscount,notes:invoiceNotes,
+      fullDraft:{
+        paymentMethod,paidAmountInput,selectedCurrencyCode,payCurrencyCode,payExchangeRate,
+        cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate,
+        selectedBankTreasuryCode,selectedCashTreasuryCode,invoiceNotes
       }
-    }
-    setCart(held.cart);
-    if (held.customerName) setCustomerNameInput(held.customerName);
-    if (held.customerId) setSelectedCustomerId(held.customerId);
-    if (held.subCustomerId) setSelectedSubCustomerId(held.subCustomerId);
-    if (held.customSubCustomerName) setCustomSubCustomerName(held.customSubCustomerName);
-    if (held.partyTypeMode) setPartyTypeMode(held.partyTypeMode);
-    if (held.globalDiscount) setGlobalDiscount(held.globalDiscount);
-    if (held.notes) setInvoiceNotes(held.notes);
-
-    setHeldInvoices(prev => prev.filter(h => h.id !== held.id));
-    setShowHeldModal(false);
-    posSound.beep();
+    };
+    heldOperationRef.current=true;setHeldBusy(true);
+    try{
+      await saveCentralHeldInvoice('mobile',newHeld);
+      setHeldInvoices(prev=>[newHeld,...prev.filter(h=>h.id!==newHeld.id)]);
+      resumedMobileHeldIdRef.current=null;
+      setCart([]);setGlobalDiscount('');setPaidAmountInput('');setInvoiceNotes('');
+      setCustomSubCustomerName('');setSelectedSubCustomerId('');
+      setCustomerNameInput('زبون نقدي / عام');setSelectedCustomerId('');
+      setPartyTypeMode('customer');setIsPaymentModalOpen(false);
+      posSound.success();
+      setSuccessNotification({number:'معلقة',total:newHeld.totalAmount});
+      setTimeout(()=>setSuccessNotification(null),3500);
+    }catch(error){
+      posSound.error();alert('تعذر حفظ الفاتورة المعلقة في PostgreSQL؛ بياناتها ما زالت في الكاشير.\n'+String(error));
+    }finally{heldOperationRef.current=false;setHeldBusy(false);}
   };
 
-  const handleDeleteHeldInvoice = (id: string) => {
-    if (window.confirm('هل تريد حذف هذه الفاتورة المعلقة؟')) {
-      setHeldInvoices(prev => prev.filter(h => h.id !== id));
+  const handleResumeHeldInvoice = (held:MobileHeldInvoice) => {
+    if(cart.length>0&&!window.confirm('توجد بنود في الفاتورة الحالية، هل تريد استبدالها بالمعلّق؟'))return;
+    const d=held.fullDraft||{};
+    setCart(held.cart.map(ci=>({...ci})));
+    setCustomerNameInput(held.customerName||'زبون نقدي / عام');
+    setSelectedCustomerId(held.customerId||'');
+    setSelectedSubCustomerId(held.subCustomerId||'');
+    setCustomSubCustomerName(held.customSubCustomerName||'');
+    setPartyTypeMode(held.partyTypeMode==='walkin'?'customer':held.partyTypeMode||'customer');
+    setGlobalDiscount(held.globalDiscount||'');
+    setInvoiceNotes(d.invoiceNotes??held.notes??'');
+    if(d.paymentMethod)setPaymentMethod(d.paymentMethod);
+    setPaidAmountInput(d.paidAmountInput??'');
+    if(d.selectedCurrencyCode)setSelectedCurrencyCode(d.selectedCurrencyCode);
+    if(d.payCurrencyCode)setPayCurrencyCode(d.payCurrencyCode);
+    if(typeof d.payExchangeRate==='number')setPayExchangeRate(d.payExchangeRate);
+    if(d.cashCurrencyCode)setCashCurrencyCode(d.cashCurrencyCode);
+    if(typeof d.cashExchangeRate==='number')setCashExchangeRate(d.cashExchangeRate);
+    if(d.bankCurrencyCode)setBankCurrencyCode(d.bankCurrencyCode);
+    if(typeof d.bankExchangeRate==='number')setBankExchangeRate(d.bankExchangeRate);
+    if(d.selectedBankTreasuryCode)setSelectedBankTreasuryCode(d.selectedBankTreasuryCode);
+    if(d.selectedCashTreasuryCode)setSelectedCashTreasuryCode(d.selectedCashTreasuryCode);
+    resumedMobileHeldIdRef.current=held.id;
+    setShowHeldModal(false);posSound.beep();
+  };
+
+  const handleDeleteHeldInvoice=async(id:string)=>{
+    if(heldBusy||heldOperationRef.current)return;
+    if(!window.confirm('هل تريد حذف المعلّق نهائيًا من PostgreSQL؟'))return;
+    heldOperationRef.current=true;setHeldBusy(true);
+    try{
+      await deleteCentralHeldInvoice(id);
+      setHeldInvoices(prev=>prev.filter(h=>h.id!==id));
+      if(resumedMobileHeldIdRef.current===id)resumedMobileHeldIdRef.current=null;
       posSound.beep();
-    }
+    }catch(error){
+      alert('تعذر حذف الفاتورة المعلقة من PostgreSQL، وستبقى محفوظة.\n'+String(error));
+    }finally{heldOperationRef.current=false;setHeldBusy(false);}
   };
 
   const handleApplyDelivery = (fee: number, notes: string) => {
@@ -2076,7 +2120,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                 </div>
                 <div>
                   <h3 className="text-xs font-black text-slate-900">الفواتير المعلقة ({heldInvoices.length})</h3>
-                  <p className="text-[10px] text-slate-500">اختر فاتورة لاستئناف العمل عليها وإنهائها</p>
+                  <p className="text-[10px] text-slate-500">معلّقات PostgreSQL تبقى محفوظة عند الاستئناف</p>
                 </div>
               </div>
               <button
@@ -2088,7 +2132,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
               </button>
             </div>
 
-            {heldInvoices.length === 0 ? (
+            {heldLoading ? (<p className="text-center p-5 text-xs text-blue-600">جاري تحميل الفواتير المعلقة من PostgreSQL...</p>) : heldInvoices.length === 0 ? (
               <div className="text-center py-8 text-slate-400 space-y-1">
                 <PauseCircle className="w-10 h-10 mx-auto text-slate-300" />
                 <p className="text-xs font-bold text-slate-600">لا توجد فواتير معلقة حالياً</p>
@@ -2120,6 +2164,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
+                        disabled={heldBusy}
                         onClick={() => handleResumeHeldInvoice(held)}
                         className="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
                       >
@@ -2128,7 +2173,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDeleteHeldInvoice(held.id)}
+                        disabled={heldBusy}
+                        onClick={() => void handleDeleteHeldInvoice(held.id)}
                         className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 active:scale-95 transition-all cursor-pointer"
                         title="حذف الفاتورة المعلقة"
                       >

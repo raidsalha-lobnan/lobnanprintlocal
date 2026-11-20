@@ -213,3 +213,17 @@ CREATE TABLE IF NOT EXISTS sync_telegram_recipients (
 CREATE INDEX IF NOT EXISTS sync_telegram_recipients_pending_idx
  ON sync_telegram_recipients(workspace,next_attempt_at)
  WHERE delivered_at IS NULL;
+
+-- Durable and owner-private cashier holds, not posted sales or sync events.
+CREATE TABLE IF NOT EXISTS sync_pos_held_invoices (
+  workspace text NOT NULL REFERENCES sync_workspaces(id),
+  hold_id text NOT NULL,
+  owner_user_id text NOT NULL,
+  kind text NOT NULL CHECK(kind IN ('desktop','mobile')),
+  body jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(workspace,hold_id)
+);
+CREATE INDEX IF NOT EXISTS sync_pos_held_owner_idx
+  ON sync_pos_held_invoices(workspace,owner_user_id,kind,updated_at DESC);

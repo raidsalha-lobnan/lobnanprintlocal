@@ -11,7 +11,8 @@ import { CustomerLedgerModal } from './pos/CustomerLedgerModal';
 import { RequisitionModal } from './pos/RequisitionModal';
 import { FavoriteItemsDrawer } from './pos/FavoriteItemsDrawer';
 import { InvoicesReviewModal } from './pos/InvoicesReviewModal';
-import { HeldInvoicesModal, HeldInvoiceData } from './pos/HeldInvoicesModal';
+import { HeldInvoicesModal, type HeldInvoiceData } from './pos/HeldInvoicesModal';
+import {listCentralHeldInvoices,saveCentralHeldInvoice,deleteCentralHeldInvoice} from '../services/heldPosInvoices';
 import { DraftInvoicesQueueModal } from './pos/DraftInvoicesQueueModal';
 import { SheetInvoiceRow } from '../services/liveSheetService';
 import { onlineInvoicePostingService } from '../services/onlineInvoicePostingService';
@@ -1452,23 +1453,54 @@ const getInitialPosDraft = (): PosFullDraftData => {
     }
   };
 
-  // Held invoices with localStorage persistence
-  const [heldInvoices, setHeldInvoices] = useState<HeldInvoiceData[]>(() => {
-    try {
-      const raw = localStorage.getItem('pos_held_invoices');
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('pos_held_invoices', JSON.stringify(heldInvoices));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [heldInvoices]);
+  // Owner-private PostgreSQL is authoritative. Device cache is only a fallback.
+  const heldCacheKey='pos_held_private_cache_v1_'+String(currentUser?.id||'none');
+  const [heldInvoices,setHeldInvoices]=useState<HeldInvoiceData[]>([]);
+  const [heldLoading,setHeldLoading]=useState(true);
+  const [heldBusy,setHeldBusy]=useState(false);
+  const heldOperationRef=useRef(false);
+  const resumedHeldInvoiceIdRef=useRef<string|null>(null);
+  useEffect(()=>{
+    let active=true;
+    const refresh=async()=>{
+      if(!currentUser?.id){if(active)setHeldLoading(false);return;}
+      if(active){setHeldLoading(true);setHeldInvoices([]);}
+      try{
+        let remote=await listCentralHeldInvoices<HeldInvoiceData>('desktop');
+        // Migrate old local-only holds once; never copy another user's cache.
+        const ownerKey='pos_held_legacy_owner_v1';
+        const migrationKey='pos_held_migration_done_v1_'+currentUser.id;
+        const previousOwner=localStorage.getItem(ownerKey);
+        if(!localStorage.getItem(migrationKey)&&(!previousOwner||previousOwner===currentUser.id)){
+          const old=JSON.parse(localStorage.getItem('pos_held_invoices')||'[]');
+          if(Array.isArray(old)){
+            for(const held of old){
+              if(!held?.id||!Array.isArray(held.lines)||remote.some(v=>v.id===held.id))continue;
+              await saveCentralHeldInvoice('desktop',held as HeldInvoiceData);
+            }
+          }
+          localStorage.setItem(ownerKey,currentUser.id);
+          localStorage.setItem(migrationKey,'1');
+          remote=await listCentralHeldInvoices<HeldInvoiceData>('desktop');
+        }
+        if(active)setHeldInvoices(remote);
+      }catch(error){
+        console.warn('PostgreSQL held invoice loading failed',error);
+        if(active)try{
+          const cached=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
+          if(Array.isArray(cached))setHeldInvoices(cached);
+        }catch{}
+      }finally{if(active)setHeldLoading(false);}
+    };
+    void refresh();
+    window.addEventListener('online',refresh);
+    return ()=>{active=false;window.removeEventListener('online',refresh);};
+  },[currentUser?.id]);
+  useEffect(()=>{
+    if(!heldLoading&&currentUser?.id)try{
+      localStorage.setItem(heldCacheKey,JSON.stringify(heldInvoices));
+    }catch(error){console.warn('Held invoice device cache unavailable',error);}
+  },[heldInvoices,heldLoading,currentUser?.id]);
 
   // Selected customer object
   const currentCustomer = parties.find(p => p.id === selectedCustomerId);
@@ -3053,62 +3085,116 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setSelectedInvoiceForPrint(draftInvoice);
   };
 
-  // Hold Invoice (F9)
-  const handleHoldInvoice = () => {
-    if (tableLines.length === 0) return;
-    
-    if (heldInvoices.length >= 50) {
-      posSound.error();
-      alert('تم الوصول للحد الأقصى للفواتير المعلقة (50 فاتورة). يرجى استئناف أو حذف بعض الفواتير المعلقة.');
-      return;
+  // Hold (F9): never clear current POS values before verified PostgreSQL save.
+  const handleHoldInvoice = async () => {
+    if(heldOperationRef.current||heldBusy)return;
+    if(heldLoading){alert('جاري تحميل الفواتير المعلقة من قاعدة البيانات.');return;}
+    if(currentEditingInvoiceIdRef.current||editingPosInvoiceId){
+      alert('التعليق مخصص لفاتورة جديدة، وليس لتعديل فاتورة معتمدة.');return;
     }
-
-    const newHeld: HeldInvoiceData = {
-      id: 'held-' + Date.now(),
-      heldAt: new Date().toLocaleTimeString('ar-SA'),
-      customerName,
-      customerId: selectedCustomerId,
-      customCustomerText,
-      lines: [...tableLines],
-      totalAmount: calculatedTotalAmount,
-      notes: invoiceNotes
-    };
-
-    setHeldInvoices(prev => [newHeld, ...prev]);
-    posSound.beep();
-
-    // Reset to clean invoice
-    setTableLines([
-      {
-        id: generateUniqueLineId(),
-        barcode: '',
-        itemName: '',
-        description: '',
-        notes: '',
-        hasDimensions: false,
-        length: 1,
-        width: 1,
-        count: 1,
-        quantity: 1,
-        unit: 'حبة',
-        unitPrice: 0,
-        discount: 0,
-        tax: 0,
-        total: 0,
-        attachments: []
+    if(!tableLines.some(l=>(l.itemName||'').trim()||Number(l.total)>0)){
+      alert('لا توجد بنود لتعليقها.');return;
+    }
+    if(heldInvoices.length>=50&&!resumedHeldInvoiceIdRef.current){
+      alert('الحد الأقصى للفواتير المعلقة 50 فاتورة.');return;
+    }
+    const newHeld:HeldInvoiceData={
+      id:resumedHeldInvoiceIdRef.current||'held-'+crypto.randomUUID(),
+      heldAt:new Date().toLocaleString('ar-EG'),
+      customerName,customerId:selectedCustomerId,customCustomerText,
+      subCustomerName,subCustomerId,lines:tableLines.map(l=>({...l})),
+      totalAmount:calculatedTotalAmount,notes:invoiceNotes,paymentNotes,
+      fullDraft:{
+        posTargetType,selectedCustomerId,customerCode,customerName,pricingTier,
+        transactionType,customCustomerText,subCustomerId,subCustomerName,subCustomerPhone,
+        branch,warehouse,invoiceDate,representative,taxRate,taxEnabled,
+        additionalCharges,overallDiscount,discountType,invoiceNotes,paymentNotes,
+        shippingDetails,cashAmountInput,bankAmountInput,paymentMethod,
+        selectedCurrencyCode,customExchangeRate,cashCurrencyCode,cashExchangeRate,
+        cashTreasuryCode,bankCurrencyCode,bankExchangeRate,bankTreasuryCode,
+        invoiceWorkflowStatus,activeRowId
       }
-    ]);
+    };
+    heldOperationRef.current=true;setHeldBusy(true);
+    try{
+      await saveCentralHeldInvoice('desktop',newHeld);
+      setHeldInvoices(prev=>[newHeld,...prev.filter(h=>h.id!==newHeld.id)]);
+      resumedHeldInvoiceIdRef.current=null;
+      // This reset is deliberately AFTER the server receipt.
+      handleClearInvoiceDirect(true);
+      setPaymentNotes('');setPaymentMethod('cash');setTransactionType('cash');
+      setDiscountType('amount');setInvoiceWorkflowStatus('new');
+      setCashTreasuryCode('CASH-1101');setBankTreasuryCode('');
+      posSound.success();
+    }catch(error){
+      posSound.error();
+      alert('لم تُحفظ الفاتورة المعلقة في PostgreSQL؛ بقيت بياناتها في شاشة الكاشير.\n'+String(error));
+    }finally{heldOperationRef.current=false;setHeldBusy(false);}
   };
 
-  // Resume Held Invoice
-  const handleResumeHeldInvoice = (held: HeldInvoiceData) => {
-    setTableLines(held.lines);
-    setCustomerName(held.customerName);
-    if (held.customerId) setSelectedCustomerId(held.customerId);
-    if (held.customCustomerText) setCustomCustomerText(held.customCustomerText);
-    if (held.notes) setInvoiceNotes(held.notes);
-    setHeldInvoices(prev => prev.filter(h => h.id !== held.id));
+  // Resuming leaves the PostgreSQL snapshot intact until explicitly deleted.
+  const handleResumeHeldInvoice=(held:HeldInvoiceData):boolean=>{
+    if(currentEditingInvoiceIdRef.current||editingPosInvoiceId){
+      alert('أغلق تعديل الفاتورة المعتمدة أولاً.');return false;
+    }
+    const filled=tableLines.some(l=>(l.itemName||'').trim()||Number(l.total)>0)||Boolean(invoiceNotes.trim());
+    if(filled&&!window.confirm('توجد فاتورة حالية، هل تريد استبدالها بالمعلّق؟'))return false;
+    const d=held.fullDraft||{};
+    const targetId=d.selectedCustomerId??held.customerId??'';
+    prevPricingCustIdRef.current=targetId;
+    setTableLines(held.lines.map(l=>({...l})));
+    setPosTargetType(d.posTargetType||'customer');
+    setSelectedCustomerId(targetId);
+    setCustomerCode(d.customerCode||'');
+    setCustomerName(d.customerName??held.customerName);
+    setCustomCustomerText(d.customCustomerText??held.customCustomerText??'');
+    setSubCustomerId(d.subCustomerId??held.subCustomerId??'');
+    setSubCustomerName(d.subCustomerName??held.subCustomerName??'');
+    setSubCustomerPhone(d.subCustomerPhone||'');
+    if(d.pricingTier)setPricingTier(d.pricingTier);
+    if(d.transactionType)setTransactionType(d.transactionType);
+    if(d.branch)setBranch(d.branch);
+    if(d.warehouse)setWarehouse(d.warehouse);
+    if(d.invoiceDate)setInvoiceDate(d.invoiceDate);
+    if(d.representative)setRepresentative(d.representative);
+    if(typeof d.taxRate==='number')setTaxRate(d.taxRate);
+    if(typeof d.taxEnabled==='boolean')setTaxEnabled(d.taxEnabled);
+    setAdditionalCharges(d.additionalCharges??0);
+    setOverallDiscount(d.overallDiscount??0);
+    setDiscountType(d.discountType||'amount');
+    setInvoiceNotes(d.invoiceNotes??held.notes??'');
+    setPaymentNotes(d.paymentNotes??held.paymentNotes??'');
+    if(d.shippingDetails)setShippingDetails(d.shippingDetails);
+    setCashAmountInput(d.cashAmountInput??'0');
+    setBankAmountInput(d.bankAmountInput??'0');
+    setPaymentMethod(d.paymentMethod||'cash');
+    if(d.selectedCurrencyCode)setSelectedCurrencyCode(d.selectedCurrencyCode);
+    if(typeof d.customExchangeRate==='number')setCustomExchangeRate(d.customExchangeRate);
+    if(d.cashCurrencyCode)setCashCurrencyCode(d.cashCurrencyCode);
+    if(typeof d.cashExchangeRate==='number')setCashExchangeRate(d.cashExchangeRate);
+    setCashTreasuryCode(d.cashTreasuryCode||'CASH-1101');
+    if(d.bankCurrencyCode)setBankCurrencyCode(d.bankCurrencyCode);
+    if(typeof d.bankExchangeRate==='number')setBankExchangeRate(d.bankExchangeRate);
+    if(d.bankTreasuryCode)setBankTreasuryCode(d.bankTreasuryCode);
+    setInvoiceWorkflowStatus(d.invoiceWorkflowStatus||'new');
+    setActiveRowId(d.activeRowId||held.lines[0]?.id||null);
+    resumedHeldInvoiceIdRef.current=held.id;
     posSound.success();
+    return true;
+  };
+
+  const handleDeleteHeldInvoice=async(id:string)=>{
+    if(heldOperationRef.current||heldBusy)return;
+    if(!window.confirm('هل تريد حذف المعلّق من قاعدة PostgreSQL نهائيًا؟'))return;
+    heldOperationRef.current=true;setHeldBusy(true);
+    try{
+      await deleteCentralHeldInvoice(id);
+      setHeldInvoices(prev=>prev.filter(h=>h.id!==id));
+      if(resumedHeldInvoiceIdRef.current===id)resumedHeldInvoiceIdRef.current=null;
+      posSound.success();
+    }catch(error){
+      posSound.error();alert('لم يُحذف المعلّق من PostgreSQL، لذلك بقي في القائمة.\n'+String(error));
+    }finally{heldOperationRef.current=false;setHeldBusy(false);}
   };
 
   // Load Draft Row to POS Screen
@@ -6168,8 +6254,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
         isOpen={isHeldInvoicesOpen}
         onClose={() => setIsHeldInvoicesOpen(false)}
         heldInvoices={heldInvoices}
+        busy={heldBusy||heldLoading}
         onResumeInvoice={held => handleResumeHeldInvoice(held)}
-        onDeleteHeldInvoice={id => setHeldInvoices(prev => prev.filter(h => h.id !== id))}
+        onDeleteHeldInvoice={id => handleDeleteHeldInvoice(id)}
       />
 
       <DraftInvoicesQueueModal

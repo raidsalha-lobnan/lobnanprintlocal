@@ -14,6 +14,7 @@ import {TelegramReportGateway} from './telegram-report-gateway.mjs';
 import {TelegramServerReportWorker} from './telegram-report-worker.mjs';
 import {ensureTelegramReportSchema} from './telegram-report-schema.mjs';
 import {InputError} from './sync-domain.mjs';
+import {listHeldPosInvoices,storeHeldPosInvoice,deleteHeldPosInvoice} from './held-pos-invoices.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
 import {stripPrivateFields} from './legacy-snapshot.mjs';
@@ -141,11 +142,11 @@ function safeEvent(event,access){
 }
 
 const safeEq=(a,b)=>{const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length && crypto.timingSafeEqual(x,y);};
-function json(res,status,data,origin){const body=JSON.stringify(data);res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':origin||'','vary':'Origin','access-control-allow-headers':'Authorization, Content-Type, skip_zrok_interstitial','access-control-allow-methods':'GET, POST, OPTIONS','content-length':Buffer.byteLength(body)});res.end(body);}
+function json(res,status,data,origin){const body=JSON.stringify(data);res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':origin||'','vary':'Origin','access-control-allow-headers':'Authorization, Content-Type, skip_zrok_interstitial','access-control-allow-methods':'GET, POST, DELETE, OPTIONS','content-length':Buffer.byteLength(body)});res.end(body);}
 const srv=http.createServer(async(req,res)=>{
   const origin=req.headers.origin;
   const cors=origin&&allowedOrigins.has(origin)?origin:undefined;
-  if(req.method==='OPTIONS'){res.writeHead(cors?204:403,cors?{'access-control-allow-origin':cors,'access-control-allow-headers':'Authorization, Content-Type, skip_zrok_interstitial','access-control-allow-methods':'GET,POST,OPTIONS'}:{});res.end();return;}
+  if(req.method==='OPTIONS'){res.writeHead(cors?204:403,cors?{'access-control-allow-origin':cors,'access-control-allow-headers':'Authorization, Content-Type, skip_zrok_interstitial','access-control-allow-methods':'GET,POST,DELETE,OPTIONS'}:{});res.end();return;}
   if(origin && !cors) {json(res,403,{code:'ORIGIN_NOT_ALLOWED'});return;}
   // Origin-side signature validation means a publicly misconfigured Tunnel
   // cannot leak data solely by adding an untrusted request header.
@@ -444,6 +445,25 @@ const srv=http.createServer(async(req,res)=>{
       const input=await parseBody(req,12000);
       const receipts=await findVerifiedSettingsReceipts(pool,workspace,user.id,input?.proofs);
       return json(res,200,{receipts},cors);
+    }
+    // Held POS invoices live in a private, non-financial PostgreSQL table.
+    if(url.pathname==='/api/v1/pos/held'||url.pathname.startsWith('/api/v1/pos/held/')){
+      if(!STRICT_AUTH||!access?.can('view_pos'))
+        throw new InputError('HELD_INVOICE_PERMISSION_DENIED',403);
+      if(req.method==='GET'&&url.pathname==='/api/v1/pos/held'){
+        return json(res,200,{items:await listHeldPosInvoices(
+          pool,workspace,user.id,String(url.searchParams.get('kind')||''))},cors);
+      }
+      if(req.method==='POST'&&url.pathname==='/api/v1/pos/held'){
+        const input=await parseBody(req,8_000_000);
+        return json(res,200,await storeHeldPosInvoice(
+          pool,workspace,user.id,input?.kind,input?.held),cors);
+      }
+      if(req.method==='DELETE'&&url.pathname.startsWith('/api/v1/pos/held/')){
+        const id=decodeURIComponent(url.pathname.slice('/api/v1/pos/held/'.length));
+        return json(res,200,await deleteHeldPosInvoice(pool,workspace,user.id,id),cors);
+      }
+      throw new InputError('HELD_INVOICE_METHOD_NOT_ALLOWED',405);
     }
     if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/pos/receipts/check'){
       if(!access?.can('view')||!access.can('view_pos'))

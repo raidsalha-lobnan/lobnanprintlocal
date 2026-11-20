@@ -2,7 +2,7 @@ import React from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { X, PauseCircle, Play, Trash2, Clock } from 'lucide-react';
 
-import { PosTableLine } from '../PosView';
+import type {PosTableLine} from '../PosView';
 import { formatInvoiceCustomerDisplay } from '../../utils/partyUtils';
 
 export interface HeldInvoiceData {
@@ -17,14 +17,16 @@ export interface HeldInvoiceData {
   totalAmount: number;
   notes?: string;
   paymentNotes?: string;
+  fullDraft?: Record<string,any>;
 }
 
 interface HeldInvoicesModalProps {
   isOpen: boolean;
   onClose: () => void;
   heldInvoices: HeldInvoiceData[];
-  onResumeInvoice: (held: HeldInvoiceData) => void;
-  onDeleteHeldInvoice: (id: string) => void;
+  onResumeInvoice: (held: HeldInvoiceData) => boolean | Promise<boolean>;
+  onDeleteHeldInvoice: (id: string) => void | Promise<void>;
+  busy?: boolean;
 }
 
 export const HeldInvoicesModal: React.FC<HeldInvoicesModalProps> = ({
@@ -32,7 +34,8 @@ export const HeldInvoicesModal: React.FC<HeldInvoicesModalProps> = ({
   onClose,
   heldInvoices,
   onResumeInvoice,
-  onDeleteHeldInvoice
+  onDeleteHeldInvoice,
+  busy=false
 }) => {
   const { settings, parties } = useAccounting();
 
@@ -48,7 +51,7 @@ export const HeldInvoicesModal: React.FC<HeldInvoicesModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-sm">الفواتير المعلقة (F9)</h3>
-              <p className="text-[11px] text-slate-300">استعادة فاتورة معلقة لاستكمال عملية الدفع</p>
+              <p className="text-[11px] text-slate-300">المعلّقات محفوظة في PostgreSQL ولا تُحذف عند الاستئناف</p>
             </div>
           </div>
           <button
@@ -92,17 +95,16 @@ export const HeldInvoicesModal: React.FC<HeldInvoicesModalProps> = ({
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => {
-                        onResumeInvoice(inv);
-                        onClose();
-                      }}
+                      disabled={busy}
+                      onClick={async () => {if(await onResumeInvoice(inv))onClose();}}
                       className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
                     >
                       <Play className="w-3.5 h-3.5" />
                       <span>استئناف</span>
                     </button>
                     <button
-                      onClick={() => onDeleteHeldInvoice(inv.id)}
+                      disabled={busy}
+                      onClick={() => void onDeleteHeldInvoice(inv.id)}
                       className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer"
                       title="إلغاء المعلق"
                     >
