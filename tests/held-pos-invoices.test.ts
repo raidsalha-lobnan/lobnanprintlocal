@@ -22,9 +22,9 @@ test('all held list/save/delete operations are scoped to the logged-in owner',()
 test('desktop suspension never clears cashier before PostgreSQL acknowledgement',()=>{
  const pos=src('src/components/PosView.tsx');
  const part=pos.slice(pos.indexOf('const handleHoldInvoice = async'),pos.indexOf('// Resuming leaves the PostgreSQL snapshot intact'));
- assert.ok(part.includes("await saveCentralHeldInvoice('desktop',newHeld)"));
+ assert.ok(part.includes("await saveCentralHeldInvoice('desktop',confirmedHeld)"));
  assert.ok(part.indexOf('handleClearInvoiceDirect(true)')>
-           part.indexOf("await saveCentralHeldInvoice('desktop',newHeld)"));
+           part.indexOf("await saveCentralHeldInvoice('desktop',confirmedHeld)"));
  assert.match(part,/fullDraft:\{/);
 });
 test('desktop resumption restores details without deleting the held snapshot',()=>{
@@ -38,8 +38,8 @@ test('desktop resumption restores details without deleting the held snapshot',()
 test('mobile suspension and resumption use same PostgreSQL API without premature clearing',()=>{
  const mobile=src('src/components/pos/MobilePosView.tsx');
  const part=mobile.slice(mobile.indexOf('const handleHoldInvoice = async'),mobile.indexOf('const handleResumeHeldInvoice'));
- assert.ok(part.indexOf("await saveCentralHeldInvoice('mobile',newHeld)")>=0);
- assert.ok(part.indexOf('setCart([])')>part.indexOf("await saveCentralHeldInvoice('mobile',newHeld)"));
+ assert.ok(part.indexOf("await saveCentralHeldInvoice('mobile',confirmedHeld)")>=0);
+ assert.ok(part.indexOf('setCart([])')>part.indexOf("await saveCentralHeldInvoice('mobile',confirmedHeld)"));
  const resume=mobile.slice(mobile.indexOf('const handleResumeHeldInvoice'),mobile.indexOf('const handleDeleteHeldInvoice'));
  assert.doesNotMatch(resume,/deleteCentralHeldInvoice|setHeldInvoices\(prev=>prev\.filter/);
 });
