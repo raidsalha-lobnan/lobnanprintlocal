@@ -677,7 +677,10 @@ export class SyncCoordinator {
     // An explicit operator request is not the periodic background poll:
     // retry only PENDING commands immediately, retaining their original IDs
     // for server-side idempotency. Never unquarantine conflicts/rejections.
-    await this.local.releasePendingRetryDelays();
+    // Legacy in-memory test transports may not implement this new optional
+    // durability helper; real LocalSyncDb always does.
+    if(typeof this.local.releasePendingRetryDelays==='function')
+      await this.local.releasePendingRetryDelays();
     const startedAt = Date.now();
     this.requestSync();
     await sleep(0);
