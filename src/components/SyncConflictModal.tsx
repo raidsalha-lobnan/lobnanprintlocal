@@ -80,7 +80,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
     setIsLoading(true);
     setFeedback(null);
     try {
-      const result=await unifiedRepository.getCoordinator().syncNow();
+      const result=await unifiedRepository.getCoordinator().syncNow(240_000);
       setFeedback(result.pending===0 && result.conflict===0
         ? ((result.archived||0)>0
           ? 'مزامنة الطابور النشط مؤكدة؛ لكن هناك '+result.archived+' عملية مؤرشفة لم تُرسل إلى PostgreSQL.'

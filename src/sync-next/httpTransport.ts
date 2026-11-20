@@ -30,6 +30,10 @@ export class LocalHttpSyncTransport implements SyncTransport {
     const response=await fetchWithSyncDeadline(`${this.url}/api/v1/${path}`,{
       ...options, headers:{...authHeaders(this.url,secureLoginEnabled()?getCurrentSessionToken():this.token),'Content-Type':'application/json',...options.headers},cache:'no-store'
     },deadlineForSyncPath(path));
+    // A tunnel/proxy can return HTML instead of JSON for HTTP 413.
+    // Preserve that exact status so push() can choose chunked transport
+    // rather than mislabeling the error as INVALID_SERVER_REPLY.
+    if(!response.ok&&response.status===413)throw new Error('LOCAL_SYNC_HTTP_413');
     let data:any;
     try {data=await response.json();} catch {throw new Error('INVALID_SERVER_REPLY');}
     if(!response.ok){
@@ -136,8 +140,60 @@ export class LocalHttpSyncTransport implements SyncTransport {
     );
     return Array.isArray(result.receipts)?result.receipts:[];
   }
-  async push(cmd:SyncCommand):Promise<CommitReceipt> {
-    return this.request('push?workspace='+encodeURIComponent(this.workspaceId),{method:'POST',body:JSON.stringify(cmd)});
+  private async supportsChunkedPush():Promise<boolean>{
+    const state=await this.request<{ok?:boolean;features?:{pushChunksV1?:boolean}}>('health');
+    return state.ok===true&&state.features?.pushChunksV1===true;
+  }
+  private async pushChunked(cmd:SyncCommand,raw:string):Promise<CommitReceipt>{
+    const bytes=new TextEncoder().encode(raw);
+    const partBytes=192*1024;
+    const totalParts=Math.ceil(bytes.length/partBytes);
+    if(bytes.length>24_000_000||totalParts<1||totalParts>128)
+      throw new Error('SYNC_CHUNKED_TRANSACTION_EXCEEDS_SAFE_LIMIT: العملية محفوظة محليًا وتحتاج مراجعة حجم الصور، دون حذف أو تقسيم القيود.');
+    if(!crypto?.subtle)throw new Error('SYNC_CHUNKED_CRYPTO_UNAVAILABLE');
+    const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+    const sha256=Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('');
+    const workspace=encodeURIComponent(this.workspaceId);
+    for(let index=0;index<totalParts;index++){
+      const slice=bytes.subarray(index*partBytes,Math.min(bytes.length,(index+1)*partBytes));
+      // btoa requires a binary string; process in small blocks to avoid
+      // stack limits on mobile browsers. No data is altered or removed.
+      let binary='';
+      for(let offset=0;offset<slice.length;offset+=0x8000)
+        binary+=String.fromCharCode(...slice.subarray(offset,offset+0x8000));
+      await this.request('push/chunks?workspace='+workspace,{
+        method:'POST',body:JSON.stringify({
+          commandId:cmd.id,sha256,totalParts,index,dataBase64:btoa(binary)
+        })
+      });
+    }
+    return this.request<CommitReceipt>('push/chunks/commit?workspace='+workspace,{
+      method:'POST',body:JSON.stringify({commandId:cmd.id,sha256,totalParts})
+    });
+  }
+  async push(cmd:SyncCommand):Promise<CommitReceipt>{
+    const raw=JSON.stringify(cmd);
+    const length=new TextEncoder().encode(raw).length;
+    const useChunks=async():Promise<CommitReceipt>=>{
+      if(!(await this.supportsChunkedPush()))
+        throw new Error('SYNC_HTTP_413_CHUNKED_SERVER_UPDATE_REQUIRED: يحتاج خادم PostgreSQL المحلي إلى تحديث خدمة المزامنة وإعادة تشغيلها. بقي الأمر الأصلي محفوظًا في IndexedDB دون تعديل.');
+      return this.pushChunked(cmd,raw);
+    };
+    // Avoid the HTTP proxy/request-body cap proactively, then fall back to
+    // EXACT-SAME-BYTES chunk transport on a definite 413 response.
+    if(length>800_000){
+      const available=await this.supportsChunkedPush();
+      if(available)return this.pushChunked(cmd,raw);
+    }
+    try{
+      return await this.request('push?workspace='+encodeURIComponent(this.workspaceId),{
+        method:'POST',body:raw
+      });
+    }catch(error){
+      if(error instanceof Error && /LOCAL_SYNC_HTTP_413|PAYLOAD_TOO_LARGE: 413/.test(error.message))
+        return useChunks();
+      throw error;
+    }
   }
   /** A posted invoice revision is calculated, validated and committed by PostgreSQL.
    * This method is deliberately separate from the ordinary local invoice put.

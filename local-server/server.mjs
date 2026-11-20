@@ -14,6 +14,7 @@ import {TelegramReportGateway} from './telegram-report-gateway.mjs';
 import {TelegramServerReportWorker} from './telegram-report-worker.mjs';
 import {ensureTelegramReportSchema} from './telegram-report-schema.mjs';
 import {InputError} from './sync-domain.mjs';
+import {stageSyncPart,commitSyncParts} from './chunked-sync-ingest.mjs';
 import {listHeldPosInvoices,storeHeldPosInvoice,deleteHeldPosInvoice} from './held-pos-invoices.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
@@ -184,7 +185,7 @@ const srv=http.createServer(async(req,res)=>{
     if(workspace!==WORKSPACE)throw new InputError('WRONG_WORKSPACE',403);
     if(req.method==='GET' && url.pathname==='/api/v1/health')
       return json(res,200,{ok:true,workspace,authMode:STRICT_AUTH?'users':'legacy',
-        features:{atomicPosRebaseV1:true,pdfDisplayOptionsV1:true,receiptDiscountV1:true}},cors);
+        features:{atomicPosRebaseV1:true,pdfDisplayOptionsV1:true,receiptDiscountV1:true,pushChunksV1:true}},cors);
     const bearer=(req.headers.authorization||'').replace(/^Bearer /i,'');
     if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/auth/login'){
       const payload=await parseBody(req,4096);
@@ -478,6 +479,29 @@ const srv=http.createServer(async(req,res)=>{
         ...c,value:stripPrivateFields(c.entity==='users'?stripUserSecrets(c.value):c.value)
       }))}));
       return json(res,200,{receipts},cors);
+    }
+    // Oversized offline commands travel as bounded private chunks. These
+    // endpoints NEVER post individual fragments. Only commit reassembles
+    // and passes the ORIGINAL immutable command to the normal domain service.
+    if(req.method==='POST' && url.pathname==='/api/v1/push/chunks'){
+      if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
+      const fragment=await parseBody(req,350_000);
+      const stored=await stageSyncPart(pool,workspace,user.id,fragment);
+      return json(res,200,stored,cors);
+    }
+    if(req.method==='POST' && url.pathname==='/api/v1/push/chunks/commit'){
+      if(!STRICT_AUTH)throw new InputError('SECURE_LOGIN_REQUIRED',403);
+      const manifest=await parseBody(req,1024);
+      const receipt=await commitSyncParts(pool,workspace,user.id,manifest,
+        async(command)=>{
+          if(command?.changes?.some(change=>change?.entity==='users'||change?.entity==='roles'))
+            throw new InputError('AUTH_ADMIN_WRITE_REQUIRES_SECURE_API',403);
+          await authorizeCommand(pool,workspace,access,command);
+        },
+        command=>service.push(workspace,command,user.id));
+      return json(res,200,{...receipt,changes:receipt.changes.map(c=>({
+        ...c,value:stripPrivateFields(c.entity==='users'?stripUserSecrets(c.value):c.value)
+      }))},cors);
     }
     if(req.method==='POST' && url.pathname==='/api/v1/push'){
       const command=await parseBody(req,6_000_000);

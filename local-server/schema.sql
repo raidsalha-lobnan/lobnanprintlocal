@@ -45,6 +45,23 @@ CREATE TABLE IF NOT EXISTS sync_events (
   PRIMARY KEY(workspace,sequence)
 );
 CREATE INDEX IF NOT EXISTS sync_events_command_idx ON sync_events(workspace,command_id);
+-- Multipart TRANSPORT ONLY. Fragments are NOT financial postings.
+-- They are private to the original authenticated actor and self-expire.
+-- No sync_records, journal or inventory changes occur before full verification.
+CREATE TABLE IF NOT EXISTS sync_ingest_chunks (
+  workspace text NOT NULL REFERENCES sync_workspaces(id),
+  owner_id text NOT NULL,
+  command_id text NOT NULL,
+  sha256 text NOT NULL,
+  total_parts integer NOT NULL CHECK(total_parts BETWEEN 1 AND 128),
+  part_index integer NOT NULL CHECK(part_index BETWEEN 0 AND 127),
+  part_bytes bytea NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(workspace,owner_id,command_id,part_index)
+);
+CREATE INDEX IF NOT EXISTS sync_ingest_chunks_expiry_idx
+  ON sync_ingest_chunks(workspace,created_at);
+
 CREATE TABLE IF NOT EXISTS invoice_claims (
   workspace text NOT NULL REFERENCES sync_workspaces(id),
   invoice_number text NOT NULL,
