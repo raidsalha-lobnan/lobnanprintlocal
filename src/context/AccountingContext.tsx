@@ -5307,6 +5307,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addExpense = (
     expenseData: Omit<ExpenseItem, 'id' | 'createdAt'>
   ): ExpenseItem => {
+    // Never show an optimistic new المصروفات record as saved if the local
+    // durable repository has not been opened and verified.
+    if(!unifiedRepoRef.current)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED: لا يمكن حفظ المصروفات قبل جاهزية قاعدة الجهاز المحلية.');
+
     const id = `exp-${Date.now()}`;
     const createdAt = new Date().toISOString();
     const voucherNum = `PV-EXP-${Date.now().toString().slice(-5)}`;
@@ -5391,6 +5395,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const deleteExpense = (id: string) => {
+    // Never show an optimistic new المصروفات record as saved if the local
+    // durable repository has not been opened and verified.
+    if(!unifiedRepoRef.current)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED: لا يمكن حفظ المصروفات قبل جاهزية قاعدة الجهاز المحلية.');
+
     const existing = expenses.find(e => e.id === id);
     if (!existing) return;
 
@@ -5439,6 +5447,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const addInventoryItem = (item: Omit<InventoryItem, 'id'>) => {
+    // Never show an optimistic new الأصناف record as saved if the local
+    // durable repository has not been opened and verified.
+    if(!unifiedRepoRef.current)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED: لا يمكن حفظ الأصناف قبل جاهزية قاعدة الجهاز المحلية.');
+
     const id = 'inv-' + crypto.randomUUID();
     const today = new Date().toISOString().split('T')[0];
     const time = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
@@ -5649,6 +5661,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const addParty = (partyData: Omit<Party, 'id' | 'balance' | 'code'> & { initialBalance?: number; code?: string }) => {
+    // Never show an optimistic new العملاء والموردين record as saved if the local
+    // durable repository has not been opened and verified.
+    if(!unifiedRepoRef.current)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED: لا يمكن حفظ العملاء والموردين قبل جاهزية قاعدة الجهاز المحلية.');
+
     // منع تكرار إنشاء زبون نقدي أو عميل عام بأي حال من الأحوال
     const trimmedName = (partyData.name || '').trim();
     if (partyData.isSubCustomer && partyData.parentPartyId) {
@@ -8977,6 +8993,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createPurchaseInvoice = (invoiceData: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'>) => {
+    // Never show an optimistic new فواتير المشتريات record as saved if the local
+    // durable repository has not been opened and verified.
+    if(!unifiedRepoRef.current)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED: لا يمكن حفظ فواتير المشتريات قبل جاهزية قاعدة الجهاز المحلية.');
+
     const id = 'pur-' + Date.now();
     const curYear = new Date().getFullYear();
     const purPrefix = `PUR-${curYear}-`;
@@ -9360,6 +9380,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createPaymentVoucher = (voucherData: Omit<PaymentVoucher, 'id' | 'voucherNumber'>) => {
+    // Never show an optimistic new سندات الصرف record as saved if the local
+    // durable repository has not been opened and verified.
+    if(!unifiedRepoRef.current)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED: لا يمكن حفظ سندات الصرف قبل جاهزية قاعدة الجهاز المحلية.');
+
     if(String(voucherData.type)==='receipt')throw Error('استخدم الترحيل الذري لسند القبض؛ الحفظ المنفصل ممنوع.');
     const id = 'vch-' + Date.now();
     const prefix = voucherData.type === 'receipt' ? 'RCT' : 'PAY';
@@ -9613,6 +9637,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createPurchaseReturn = (returnData: Omit<PurchaseReturn, 'id' | 'returnNumber' | 'createdAt'>): PurchaseReturn => {
+    // Never show an optimistic new مردودات المشتريات record as saved if the local
+    // durable repository has not been opened and verified.
+    if(!unifiedRepoRef.current)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED: لا يمكن حفظ مردودات المشتريات قبل جاهزية قاعدة الجهاز المحلية.');
+
     const id = 'prn-' + Date.now();
     const curYear = new Date().getFullYear();
     const prnPrefix = `PRN-${curYear}-`;
@@ -9762,6 +9790,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createSalesReturn = (returnData: Omit<SalesReturn, 'id' | 'returnNumber' | 'createdAt'>): SalesReturn => {
+    // Never show an optimistic new مردودات المبيعات record as saved if the local
+    // durable repository has not been opened and verified.
+    if(!unifiedRepoRef.current)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED: لا يمكن حفظ مردودات المبيعات قبل جاهزية قاعدة الجهاز المحلية.');
+
     const id = 'srn-' + Date.now();
     const curYear = new Date().getFullYear();
     const srPrefix = `SR-${curYear}-`;

@@ -127,6 +127,19 @@ const MainLayout: React.FC = () => {
     };
   },[]);
 
+  // Protect the tiny window between an optimistic form action and durable
+  // IndexedDB transaction completion. This is a browser best effort only:
+  // mobile shutdown and forced OS termination may ignore beforeunload.
+  React.useEffect(()=>{
+    const warnUnconfirmedLocalSave=(event:BeforeUnloadEvent)=>{
+      if(outstandingLocalWrites.current.size===0)return;
+      event.preventDefault();
+      event.returnValue='';
+    };
+    window.addEventListener('beforeunload',warnUnconfirmedLocalSave);
+    return()=>window.removeEventListener('beforeunload',warnUnconfirmedLocalSave);
+  },[]);
+
   const isPrintModalActive = Boolean(
     selectedInvoiceForPrint ||
     selectedInvoiceForLifecycle ||
@@ -152,7 +165,7 @@ const MainLayout: React.FC = () => {
   // while the authoritative projection is initialized again. Let the operator
   // explicitly apply a new build from a safe screen instead.
   const [availableBuildVersion, setAvailableBuildVersion] = React.useState<string | null>(null);
-  const mayApplyBuildUpdate = !hasUnsyncedChanges && !isPrintModalActive &&
+  const mayApplyBuildUpdate = !hasUnsyncedChanges && localWriteCount===0 && !isPrintModalActive &&
     (activeTab === 'home' || activeTab === 'dashboard');
   const applyBuildUpdateManually = async () => {
     if (!mayApplyBuildUpdate) return;

@@ -113,3 +113,28 @@ test('the incremental sync coordinator does not claim PostgreSQL approval after 
   assert.match(coordinator,/this\.state\.pending === 0 && this\.state\.conflict === 0 && !this\.state\.lastError/);
   assert.match(coordinator,/await this\.local\.ack\(/);
 });
+
+test('critical master-data and financial create flows refuse optimistic saves before local database readiness',()=>{
+  const context=read('src/context/AccountingContext.tsx');
+  for(const name of [
+    'addInventoryItem','addParty','createPurchaseInvoice',
+    'createPurchaseReturn','createSalesReturn','createPaymentVoucher',
+    'addExpense','deleteExpense'
+  ]){
+    const at=context.indexOf('const '+name+' =');
+    assert.ok(at>=0,name+' handler must exist');
+    const start=context.slice(at,at+1100);
+    assert.ok(start.includes("if(!unifiedRepoRef.current)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED:"),
+      name+' must fail closed before its first React-state update');
+  }
+});
+test('in-flight local writes prevent build reload and trigger a close-warning where browsers support it',()=>{
+  const app=read('src/App.tsx');
+  const navbar=read('src/components/Navbar.tsx');
+  assert.match(app,/const mayApplyBuildUpdate = !hasUnsyncedChanges && localWriteCount===0/);
+  assert.match(app,/outstandingLocalWrites\.current\.size===0/);
+  assert.match(app,/window\.addEventListener\('beforeunload',warnUnconfirmedLocalSave\)/);
+  assert.match(navbar,/syncCoordinatorState\?\.pending/);
+  assert.match(navbar,/syncCoordinatorState\?\.conflict/);
+  assert.match(navbar,/syncCoordinatorState\?\.archived/);
+});

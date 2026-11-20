@@ -171,6 +171,13 @@ export const Navbar: React.FC = () => {
   }, []);
 
   const handleExitApp = () => {
+    const stillLocal=(syncCoordinatorState?.pending||0)+(syncCoordinatorState?.conflict||0)+
+      (syncCoordinatorState?.archived||0);
+    if(stillLocal>0&&!window.confirm(
+      'توجد '+stillLocal+' عملية محلية لم يؤكد PostgreSQL اعتمادها، أو تحتاج مراجعة. '+
+      'ستبقى على هذا المتصفح، ولن يستطيع مستخدم آخر ترحيل عملياتك باسمك. '+
+      'هل تريد متابعة تسجيل الخروج مع إبقاء بيانات الجهاز دون حذف؟'
+    ))return;
     if (window.confirm('هل تريد إغلاق جلسة العمل وتسجيل الخروج من البرنامج؟')) {
       if(secureLoginEnabled()){
         const token=getCurrentSessionToken();
