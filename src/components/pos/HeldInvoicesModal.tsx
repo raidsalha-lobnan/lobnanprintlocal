@@ -65,7 +65,11 @@ export const HeldInvoicesModal: React.FC<HeldInvoicesModalProps> = ({
         </div>
 
         <div className="p-4 flex-1 overflow-y-auto">
-          {heldInvoices.length === 0 ? (
+          {heldInvoices.length === 0 && busy ? (
+            <div className="p-12 text-center text-blue-600 text-xs">
+              جاري تحميل الفواتير المعلقة من قاعدة البيانات...
+            </div>
+          ) : heldInvoices.length === 0 ? (
             <div className="p-12 text-center text-slate-400 text-xs">
               لا توجد أي فواتير معلقة حالياً.
             </div>
