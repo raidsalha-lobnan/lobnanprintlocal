@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import 'fake-indexeddb/auto';
 import {LocalSyncDb} from '../src/sync-next/localDb';
+import {SyncCoordinator} from '../src/sync-next/coordinator';
 import {SYNC_ENTITY_LABELS,summarizeEntityQueue} from '../src/sync-next/entityCoverage';
 import type {EntityName,SyncCommand,ProposedChange} from '../src/sync-next/types';
 
@@ -137,4 +138,43 @@ test('in-flight local writes prevent build reload and trigger a close-warning wh
   assert.match(navbar,/syncCoordinatorState\?\.pending/);
   assert.match(navbar,/syncCoordinatorState\?\.conflict/);
   assert.match(navbar,/syncCoordinatorState\?\.archived/);
+});
+
+test('after reopening offline, the same durable 28-entity command is pushed exactly once and PostgreSQL ACK clears the outbox',async()=>{
+  const workspace='e2e-reopen-'+crypto.randomUUID();
+  const namespace='all-entities-reopen-'+crypto.randomUUID();
+  const first=new LocalSyncDb(workspace,namespace);
+  const changes:ProposedChange[]=expected.map((e,i)=>({
+    entity:e as EntityName,id:'local-sync-'+e+'-'+i,
+    value:{id:'local-sync-'+e+'-'+i,note:'offline-'+e}
+  }));
+  const saved=await first.enqueue(changes);
+  await first.close();
+
+  const restored=new LocalSyncDb(workspace,namespace);
+  const receipts:string[]=[];
+  const transport={
+    push:async(command:SyncCommand)=>{
+      receipts.push(command.id);
+      return {commandId:command.id,
+        changes:command.changes.map(c=>({...c,version:1}))};
+    },
+    pull:async()=>[],
+    watchLatest:()=>()=>{}
+  };
+  const coordinator=new SyncCoordinator(restored,transport as any,workspace);
+  try{
+    await coordinator.start();
+    const confirmed=await coordinator.syncNow(10_000);
+    assert.equal(confirmed.pending,0);
+    assert.equal(confirmed.conflict,0);
+    assert.equal(receipts.length,1);
+    assert.equal(receipts[0],saved.id);
+    assert.equal((await restored.pending()).length,0);
+    const all=await restored.listVisibleGrouped(expected as EntityName[]);
+    for(const entity of expected)assert.equal(all[entity].length,1,entity);
+  }finally{
+    coordinator.stop();
+    await restored.close();
+  }
 });
