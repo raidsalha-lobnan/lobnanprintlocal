@@ -1501,6 +1501,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
           localStorage.setItem(migrationKey,'1');
           remote=await listCentralHeldInvoices<HeldInvoiceData>('desktop');
         }
+        // A legacy migration refresh must not discard local pending records.
+        if(Array.isArray(localPending))remote=[...remote,...localPending.filter(h=>h?.localOnly&&
+          !remote.some(row=>row.id===h.id))];
         if(active)setHeldInvoices(remote);
       }catch(error){
         console.warn('PostgreSQL held invoice loading failed',error);

@@ -390,6 +390,9 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
           localStorage.setItem(migratedKey,'1');
           remote=await listCentralHeldInvoices<MobileHeldInvoice>('mobile');
         }
+        // Merge pending device recovery copies even after legacy migration.
+        if(Array.isArray(localPending))remote=[...remote,...localPending.filter(h=>h?.localOnly&&
+          !remote.some(row=>row.id===h.id))];
         if(active)setHeldInvoices(remote);
       }catch(error){
         console.warn('Unable to load mobile holds from PostgreSQL',error);
