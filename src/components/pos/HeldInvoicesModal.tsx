@@ -18,6 +18,8 @@ export interface HeldInvoiceData {
   notes?: string;
   paymentNotes?: string;
   fullDraft?: Record<string,any>;
+  /** Local recovery copy; remote PostgreSQL receipt has not yet been verified. */
+  localOnly?: boolean;
 }
 
 interface HeldInvoicesModalProps {
@@ -79,6 +81,7 @@ export const HeldInvoicesModal: React.FC<HeldInvoicesModalProps> = ({
                       <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center font-bold text-xs">
                         {idx + 1}
                       </span>
+                      {inv.localOnly && (<span className="text-[9px] bg-amber-100 text-amber-800 rounded px-1" title="لم يُؤكد حفظها في PostgreSQL بعد">محلي فقط</span>)}
                       <h4 className="font-bold text-xs text-slate-800" title={formatInvoiceCustomerDisplay(inv, parties)}>
                         {formatInvoiceCustomerDisplay(inv, parties)}
                       </h4>

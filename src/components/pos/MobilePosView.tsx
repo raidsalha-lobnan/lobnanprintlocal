@@ -79,6 +79,8 @@ export interface MobileHeldInvoice {
   globalDiscount?: string;
   notes?: string;
   fullDraft?: Record<string,any>;
+  /** Local recovery copy pending server acknowledgement. */
+  localOnly?: boolean;
 }
 
 export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop }) => {
@@ -356,6 +358,23 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       if(active){setHeldLoading(true);setHeldInvoices([]);}
       try{
         let remote=await listCentralHeldInvoices<MobileHeldInvoice>('mobile');
+        // A pending local copy is recoverable across refreshes even if
+        // PostgreSQL was unreachable at the time of suspension.
+        const localPending=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
+        if(Array.isArray(localPending)){
+          let changed=false;
+          for(const held of localPending){
+            if(!held?.localOnly||!held?.id||!Array.isArray(held.cart)||
+               remote.some(r=>r.id===held.id))continue;
+            try{
+              await saveCentralHeldInvoice('mobile',{...held,localOnly:false});
+              changed=true;
+            }catch(error){console.warn('Mobile hold needs central retry',error);}
+          }
+          if(changed)remote=await listCentralHeldInvoices<MobileHeldInvoice>('mobile');
+          remote=[...remote,...localPending.filter(h=>h?.localOnly&&
+            !remote.some(r=>r.id===h.id))];
+        }
         const ownerKey='pos_mobile_held_legacy_owner_v1';
         const migratedKey='pos_mobile_held_migration_done_v1_'+currentUser.id;
         const previousOwner=localStorage.getItem(ownerKey);
@@ -389,7 +408,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     void refresh();
     window.addEventListener('online',refresh);
     return ()=>{active=false;window.removeEventListener('online',refresh);};
-  },[currentUser?.id]);
+  },[currentUser?.id,showHeldModal]);
   useEffect(()=>{
     if(!heldLoading&&currentUser?.id)try{
       localStorage.setItem(heldCacheKey,JSON.stringify(heldInvoices));
@@ -628,6 +647,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   // -------------------------------------------------------------
   const handleHoldInvoice = async () => {
     if(heldBusy||heldOperationRef.current)return;
+    if(!currentUser?.id){alert('يرجى تسجيل الدخول أولاً لحفظ المعلّق باسم مستخدمه.');return;}
     if(heldLoading){alert('جاري تحميل المعلّقات من قاعدة البيانات.');return;}
     if(cart.length===0){posSound.error();alert('لا توجد بنود في الفاتورة لتعليقها.');return;}
     if(heldInvoices.length>=50&&!resumedMobileHeldIdRef.current){
@@ -647,10 +667,23 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
         selectedBankTreasuryCode,selectedCashTreasuryCode,invoiceNotes
       }
     };
+    // Per-user local recovery, written before remote save so an F5 does
+    // not lose a hold during tunnel outages or server maintenance.
+    const pendingHeld:MobileHeldInvoice={...newHeld,localOnly:true};
+    let localBackupSaved=false;
+    try{
+      const before=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
+      const rows=Array.isArray(before)?before:[];
+      localStorage.setItem(heldCacheKey,JSON.stringify([
+        pendingHeld,...rows.filter(h=>h.id!==newHeld.id)
+      ]));
+      localBackupSaved=true;
+    }catch(error){console.warn('Mobile held recovery checkpoint failed',error);}
     heldOperationRef.current=true;setHeldBusy(true);
     try{
-      await saveCentralHeldInvoice('mobile',newHeld);
-      setHeldInvoices(prev=>[newHeld,...prev.filter(h=>h.id!==newHeld.id)]);
+      const confirmedHeld={...newHeld,localOnly:false};
+      await saveCentralHeldInvoice('mobile',confirmedHeld);
+      setHeldInvoices(prev=>[confirmedHeld,...prev.filter(h=>h.id!==newHeld.id)]);
       resumedMobileHeldIdRef.current=null;
       setCart([]);setGlobalDiscount('');setPaidAmountInput('');setInvoiceNotes('');
       setCustomSubCustomerName('');setSelectedSubCustomerId('');
@@ -660,7 +693,10 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       setSuccessNotification({number:'معلقة',total:newHeld.totalAmount});
       setTimeout(()=>setSuccessNotification(null),3500);
     }catch(error){
-      posSound.error();alert('تعذر حفظ الفاتورة المعلقة في PostgreSQL؛ بياناتها ما زالت في الكاشير.\n'+String(error));
+      posSound.error();
+      if(localBackupSaved)setHeldInvoices(prev=>[pendingHeld,...prev.filter(h=>h.id!==newHeld.id)]);
+      alert('لم يؤكد PostgreSQL حفظ المعلّق؛ بياناته بقيت في الكاشير.'+
+        (localBackupSaved?' توجد نسخة محلية قابلة للاستعادة لحين عودة الاتصال.':' لم تُحفظ نسخة استرداد؛ لا تغلق الكاشير.')+'\n'+String(error));
     }finally{heldOperationRef.current=false;setHeldBusy(false);}
   };
 
@@ -2158,6 +2194,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-xs text-slate-900 truncate">
                           {held.customerName || 'زبون عام نقدي'}
+                          {held.localOnly && <span className="text-[9px] text-amber-700 mr-1">(محلي فقط)</span>}
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono">({held.heldAt})</span>
                       </div>

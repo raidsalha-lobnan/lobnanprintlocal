@@ -1467,6 +1467,24 @@ const getInitialPosDraft = (): PosFullDraftData => {
       if(active){setHeldLoading(true);setHeldInvoices([]);}
       try{
         let remote=await listCentralHeldInvoices<HeldInvoiceData>('desktop');
+        // Recover locally secured holds after a network error. Every retry
+        // reuses the same hold ID and cannot create a second invoice.
+        const localPending=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
+        if(Array.isArray(localPending)){
+          let changed=false;
+          for(const held of localPending){
+            if(!held?.localOnly||!held?.id||!Array.isArray(held.lines)||
+               remote.some(r=>r.id===held.id))continue;
+            try{
+              const confirmed={...held,localOnly:false};
+              await saveCentralHeldInvoice('desktop',confirmed);
+              changed=true;
+            }catch(error){console.warn('Held invoice needs central retry',error);}
+          }
+          if(changed)remote=await listCentralHeldInvoices<HeldInvoiceData>('desktop');
+          remote=[...remote,...localPending.filter(h=>h?.localOnly&&
+            !remote.some(r=>r.id===h.id))];
+        }
         // Migrate old local-only holds once; never copy another user's cache.
         const ownerKey='pos_held_legacy_owner_v1';
         const migrationKey='pos_held_migration_done_v1_'+currentUser.id;
@@ -1501,7 +1519,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     void refresh();
     window.addEventListener('online',refresh);
     return ()=>{active=false;window.removeEventListener('online',refresh);};
-  },[currentUser?.id]);
+  },[currentUser?.id,isHeldInvoicesOpen]);
   useEffect(()=>{
     if(!heldLoading&&currentUser?.id)try{
       localStorage.setItem(heldCacheKey,JSON.stringify(heldInvoices));
@@ -3097,6 +3115,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
   // Hold (F9): never clear current POS values before verified PostgreSQL save.
   const handleHoldInvoice = async () => {
     if(heldOperationRef.current||heldBusy)return;
+    if(!currentUser?.id){alert('يرجى تسجيل الدخول أولاً لحفظ المعلّق باسم مستخدمه.');return;}
     if(heldLoading){alert('جاري تحميل الفواتير المعلقة من قاعدة البيانات.');return;}
     if(currentEditingInvoiceIdRef.current||editingPosInvoiceId){
       alert('التعليق مخصص لفاتورة جديدة، وليس لتعديل فاتورة معتمدة.');return;
@@ -3124,10 +3143,23 @@ const getInitialPosDraft = (): PosFullDraftData => {
         invoiceWorkflowStatus,activeRowId
       }
     };
+    // Durable recovery checkpoint before a network call; keep it until
+    // PostgreSQL returns success or it can be retried after refreshing.
+    const pendingHeld:HeldInvoiceData={...newHeld,localOnly:true};
+    let localBackupSaved=false;
+    try{
+      const before=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
+      const rows=Array.isArray(before)?before:[];
+      localStorage.setItem(heldCacheKey,JSON.stringify([
+        pendingHeld,...rows.filter(h=>h.id!==newHeld.id)
+      ]));
+      localBackupSaved=true;
+    }catch(error){console.warn('Held invoice local recovery checkpoint failed',error);}
     heldOperationRef.current=true;setHeldBusy(true);
     try{
-      await saveCentralHeldInvoice('desktop',newHeld);
-      setHeldInvoices(prev=>[newHeld,...prev.filter(h=>h.id!==newHeld.id)]);
+      const confirmedHeld={...newHeld,localOnly:false};
+      await saveCentralHeldInvoice('desktop',confirmedHeld);
+      setHeldInvoices(prev=>[confirmedHeld,...prev.filter(h=>h.id!==newHeld.id)]);
       resumedHeldInvoiceIdRef.current=null;
       // This reset is deliberately AFTER the server receipt.
       handleClearInvoiceDirect(true);
@@ -3137,7 +3169,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
       posSound.success();
     }catch(error){
       posSound.error();
-      alert('لم تُحفظ الفاتورة المعلقة في PostgreSQL؛ بقيت بياناتها في شاشة الكاشير.\n'+String(error));
+      if(localBackupSaved)setHeldInvoices(prev=>[pendingHeld,...prev.filter(h=>h.id!==newHeld.id)]);
+      alert('لم يؤكد PostgreSQL حفظ المعلّق. بقيت بيانات الفاتورة في الكاشير.'+
+        (localBackupSaved?' توجد نسخة استرداد محلية لهذه الفاتورة وستُعاد محاولة رفعها عند الاتصال.':' فشل حفظ نسخة الاسترداد أيضًا؛ لا تغلق الشاشة.')+'\n'+String(error));
     }finally{heldOperationRef.current=false;setHeldBusy(false);}
   };
 

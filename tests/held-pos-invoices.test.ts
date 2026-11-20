@@ -43,3 +43,16 @@ test('mobile suspension and resumption use same PostgreSQL API without premature
  const resume=mobile.slice(mobile.indexOf('const handleResumeHeldInvoice'),mobile.indexOf('const handleDeleteHeldInvoice'));
  assert.doesNotMatch(resume,/deleteCentralHeldInvoice|setHeldInvoices\(prev=>prev\.filter/);
 });
+
+test('a failed central suspension is still recoverable locally without clearing the cashier',()=>{
+ const pos=src('src/components/PosView.tsx');
+ const mobile=src('src/components/pos/MobilePosView.tsx');
+ for(const component of [pos,mobile]){
+  const section=component.slice(component.indexOf('const handleHoldInvoice = async'),component.indexOf('const handleResumeHeldInvoice'));
+  assert.match(section,/localStorage\.setItem\(heldCacheKey,JSON\.stringify/);
+  assert.match(section,/localBackupSaved/);
+  assert.match(section,/localOnly:true/);
+  assert.match(section,/if\(localBackupSaved\)setHeldInvoices/);
+  assert.match(section,/saveCentralHeldInvoice/);
+ }
+});
