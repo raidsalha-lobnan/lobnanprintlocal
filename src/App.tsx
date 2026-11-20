@@ -599,7 +599,7 @@ const MainLayout: React.FC = () => {
         (syncCoordinatorState.archived||0)>0) && !isPrintModalActive && (
         <button type="button" onClick={openConflictModal}
           className="shrink-0 print:hidden z-30 w-full border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-right text-xs font-semibold text-amber-950">
-          المزامنة تشمل كل أقسام البرنامج: {syncCoordinatorState.pending} عملية محلية تنتظر PostgreSQL،
+          طابور المزامنة للكيانات المدعومة (28 نوعًا): {syncCoordinatorState.pending} عملية محلية تنتظر PostgreSQL،
           {syncCoordinatorState.conflict} متعارضة أو مرفوضة،
           {syncCoordinatorState.archived||0} مؤرشفة للمراجعة. اضغط لعرض تفاصيلها.
         </button>

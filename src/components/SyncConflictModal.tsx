@@ -399,7 +399,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
               )}
 
               <div className="p-3 rounded-xl border border-slate-700 bg-slate-900/70 text-xs space-y-2">
-                <div className="font-bold text-slate-100">مزامنة جميع أقسام البرنامج — حسب الكيان</div>
+                <div className="font-bold text-slate-100">حالة مزامنة الكيانات المدعومة — حسب القسم</div>
                 {byEntity.length===0 ? (
                   <div className="text-slate-400">لا توجد أوامر في طابور هذا المتصفح. مسودات الإدخال غير المعتمدة لا تُعد مرسلة.</div>
                 ) : (
