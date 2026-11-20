@@ -1079,6 +1079,36 @@ export class LocalSyncDb {
     }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
   }
 
+  /**
+   * A user-initiated "sync now" may bypass a pending transport backoff.
+   * Keep the immutable command ID, payload, owner, versions, original error
+   * and previous attempt count; never reset a conflict/rejected command.
+   * The backend idempotency receipt prevents duplicate financial posting.
+   */
+  async releasePendingRetryDelays(): Promise<number> {
+    const db=await this.getDb();
+    const tx=db.transaction(OUTBOX,'readwrite');
+    const done=completed(tx);
+    try {
+      const store=tx.objectStore(OUTBOX);
+      const commands=await request(store.getAll()) as SyncCommand[];
+      const now=Date.now();
+      let released=0;
+      for(const cmd of commands){
+        if(cmd.status!=='pending'||cmd.retryAt<=now)continue;
+        store.put({...cmd,retryAt:0});
+        released++;
+      }
+      await done;
+      if(released)this.changed(false);
+      return released;
+    }catch(error){
+      try{tx.abort()}catch{}
+      await done.catch(()=>{});
+      throw error;
+    }
+  }
+
   async retryCommand(commandId: string): Promise<void> {
     const cmd = (await this.pending()).find(item => item.id === commandId);
     if (!cmd) throw new Error('Unknown local command');

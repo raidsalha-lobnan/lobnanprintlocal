@@ -599,7 +599,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                     className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>مزامنة الطابور والتحقق من النتيجة</span>
+                    <span>مزامنة فورية بالأوامر الأصلية والتحقق من PostgreSQL</span>
                   </button>
                 </div>
 
@@ -630,11 +630,29 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                               <span className="text-[10px] text-slate-400 font-mono">
                                 ({new Date(cmd.createdAt).toLocaleTimeString('ar-EG')})
                               </span>
+                              <span className="text-[10px] text-sky-200">
+                                {cmd.attempts>0?'محاولات سابقة: '+cmd.attempts:'لم تُرسل بعد'}
+                              </span>
                             </div>
                             <div className="text-xs font-bold text-white mt-1">
                               الكيانات المتأثرة:{' '}
                               {cmd.changes.map(c => `${getEntityLabel(c.entity)} (${c.id})`).join('، ')}
                             </div>
+                            {cmd.retryAt>Date.now()&&(
+                              <div className="mt-1 text-[11px] text-amber-200">
+                                إعادة المحاولة التلقائية بعد: {new Date(cmd.retryAt).toLocaleString('ar-EG')}.
+                                زر المزامنة اليدوية يتجاوز الانتظار دون تغيير هوية الفاتورة.
+                              </div>
+                            )}
+                            {cmd.error&&(
+                              <div className="mt-1 text-[11px] text-amber-100">
+                                آخر سبب مسجل: {explainSyncFailure(cmd.error,cmd.changes[0]?.entity).title}
+                                <details className="mt-1 text-slate-400">
+                                  <summary className="cursor-pointer">السبب التقني</summary>
+                                  <code className="break-all">{cmd.error}</code>
+                                </details>
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2 ml-auto">

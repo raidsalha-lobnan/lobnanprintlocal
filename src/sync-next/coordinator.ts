@@ -568,6 +568,12 @@ export class SyncCoordinator {
         cmd.error?.includes('SESSION_LOGIN_REQUIRED') &&
         !!getCurrentSessionToken();
       if (cmd.retryAt > Date.now() && !refreshedSession) {
+        // No network request happened. Distinguish waiting for exponential
+        // transport backoff from a successful sync pass; the old code showed
+        // SYNC_INCOMPLETE pending=1 error=none without explaining why.
+        this.report({lastError:
+          'OUTBOX_RETRY_BACKOFF_UNTIL '+new Date(cmd.retryAt).toISOString()+
+          ' command='+cmd.id+(cmd.error?' previous='+cmd.error:'')});
         block(cmd,keys);
         continue;
       }
@@ -668,6 +674,10 @@ export class SyncCoordinator {
       this.coordChannel?.postMessage('REQUEST_SYNC');
       throw new Error('Another tab is the active sync leader; check the authoritative status there');
     }
+    // An explicit operator request is not the periodic background poll:
+    // retry only PENDING commands immediately, retaining their original IDs
+    // for server-side idempotency. Never unquarantine conflicts/rejections.
+    await this.local.releasePendingRetryDelays();
     const startedAt = Date.now();
     this.requestSync();
     await sleep(0);

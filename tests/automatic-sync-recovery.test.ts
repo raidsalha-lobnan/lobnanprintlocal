@@ -158,3 +158,66 @@ test('pending PostgreSQL outbox survives device shutdown and restarts with same 
  assert.equal((found?.changes[0] as any)?.value?.name,'Local offline stock item');
  await reopened.close();
 });
+
+test('manual sync retries an unexpired transport backoff using the exact original command, not a new invoice',async()=>{
+  const workspace='retry-now-'+crypto.randomUUID();
+  const db=new LocalSyncDb(workspace,'manual-backoff-'+crypto.randomUUID());
+  const original=await db.enqueue([{entity:'invoices',id:'inv-pos-manual-retry',
+    value:{id:'inv-pos-manual-retry',invoiceNumber:'TEMP-inv-pos-manual-retry',totalAmount:1495}}]);
+  await db.markError(original.id,'pending','LOCAL_SYNC_HTTP_503',Date.now()+300000);
+  const before=(await db.pending())[0];
+  const received:string[]=[];
+  const coordinator=new SyncCoordinator(db,{
+    push:async(cmd:any)=>{
+      received.push(cmd.id);
+      return {commandId:cmd.id,changes:cmd.changes.map((c:any)=>({
+        ...c,version:1,
+        value:c.entity==='invoices'?{...c.value,invoiceNumber:'INV-0502'}:c.value
+      }))};
+    },
+    pull:async()=>[],
+    watchLatest:()=>()=>{}
+  } as any,workspace);
+  try{
+    await coordinator.start();
+    await coordinator.waitUntilIdle();
+    assert.equal(received.length,0,'Automatic poll must respect the transport backoff');
+    assert.equal((await db.pending())[0].id,original.id);
+    const success=await coordinator.syncNow(10_000);
+    assert.equal(success.pending,0);
+    assert.equal(success.conflict,0);
+    assert.deepEqual(received,[original.id],'Retry must reuse the original server idempotency key');
+    const visible=await db.listVisible('invoices');
+    assert.equal((visible[0].value as any)?.invoiceNumber,'INV-0502');
+    assert.equal((await db.pending()).length,0);
+    assert.equal(before.attempts,1);
+  }finally{
+    coordinator.stop();
+    await db.close();
+  }
+});
+test('manual sync never turns a rejected accounting command into a pending write',async()=>{
+  const workspace='rejected-'+crypto.randomUUID();
+  const db=new LocalSyncDb(workspace,'manual-rejected-'+crypto.randomUUID());
+  const original=await db.enqueue([{entity:'journalEntries',id:'journal-1',
+    value:{id:'journal-1',lines:[{accountCode:'4101',debit:100,credit:0},
+      {accountCode:'1201',debit:0,credit:100}]}}]);
+  await db.markError(original.id,'rejected','UNBALANCED_JOURNAL',Date.now()+300000);
+  let pushCount=0;
+  const coordinator=new SyncCoordinator(db,{
+    push:async()=>{pushCount++;throw Error('No retry permitted')},
+    pull:async()=>[],
+    watchLatest:()=>()=>{}
+  } as any,workspace);
+  try{
+    await coordinator.start();
+    await assert.rejects(()=>coordinator.syncNow(10_000),/SYNC_INCOMPLETE/);
+    const cmd=(await db.pending())[0];
+    assert.equal(cmd.id,original.id);
+    assert.equal(cmd.status,'rejected');
+    assert.equal(pushCount,0);
+  }finally{
+    coordinator.stop();
+    await db.close();
+  }
+});
