@@ -445,7 +445,7 @@ export class SyncCoordinator {
    */
   private async reconcileConflicts():Promise<void>{
     const queued=await this.local.pending();
-    const unresolved=queued.filter(c=>c.status==='conflict'||c.status==='rejected');
+    const unresolved=queued.filter(c=>!c.invoiceRevision && (c.status==='conflict'||c.status==='rejected'));
     if(!unresolved.length||!this.remote.fetchAuthoritativeBootstrap)return;
     const snapshot=await this.remote.fetchAuthoritativeBootstrap();
     const index=new Map(snapshot.records.map(r=>[recordKey(r.entity,r.id),r]));

@@ -1,4 +1,6 @@
 import {VersionConflict, PermanentSyncError, type ServerCursor, type ServerEvent, type SyncCommand, type CommitReceipt, type StoredRecord} from './types';
+import type {Invoice} from '../types';
+import {verifyPosEditReceipt} from '../utils/posEditReceiptVerification';
 import type {SyncTransport} from './coordinator';
 import type {SettingsReceiptProof,VerifiedSettingsReceipt} from './settingsPatch';
 import {secureLoginEnabled,publicSyncApiUrl,getCurrentSessionToken,authHeaders} from '../services/secureAuth';
@@ -172,6 +174,24 @@ export class LocalHttpSyncTransport implements SyncTransport {
     });
   }
   async push(cmd:SyncCommand):Promise<CommitReceipt>{
+    if (cmd.invoiceRevision) {
+      const [change] = cmd.changes;
+      if (cmd.changes.length !== 1 || change.entity !== 'invoices' || !change.value ||
+          change.value.id !== change.id || change.expectedVersion < 1) {
+        throw new PermanentSyncError('INVALID_INVOICE_REVISION_REQUEST');
+      }
+      const proposed = change.value as unknown as Invoice;
+      const receipt = await this.reviseInvoice({commandId: cmd.id, invoiceId: change.id,
+        expectedVersion: change.expectedVersion, proposed: change.value});
+      const row = receipt.changes?.find(entry => entry.entity === 'invoices' && entry.id === change.id);
+      if (receipt.commandId !== cmd.id || !row?.value || !(row.version >= change.expectedVersion) ||
+          verifyPosEditReceipt(row.value as unknown as Invoice, change.id,
+            proposed.items.map(item => ({...item, inventoryItemId: item.itemId})),
+            proposed.notes || '', proposed.paymentNotes || '', proposed.date)) {
+        throw new PermanentSyncError('INVOICE_REVISION_RECEIPT_MISMATCH');
+      }
+      return receipt;
+    }
     const raw=JSON.stringify(cmd);
     const length=new TextEncoder().encode(raw).length;
     const useChunks=async():Promise<CommitReceipt>=>{

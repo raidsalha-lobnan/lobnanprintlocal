@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 
 const posSource=readFileSync(new URL('../src/components/PosView.tsx', import.meta.url),'utf8');
 const saveStart=posSource.indexOf('  const handleSaveInvoice = async (');
-const saveEnd=posSource.indexOf('  handleSaveInvoiceRef.current = handleSaveInvoice;',saveStart);
+const saveEnd=posSource.indexOf('  const handleQuickPayCash = ',saveStart);
 assert.ok(saveStart>0&&saveEnd>saveStart);
 const saveHandler=posSource.slice(saveStart,saveEnd);
 
@@ -16,7 +16,7 @@ test('a confirmed cashier invoice edit closes the previous invoice and opens a b
  const signatureClear=saveHandler.indexOf('openedInvoiceSignatureRef.current = null;',editClose);
  const stateClear=saveHandler.indexOf('setEditingPosInvoiceId(null);',editClose);
  const blankLine=saveHandler.indexOf('setTableLines([',stateClear);
- assert.ok(receiptVerified>0&&confirmationFinished>receiptVerified,'Do not clear before server-confirmed notes');
+ assert.ok(receiptVerified>0&&confirmationFinished>receiptVerified,'Do not clear before durably saved notes');
  assert.ok(editClose>confirmationFinished,'Only close the edited invoice after approved save');
  assert.ok(editIdentityClear>editClose&&editIdentityClear<blankLine,'Clear edit ref before blank invoice');
  assert.ok(signatureClear>editClose&&signatureClear<blankLine,'Forget the old invoice fingerprint');
@@ -38,7 +38,7 @@ test('save captures the original editing invoice id before awaiting PostgreSQL',
 test('approved new sales and verified amendments both reset; failed and partial saves keep the form',()=>{
  assert.ok(saveHandler.includes('// Applies to both a confirmed edit and a newly approved POS sale.'));
  assert.ok(saveHandler.includes('if (!editingId && posTargetType'),'Do not add an extra walk-in customer during editing');
- assert.ok(saveHandler.includes('verifyPosEditReceipt('),'Posted invoices must verify notes in server acknowledgement');
+ assert.ok(saveHandler.includes('verifyPosEditReceipt('),'Posted invoices must verify locally saved notes before reset');
  const failure=saveHandler.indexOf('if (!postRes.success || !postRes.invoice)');
  const verified=saveHandler.indexOf('verifyPosEditReceipt(');
  const reset=saveHandler.indexOf('setTableLines([',verified);

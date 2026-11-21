@@ -148,12 +148,23 @@ export class LocalSyncDb {
     (await this.dbPromise).close();
   }
 
+  async confirmedInvoice(id: string): Promise<StoredRecord | undefined> {
+    const db = await this.getDb();
+    return request(db.transaction(RECORDS).objectStore(RECORDS).get(recordKey('invoices', id)));
+  }
+
   async enqueue(
     changes: ProposedChange[],
     commandId: string = crypto.randomUUID(),
-    atomicInvoiceId?: string
+    atomicInvoiceId?: string,
+    revisionVersion?: number
   ): Promise<SyncCommand> {
     validateChanges(changes);
+    if (revisionVersion !== undefined && (atomicInvoiceId || changes.length !== 1 ||
+        changes[0].entity !== 'invoices' || !changes[0].value ||
+        !Number.isSafeInteger(revisionVersion) || revisionVersion < 1)) {
+      throw new Error('INVALID_INVOICE_REVISION_REQUEST');
+    }
 
     if (!/^[a-zA-Z0-9_-]{8,128}$/.test(commandId)) {
       throw new Error('Invalid command ID');
@@ -231,6 +242,10 @@ export class LocalSyncDb {
         const matching = queued.filter(
           op => op.changes.some(change => recordKey(change.entity, change.id) === key)
         );
+        if (revisionVersion !== undefined) {
+          if (matching.length) throw new Error('INVOICE_HAS_PENDING_LOCAL_CHANGES_REVIEW_FIRST');
+          if (row?.version !== revisionVersion) throw new Error('INVOICE_CONCURRENT_MODIFICATION_REOPEN');
+        }
         const independent=(op:SyncCommand)=>safelyNewAtomic &&
           canIndependentSaleBypassKey(op,incomingAtomic,c.entity,c.id,row?.version??0);
         // A newer edit must NEVER bury an unresolved edit of this record.
@@ -270,6 +285,7 @@ export class LocalSyncDb {
         workspaceId: this.workspaceId,
         ...(secureLoginEnabled()&&getCurrentSessionActorId()
           ? {actorId:getCurrentSessionActorId()} : {}),
+        ...(revisionVersion !== undefined ? {invoiceRevision: true as const} : {}),
         ...(atomicInvoiceId ? { atomicInvoiceId } : {}),
         changes: versioned,
         baseRecords: safeChanges.map(change=>bases.get(recordKey(change.entity,change.id))??null),
@@ -284,6 +300,36 @@ export class LocalSyncDb {
       await done;
       this.changed();
       return cmd;
+    } catch (error) {
+      try { tx.abort(); } catch {}
+      await done.catch(() => {});
+      throw error;
+    }
+  }
+
+  async resolveReviewedRevision(commandId: string, reviewedVersion: number, useLocal: boolean) {
+    const db = await this.getDb();
+    const tx = db.transaction([RECORDS, OUTBOX, RECEIPTS], 'readwrite');
+    const done = completed(tx);
+    try {
+      const outbox = tx.objectStore(OUTBOX);
+      const cmd = await request(outbox.get(commandId)) as SyncCommand | undefined;
+      if (!cmd?.invoiceRevision || cmd.status !== 'conflict' ||
+          (secureLoginEnabled() && (!cmd.actorId || cmd.actorId !== getCurrentSessionActorId())))
+        throw new Error('تعذر العثور على تعديل متعارض لهذا الحساب.');
+      const change = cmd.changes[0];
+      const row = await request(tx.objectStore(RECORDS).get(recordKey('invoices', change.id))) as StoredRecord;
+      if (!row?.value || row.version !== reviewedVersion || row.version <= change.expectedVersion)
+        throw new Error('تغيرت نسخة الفاتورة. حدّث المزامنة وراجعها مجدداً.');
+      tx.objectStore(RECEIPTS).put({id: cmd.id, reviewedCommand: cmd, reviewedVersion, useLocal});
+      outbox.delete(cmd.id);
+      if (useLocal) {
+        outbox.add({...cmd, id: crypto.randomUUID(), createdAt: Date.now(), retryAt: 0, attempts: 0,
+          status: 'pending', error: undefined, baseRecords: [row],
+          changes: [{...change, expectedVersion: reviewedVersion}]});
+      }
+      await done;
+      this.changed();
     } catch (error) {
       try { tx.abort(); } catch {}
       await done.catch(() => {});
@@ -467,9 +513,9 @@ export class LocalSyncDb {
         tx.objectStore(OUTBOX).get(event.commandId)
       ) as SyncCommand | undefined;
 
-      tx.objectStore(OUTBOX).delete(event.commandId);
+      if (!owned?.invoiceRevision) tx.objectStore(OUTBOX).delete(event.commandId);
 
-      if (owned) {
+      if (owned && !owned.invoiceRevision) {
         const requestChanges = owned.changes.map(
           ({ expectedVersion, ...rest }) => rest
         );
@@ -802,7 +848,7 @@ export class LocalSyncDb {
     // based on an older server version (e.g. INV-0071 on a second device).
     const authoritativeVersions = new Map(records.map(r => [r.id, r.version]));
     for (const cmd of pending) {
-      if (cmd.status !== 'pending') continue;
+      if (cmd.invoiceRevision || cmd.status !== 'pending') continue;
       for (const c of cmd.changes) {
         if (c.entity !== entity) continue;
         const serverVersion = authoritativeVersions.get(c.id);
@@ -849,7 +895,7 @@ export class LocalSyncDb {
     }
     const ordered = [...outbox].sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));
     for (const cmd of ordered) {
-      if (cmd.status !== 'pending') continue;
+      if (cmd.invoiceRevision || cmd.status !== 'pending') continue;
       for (const change of cmd.changes) {
         const collection = indexed.get(change.entity);
         if (!collection) continue;

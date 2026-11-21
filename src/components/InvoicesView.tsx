@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAccounting } from '../context/AccountingContext';
+import type {SyncCommand, StoredRecord} from '../sync-next/types';
 import { Invoice } from '../types';
 import {
   FileText,
@@ -69,9 +70,37 @@ export const InvoicesView: React.FC = () => {
     setActiveTab,
     setEditingPosInvoiceId,
     openConflictModal,
+    unifiedRepository, currentUser,
     deleteInvoice
   } = useAccounting();
 
+  const [revisions, setRevisions] = useState<{cmd: SyncCommand; server?: StoredRecord}[]>([]);
+  React.useEffect(() => {
+    if (!unifiedRepository || !currentUser?.id) { setRevisions([]); return; }
+    const db = unifiedRepository.getLocalDb();
+    let generation = 0;
+    const reload = async () => {
+      const sequence = ++generation;
+      const pending = (await db.pending()).filter(cmd => (cmd.invoiceRevision || (cmd.atomicInvoiceId && cmd.status !== 'pending')) && cmd.actorId === currentUser.id);
+      const rows = await Promise.all(pending.map(async cmd => ({
+        cmd, server: cmd.invoiceRevision && cmd.status === 'conflict' ? await db.confirmedInvoice(cmd.changes[0].id) : undefined
+      })));
+      if (sequence === generation) setRevisions(rows);
+    };
+    const refresh = () => { void reload().catch(console.error); };
+    const stop = db.subscribe(refresh);
+    refresh();
+    return () => { ++generation; stop(); };
+  }, [unifiedRepository, currentUser?.id]);
+  const resolveRevision = async (cmd: SyncCommand, version: number, useLocal: boolean) => {
+    if (!unifiedRepository || !window.confirm(useLocal
+      ? 'إرسال التعديل المحلي بعد مقارنة جميع حقوله بالنسخة المعتمدة؟'
+      : 'الاحتفاظ بالنسخة المعتمدة وأرشفة التعديل المحلي؟')) return;
+    try {
+      await unifiedRepository.getLocalDb().resolveReviewedRevision(cmd.id, version, useLocal);
+      unifiedRepository.requestSync();
+    } catch (error) { window.alert(String(error)); }
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [dateFilterMode, setDateFilterMode] = useState<InvoiceDateFilterMode>('all');
@@ -310,6 +339,24 @@ export const InvoicesView: React.FC = () => {
         </div>
       </section>
 
+      {revisions.filter(({cmd}) => cmd.actorId === currentUser?.id).map(({cmd,server}) => {
+        const change = cmd.changes.find(entry => entry.entity === 'invoices');
+        if (!change) return null;
+        return <details key={cmd.id} className="rounded border border-amber-300 bg-amber-50 p-2 text-xs print:hidden">
+          <summary className="cursor-pointer">{cmd.invoiceRevision ? 'تعديل فاتورة' : 'فاتورة جديدة'} {String(change.value?.invoiceNumber)} — {cmd.status === 'pending' ? 'محفوظ على هذا الجهاز بانتظار المزامنة' : 'يحتاج مراجعة'}</summary>
+          {cmd.error && <p>{cmd.error}</p>}
+          <p>التعديل المحفوظ على الجهاز</p>
+          <pre dir="ltr" className="max-h-48 overflow-auto">{JSON.stringify(change.value,null,2)}</pre>
+          {server?.value && server.version > change.expectedVersion && <>
+            <p>النسخة المعتمدة للمقارنة</p>
+            <pre dir="ltr" className="max-h-48 overflow-auto">{JSON.stringify(server.value,null,2)}</pre>
+            <div className="flex gap-4">
+              <button onClick={() => resolveRevision(cmd,server.version,false)}>الاحتفاظ بالنسخة المعتمدة</button>
+              <button onClick={() => resolveRevision(cmd,server.version,true)}>إرسال التعديل المحلي بعد المراجعة</button>
+            </div>
+          </>}
+        </details>;
+      })}
       {/* Locally durable sales are not official PostgreSQL invoices yet.
           Keep them accessible for recovery, but NEVER in official totals or prints. */}
       {awaitingConfirmation.length > 0 && (

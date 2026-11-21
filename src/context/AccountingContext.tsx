@@ -403,6 +403,7 @@ interface AccountingContextType {
       userId?: string;
       userName?: string;
       editingInvoiceId?: string;
+      posDraftId?: string;
       editingInvoiceSnapshot?: string;
       counterpartyType?: 'customer' | 'supplier' | 'employee';
       counterpartyId?: string;
@@ -6532,6 +6533,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       userId?: string;
       userName?: string;
       editingInvoiceId?: string;
+      posDraftId?: string;
       editingInvoiceSnapshot?: string;
       counterpartyType?: 'customer' | 'supplier' | 'employee';
       counterpartyId?: string;
@@ -7239,11 +7241,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         const repo=unifiedRepoRef.current;
         if(!repo)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
-        // Financial revisions must start from the authoritative PostgreSQL
-        // version, not from an IndexedDB cache that might be empty or stale.
-        const visible=await repo.getAuthoritativeInvoiceBaseline(
-          extraOptions.editingInvoiceId
-        );
+        const visible = await repo.getLocalDb().confirmedInvoice(extraOptions.editingInvoiceId);
+        if (!visible?.value || visible.version < 1)
+          throw new Error('لا توجد نسخة معتمدة محلياً لهذه الفاتورة. أكمل مزامنتها أولاً.');
         const original=visible.value as unknown as Invoice;
         // The record may have refreshed from PostgreSQL since this invoice was
         // opened in another tab or device. The editor must not overwrite those
@@ -7309,37 +7309,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           createdAt:original.createdAt,
           updatedAt:original.updatedAt
         } as Invoice;
-        const stableKey='lobnan_verified_invoice_revision_'+original.id;
-        const signature=JSON.stringify({version:visible.version,proposed});
-        let pending:{signature:string;commandId:string}|null=null;
-        try{pending=JSON.parse(localStorage.getItem(stableKey)||'null');}catch{}
-        const commandId=pending?.signature===signature&&pending.commandId
-          ?pending.commandId:crypto.randomUUID();
-        localStorage.setItem(stableKey,JSON.stringify({signature,commandId}));
-        const cfg=getLocalSyncConfig();
-        const transport=new LocalHttpSyncTransport(cfg.url,cfg.token,cfg.workspace);
-        const result=await transport.reviseInvoice({
-          commandId,invoiceId:original.id,expectedVersion:visible.version,
-          proposed:proposed as unknown as Record<string,unknown>
-        });
-        // PostgreSQL may already have committed when the browser's IndexedDB
-        // connection closes. Distinguish local cache failure from remote rejection.
-        let localReceiptWarning: string | undefined;
-        try {
-          await repo.getLocalDb().ack(result.commandId,result.changes);
-          localStorage.removeItem(stableKey);
-        } catch (receiptError) {
-          console.error('POSTGRES_CONFIRMED_LOCAL_RECEIPT_FAILED',receiptError);
-          localReceiptWarning =
-            'تم اعتماد تعديل الفاتورة على خادم PostgreSQL، لكن تعذّر تحديث النسخة المحلية بسبب انقطاع اتصال تخزين المتصفح. لا تحفظ الفاتورة مرة أخرى؛ افتحها من سجل الفواتير بعد تحديث الصفحة للتحقق من البيانات المعتمدة.';
-          try {localStorage.setItem('lobnan_postgres_receipt_review_required','true');}catch{}
-        }
+        await repo.getLocalDb().enqueue([{
+          entity: 'invoices', id: original.id, value: proposed as unknown as JsonObject
+        }], crypto.randomUUID(), undefined, visible.version);
         repo.requestSync();
-        const confirmed=result.changes.find(row=>row.entity==='invoices'&&row.id===original.id);
-        if(!confirmed?.value)throw new Error('CENTRAL_INVOICE_ACK_MISSING');
-        const authoritative=confirmed.value as unknown as Invoice;
-        setInvoices(prev=>prev.map(inv=>inv.id===original.id?authoritative:inv));
-        return {success:true,invoice:authoritative,...(localReceiptWarning?{warning:localReceiptWarning}: {})};
+        return {success:true,invoice:proposed};
       }catch(error){
         const raw=String(error);
         const missingServerBaseline=/INVOICE_NOT_VISIBLE_IN_POSTGRES_SNAPSHOT/.test(raw);
@@ -7362,7 +7336,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         const repo=unifiedRepoRef.current;
         if(!repo) throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
-        const pendingKey='lobnan_pending_atomic_pos_attempt';
+        const draftId = extraOptions?.posDraftId;
+        const pendingKey = draftId ? 'lobnan_pending_atomic_pos_attempt:' + draftId : 'lobnan_pending_atomic_pos_attempt';
         // A retry reuses its immutable invoice ID AND original timestamp.
         // Changed forms never silently reuse an earlier financial command.
         const raw=JSON.stringify({customerId,customerName,paymentMethod,notes,
@@ -7377,7 +7352,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         try {pending=JSON.parse(localStorage.getItem(pendingKey)||'null');}catch{}
         if(pending&&pending.signature!==signature){
           const queued=await repo.getLocalDb().pending();
-          if(queued.some(x=>x.id===pending?.commandId))
+          if(queued.some(x=>x.id===pending?.commandId) || (draftId && await repo.getLocalDb().confirmedInvoice(pending.invoiceId)))
             throw new Error('POS_PREVIOUS_SALE_STILL_PENDING_CONFIRM_BEFORE_NEW_ATTEMPT');
           pending=null;
           localStorage.removeItem(pendingKey);
@@ -7387,7 +7362,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if(pending?.signature===signature && pending.invoiceId){
           const existing=(await repo.all('invoices')).find(x=>x.id===pending?.invoiceId);
           if(existing?.value){
-            localStorage.removeItem(pendingKey);
+            if(!draftId)localStorage.removeItem(pendingKey);
             return {success:true,invoice:existing.value as unknown as Invoice,
               isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
           }
@@ -7397,8 +7372,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             throw new Error('POS_PREVIOUS_ATOMIC_SAVE_PENDING_REVIEW_REQUIRED');
         }
         const invoiceId=pending?.invoiceId?.startsWith('inv-pos-')
-          ?pending.invoiceId:'inv-pos-'+crypto.randomUUID();
-        const commandId=pending?.commandId||crypto.randomUUID();
+          ?pending.invoiceId:'inv-pos-'+(draftId || crypto.randomUUID());
+        const commandId=pending?.commandId||draftId||crypto.randomUUID();
         const createdAt=pending?.createdAt||new Date().toISOString();
         const [stock,partiesSnapshot]=await Promise.all([
           repo.all('inventory'),repo.all('parties')
@@ -7412,7 +7387,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         await enqueueAtomicInvoicePosting(repo,posting);
         // This is LOCAL persistence. Cloud acceptance arrives by normal sync ACK.
         // The repository subscriber updates all visible accounting entities.
-        localStorage.removeItem(pendingKey);
+        if(!draftId)localStorage.removeItem(pendingKey);
         return {success:true,invoice,isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
       }catch(error){
         return {success:false,error:String(error),

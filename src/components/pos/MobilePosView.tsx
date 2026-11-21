@@ -1,3 +1,4 @@
+import {posDraftStorageKey} from '../../utils/posDraftStorageKey';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { sortPartiesByCode } from '../../utils/partyUtils';
@@ -110,14 +111,24 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const [selectedCurrencyCode, setSelectedCurrencyCode] = useState(settings.baseCurrencyCode || 'ILS');
   const activeCurrency = currencies.find(c => c.code === selectedCurrencyCode) || baseCurrency;
 
-  const MOBILE_POS_DRAFT_KEY = 'mobile_pos_active_draft';
+  const MOBILE_POS_DRAFT_KEY = posDraftStorageKey('mobile_pos_active_draft', currentUser?.id || currentUserId);
   const savedMobileDraft = useMemo(() => {
     try {
-      const raw = localStorage.getItem('mobile_pos_active_draft');
+      const raw = localStorage.getItem(MOBILE_POS_DRAFT_KEY);
+      if (!raw) {
+        const legacy = localStorage.getItem('mobile_pos_active_draft');
+        if (legacy && window.confirm('توجد سلة قديمة محفوظة على هذا الجهاز. هل تريد استعادتها لهذا الحساب؟')) {
+          localStorage.setItem(MOBILE_POS_DRAFT_KEY, legacy);
+          localStorage.removeItem('mobile_pos_active_draft');
+          return JSON.parse(legacy);
+        }
+      }
       if (raw) return JSON.parse(raw);
     } catch {}
     return {} as any;
   }, []);
+
+  const draftId = useRef(savedMobileDraft.draftId || crypto.randomUUID());
 
   // 1. Customer / Supplier / Employee Mode & Inputs (زبون / مورد / موظف)
   const [partyTypeMode, setPartyTypeMode] = useState<'customer' | 'supplier' | 'employee'>(() => {
@@ -262,7 +273,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const [globalDiscount, setGlobalDiscount] = useState<string>(() => {
     return savedMobileDraft.globalDiscount || '';
   });
-  const [paidAmountInput, setPaidAmountInput] = useState<string>('');
+  const [paidAmountInput, setPaidAmountInput] = useState<string>(savedMobileDraft.paidAmountInput || '');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [successNotification, setSuccessNotification] = useState<{ number: string; total: number } | null>(null);
 
@@ -279,6 +290,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
       if (hasContent) {
         localStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
+          draftId:draftId.current, paidAmountInput,
           partyTypeMode,
           customerNameInput,
           customSubCustomerName,
@@ -300,6 +312,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     const handleBeforeUnload = () => {
       try {
         localStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
+          draftId:draftId.current, paidAmountInput,
           partyTypeMode,
           customerNameInput,
           customSubCustomerName,
@@ -638,6 +651,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
   const clearCart = () => {
     if (cart.length > 0 && window.confirm('هل تريد تفريغ سلة الفاتورة الحالية؟')) {
+      draftId.current = crypto.randomUUID();
       setCart([]);
       setGlobalDiscount('');
       setPaidAmountInput('');
@@ -688,6 +702,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       await saveCentralHeldInvoice('mobile',confirmedHeld);
       setHeldInvoices(prev=>[confirmedHeld,...prev.filter(h=>h.id!==newHeld.id)]);
       resumedMobileHeldIdRef.current=null;
+      draftId.current = crypto.randomUUID();
       setCart([]);setGlobalDiscount('');setPaidAmountInput('');setInvoiceNotes('');
       setCustomSubCustomerName('');setSelectedSubCustomerId('');
       setCustomerNameInput('زبون نقدي / عام');setSelectedCustomerId('');
@@ -829,6 +844,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     }
     if (window.confirm('هل تريد إلغاء الفاتورة بالكامل وتفريغ البنود؟')) {
       resumedMobileHeldIdRef.current=null;
+      draftId.current = crypto.randomUUID();
       setCart([]);
       setGlobalDiscount('');
       setPaidAmountInput('');
@@ -1020,6 +1036,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
           subCustomerId: selectedSubCustomerId && !isInvoiceOnlySubCustomer({id: selectedSubCustomerId}) ? selectedSubCustomerId : undefined,
           subCustomerName: subCustName || undefined,
           customCustomerText: subCustName || undefined,
+          posDraftId:draftId.current,
           userId: currentUserId,
           userName: currentUser?.fullName || currentUser?.username || 'كاشير الهاتف',
           notes: invoiceNotes.trim()
@@ -1069,7 +1086,9 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       // Reset
       try {
         localStorage.removeItem(MOBILE_POS_DRAFT_KEY);
+        localStorage.removeItem('lobnan_pending_atomic_pos_attempt:' + draftId.current);
       } catch {}
+      draftId.current = crypto.randomUUID();
       setCart([]);
       setGlobalDiscount('');
       setPaidAmountInput('');
@@ -1269,7 +1288,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
         <div className="bg-emerald-600 text-white p-2.5 px-4 flex items-center justify-between text-xs font-bold animate-in slide-in-from-top duration-200 shrink-0 shadow-md">
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4" />
-            <span>تم حفظ الفاتورة #{successNotification.number} بنجاح ({successNotification.total.toFixed(2)} {activeCurrency.symbol})</span>
+            <span>حُفظت الفاتورة #{successNotification.number} على هذا الجهاز بانتظار المزامنة ({successNotification.total.toFixed(2)} {activeCurrency.symbol})</span>
           </div>
           <button onClick={() => setSuccessNotification(null)} className="p-1">
             <X className="w-4 h-4" />

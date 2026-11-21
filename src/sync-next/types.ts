@@ -29,6 +29,8 @@ export interface SyncCommand {
   actorId?: string;
   /** Opt-in all-or-nothing accounting bundle. Absent for legacy queued commands. */
   atomicInvoiceId?: string;
+  /** Route only to the version-checked PostgreSQL invoice revision endpoint. */
+  invoiceRevision?: true;
   changes: VersionedChange[];
   /** Local authoritative baseline for safe three-way merge; absent in old queues. */
   baseRecords?: (StoredRecord | null)[];

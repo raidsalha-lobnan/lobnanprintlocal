@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'; // Trigger Sync
 import { DateInput } from '../components/common/DateInput';
+import { posDraftStorageKey } from '../utils/posDraftStorageKey';
 import { useAccounting } from '../context/AccountingContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { MobilePosView } from './pos/MobilePosView';
@@ -314,6 +315,12 @@ const parseThumbnails = (val?: string): string[] => {
 };
 
 export const PosView: React.FC = () => {
+  const {currentUser} = useAccounting();
+  if (!currentUser?.id || currentUser.id === 'session-not-verified') return <div role="status">جارٍ تحميل حساب الكاشير…</div>;
+  return <CashierSession key={currentUser.id} ownerId={currentUser.id} />;
+};
+
+const CashierSession: React.FC<{ownerId: string}> = ({ownerId}) => {
   const {
     inventory,
     parties,
@@ -363,29 +370,20 @@ export const PosView: React.FC = () => {
 
   // Single-Entry automation notification state
 
-  // Multi-Currency State (العملة الأساسية: الشيكل الفلسطيني ₪)
-  const [selectedCurrencyCode, setSelectedCurrencyCode] = useState<string>(settings.baseCurrencyCode || 'ILS');
-  const activeCurrency = useMemo(() => {
-    return currencies.find(c => c.code === selectedCurrencyCode) || currencies.find(c => c.isBase) || {
-      code: 'ILS',
-      name: 'شيكل',
-      symbol: '₪',
-      rateAgainstBase: 1.0,
-      isBase: true,
-      isActive: true
-    };
-  }, [currencies, selectedCurrencyCode]);
-
-  const [customExchangeRate, setCustomExchangeRate] = useState<number>(activeCurrency.rateAgainstBase || 1.0);
-
-  // Synchronize exchange rate when currency changes
-  useEffect(() => {
-    setCustomExchangeRate(activeCurrency.rateAgainstBase || 1.0);
-  }, [activeCurrency.rateAgainstBase, selectedCurrencyCode]);
-
-const POS_FULL_DRAFT_KEY = 'pos_active_full_draft';
+  const [POS_FULL_DRAFT_KEY] = useState(() => posDraftStorageKey('pos_active_full_draft', ownerId));
 
 interface PosFullDraftData {
+  editingSignature?: string | null;
+  currencyCode?: string;
+  exchangeRate?: number;
+  cashCurrencyCode?: string;
+  bankCurrencyCode?: string;
+  cashExchangeRate?: number;
+  bankExchangeRate?: number;
+  bankTreasuryCode?: string;
+  paymentMethod?: PaymentMethod;
+  workflowStatus?: PosInvoiceWorkflowStatus;
+  draftId?: string;
   ownerId?: string;
   editingInvoiceId?: string | null;
   tableLines?: PosTableLine[];
@@ -424,15 +422,21 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   // a new invoice; existing official invoices must be opened from history.
   if(!ownerId)return {};
   try {
-    const raw=localStorage.getItem(POS_FULL_DRAFT_KEY);
+    const scoped=localStorage.getItem(POS_FULL_DRAFT_KEY);
+    const raw=scoped ?? localStorage.getItem('pos_active_full_draft');
     if(!raw)return {};
     const draft=JSON.parse(raw) as PosFullDraftData;
     if(!draft||typeof draft!=='object'||Array.isArray(draft))return {};
-    if(draft.ownerId && draft.ownerId!==ownerId)return {};
-    if(draft.editingInvoiceId)return {};
+    if(draft.ownerId!==ownerId)return {};
+    if (draft.editingInvoiceId && (!draft.editingSignature ||
+        (editingPosInvoiceId && editingPosInvoiceId !== draft.editingInvoiceId))) return {};
     if(!Array.isArray(draft.tableLines)||!draft.tableLines.length)return {};
     if(!draft.tableLines.every(line=>line&&typeof line==='object'&&
       typeof line.id==='string'&&typeof line.itemName==='string'))return {};
+    if (!scoped) {
+      localStorage.setItem(POS_FULL_DRAFT_KEY,raw);
+      localStorage.removeItem('pos_active_full_draft');
+    }
     return draft;
   }catch(error){
     console.warn('Unable to restore cashier form; existing local copy preserved',error);
@@ -468,6 +472,38 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
   // Load persistent draft on initialization (لضمان بقاء كافة الإدخالات والبيانات عند التحديث F5)
   const savedPosDraft = useMemo(() => getInitialPosDraft(currentUser?.id), [currentUser?.id]);
+
+  const draftIdRef = useRef(savedPosDraft.draftId || crypto.randomUUID());
+  const [draftStorageFailed, setDraftStorageFailed] = useState(false);
+  const [saveNotice, setSaveNotice] = useState('');
+  React.useEffect(() => {
+    if (!saveNotice) return;
+    const timer = setTimeout(() => setSaveNotice(''), 4500);
+    return () => clearTimeout(timer);
+  }, [saveNotice]);
+
+  // Multi-Currency State (العملة الأساسية: الشيكل الفلسطيني ₪)
+  const [selectedCurrencyCode, setSelectedCurrencyCode] = useState<string>(savedPosDraft.currencyCode || settings.baseCurrencyCode || 'ILS');
+  const activeCurrency = useMemo(() => {
+    return currencies.find(c => c.code === selectedCurrencyCode) || currencies.find(c => c.isBase) || {
+      code: 'ILS',
+      name: 'شيكل',
+      symbol: '₪',
+      rateAgainstBase: 1.0,
+      isBase: true,
+      isActive: true
+    };
+  }, [currencies, selectedCurrencyCode]);
+
+  const [customExchangeRate, setCustomExchangeRate] = useState<number>(savedPosDraft.exchangeRate || activeCurrency.rateAgainstBase || 1.0);
+
+  const previousCurrency = useRef(selectedCurrencyCode);
+  // Synchronize exchange rate when currency changes
+  useEffect(() => {
+    if (previousCurrency.current === selectedCurrencyCode) return;
+    previousCurrency.current = selectedCurrencyCode;
+    setCustomExchangeRate(activeCurrency.rateAgainstBase || 1.0);
+  }, [activeCurrency.rateAgainstBase, selectedCurrencyCode]);
 
   // Customer & Invoice Header State (Strictly main customers, sub-customers are completely separate)
   const customers = useMemo(() => sortPartiesByCode(parties.filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer)), [parties]);
@@ -728,156 +764,6 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     return savedPosDraft.bankAmountInput || '0';
   });
 
-  // حفظ مسودة الكاشير الكاملة تلقائياً عند أي تعديل (لضمان عدم ضياع أي إدخال أو حقل عند التحديث F5)
-  useEffect(() => {
-    try {
-      const draft: PosFullDraftData = {
-        ownerId:currentUser?.id,
-        editingInvoiceId:editingPosInvoiceId,
-        tableLines,
-        posTargetType,
-        selectedCustomerId,
-        customerCode,
-        customerName,
-        pricingTier,
-        transactionType,
-        customCustomerText,
-        subCustomerId,
-        subCustomerName,
-        subCustomerPhone,
-        branch,
-        warehouse,
-        invoiceDate,
-        representative,
-        taxRate,
-        taxEnabled,
-        additionalCharges,
-        overallDiscount,
-        discountType,
-        invoiceNotes,
-        paymentNotes,
-        shippingDetails,
-        cashAmountInput,
-        bankAmountInput,
-        activeRowId,
-        timestamp: Date.now()
-      };
-      localStorage.setItem(POS_FULL_DRAFT_KEY, JSON.stringify(draft));
-      localStorage.setItem('pos_active_draft_lines', JSON.stringify(tableLines));
-    } catch (e) {
-      console.warn('Failed to auto-save POS draft', e);
-    }
-  }, [
-    tableLines,
-    posTargetType,
-    selectedCustomerId,
-    customerCode,
-    customerName,
-    pricingTier,
-    transactionType,
-    customCustomerText,
-    subCustomerId,
-    subCustomerName,
-    subCustomerPhone,
-    branch,
-    warehouse,
-    invoiceDate,
-    representative,
-    taxRate,
-    taxEnabled,
-    additionalCharges,
-    overallDiscount,
-    discountType,
-    invoiceNotes,
-    paymentNotes,
-    shippingDetails,
-    cashAmountInput,
-    bankAmountInput,
-    activeRowId,
-    currentUser?.id,
-    editingPosInvoiceId
-  ]);
-
-  // حفظ عند إغلاق أو رفرش الصفحة فوراً
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      try {
-        const activeEl = document.activeElement as HTMLElement | null;
-        const focusedId = activeEl?.id || '';
-        const draft: PosFullDraftData = {
-          ownerId:currentUser?.id,
-          editingInvoiceId:editingPosInvoiceId,
-          tableLines,
-          posTargetType,
-          selectedCustomerId,
-          customerCode,
-          customerName,
-          pricingTier,
-          transactionType,
-          customCustomerText,
-          subCustomerId,
-          subCustomerName,
-          subCustomerPhone,
-          branch,
-          warehouse,
-          invoiceDate,
-          representative,
-          taxRate,
-          taxEnabled,
-          additionalCharges,
-          overallDiscount,
-          discountType,
-          invoiceNotes,
-          shippingDetails,
-          cashAmountInput,
-          bankAmountInput,
-          activeRowId,
-          focusedInputId: focusedId,
-          timestamp: Date.now()
-        };
-        localStorage.setItem(POS_FULL_DRAFT_KEY, JSON.stringify(draft));
-        localStorage.setItem('pos_active_draft_lines', JSON.stringify(tableLines));
-        if (focusedId) {
-          localStorage.setItem('alnoor_last_focused_element', JSON.stringify({
-            id: focusedId,
-            timestamp: Date.now()
-          }));
-        }
-      } catch {}
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [
-    tableLines,
-    posTargetType,
-    selectedCustomerId,
-    customerCode,
-    customerName,
-    pricingTier,
-    transactionType,
-    customCustomerText,
-    subCustomerId,
-    subCustomerName,
-    subCustomerPhone,
-    branch,
-    warehouse,
-    invoiceDate,
-    representative,
-    taxRate,
-    taxEnabled,
-    additionalCharges,
-    overallDiscount,
-    discountType,
-    invoiceNotes,
-    shippingDetails,
-    cashAmountInput,
-    bankAmountInput,
-    activeRowId,
-    currentUser?.id,
-    editingPosInvoiceId
-  ]);
-
   // Add delivery service item automatically to table (يحدد له ملاحظات وسعر فقط)
   const handleAddDeliveryServiceLine = useCallback(() => {
     posSound.beep();
@@ -912,27 +798,34 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   }, []);
 
   // Bottom Payment State (الدفع النقدي، الدفع البنكي، العملات، والصناديق)
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(savedPosDraft.paymentMethod || 'cash');
   const [selectedTreasuryCode, setSelectedTreasuryCode] = useState<string>('1101');
 
   // 1. Cash Payment State (العملة، سعر الصرف، الصندوق)
-  const currentEditingInvoiceIdRef = useRef<string | null>(null);
-  const openedInvoiceSignatureRef = useRef<string | null>(null);
+  const currentEditingInvoiceIdRef = useRef<string | null>(savedPosDraft.editingInvoiceId || null);
+  const openedInvoiceSignatureRef = useRef<string | null>(savedPosDraft.editingSignature || null);
   
-  useEffect(() => {
+  const restoringEdit = useRef(savedPosDraft.editingInvoiceId);
+  React.useLayoutEffect(() => {
+    if (restoringEdit.current && !editingPosInvoiceId) {
+      setEditingPosInvoiceId(restoringEdit.current);
+      restoringEdit.current = null;
+      return;
+    }
+    restoringEdit.current = null;
     currentEditingInvoiceIdRef.current = editingPosInvoiceId;
   }, [editingPosInvoiceId]);
-  const [cashCurrencyCode, setCashCurrencyCode] = useState<string>('ILS');
-  const [cashExchangeRate, setCashExchangeRate] = useState<number>(1.0);
+  const [cashCurrencyCode, setCashCurrencyCode] = useState<string>(savedPosDraft.cashCurrencyCode || 'ILS');
+  const [cashExchangeRate, setCashExchangeRate] = useState<number>(savedPosDraft.cashExchangeRate || 1.0);
   const [cashTreasuryCode, setCashTreasuryCode] = useState<string>(() => {
     return 'CASH-1101';
   });
 
   // 2. Bank Payment State (عملة الدفع، سعر الصرف، الصندوق)
-  const [bankCurrencyCode, setBankCurrencyCode] = useState<string>('ILS');
-  const [bankExchangeRate, setBankExchangeRate] = useState<number>(1.0);
+  const [bankCurrencyCode, setBankCurrencyCode] = useState<string>(savedPosDraft.bankCurrencyCode || 'ILS');
+  const [bankExchangeRate, setBankExchangeRate] = useState<number>(savedPosDraft.bankExchangeRate || 1.0);
   const [bankTreasuryCode, setBankTreasuryCode] = useState<string>(() => {
-    return '';
+    return savedPosDraft.bankTreasuryCode || '';
   });
 
   // Synchronize selected treasuries when treasuries list is loaded or updated
@@ -1000,7 +893,83 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   }, [barcodeNotFoundAlert]);
 
   // Invoice Workflow Status (حالة فاتورة الكاشير: جديدة، قيد التصميم، قيد التنفيذ، جاهزة للتسليم، مسلمة)
-  const [invoiceWorkflowStatus, setInvoiceWorkflowStatus] = useState<PosInvoiceWorkflowStatus>('new');
+  const [invoiceWorkflowStatus, setInvoiceWorkflowStatus] = useState<PosInvoiceWorkflowStatus>(savedPosDraft.workflowStatus || 'new');
+
+  React.useLayoutEffect(() => {
+    try {
+      const draft: PosFullDraftData = {
+        draftId:draftIdRef.current, ownerId,
+        editingInvoiceId:currentEditingInvoiceIdRef.current,
+        editingSignature:openedInvoiceSignatureRef.current,
+        currencyCode:selectedCurrencyCode, exchangeRate:customExchangeRate,
+        cashCurrencyCode, bankCurrencyCode, cashExchangeRate, bankExchangeRate,
+        bankTreasuryCode, paymentMethod, workflowStatus:invoiceWorkflowStatus,
+        tableLines,
+        posTargetType,
+        selectedCustomerId,
+        customerCode,
+        customerName,
+        pricingTier,
+        transactionType,
+        customCustomerText,
+        subCustomerId,
+        subCustomerName,
+        subCustomerPhone,
+        branch,
+        warehouse,
+        invoiceDate,
+        representative,
+        taxRate,
+        taxEnabled,
+        additionalCharges,
+        overallDiscount,
+        discountType,
+        invoiceNotes,
+        paymentNotes,
+        shippingDetails,
+        cashAmountInput,
+        bankAmountInput,
+        activeRowId,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(POS_FULL_DRAFT_KEY, JSON.stringify(draft));
+      setDraftStorageFailed(false);
+    } catch (error) {
+      setDraftStorageFailed(true);
+      console.warn('Failed to persist the active cashier form', error);
+    }
+  }, [
+    POS_FULL_DRAFT_KEY, ownerId, selectedCurrencyCode, customExchangeRate,
+    cashCurrencyCode, bankCurrencyCode, cashExchangeRate, bankExchangeRate,
+    bankTreasuryCode, paymentMethod, invoiceWorkflowStatus, tableLines,
+    posTargetType,
+    selectedCustomerId,
+    customerCode,
+    customerName,
+    pricingTier,
+    transactionType,
+    customCustomerText,
+    subCustomerId,
+    subCustomerName,
+    subCustomerPhone,
+    branch,
+    warehouse,
+    invoiceDate,
+    representative,
+    taxRate,
+    taxEnabled,
+    additionalCharges,
+    overallDiscount,
+    discountType,
+    invoiceNotes,
+    paymentNotes,
+    shippingDetails,
+    cashAmountInput,
+    bankAmountInput,
+    activeRowId,
+    currentUser?.id,
+    editingPosInvoiceId
+  ]);
 
   // Customer Special Prices Modal
   const [isSpecialPricesModalOpen, setIsSpecialPricesModalOpen] = useState(false);
@@ -2760,6 +2729,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
         warehouse,
         userId: currentUser?.id,
         userName: currentUser?.fullName || currentUser?.username,
+        posDraftId: draftIdRef.current,
         editingInvoiceId: intendedEditingInvoiceId || undefined,
         editingInvoiceSnapshot: openedInvoiceSignatureRef.current || undefined,
         counterpartyType: posTargetType,
@@ -2873,6 +2843,9 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     onlineInvoicePostingService.clearStagedInvoiceDraft();
 
     posSound.success();
+    const completedDraftId = draftIdRef.current;
+    draftIdRef.current = crypto.randomUUID();
+    setSaveNotice('محفوظة على هذا الجهاز — بانتظار المزامنة');
 
     // POS Sale is a direct sales invoice - no duplicate print orders or deposits are created
     if (printMode !== 'none') {
@@ -2955,7 +2928,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
     try {
       localStorage.removeItem(POS_FULL_DRAFT_KEY);
-      localStorage.removeItem('pos_active_draft_lines');
+      localStorage.removeItem('lobnan_pending_atomic_pos_attempt:' + completedDraftId);
     } catch {}
 
     // Reset customer and sub-customer strictly to default cash customer ("زبون نقدي") for the next sale
@@ -3323,7 +3296,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   };
   const [currentNavInvoiceIndex, setCurrentNavInvoiceIndex] = useState<number>(-1);
 
-  const lastLoadedInvoiceIdRef = useRef<string | null>(null);
+  const lastLoadedInvoiceIdRef = useRef<string | null>(savedPosDraft.editingInvoiceId || null);
 
   const loadInvoiceToScreen = (inv: Invoice) => {
     resumedHeldInvoiceIdRef.current=null;
@@ -3504,7 +3477,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           loadInvoiceToScreen(invToEdit);
         }
       }
-    } else {
+    } else if (!currentEditingInvoiceIdRef.current) {
       lastLoadedInvoiceIdRef.current = null;
     }
   }, [editingPosInvoiceId, invoices]);
@@ -3574,6 +3547,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   };
 
   const handleClearInvoiceDirect = (silent = false) => {
+    draftIdRef.current = crypto.randomUUID();
     // Avoid reusing a held ID after abandoning a resumed invoice.
     resumedHeldInvoiceIdRef.current=null;
     setEditingPosInvoiceId(null);
@@ -3605,7 +3579,6 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     setInvoiceDate(dateForNewPosInvoice(posLayoutConfig));
     try {
       localStorage.removeItem(POS_FULL_DRAFT_KEY);
-      localStorage.removeItem('pos_active_draft_lines');
     } catch {}
 
     setSubCustomerId('');
@@ -3635,7 +3608,6 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     posSound.beep();
     try {
       localStorage.removeItem(POS_FULL_DRAFT_KEY);
-      localStorage.removeItem('pos_active_draft_lines');
       localStorage.removeItem('alnoor_last_focused_element');
     } catch {}
   };
@@ -3652,7 +3624,6 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       
       try {
         localStorage.removeItem(POS_FULL_DRAFT_KEY);
-        localStorage.removeItem('pos_active_draft_lines');
       } catch {}
 
       const defaultCashCust = customers.find(c => c.code === 'CUST-0001' || c.code === '1');
@@ -3768,6 +3739,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
   return (
     <div className="flex flex-col h-full w-full bg-[#dbe4ef] text-slate-800 text-xs font-sans select-none relative overflow-hidden" dir="rtl">
+      {draftStorageFailed && <div role="alert">تعذّر حفظ المسودة على الجهاز. أبقِ الشاشة مفتوحة حتى يكتمل حفظ الفاتورة.</div>}
+      {saveNotice && <div role="status" className="absolute top-2 left-2 z-50 rounded bg-emerald-900 px-3 py-2 text-white">{saveNotice}</div>}
       {/* Mobile Switch Back Bar */}
       {isPhone && forceDesktopMode && (
         <div className="bg-amber-500 text-slate-950 px-2 py-0.5 text-xs font-bold flex items-center justify-between z-50">

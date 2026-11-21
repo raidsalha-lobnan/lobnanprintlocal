@@ -114,9 +114,9 @@ test('reconnection resets only transient network retry delays, not rejected acco
  assert.equal(denied.error,'ENTITY_PERMISSION_DENIED');
  await db.close();
 });
-test('local receipt-review flag does not trigger the hazardous unbootstrapped migration gate',()=>{
+test('local revision enqueue does not trigger the hazardous unbootstrapped migration gate',()=>{
  const boot=readFileSync(new URL('../src/sync-next/boot.ts',import.meta.url),'utf8');
- assert.match(context,/lobnan_postgres_receipt_review_required/);
+ assert.match(context,/await repo\.getLocalDb\(\)\.enqueue\(/);
  assert.doesNotMatch(context,/setItem\('lobnan_postgres_reconciliation_required'/);
  assert.match(boot,/confirmedCursor/);
  assert.match(boot,/localStorage\.removeItem\('lobnan_postgres_reconciliation_required'\)/);
@@ -140,7 +140,8 @@ test('a desktop cashier active draft survives reload and preserves its invoice r
  assert.match(pos,/if\(savedPosDraft\.tableLines\?\.length\)return savedPosDraft\.tableLines/);
  assert.doesNotMatch(pos,/Automatically hold or reset uncommitted cart when unmounting/);
  assert.doesNotMatch(pos,/\/\/ عند فتح شاشة الكاشير دائماً تكون كأنها فاتورة جديدة/);
- assert.match(pos,/if\(draft\.editingInvoiceId\)return \{\}/);
+ assert.ok(pos.includes('draft.editingInvoiceId && (!draft.editingSignature'));
+ assert.ok(pos.includes('setEditingPosInvoiceId(restoringEdit.current)'));
 });
 test('pending PostgreSQL outbox survives device shutdown and restarts with same immutable operation id',async()=>{
  const workspace='persist-'+crypto.randomUUID();
