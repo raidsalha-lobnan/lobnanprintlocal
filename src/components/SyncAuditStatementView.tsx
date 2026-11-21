@@ -596,6 +596,18 @@ export const SyncAuditStatementView: React.FC = () => {
                         {' '}{row.comparison.differentContent.length} مختلف المحتوى
                       </span>
                     )}
+                    {row.comparison.status === 'DIFFERENT' && (
+                      <details className="mt-1 text-right text-[10px] text-slate-700">
+                        <summary className="cursor-pointer text-blue-700 underline">عرض معرّفات الاختلاف</summary>
+                        <div className="mt-1 p-2 rounded bg-slate-50 border border-slate-200 space-y-1 break-all" dir="ltr">
+                          <div>Device only: {row.comparison.missingOnCloud.join(', ') || '—'}</div>
+                          <div>Server only: {row.comparison.missingOnDevice.join(', ') || '—'}</div>
+                          <div>Different content: {row.comparison.differentContent.join(', ') || '—'}</div>
+                          {row.comparison.duplicateDeviceIds.length > 0 && <div>Duplicate device IDs: {row.comparison.duplicateDeviceIds.join(', ')}</div>}
+                          {row.comparison.duplicateCloudIds.length > 0 && <div>Duplicate server IDs: {row.comparison.duplicateCloudIds.join(', ')}</div>}
+                        </div>
+                      </details>
+                    )}
                   </td>
                   <td className="p-2.5 text-center font-mono text-[11px]">
                     <span className={row.diff === 0 ? 'text-slate-600 font-bold' : 'text-amber-700 font-bold'}>
