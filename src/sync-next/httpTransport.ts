@@ -227,6 +227,13 @@ export class LocalHttpSyncTransport implements SyncTransport {
   async fetchAuthoritativeBootstrap():Promise<{records:StoredRecord[];cursor:ServerCursor}> {
     return this.request(`bootstrap?workspace=${encodeURIComponent(this.workspaceId)}`);
   }
+  /** Lightweight permission-filtered directory: no complete accounting download. */
+  async fetchAuthorizedDirectory():Promise<{records:StoredRecord[]}>{
+    const payload=await this.request<{records:StoredRecord[]}>(
+      'auth/directory?workspace='+encodeURIComponent(this.workspaceId));
+    if(!Array.isArray(payload?.records))throw new Error('INVALID_POSTGRES_DIRECTORY');
+    return payload;
+  }
   async fetchCloudSnapshot():Promise<Record<string,any[]>>{
     const data=await this.fetchAuthoritativeBootstrap();
     const grouped:Record<string,any[]>={};

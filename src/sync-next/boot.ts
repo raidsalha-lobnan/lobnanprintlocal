@@ -4,7 +4,7 @@ import {LocalSyncDb} from './localDb';
 import {SyncCoordinator} from './coordinator';
 import {UnifiedRepository} from './repository';
 import type {EntityName} from './types';
-import {secureLoginEnabled} from '../services/secureAuth';
+import {secureLoginEnabled,getCurrentSessionActorId} from '../services/secureAuth';
 
 /** New database is intentionally isolated from historical old cloud IndexedDB queues. */
 export async function createUnifiedDataLayer(workspaceId:string){
@@ -73,6 +73,18 @@ export async function createUnifiedDataLayer(workspaceId:string){
        confirmedCursor.sequence>=0 &&
        localStorage.getItem('lobnan_postgres_reconciliation_required')==='true'){
       localStorage.removeItem('lobnan_postgres_reconciliation_required');
+    }
+    // The incremental event cursor cannot supply pre-existing directory rows
+    // when this browser was previously bootstrapped under a narrower role.
+    // Fetch ONLY the authorized user/role directory, not the entire ledger.
+    // Offline users keep the existing local directory without mutation.
+    if(secureLoginEnabled()&&getCurrentSessionActorId()){
+      try{
+        const directory=await remote.fetchAuthorizedDirectory();
+        await local.refreshAuthorizedDirectory(directory.records,getCurrentSessionActorId());
+      }catch(error){
+        console.warn('Authorized directory refresh postponed; financial outbox preserved',error);
+      }
     }
     await coordinator.start();
   }catch(error){

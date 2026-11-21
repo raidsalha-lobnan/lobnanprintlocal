@@ -298,6 +298,21 @@ const srv=http.createServer(async(req,res)=>{
       const receipt=await adminDirectoryCommand(pool,workspace,access,command);
       return json(res,200,receipt,cors);
     }
+    if(STRICT_AUTH && req.method==='GET' && url.pathname==='/api/v1/auth/directory'){
+      // A small, authenticated user/role snapshot repairs privileged browsers
+      // that were initialized under another actor or lost the directory cache.
+      // No full invoice or ledger bootstrap; no database writes or permissions
+      // inferred from client-supplied names.
+      const data=await pool.query(
+        "SELECT entity,record_id,version,value FROM sync_records WHERE workspace=$1 AND entity IN ('users','roles') AND value IS NOT NULL",
+        [workspace]);
+      const all=data.rows.map(row=>({
+        key:row.entity+'\u001f'+row.record_id,entity:row.entity,id:row.record_id,
+        version:Number(row.version),value:row.value
+      }));
+      const authorized=filterSnapshot({records:all},access);
+      return json(res,200,safeSnapshot(authorized,access),cors);
+    }
     if(STRICT_AUTH && req.method==='GET' && url.pathname==='/api/v1/auth/me')
       return json(res,200,{user},cors);
     if(STRICT_AUTH && req.method==='POST' && url.pathname==='/api/v1/auth/logout'){

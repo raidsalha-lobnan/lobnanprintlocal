@@ -57,7 +57,9 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
           matched=await loginOffline(identifier,password);
           setDirectoryNotice('تم فتح الحساب أوفلاين باستخدام بيانات دخول سبق التحقق منها. العمليات محفوظة محليًا حتى إعادة المزامنة.');
         }
-        cacheSavedUsers([matched],getCurrentWorkspace());
+        // Do not replace the entire saved user directory with the one
+        // person who just authenticated. The PostgreSQL directory is
+        // reconciled separately after login using actual server permissions.
         setUsers([matched]);
         const {password:_secret,...safeUser}=matched;
         localStorage.setItem('auth_type','postgres');

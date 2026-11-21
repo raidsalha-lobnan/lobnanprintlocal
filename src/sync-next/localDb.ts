@@ -1035,6 +1035,65 @@ export class LocalSyncDb {
   }
 
   /**
+   * Reconcile ONLY server-authorized user profiles and roles after login.
+   * This is not a complete PostgreSQL bootstrap and never touches invoices,
+   * journal entries, stocks, cursor or any unsynced outbox command.
+   *
+   * A shared device may have bootstrapped the directory using a different
+   * person's privileges. Replacing the directory projection is safer than
+   * merging stale profiles from an earlier login.
+   */
+  async refreshAuthorizedDirectory(incoming:StoredRecord[],actorId:string):Promise<number>{
+    if(!actorId||!Array.isArray(incoming))throw new Error('DIRECTORY_ACTOR_OR_PAYLOAD_MISSING');
+    const unique=new Set<string>();
+    for(const row of incoming){
+      if(!row || !['users','roles'].includes(row.entity) ||
+         !row.id || row.key!==recordKey(row.entity,row.id) ||
+         !Number.isSafeInteger(row.version) || row.version<1 ||
+         row.value===null || typeof row.value!=='object' || Array.isArray(row.value) ||
+         unique.has(row.key))throw new Error('INVALID_POSTGRES_DIRECTORY_ROW');
+      unique.add(row.key);
+    }
+    if(!incoming.some(row=>row.entity==='users'&&row.id===actorId) ||
+       !incoming.some(row=>row.entity==='roles'))
+      throw new Error('POSTGRES_DIRECTORY_MISSING_CURRENT_ACTOR');
+    const db=await this.getDb();
+    const tx=db.transaction([RECORDS,OUTBOX],'readwrite');
+    const done=completed(tx);
+    try {
+      const store=tx.objectStore(RECORDS);
+      const [all,queued]=await Promise.all([
+        request(store.getAll()) as Promise<StoredRecord[]>,
+        request(tx.objectStore(OUTBOX).getAll()) as Promise<SyncCommand[]>
+      ]);
+      // Older clients might have attempted to modify user/role identities in
+      // the ordinary financial outbox. Preserve that work for investigation.
+      if(queued.some(cmd=>cmd.changes.some(c=>c.entity==='users'||c.entity==='roles')))
+        throw new Error('DIRECTORY_OUTBOX_REQUIRES_MANUAL_REVIEW');
+      const byKey=new Map(incoming.map(row=>[row.key,row]));
+      let changed=0;
+      for(const prior of all){
+        if(prior.entity!=='users'&&prior.entity!=='roles')continue;
+        if(!byKey.has(prior.key)){store.delete(prior.key);changed++;}
+      }
+      for(const row of incoming){
+        const prior=all.find(old=>old.key===row.key);
+        if(!prior || prior.version!==row.version ||
+           JSON.stringify(prior.value)!==JSON.stringify(row.value)){
+          store.put(row);changed++;
+        }
+      }
+      await done;
+      if(changed)this.changed();
+      return changed;
+    }catch(error){
+      try{tx.abort()}catch{}
+      await done.catch(()=>{});
+      throw error;
+    }
+  }
+
+  /**
    * Seeds cloud snapshot records directly into local IndexedDB records store
    * with exact cloud versions and zero pending outbox write commands.
    */
