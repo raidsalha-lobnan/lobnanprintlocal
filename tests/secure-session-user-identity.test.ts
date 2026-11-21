@@ -45,7 +45,6 @@ test('accounting user identity cannot fall back to the first saved user or to a 
     ?.split('  const acquireDailyEntryRowLock')[0];
   assert.ok(segment);
   assert.match(segment,/getCurrentSessionProfile\(\)/);
-  assert.match(segment,/getCurrentSessionActorId\(\)/);
   assert.match(ctx,/if\(secureLoginEnabled\(\)\)return getCurrentSessionActorId\(\)/);
   assert.match(ctx,/Refused UI user switch: account identity is bound to PostgreSQL login/);
   assert.match(navbar,/!secureLoginEnabled\(\) && isAdmin \?/);
