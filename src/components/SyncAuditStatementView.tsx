@@ -111,12 +111,8 @@ import {
   ArrowDownLeft,
   Database,
   Printer,
-  Trash2,
   Activity,
   Search,
-  ShieldCheck,
-  Zap,
-  Radio,
   AlertOctagon,
   ArrowRight,
   Eye,
@@ -166,7 +162,8 @@ export const SyncAuditStatementView: React.FC = () => {
     unifiedRepository
   } = useAccounting();
 
-  const [activeFilterTab, setActiveFilterTab] = useState<'all' | 'pushed' | 'pulled' | 'pending' | 'issues'>('all');
+  const [activeFilterTab, setActiveFilterTab] = useState<'all' | 'pushed' | 'pulled' | 'issues'>('all');
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [serverStatus, setServerStatus] = useState<ServerStatusResponse | null>(null);
   const [isLoadingServerStatus, setIsLoadingServerStatus] = useState(false);
@@ -177,8 +174,6 @@ export const SyncAuditStatementView: React.FC = () => {
   const [actionFeedback, setActionFeedback] = useState<{ success: boolean; message: string } | null>(null);
   const [hasDriveToken, setHasDriveToken] = useState<boolean>(false);
   const [isConnectingDrive, setIsConnectingDrive] = useState(false);
-  const [isTestingPing, setIsTestingPing] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; seq?: number; ms?: number; message: string } | null>(null);
   const [isConflictModalOpen, setIsConflictModalOpen] = useState(false);
   const [cloudCounts, setCloudCounts] = useState<Record<string, number> | null>(null);
   const [auditedCloudRecords, setAuditedCloudRecords] = useState<Record<string, any[]> | null>(null);
@@ -221,24 +216,6 @@ export const SyncAuditStatementView: React.FC = () => {
   }, [unifiedRepository]);
 
   // Explicit-only cloud audit; never scan all records automatically on opening this screen.
-
-  // Non-destructive verification: never send test accounting documents to
-  // a legacy API endpoint or claim success based on a simulated server response.
-  const handleLiveTestSendReceive = async () => {
-    setIsTestingPing(true);
-    setTestResult(null);
-    try {
-      const outcome = await forceSyncNow();
-      setTestResult({
-        success: outcome.success,
-        message: outcome.message
-      });
-    } catch (error) {
-      setTestResult({ success: false, message: String(error) });
-    } finally {
-      setIsTestingPing(false);
-    }
-  };
 
   // Check Drive token status
   useEffect(() => {
@@ -283,7 +260,7 @@ export const SyncAuditStatementView: React.FC = () => {
     const start = performance.now();
     const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
     if (isVercel) {
-      setServerPingMs(25);
+      setServerPingMs(null);
       setConnectionState('checking');
       setServerStatus(null); // Vercel hostname is NOT proof of a healthy PostgreSQL connection.
       setIsLoadingServerStatus(false);
@@ -326,10 +303,6 @@ export const SyncAuditStatementView: React.FC = () => {
   const handleTriggerFullSync = async () => {
     const res = await forceSyncNow();
     setActionFeedback(res);
-    if (res?.success) {
-      syncAuditService.clearConnectionIssues();
-      setConnectionIssues([]);
-    }
     checkServerHealth();
     setTimeout(() => setActionFeedback(null), 6000);
   };
@@ -346,8 +319,9 @@ export const SyncAuditStatementView: React.FC = () => {
       } else {
         throw new Error('المصدر السحابي فارغ أو تعذرت قراءته؛ لن نستبدله ببيانات الشاشة المحلية.');
       }
-    } catch {
+    } catch (error) {
       setPreviewData(null);
+      setActionFeedback({ success: false, message: `تعذّرت معاينة بيانات الخادم: ${String(error)}` });
     } finally {
       setIsLoadingPreview(false);
     }
@@ -355,16 +329,15 @@ export const SyncAuditStatementView: React.FC = () => {
 
   // Download DB Snapshot as JSON
   const handleDownloadSnapshotJSON = () => {
-    const snapshot = previewData || {
-      invoices, parties, inventory, vouchers, printOrders, purchases,
-      purchaseReturns, salesReturns, accounts, treasuries, employees,
-      journalEntries, expenses, stockMovements, warehouseOperations, dailyEntrySheets
-    };
-    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+    if (!previewData) {
+      setActionFeedback({ success: false, message: 'لم تُقرأ بيانات الخادم. لا يمكن تنزيل ملف بوصفه نسخة من PostgreSQL.' });
+      return;
+    }
+    const blob = new Blob([JSON.stringify(previewData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Postgres_Master_DB_Snapshot_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `Postgres_Readonly_Snapshot_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -448,10 +421,8 @@ export const SyncAuditStatementView: React.FC = () => {
   // Filtered audit logs
   const filteredLogs = useMemo(() => {
     return auditLogs.filter(log => {
-      const isEffectivePending = pendingSyncCount > 0 && log.status === 'pending';
       if (activeFilterTab === 'pushed' && log.direction !== 'push') return false;
       if (activeFilterTab === 'pulled' && log.direction !== 'pull') return false;
-      if (activeFilterTab === 'pending' && !isEffectivePending) return false;
       if (activeFilterTab === 'issues') return false;
 
       if (searchTerm.trim()) {
@@ -465,7 +436,7 @@ export const SyncAuditStatementView: React.FC = () => {
       }
       return true;
     });
-  }, [auditLogs, activeFilterTab, searchTerm, pendingSyncCount]);
+  }, [auditLogs, activeFilterTab, searchTerm]);
 
   const activeBranch = getActiveBranch();
   const statementVoucherNumber = useMemo(() => {
@@ -475,293 +446,96 @@ export const SyncAuditStatementView: React.FC = () => {
 
   return (
     <div className="space-y-3 p-1 sm:p-2 text-slate-800" dir="rtl">
-      <OperationalHealthPanel/>
-      <LegacyInvoiceAuditPanel/>
-      {/* التشخيص الفوري */}
-      {/* PostgreSQL connection is checked by the canonical sync coordinator. */}
-      {/* 1. Official Header & Voucher Title Banner */}
-      <div className="bg-white rounded-xl border border-slate-300 shadow-xs p-3.5 print:border-none print:shadow-none">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-700 text-white flex items-center justify-center shadow-sm">
-              <Activity className="w-6 h-6" />
+
+      {/* Compact sync statement: actions never erase or download the local accounting database. */}
+      <div className="bg-white rounded-xl border border-slate-300 shadow-xs p-3 print:border-none print:shadow-none">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Activity className="w-5 h-5 text-indigo-700" />
+              <h1 className="text-base sm:text-lg font-black text-slate-900">سند المزامنة والتدقيق</h1>
+              <span className="text-[10px] font-mono bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5">{statementVoucherNumber}</span>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-black text-slate-900">
-                  سند مطابقة وتدقيق المزامنة وفحص قاعدة البيانات الرئيسية
-                </h1>
-                <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200">
-                  {statementVoucherNumber}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                كشف إداري ومحاسبي تفصيلي لحالة الإرسال والاستقبال ومطابقة البيانات مع الخادم الرئيسي
-              </p>
-            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              {settings.name || 'مطبعة ومكتبة لبنان'} · {activeBranch?.name || 'الرئيسي'} · {currentUser?.fullName || currentUser?.username || 'المستخدم الحالي'}
+            </p>
           </div>
-
-          {/* Quick Action Commands */}
-          <div className="flex items-center gap-2 flex-wrap print:hidden">
-
-            <button
-              type="button"
-              onClick={handleTriggerFullSync}
-              disabled={isServerSyncing}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition active:translate-y-px cursor-pointer disabled:opacity-75"
-              title="طلب مزامنة العمليات المعلقة والتحقق من تأكيدها من الخادم"
-            >
+          <div className="flex items-center flex-wrap gap-1.5 print:hidden">
+            <button type="button" onClick={handleTriggerFullSync} disabled={isServerSyncing}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 text-white hover:bg-emerald-800 text-xs font-bold disabled:opacity-50"
+              title="مزامنة التغييرات المعلقة عبر منسّق المزامنة، دون إعادة تنزيل قاعدة البيانات كاملة">
               <RefreshCw className={`w-3.5 h-3.5 ${isServerSyncing ? 'animate-spin' : ''}`} />
-              <span>{isServerSyncing ? 'جارِ المزامنة...' : 'مزامنة شاملة الآن'}</span>
+              {isServerSyncing ? 'جارِ المزامنة' : 'مزامنة الآن'}
             </button>
-
-            <button
-              type="button"
-              onClick={checkServerHealth}
-              disabled={isLoadingServerStatus}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold rounded-lg transition active:translate-y-px cursor-pointer"
-              title="فحص جودة الاتصال وزمن الاستجابة"
-            >
-              <Radio className={`w-3.5 h-3.5 ${isLoadingServerStatus ? 'animate-pulse text-amber-600' : 'text-blue-600'}`} />
-              <span>فحص الاتصال (Ping)</span>
+            <button type="button" onClick={() => setIsConflictModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold hover:bg-amber-100"
+              title="فتح الطابور المحلي لمعرفة تفاصيل المعلقات والتعارضات">
+              <Clock className="w-3.5 h-3.5" /> المعلقات ({pendingSyncCount})
             </button>
-
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-xs font-bold rounded-lg transition active:translate-y-px cursor-pointer"
-            >
-              <Printer className="w-3.5 h-3.5 text-slate-600" />
-              <span>طباعة السند</span>
+            <button type="button" onClick={() => setShowAdvancedTools(v => !v)}
+              aria-expanded={showAdvancedTools}
+              className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 text-xs font-bold">
+              {showAdvancedTools ? 'إخفاء أدوات الفحص' : 'أدوات الفحص'}
             </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('audit_log')}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-slate-600 hover:text-slate-900 text-xs font-medium hover:bg-slate-100 rounded-lg transition"
-            >
-              <span>العودة لسجل العمليات</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+            <button type="button" onClick={() => window.print()}
+              className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-medium">
+              <Printer className="w-3.5 h-3.5" /> طباعة
+            </button>
+            <button type="button" onClick={() => setActiveTab('audit_log')}
+              className="inline-flex items-center gap-1 px-2.5 py-2 text-slate-600 hover:text-slate-900 text-xs font-medium">
+              <ArrowRight className="w-3.5 h-3.5" /> رجوع
             </button>
           </div>
         </div>
-
-        {/* Feedback Alert Toast */}
         {actionFeedback && (
-          <div className={`mt-3 p-2.5 rounded-lg text-xs flex items-center justify-between border ${
-            actionFeedback.success
-              ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-              : 'bg-rose-50 text-rose-900 border-rose-300'
-          }`}>
-            <div className="flex items-center gap-2">
-              {actionFeedback.success ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              ) : (
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-              )}
-              <span className="font-bold">{actionFeedback.message}</span>
-            </div>
-            <button
-              onClick={() => setActionFeedback(null)}
-              className="text-xs font-bold underline hover:text-black"
-            >
-              إغلاق
-            </button>
+          <div role="status" className={`mt-2 p-2 rounded-lg border text-xs flex items-center justify-between gap-2 ${actionFeedback.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'}`}>
+            <span>{actionFeedback.message}</span>
+            <button type="button" onClick={() => setActionFeedback(null)} className="underline shrink-0">إغلاق</button>
           </div>
         )}
-
-        {/* Voucher Meta Info Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 text-xs">
-          <div className="bg-slate-50 p-2 rounded-lg border border-slate-200">
-            <span className="text-[10px] text-slate-400 block font-light">حالة الاتصال السحابي:</span>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <strong className="text-emerald-700 font-bold">حالة اتصال الخادم</strong>
-              {serverPingMs !== null && (
-                <span className="text-[10px] text-slate-500 font-mono">({serverPingMs}ms)</span>
-              )}
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3 text-xs">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+            <span className="text-slate-500">فحص اتصال الخادم</span>
+            <strong className={`block mt-0.5 ${connectionState === 'connected' ? 'text-emerald-700' : connectionState === 'disconnected' ? 'text-rose-700' : 'text-slate-600'}`}>
+              {connectionState === 'connected' ? `تم الاتصال ${serverPingMs === null ? '' : `(${serverPingMs} مللي ثانية)`}` : connectionState === 'disconnected' ? 'تعذّر الاتصال المباشر' : 'غير مؤكّد من هذا الرابط'}
+            </strong>
           </div>
-
-          <div className="bg-slate-50 p-2 rounded-lg border border-slate-200">
-            <span className="text-[10px] text-slate-400 block font-light">آخر مزامنة ناجحة:</span>
-            <span className="font-mono font-bold text-slate-800 block mt-0.5">
-              {lastSyncTime || 'الآن'}
-            </span>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+            <span className="text-slate-500">آخر مزامنة مسجلة</span>
+            <strong className="block mt-0.5 text-slate-800">{lastSyncTime || 'لم تُسجّل بعد'}</strong>
           </div>
-
-          <div className="bg-slate-50 p-2 rounded-lg border border-slate-200">
-            <span className="text-[10px] text-slate-400 block font-light">الفرع والمنشأة:</span>
-            <span className="font-bold text-slate-800 block mt-0.5 truncate">
-              {settings.name || 'مطبعة ومكتبة لبنان'} - {activeBranch?.name || 'الرئيسي'}
-            </span>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+            <span className="text-slate-500">المطابقة الكاملة</span>
+            <strong className="block mt-0.5 text-slate-800">{auditedCloudRecords ? 'تم فحص سجلات الخادم عند الطلب' : 'لم يُنفَّذ فحص شامل في هذه الجلسة'}</strong>
           </div>
-
-          <div className="bg-slate-50 p-2 rounded-lg border border-slate-200">
-            <span className="text-[10px] text-slate-400 block font-light">المشرف / المحاسب:</span>
-            <span className="font-bold text-slate-800 block mt-0.5 truncate">
-              {currentUser?.fullName || currentUser?.username || 'مدير النظام'}
-            </span>
-          </div>
-        </div>
-
-        {/* Live Send & Receive Verification Test Control */}
-        <div className="mt-3.5 p-3 rounded-xl bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 text-white print:hidden shadow-md border border-indigo-900">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 animate-pulse" />
-                <h3 className="text-sm font-black text-white">
-                  فحص إرسال واستقبال الإدخالات عبر خادم المزامنة الرئيسي
-                </h3>
-              </div>
-              <p className="text-xs text-slate-300 mt-1">
-                اضغط الزر لإرسال قيد واختبار استجابته وقراءته المباشرة من سحابة خادم PostgreSQL فوراً دون أي وسطاء:
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap shrink-0">
-              <button
-                type="button"
-                onClick={handleLiveTestSendReceive}
-                disabled={isTestingPing}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-slate-950 font-black text-xs rounded-lg shadow-md transition cursor-pointer disabled:opacity-50"
-              >
-                <Zap className={`w-4 h-4 ${isTestingPing ? 'animate-bounce text-amber-300' : ''}`} />
-                <span>{isTestingPing ? 'جارِ الفحص والتأكيد...' : 'اختبار إرسال واستقبال الآن ⚡'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handlePreviewDatabase}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-md transition cursor-pointer"
-              >
-                <Eye className="w-4 h-4 text-blue-200" />
-                <span>معاينة قاعدة البيانات السحابية 👁️</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsConflictModalOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg shadow-md transition cursor-pointer"
-                title="كشف العمليات المتعارضة والمعلقة وإدارتها بحرية"
-              >
-                <AlertTriangle className="w-4 h-4 text-amber-200" />
-                <span>كشف المعلقات والتعارضات ({pendingSyncCount}) 📋</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleConnectDrive}
-                disabled={isConnectingDrive}
-                className={`flex items-center gap-1.5 px-3 py-2 font-bold text-xs rounded-lg border transition cursor-pointer ${
-                  hasDriveToken
-                    ? 'bg-emerald-950/80 text-emerald-200 border-emerald-600/80 hover:bg-emerald-900'
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-600'
-                }`}
-              >
-                <Cloud className={`w-3.5 h-3.5 ${hasDriveToken ? 'text-emerald-400' : 'text-blue-400'}`} />
-                <span>{hasDriveToken ? 'Google Drive (مرتبط ✅)' : 'ربط Google Drive'}</span>
-              </button>
-            </div>
-          </div>
-
-          {testResult && (
-            <div className={`mt-3 p-2.5 rounded-lg text-xs font-bold flex items-center gap-2 ${
-              testResult.success
-                ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/60'
-                : 'bg-rose-950/90 text-rose-300 border border-rose-500/60'
-            }`}>
-              {testResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" /> : <XCircle className="w-4 h-4 text-rose-400 shrink-0" />}
-              <span>{testResult.message}</span>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* 2. Key Synchronization KPI Counters */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-        <div className="bg-white p-3 rounded-xl border border-emerald-200 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold text-slate-500 block">ما تم نقله وإرساله لسحابة الخادم الرئيسي:</span>
-            <span className="text-xl font-black text-emerald-700 block mt-0.5">
-              {auditLogs.filter(l => l.direction === 'push' && l.status === 'success').length}
-            </span>
-            <span className="text-[10px] text-emerald-600 block mt-0.5">
-              حركة مؤكدة في قاعدة البيانات السحابية
-            </span>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
-            <ArrowUpRight className="w-5 h-5" />
-          </div>
-        </div>
 
-        <div className="bg-white p-3 rounded-xl border border-blue-200 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold text-slate-500 block">ما تم جلبه واستيعابه سحابياً:</span>
-            <span className="text-xl font-black text-blue-700 block mt-0.5">
-              {auditLogs.filter(l => l.direction === 'pull').length}
-            </span>
-            <span className="text-[10px] text-blue-600 block mt-0.5">
-              تحديث وحركة واردة حية من أجهزة أخرى
-            </span>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
-            <ArrowDownLeft className="w-5 h-5" />
-          </div>
+      {/* Small, honest counters from this browser's audit history. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="bg-white px-3 py-2.5 rounded-lg border border-emerald-200">
+          <span className="block text-[11px] text-slate-500">إرسال ناجح · سجل الجهاز</span>
+          <strong className="block text-lg text-emerald-700">{auditLogs.filter(l => l.direction === 'push' && l.status === 'success').length}</strong>
         </div>
-
-        <div
-          onClick={() => setIsConflictModalOpen(true)}
-          className={`p-3 rounded-xl border shadow-xs flex items-center justify-between cursor-pointer transition hover:shadow-md ${
-            pendingSyncCount > 0 ? 'bg-amber-50 border-amber-300 hover:border-amber-400' : 'bg-white border-slate-200 hover:border-slate-300'
-          }`}
-          title="انقر لفتح كشف العمليات المعلقة والمتعارضة واختيار طريقة معالجتها"
-        >
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-bold text-slate-500 block">المعلقات (بانتظار الإرسال):</span>
-              <span className="text-[10px] text-amber-700 font-bold bg-amber-100 px-1.5 py-0.5 rounded">كشف وتحكم 🔍</span>
-            </div>
-            <span className={`text-xl font-black block mt-0.5 ${
-              pendingSyncCount > 0 ? 'text-amber-700' : 'text-slate-800'
-            }`}>
-              {pendingSyncCount}
-            </span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">
-              {pendingSyncCount > 0 ? 'انقر لعرض الكشف وإعادة الترقيم أو الاستبعاد' : 'كافة البيانات متطابقة سحابياً بالكامل 🟢'}
-            </span>
-          </div>
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${
-            pendingSyncCount > 0 ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-500 border-slate-100'
-          }`}>
-            <Clock className="w-5 h-5" />
-          </div>
+        <div className="bg-white px-3 py-2.5 rounded-lg border border-blue-200">
+          <span className="block text-[11px] text-slate-500">استقبال ناجح · سجل الجهاز</span>
+          <strong className="block text-lg text-blue-700">{auditLogs.filter(l => l.direction === 'pull' && l.status === 'success').length}</strong>
         </div>
-
-        <div className={`p-3 rounded-xl border shadow-xs flex items-center justify-between ${
-          connectionIssues.length > 0 ? 'bg-rose-50 border-rose-300' : 'bg-white border-slate-200'
-        }`}>
-          <div>
-            <span className="text-[11px] font-bold text-slate-500 block">سجل أخطاء الاتصال بالـ الخادم الرئيسي:</span>
-            <span className={`text-xl font-black block mt-0.5 ${
-              connectionIssues.length > 0 ? 'text-rose-700' : 'text-slate-800'
-            }`}>
-              {connectionIssues.length}
-            </span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">
-              {connectionIssues.length > 0 ? 'سجل محمي في خادم PostgreSQL' : 'لا توجد أخطاء اتصال 🟢'}
-            </span>
-          </div>
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${
-            connectionIssues.length > 0 ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-slate-50 text-slate-500 border-slate-100'
-          }`}>
-            <AlertOctagon className="w-5 h-5" />
-          </div>
-        </div>
+        <button type="button" onClick={() => setIsConflictModalOpen(true)}
+          className="text-right bg-white px-3 py-2.5 rounded-lg border border-amber-200 hover:bg-amber-50">
+          <span className="block text-[11px] text-slate-500">عمليات معلّقة · افتح التفاصيل</span>
+          <strong className="block text-lg text-amber-800">{pendingSyncCount}</strong>
+        </button>
+        <button type="button" onClick={() => setActiveFilterTab('issues')}
+          className="text-right bg-white px-3 py-2.5 rounded-lg border border-rose-200 hover:bg-rose-50">
+          <span className="block text-[11px] text-slate-500">أخطاء اتصال · سجل الجهاز</span>
+          <strong className="block text-lg text-rose-700">{connectionIssues.length}</strong>
+        </button>
       </div>
 
       {/* 3. Entity-by-Entity Master Database Reconciliation Table */}
+
       <div className="bg-white rounded-xl border border-slate-300 shadow-xs overflow-hidden">
         <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -772,50 +546,20 @@ export const SyncAuditStatementView: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button
-              type="button"
-              disabled={!unifiedRepository || isLoadingCloudCounts || exportBusy}
-              onClick={async () => {
-                if (!unifiedRepository) return;
-                if (!window.confirm('سيتم قراءة السجلات السحابية مرة واحدة وتصدير بيانات مالية كاملة للمطابقة. هل تريد المتابعة؟')) return;
-                setExportBusy(true);
-                setExportError('');
-                setExportFile(null);
-                try {
-                  setExportFile(await prepareMultiSourceDiagnostic(unifiedRepository));
-                } catch (error) {
-                  setExportError(`تعذّر تجهيز ملف المطابقة. ${String(error)}`);
-                } finally {
-                  setExportBusy(false);
-                }
-              }}
-              className="px-2.5 py-1 text-[11px] bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg font-bold"
-            >{exportBusy ? 'جارٍ قراءة السجلات وتجهيز الملف…' : 'تصدير مصادر البيانات الثلاث للمراجعة'}</button>
-            <button
               onClick={() => {
-                loadCloudCounts();
-                forceSyncNow();
+                if (!window.confirm('سيُقرأ محتوى السجلات من PostgreSQL للمقارنة دون إرسال أو تعديل أي عملية. هل تريد المتابعة؟')) return;
+                void loadCloudCounts();
               }}
               disabled={isLoadingCloudCounts}
               className="px-2.5 py-1 text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
               title="إعادة فحص وتحديث أعداد السجلات السحابية فوراً"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCloudCounts ? 'animate-spin' : ''}`} />
-              <span>تحديث المطابقة السحابية</span>
+              <span>فحص المطابقة (قراءة فقط)</span>
             </button>
-            <span className="text-[11px] text-slate-500 font-bold text-emerald-700">
-              تخزين ومطابقة سحابية موحدة 🔥
-            </span>
           </div>
         </div>
 
-        {exportError && <p role="alert" className="p-2 text-sm text-red-700">{exportError}</p>}
-        {exportFile && (
-          <p role="status" className="p-2 text-sm">
-            ملف المطابقة جاهز. إذا لم يبدأ التنزيل، اضغط هنا.{' '}
-            <a ref={exportLink} href={exportFile.url} download={exportFile.name}
-              className="font-bold text-blue-700 underline">تنزيل ملف المطابقة</a>
-          </p>
-        )}
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-right border-collapse">
             <thead>
@@ -825,7 +569,6 @@ export const SyncAuditStatementView: React.FC = () => {
                 <th className="p-2.5 text-center">العدد بالجهاز الحالي</th>
                 <th className="p-2.5 text-center">حالة النقل والتطابق</th>
                 <th className="p-2.5 text-center">الفارق</th>
-                <th className="p-2.5 text-center">حالة الحفظ السحابي</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -842,34 +585,22 @@ export const SyncAuditStatementView: React.FC = () => {
                     {row.localCount.toLocaleString('ar-EG')}
                   </td>
                   <td className="p-2.5 text-center">
-                    {row.isSynced ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        <span>تطابق الهوية والمحتوى بعد الفحص</span>
-                      </span>
-                    ) : row.comparison.status === 'NOT_CHECKED' ? (
-                      <span className="text-slate-600 text-[10px]">لم يتم فحص المحتوى السحابي بعد</span>
-                    ) : row.comparison.differentContent.length > 0 ? (
-                      <span className="text-rose-700 text-[10px] font-bold">تعارض محتوى: {row.comparison.differentContent.length} سجل</span>
-                    ) : row.diff > 0 ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                        <Clock className="w-3 h-3 text-amber-600" />
-                        <span>{row.diff} بانتظار الإرسال ⏳</span>
-                      </span>
+                    {row.comparison.status === 'NOT_CHECKED' ? (
+                      <span className="text-slate-500 text-[10px]">لم يُفحص محتوى الخادم</span>
+                    ) : row.isSynced ? (
+                      <span className="font-bold text-emerald-700 text-[10px]">مطابق في وقت الفحص</span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                        <ArrowDownLeft className="w-3 h-3 text-blue-600" />
-                        <span>{Math.abs(row.diff)} بانتظار الجلب 🔄</span>
+                      <span className="font-bold text-rose-700 text-[10px]">
+                        غير مطابق: {row.comparison.missingOnCloud.length} لدى الجهاز فقط،
+                        {' '}{row.comparison.missingOnDevice.length} لدى الخادم فقط،
+                        {' '}{row.comparison.differentContent.length} مختلف المحتوى
                       </span>
                     )}
                   </td>
                   <td className="p-2.5 text-center font-mono text-[11px]">
-                    <span className={row.diff === 0 ? "text-emerald-700 font-bold" : (row.diff > 0 ? "text-amber-700 font-bold" : "text-blue-700 font-bold")}>
-                      {row.serverCount < 0 ? '—' : row.isSynced ? '0 (مطابق)' : row.comparison.differentContent.length ? `تعارض ${row.comparison.differentContent.length}` : `${row.diff > 0 ? '+' : ''}${row.diff}`}
+                    <span className={row.diff === 0 ? 'text-slate-600 font-bold' : 'text-amber-700 font-bold'}>
+                      {row.serverCount < 0 ? '—' : `${row.diff > 0 ? '+' : ''}${row.diff}`}
                     </span>
-                  </td>
-                  <td className="p-2.5 text-center text-emerald-800 text-[10px] font-mono font-bold">
-                    {row.comparison.status === 'MATCH' ? 'مفحوص' : row.comparison.status === 'DIFFERENT' ? 'غير مطابق' : 'بانتظار الفحص'}
                   </td>
                 </tr>
               ))}
@@ -877,6 +608,59 @@ export const SyncAuditStatementView: React.FC = () => {
           </table>
         </div>
       </div>
+
+
+      {showAdvancedTools && (
+        <section className="bg-slate-50 border border-slate-300 rounded-xl p-3 space-y-3 print:hidden" aria-label="أدوات الفحص المتقدم">
+          <div>
+            <h2 className="font-bold text-sm text-slate-900">أدوات الفحص المتقدم</h2>
+            <p className="text-xs text-slate-600 mt-1">هذه الأدوات اختيارية. معاينة القاعدة أو تصدير المطابقة يتطلب قراءة صريحة وقد يتضمن بيانات مالية حساسة؛ لا يرحّل قيودًا ولا يحذف المعلقات.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={checkServerHealth} disabled={isLoadingServerStatus}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-50">
+              {isLoadingServerStatus ? 'جارِ الفحص...' : 'فحص الاتصال'}
+            </button>
+            <button type="button" onClick={handlePreviewDatabase} disabled={isLoadingPreview}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg border border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 disabled:opacity-50">
+              <Eye className="w-3.5 h-3.5" /> معاينة PostgreSQL (قراءة فقط)
+            </button>
+            <button type="button" onClick={handleConnectDrive} disabled={isConnectingDrive}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-50"
+              title="فحص حالة خدمة Google Drive على الخادم؛ لا ينشئ تفويضًا جديدًا">
+              <Cloud className="w-3.5 h-3.5" /> {hasDriveToken ? 'Drive متصل' : 'فحص حالة Drive'}
+            </button>
+            <button type="button" disabled={!unifiedRepository || exportBusy || isLoadingCloudCounts}
+              onClick={async () => {
+                if (!unifiedRepository) return;
+                if (!window.confirm('سيُقرأ محتوى هذا الجهاز والخادم وتُصدّر بيانات مالية كاملة في ملف محلي للمراجعة فقط. هل تريد الاستمرار؟')) return;
+                setExportBusy(true);
+                setExportError('');
+                setExportFile(null);
+                try {
+                  setExportFile(await prepareMultiSourceDiagnostic(unifiedRepository));
+                } catch (error) {
+                  setExportError(`تعذّر تجهيز ملف المطابقة: ${String(error)}`);
+                } finally {
+                  setExportBusy(false);
+                }
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 disabled:opacity-50">
+              <Download className="w-3.5 h-3.5" /> {exportBusy ? 'جارِ إعداد الملف...' : 'تصدير مطابقة الجهاز والخادم'}
+            </button>
+          </div>
+          {exportError && <p role="alert" className="text-xs text-rose-700">{exportError}</p>}
+          {exportFile && (
+            <p role="status" className="text-xs text-slate-700">
+              ملف المطابقة جاهز. إن لم يبدأ التنزيل،{' '}
+              <a ref={exportLink} href={exportFile.url} download={exportFile.name}
+                className="font-bold text-blue-700 underline">اضغط هنا للتنزيل</a>
+            </p>
+          )}
+          <OperationalHealthPanel />
+          <LegacyInvoiceAuditPanel />
+        </section>
+      )}
 
       {/* 4. Detailed Live Sync Activity Log & Connection Issues */}
       <div className="bg-white rounded-xl border border-slate-300 shadow-xs overflow-hidden">
@@ -891,7 +675,7 @@ export const SyncAuditStatementView: React.FC = () => {
                   : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
               }`}
             >
-              كافة الحركات المسجلة في الخادم الرئيسي ({auditLogs.length})
+              حركات هذا الجهاز المسجلة ({auditLogs.length})
             </button>
 
             <button
@@ -916,16 +700,6 @@ export const SyncAuditStatementView: React.FC = () => {
               ما تم استيعابه ({auditLogs.filter(l => l.direction === 'pull').length})
             </button>
 
-            <button
-              onClick={() => setActiveFilterTab('pending')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                activeFilterTab === 'pending'
-                  ? 'bg-amber-600 text-white shadow-2xs'
-                  : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
-              }`}
-            >
-              المعلقات ({pendingSyncCount > 0 ? auditLogs.filter(l => l.status === 'pending').length : 0})
-            </button>
 
             <button
               onClick={() => setActiveFilterTab('issues')}
@@ -936,7 +710,7 @@ export const SyncAuditStatementView: React.FC = () => {
               }`}
             >
               <AlertTriangle className="w-3.5 h-3.5" />
-              <span>سجل الأخطاء ومشاكل الاتصال ({connectionIssues.length})</span>
+              <span>أخطاء الاتصال المسجلة محليًا ({connectionIssues.length})</span>
             </button>
           </div>
 
@@ -952,39 +726,6 @@ export const SyncAuditStatementView: React.FC = () => {
               />
             </div>
 
-            {activeFilterTab === 'issues' && connectionIssues.length > 0 && (
-              <button
-                onClick={() => {
-                  syncAuditService.clearConnectionIssues();
-                  setConnectionIssues([]);
-                  loadLocalLogs();
-                  setActionFeedback({ success: true, message: 'تم مسح وتفريغ سجل الأخطاء من الخادم الرئيسي بنجاح ✅' });
-                  setTimeout(() => setActionFeedback(null), 3000);
-                }}
-                className="px-2.5 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg flex items-center gap-1 shrink-0 cursor-pointer"
-                title="مسح سجل الأخطاء"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>مسح الأخطاء</span>
-              </button>
-            )}
-
-            {activeFilterTab !== 'issues' && auditLogs.length > 0 && (
-              <button
-                onClick={() => {
-                  syncAuditService.clearAuditLogs();
-                  setAuditLogs([]);
-                  loadLocalLogs();
-                  setActionFeedback({ success: true, message: 'تم تفريغ سجل حركات المزامنة بنجاح ✅' });
-                  setTimeout(() => setActionFeedback(null), 3000);
-                }}
-                className="px-2.5 py-1.5 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg flex items-center gap-1 shrink-0 cursor-pointer"
-                title="تفريغ السجل"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>تفريغ</span>
-              </button>
-            )}
           </div>
         </div>
 
@@ -996,34 +737,11 @@ export const SyncAuditStatementView: React.FC = () => {
                 <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
                 <h3 className="text-sm font-bold text-slate-800">لا توجد أي أخطاء أو مشاكل اتصال مسجلة</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  كافة عمليات الإرسال والاستقبال مع سحابة خادم PostgreSQL تُراجع وفق تأكيدات الخادم وحالة الطابور.
+                  عدم وجود أخطاء مسجلة هنا لا يُثبت اكتمال المزامنة؛ راجع الطابور عند الحاجة.
                 </p>
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-2xs">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                    <div>
-                      <strong className="block text-emerald-800 font-bold">الاتصال بسحابة خادم PostgreSQL تُعرض حالته بعد الفحص</strong>
-                      <span className="text-[11px] text-emerald-700">
-                        سجل الأخطاء أدناه محفوظ في سحابة خادم PostgreSQL للتتبع والتدقيق الفني.
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      syncAuditService.clearConnectionIssues();
-                      setConnectionIssues([]);
-                      loadLocalLogs();
-                      setActionFeedback({ success: true, message: 'تم تصفير ومسح سجل الأخطاء بنجاح ✅' });
-                      setTimeout(() => setActionFeedback(null), 3000);
-                    }}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shrink-0 transition cursor-pointer shadow-xs"
-                  >
-                    تصفير ومسح السجل الآن
-                  </button>
-                </div>
                 {connectionIssues.map((issue) => (
                   <div
                     key={issue.id}
@@ -1058,7 +776,7 @@ export const SyncAuditStatementView: React.FC = () => {
                 <Activity className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                 <h3 className="text-sm font-bold text-slate-700">لا توجد حركات مسجلة تطابق التصفية</h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  تتم إضافة الحركات تلقائياً فور تسجيل الفواتير والسندات في قاعدة بيانات خادم PostgreSQL.
+                  يعرض هذا الجدول الأحداث المسجلة محليًا في المتصفح؛ سجل الخادم هو المرجع للتأكيد النهائي.
                 </p>
               </div>
             ) : (
@@ -1084,17 +802,17 @@ export const SyncAuditStatementView: React.FC = () => {
                         {item.direction === 'push' ? (
                           <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[10px]">
                             <ArrowUpRight className="w-3 h-3" />
-                            <span>نقل للـ الخادم الرئيسي</span>
+                            <span>إرسال للخادم</span>
                           </span>
                         ) : item.direction === 'pull' ? (
                           <span className="inline-flex items-center gap-1 text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-[10px]">
                             <ArrowDownLeft className="w-3 h-3" />
-                            <span>استيعاب سحابي</span>
+                            <span>استقبال من الخادم</span>
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-indigo-700 font-bold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200 text-[10px]">
                             <RefreshCw className="w-3 h-3" />
-                            <span>مزامنة شاملة</span>
+                            <span>فحص / مزامنة</span>
                           </span>
                         )}
                       </td>
@@ -1110,10 +828,13 @@ export const SyncAuditStatementView: React.FC = () => {
                         {item.documentNumber || item.documentId || '—'}
                       </td>
                       <td className="p-2.5">
-                        <span className="inline-flex items-center gap-1 text-emerald-700 font-bold text-[10px]">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>مؤكد سحابياً 🟢</span>
-                        </span>
+                        {item.status === 'success' ? (
+                          <span className="font-bold text-emerald-700 text-[10px]">ناجح بحسب السجل المحلي</span>
+                        ) : item.status === 'pending' ? (
+                          <span className="font-bold text-amber-700 text-[10px]">بانتظار التأكيد</span>
+                        ) : (
+                          <span className="font-bold text-rose-700 text-[10px]">فشل / يحتاج مراجعة</span>
+                        )}
                       </td>
                       <td className="p-2.5 text-slate-600 text-[11px]">
                         {item.details}
@@ -1142,10 +863,11 @@ export const SyncAuditStatementView: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleDownloadSnapshotJSON}
+                  disabled={!previewData || isLoadingPreview}
                   className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>تحميل النسخة الاحتياطية (JSON)</span>
+                  <span>تصدير نتيجة القراءة (JSON)</span>
                 </button>
                 <button
                   type="button"
@@ -1165,7 +887,7 @@ export const SyncAuditStatementView: React.FC = () => {
                 </div>
               ) : (
                 <>
-                  <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-900 flex items-center justify-between">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 flex items-center justify-between">
                     <span className="font-bold">
                       حالة البيانات: تأكد من سجلات الخادم قبل اعتماد المطابقة
                     </span>
