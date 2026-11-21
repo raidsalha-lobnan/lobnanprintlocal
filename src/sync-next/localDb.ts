@@ -397,8 +397,28 @@ export class LocalSyncDb {
     await done;
     return all.filter(x=>x.resolution==='OPERATOR_QUARANTINED_NOT_SERVER_COMMITTED')
       .map(x=>({archiveId:String(x.id),archivedAt:String(x.archivedAt),
+        reviewedAt:typeof x.reviewedAt === 'string' ? x.reviewedAt : null,
         counts:x.counts as ReturnType<typeof planBlockedCommandQuarantine>['counts']}))
       .sort((a,b)=>b.archivedAt.localeCompare(a.archivedAt));
+  }
+
+  async markQuarantinedArchiveReviewed(archiveId: string): Promise<void> {
+    const db = await this.getDb();
+    const tx = db.transaction(RECEIPTS, 'readwrite');
+    const done = completed(tx);
+    try {
+      const store = tx.objectStore(RECEIPTS);
+      const archive = await request(store.get(archiveId));
+      if (archive?.resolution !== 'OPERATOR_QUARANTINED_NOT_SERVER_COMMITTED')
+        throw new Error('لم يُعثر على الأرشيف المحدد');
+      if (!archive.reviewedAt) store.put({...archive, reviewedAt: new Date().toISOString()});
+      await done;
+      this.changed(false);
+    } catch (error) {
+      try { tx.abort(); } catch {}
+      await done.catch(() => {});
+      throw error;
+    }
   }
 
   /** Re-export private original commands for accounting review. Never replay automatically. */

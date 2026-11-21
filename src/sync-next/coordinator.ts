@@ -353,7 +353,7 @@ export class SyncCoordinator {
     }
   }
 
-  private async refreshCounts() {
+  async refreshCounts() {
     const commands = await this.local.pending();
 
     // Existing test stubs and legacy sync clients might not expose the new
@@ -361,7 +361,7 @@ export class SyncCoordinator {
     const archives=typeof this.local.listQuarantinedArchives==='function'
       ? await this.local.listQuarantinedArchives() : [];
     this.report({
-      archived:archives.reduce((n,x)=>n+x.counts.quarantined,0),
+      archived:archives.filter(x=>!x.reviewedAt).reduce((n,x)=>n+x.counts.quarantined,0),
       // Separate queued transport work from conflicts/rejections. Mixing them
       // made the dashboard's waiting count and success banners misleading.
       pending: commands.filter(c => c.status === 'pending').length,

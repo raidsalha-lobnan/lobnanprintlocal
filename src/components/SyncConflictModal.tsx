@@ -34,7 +34,7 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
   const [pendingCommands, setPendingCommands] = useState<SyncCommand[]>([]);
   const byEntity=summarizeEntityQueue(pendingCommands);
   const [privateBackupSnapshot,setPrivateBackupSnapshot]=useState<SyncCommand[]|null>(null);
-  const [savedArchives,setSavedArchives]=useState<Array<{archiveId:string;archivedAt:string;counts:{quarantined:number}}>>([]);
+  const [savedArchives,setSavedArchives]=useState<Array<{archiveId:string;archivedAt:string;reviewedAt:string|null;counts:{quarantined:number}}>>([]);
   const [authoritativeComparison,setAuthoritativeComparison]=useState<QueueComparison[]|null>(null);
   const [selectedCommand, setSelectedCommand] = useState<SyncCommand | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -420,16 +420,30 @@ export const SyncConflictModal: React.FC<SyncConflictModalProps> = ({ isOpen, on
                 <div className="text-[11px] text-slate-400">أوامر هذا الجهاز حسب الكيان؛ قد يضم الأمر المالي الواحد سجلات متعددة ولا يجوز تقسيمه تلقائيًا.</div>
               </div>
 
-              {savedArchives.length>0 && (
-                <div className="p-3 rounded-lg border border-amber-800 bg-amber-950/30 text-xs text-amber-100 space-y-2">
-                  <div className="font-bold">سجل إنقاذ العمليات القديمة: {savedArchives.reduce((n,a)=>n+a.counts.quarantined,0)} عملية محذوفة من الطابور النشط ومحفوظة للمراجعة فقط.</div>
-                  <div>هذه العمليات لن تعود إلى طابور المزامنة تلقائيًا، ولا تُحتسب تعارضات نشطة. نسخة الإنقاذ ليست إثباتًا بحفظها على PostgreSQL.</div>
-                  <button type="button" disabled={isLoading} onClick={()=>downloadPrivateArchive(savedArchives[0].archiveId)}
-                    className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 font-bold disabled:opacity-50">
-                    تنزيل أحدث أرشيف خاص للمراجعة
-                  </button>
+              {savedArchives.map(archive => archive.reviewedAt ? (
+                <details key={archive.archiveId} className="text-xs text-slate-400">
+                  <summary className="cursor-pointer">أرشيف تمت مراجعته · {archive.counts.quarantined} عملية</summary>
+                  <button onClick={()=>downloadPrivateArchive(archive.archiveId)}>تنزيل الأرشيف</button>
+                </details>
+              ) : (
+                <div key={archive.archiveId} className="p-3 rounded-lg border border-amber-800 bg-amber-950/30 text-xs text-amber-100 space-y-2">
+                  <div className="font-bold">{archive.counts.quarantined} عملية مؤرشفة للمراجعة · {new Date(archive.archivedAt).toLocaleDateString('ar-EG')}</div>
+                  <div>إغلاق التنبيه يسجّل مراجعتك على هذا الجهاز. تبقى العمليات محفوظة في الأرشيف.</div>
+                  <button type="button" disabled={isLoading} onClick={()=>downloadPrivateArchive(archive.archiveId)}
+                    className="px-3 py-1.5 rounded bg-slate-700">تنزيل الأرشيف</button>
+                  <button type="button" disabled={isLoading} onClick={async()=>{
+                    if (!unifiedRepository) return;
+                    setIsLoading(true);
+                    try {
+                      await unifiedRepository.getLocalDb().markQuarantinedArchiveReviewed(archive.archiveId);
+                      await unifiedRepository.getCoordinator().refreshCounts();
+                      await loadData();
+                      setFeedback('تم إغلاق تنبيه الأرشيف على هذا الجهاز.');
+                    } catch (error) { setFeedback(String(error)); }
+                    finally { setIsLoading(false); }
+                  }} className="mx-2 px-3 py-1.5 rounded bg-emerald-800 font-bold">تمت المراجعة وإغلاق التنبيه</button>
                 </div>
-              )}
+              ))}
               {/* Conflict List */}
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">

@@ -63,6 +63,11 @@ test('original full command payload, finance status and cursor are retained in a
   assert.equal(archives.length,1);
   assert.equal(archives[0].counts.quarantined,3);
   const exported=await db.exportQuarantinedArchive(archived.archiveId);
+  assert.equal(archives[0].reviewedAt,null);
+  await db.markQuarantinedArchiveReviewed(archived.archiveId);
+  assert.ok((await db.listQuarantinedArchives())[0].reviewedAt);
+  assert.deepEqual(await db.exportQuarantinedArchive(archived.archiveId),exported);
+  assert.deepEqual(await db.pending(),active);
   assert.equal(exported.originalCommands.length,3);
   assert.ok(JSON.stringify(exported).includes('Private local new item updated'));
   assert.ok(JSON.stringify(exported).includes('INV-0069'));
