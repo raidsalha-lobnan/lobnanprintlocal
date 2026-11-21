@@ -69,36 +69,17 @@ export const ENTITY_ARABIC_NAMES: Record<string, string> = {
 
 export const syncAuditService = {
   // Get all recorded sync logs
+  // This browser history must never infer server acknowledgement from a local
+  // counter reaching zero: rejected/conflicted commands may still exist.
   getAuditLogs: (): SyncAuditItem[] => {
     try {
       const data = localStorage.getItem(STORAGE_KEY_AUDIT);
-      if (data) {
-        let parsed = JSON.parse(data);
-        if (Array.isArray(parsed)) {
-          const hasUnsynced = localStorage.getItem('alnoor_press_accounting_v1_has_unsynced') === 'true';
-          const pendingCount = parseInt(localStorage.getItem('alnoor_press_accounting_v1_pending_sync_count') || '0', 10) || 0;
-          if (!hasUnsynced && pendingCount === 0) {
-            let autoFixed = false;
-            parsed = parsed.map((item: any) => {
-              if (item && item.status === 'pending') {
-                autoFixed = true;
-                return {
-                  ...item,
-                  status: 'success',
-                  details: 'تمت المزامنة والمطابقة بنجاح مع السيرفر السحابي والرئيسي 🟢'
-                };
-              }
-              return item;
-            });
-            if (autoFixed) {
-              try { localStorage.setItem(STORAGE_KEY_AUDIT, JSON.stringify(parsed)); } catch {}
-            }
-          }
-          return parsed;
-        }
-      }
-    } catch {}
-    return [];
+      if (!data) return [];
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   },
 
   // Record a synchronization event (push or pull)
@@ -150,21 +131,17 @@ export const syncAuditService = {
   },
 
   // Get all recorded connection issues
+  // Preserve diagnostics until an explicit, separately authorized cleanup.
+  // A zero pending counter is not evidence that previous failures vanished.
   getConnectionIssues: (): SyncConnectionIssue[] => {
     try {
-      const hasUnsynced = localStorage.getItem('alnoor_press_accounting_v1_has_unsynced') === 'true';
-      const pendingCount = parseInt(localStorage.getItem('alnoor_press_accounting_v1_pending_sync_count') || '0', 10) || 0;
-      if (!hasUnsynced && pendingCount === 0) {
-        localStorage.removeItem(STORAGE_KEY_ISSUES);
-        return [];
-      }
       const data = localStorage.getItem(STORAGE_KEY_ISSUES);
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {}
-    return [];
+      if (!data) return [];
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   },
 
   // Record a connection issue or sync failure
