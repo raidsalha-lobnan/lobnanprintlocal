@@ -57,7 +57,7 @@ export function compareRecordCollections(
   return { status, ...empty };
 }
 
-async function downloadMultiSourceDiagnostic(repository: any) {
+async function prepareMultiSourceDiagnostic(repository: any) {
   const local = await repository.getAllVisibleGrouped();
   const outbox = await repository.getLocalDb().pending();
   const cloud = await repository.getCloudSnapshot();
@@ -96,18 +96,7 @@ async function downloadMultiSourceDiagnostic(repository: any) {
   };
   const json = JSON.stringify(report, null, 2);
   const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  try {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `lobnan-reconciliation-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-  return report;
+  return { url: URL.createObjectURL(blob), name: `lobnan-reconciliation-${Date.now()}.json` };
 }
 import { getProgramDriveStatus } from '../services/googleDriveService';
 import { SyncConflictModal } from './SyncConflictModal';
@@ -193,6 +182,15 @@ export const SyncAuditStatementView: React.FC = () => {
   const [isConflictModalOpen, setIsConflictModalOpen] = useState(false);
   const [cloudCounts, setCloudCounts] = useState<Record<string, number> | null>(null);
   const [auditedCloudRecords, setAuditedCloudRecords] = useState<Record<string, any[]> | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const [exportFile, setExportFile] = useState<{ url: string; name: string } | null>(null);
+  const exportLink = React.useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (!exportFile) return;
+    exportLink.current?.click();
+    return () => URL.revokeObjectURL(exportFile.url);
+  }, [exportFile]);
   const [isLoadingCloudCounts, setIsLoadingCloudCounts] = useState(false);
 
   // Database Preview Modal State
@@ -775,19 +773,23 @@ export const SyncAuditStatementView: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={!unifiedRepository || isLoadingCloudCounts}
+              disabled={!unifiedRepository || isLoadingCloudCounts || exportBusy}
               onClick={async () => {
                 if (!unifiedRepository) return;
                 if (!window.confirm('سيتم قراءة السجلات السحابية مرة واحدة وتصدير بيانات مالية كاملة للمطابقة. هل تريد المتابعة؟')) return;
+                setExportBusy(true);
+                setExportError('');
+                setExportFile(null);
                 try {
-                  await downloadMultiSourceDiagnostic(unifiedRepository);
-                  setActionFeedback({ success: true, message: 'تم تنزيل ملف المقارنة دون تعديل السجلات.' });
+                  setExportFile(await prepareMultiSourceDiagnostic(unifiedRepository));
                 } catch (error) {
-                  setActionFeedback({ success: false, message: `فشل استخراج تقرير المصادر: ${String(error)}` });
+                  setExportError(`تعذّر تجهيز ملف المطابقة. ${String(error)}`);
+                } finally {
+                  setExportBusy(false);
                 }
               }}
               className="px-2.5 py-1 text-[11px] bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg font-bold"
-            >تصدير مصادر البيانات الثلاث للمراجعة</button>
+            >{exportBusy ? 'جارٍ قراءة السجلات وتجهيز الملف…' : 'تصدير مصادر البيانات الثلاث للمراجعة'}</button>
             <button
               onClick={() => {
                 loadCloudCounts();
@@ -806,6 +808,14 @@ export const SyncAuditStatementView: React.FC = () => {
           </div>
         </div>
 
+        {exportError && <p role="alert" className="p-2 text-sm text-red-700">{exportError}</p>}
+        {exportFile && (
+          <p role="status" className="p-2 text-sm">
+            ملف المطابقة جاهز. إذا لم يبدأ التنزيل، اضغط هنا.{' '}
+            <a ref={exportLink} href={exportFile.url} download={exportFile.name}
+              className="font-bold text-blue-700 underline">تنزيل ملف المطابقة</a>
+          </p>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-right border-collapse">
             <thead>
