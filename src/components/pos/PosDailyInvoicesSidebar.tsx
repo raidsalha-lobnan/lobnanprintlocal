@@ -423,25 +423,25 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
               <select
                 value={activeFilterTab}
                 onChange={(e) => setActiveFilterTab(e.target.value as any)}
-                className="bg-transparent text-white text-[11px] font-bold focus:outline-none w-full cursor-pointer truncate py-0.5"
+                className="bg-white text-black text-[11px] font-bold focus:outline-none w-full cursor-pointer truncate py-0.5"
                 title="تصنيف وفلترة الفواتير"
               >
-                <option value="all" className="bg-[#1f4a7c] text-white">الكل ({counts.all})</option>
+                <option value="all" className="bg-white text-black">الكل ({counts.all})</option>
                 {currentCustomerName && (
-                  <option value="customer_only" className="bg-[#1f4a7c] text-amber-300 font-bold">
+                  <option value="customer_only" className="bg-white text-black font-bold">
                     👤 فواتير الزبون: {currentCustomerName} ({counts.customer_only})
                   </option>
                 )}
-                <option value="unpaid_or_credit" className="bg-[#1f4a7c] text-white">ذمم وآجل ({counts.unpaid_or_credit})</option>
-                <option value="paid" className="bg-[#1f4a7c] text-white">مسددة ({counts.paid})</option>
-                <option value="new" className="bg-[#1f4a7c] text-white">جديدة ({counts.new})</option>
-                <option value="quotation" className="bg-[#1f4a7c] text-white">عروض ({counts.quotation})</option>
-                <option value="design" className="bg-[#1f4a7c] text-white">تصميم ({counts.design})</option>
-                <option value="print_internal" className="bg-[#1f4a7c] text-white">طباعة داخلي ({counts.print_internal})</option>
-                <option value="print_external" className="bg-[#1f4a7c] text-white">طباعة خارجي ({counts.print_external})</option>
-                <option value="ready" className="bg-[#1f4a7c] text-white">جاهزة ({counts.ready})</option>
-                <option value="delivered" className="bg-[#1f4a7c] text-white">مسلمة ({counts.delivered})</option>
-                <option value="other" className="bg-[#1f4a7c] text-white">أخرى ({counts.other})</option>
+                <option value="unpaid_or_credit" className="bg-white text-black">ذمم وآجل ({counts.unpaid_or_credit})</option>
+                <option value="paid" className="bg-white text-black">مسددة ({counts.paid})</option>
+                <option value="new" className="bg-white text-black">جديدة ({counts.new})</option>
+                <option value="quotation" className="bg-white text-black">عروض ({counts.quotation})</option>
+                <option value="design" className="bg-white text-black">تصميم ({counts.design})</option>
+                <option value="print_internal" className="bg-white text-black">طباعة داخلي ({counts.print_internal})</option>
+                <option value="print_external" className="bg-white text-black">طباعة خارجي ({counts.print_external})</option>
+                <option value="ready" className="bg-white text-black">جاهزة ({counts.ready})</option>
+                <option value="delivered" className="bg-white text-black">مسلمة ({counts.delivered})</option>
+                <option value="other" className="bg-white text-black">أخرى ({counts.other})</option>
               </select>
             </div>
             <span className="text-[10px] bg-blue-600/90 text-white px-1.5 py-0.5 rounded-full font-black shrink-0">
@@ -506,7 +506,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
             <DateInput
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
-              className="bg-[#1f4a7c] text-white text-[10.5px] font-mono px-1 py-0.5 rounded border border-blue-400/30 focus:outline-none cursor-pointer w-full text-center"
+              className="bg-white text-black text-[10.5px] font-mono px-1 py-0.5 rounded border border-blue-400/30 focus:outline-none cursor-pointer w-full text-center"
             />
           </div>
           <div className="flex items-center gap-1 flex-1 min-w-0">
@@ -514,7 +514,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
             <DateInput
               value={endDate}
               onChange={e => setEndDate(e.target.value)}
-              className="bg-[#1f4a7c] text-white text-[10.5px] font-mono px-1 py-0.5 rounded border border-blue-400/30 focus:outline-none cursor-pointer w-full text-center"
+              className="bg-white text-black text-[10.5px] font-mono px-1 py-0.5 rounded border border-blue-400/30 focus:outline-none cursor-pointer w-full text-center"
             />
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -561,7 +561,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
             placeholder="بحث برقم، عميل، أو مبلغ..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-2 pr-7 py-1 border border-slate-300 rounded text-[11px] font-medium focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full bg-white text-black pl-2 pr-7 py-1 border border-slate-300 rounded text-[11px] font-medium focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
       </div>
