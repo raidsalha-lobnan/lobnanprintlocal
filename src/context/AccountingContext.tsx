@@ -3,7 +3,7 @@ import { onlineInvoicePostingService } from '../services/onlineInvoicePostingSer
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createUnifiedDataLayer } from '../sync-next/boot';
 import {repositoryStartupNeedsManualAction,repositoryStartupRetryDelay} from '../sync-next/repositoryStartupRetry';
-import { secureLoginEnabled } from '../services/secureAuth';
+import { secureLoginEnabled,getCurrentSessionActorId,getCurrentSessionProfile } from '../services/secureAuth';
 import { getBinaryAttachment } from '../utils/fileStorage';
 import {registeredSubCustomer,findSubCustomerForSale,normalizeSubCustomerName} from '../utils/subCustomerIdentity';
 import {stablePosJournalId,stablePosStockMovementFromSale} from '../utils/posPostingIdentity';
@@ -1915,12 +1915,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   const [currentUserId, _setCurrentUserId] = useState<string>(() => {
+    // A PostgreSQL session binds the operator identity. A remembered dropdown
+    // selection from a past session must never override a successful login.
+    if(secureLoginEnabled())return getCurrentSessionActorId();
     return localStorage.getItem(`${STORAGE_KEY}_current_user_id`) ||
       localStorage.getItem('alnoor_press_accounting_v1_current_user_id') ||
       'usr-1';
   });
 
   const setCurrentUserId = (id: string) => {
+    if(secureLoginEnabled() && (!getCurrentSessionActorId() || id!==getCurrentSessionActorId())){
+      console.warn('Refused UI user switch: account identity is bound to PostgreSQL login');
+      return;
+    }
     _setCurrentUserId(id);
     try {
       localStorage.setItem(`${STORAGE_KEY}_current_user_id`, id);
@@ -2729,7 +2736,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Helper accessors and CRUD for Multi-Company, Multi-Branch & Granular RBAC
   const currentUser: SystemUser = React.useMemo(() => {
-    return users.find(u => u.id === currentUserId) || users[0] || {
+    // PostgreSQL login response wins over stale local directory projections.
+    // Do not substitute another employee when the signed-in actor is absent.
+    const matched=secureLoginEnabled()
+      ? getCurrentSessionProfile()
+      : (users.find(u=>u.id===currentUserId)||users[0]);
+    return matched || {
       id: 'session-not-verified',
       companyId: '',
       username: '',
@@ -2744,7 +2756,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [users, currentUserId]);
 
   const getCurrentUser = (): SystemUser => {
-    return users.find(u => u.id === currentUserId) || users[0] || {
+    const matched=secureLoginEnabled()
+      ? getCurrentSessionProfile()
+      : (users.find(u=>u.id===currentUserId)||users[0]);
+    return matched || {
       id: 'session-not-verified',
       companyId: '',
       username: '',
@@ -2822,8 +2837,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const hasPermission = (permission: PermissionKey): boolean => {
-    const user = users.find(u => u.id === currentUserId) || users[0];
-    if (!user) return import.meta.env?.VITE_SYNC_LOGIN_MODE !== 'users';
+    const user = secureLoginEnabled()?getCurrentUser():(users.find(u=>u.id===currentUserId)||users[0]);
+    if (!user || (secureLoginEnabled() && user.id!==getCurrentSessionActorId()))
+      return !secureLoginEnabled();
 
     // Check custom overrides first
     if (user.customPermissions && user.customPermissions[permission] !== undefined) {
@@ -2843,7 +2859,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const canAccessBranch = (branchId: string, user?: SystemUser): boolean => {
     if(import.meta.env?.VITE_SYNC_LOGIN_MODE !== 'users')return true;
-    const actor=user||users.find(u=>u.id===currentUserId);
+    const actor=user||getCurrentUser();
+    if(secureLoginEnabled() && actor.id!==getCurrentSessionActorId() && !user)return false;
     if(!actor||actor.status!=='active')return false;
     return Array.isArray(actor.allowedBranchIds) &&
       (actor.allowedBranchIds.includes('*')||actor.allowedBranchIds.includes(branchId));
@@ -2984,7 +3001,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Get current user price permissions and allowed tiers
   const getCurrentUserPricePolicy = (user?: SystemUser) => {
-    const targetUser = user || users.find(u => u.id === currentUserId) || users[0];
+    const targetUser = user || getCurrentUser();
     const role = targetUser ? roles.find(r => r.id === targetUser.roleId) : undefined;
 
     // Check permission to edit price manually

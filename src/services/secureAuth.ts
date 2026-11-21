@@ -4,6 +4,7 @@ const STORED_LOGIN_KEY='lobnan_offline_encrypted_login_v1';
 export const AUTH_TOKEN_KEY='lobnan_postgres_user_session';
 const TOKEN_EXPIRY_KEY='lobnan_postgres_user_session_expires';
 const SESSION_ACTOR_KEY='lobnan_postgres_session_actor_id';
+const SESSION_PROFILE_KEY='lobnan_postgres_session_profile_v1';
 const FALLBACK_API='https://lobnan-api.shares.zrok.io';
 const LOCAL_CREDENTIAL_MAX_AGE=7*24*60*60*1000;
 const encode=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes)));
@@ -21,6 +22,31 @@ export function publicSyncApiUrl():string {
 /** An advisory local outbox owner. PostgreSQL authenticates every request independently. */
 export function getCurrentSessionActorId(): string {
   try{return sessionStorage.getItem(SESSION_ACTOR_KEY)||'';}catch{return '';}
+}
+/**
+ * Public identity for this tab, supplied only by a successful PostgreSQL
+ * login response (or the authenticated encrypted offline unlock). Never
+ * infer identity from the last selected user in localStorage/IndexedDB.
+ */
+export function getCurrentSessionProfile():SystemUser|null {
+  try {
+    const id=getCurrentSessionActorId();
+    if(!id || !getCurrentSessionToken())return null;
+    const raw=sessionStorage.getItem(SESSION_PROFILE_KEY);
+    if(!raw)return null;
+    const profile=JSON.parse(raw) as SystemUser;
+    if(!profile || profile.id!==id || profile.status!=='active' ||
+       typeof profile.fullName!=='string' || typeof profile.roleId!=='string')
+      return null;
+    return profile;
+  }catch{return null;}
+}
+function bindCurrentSessionProfile(user:SystemUser){
+  if(!user?.id || getCurrentSessionActorId()!==user.id)
+    throw new Error('POSTGRES_SESSION_ACTOR_MISMATCH');
+  // The auth API strips passwordHash and other secrets; never cache passwords.
+  const {password,...profile}=user;
+  sessionStorage.setItem(SESSION_PROFILE_KEY,JSON.stringify(profile));
 }
 export function getCurrentSessionToken():string {
   try {
@@ -81,6 +107,7 @@ export async function loginOnline(identifier:string,password:string):Promise<Sys
   const expires=Number(payload.expiresInSeconds||0);
   storeSession(payload.token,expires);
   sessionStorage.setItem(SESSION_ACTOR_KEY,user.id);
+  bindCurrentSessionProfile(user);
   // Offline unlock is available only AFTER this successful server login.
   // The opaque server token is encrypted at rest using this device's password.
   try{await cacheOfflineLogin(password,user,payload.token,expires);}
@@ -110,11 +137,13 @@ export async function loginOffline(identifier:string,password:string):Promise<Sy
   if(seconds>0 && payload.token){
     storeSession(payload.token,seconds);
     sessionStorage.setItem(SESSION_ACTOR_KEY,user.id);
+    bindCurrentSessionProfile(user);
   }
   return user;
 }
 export function clearSession(){
   sessionStorage.removeItem(SESSION_ACTOR_KEY);
+  sessionStorage.removeItem(SESSION_PROFILE_KEY);
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
 }

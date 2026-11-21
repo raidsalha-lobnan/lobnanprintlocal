@@ -1068,8 +1068,9 @@ export const Navbar: React.FC = () => {
             </select>
           </div>
 
-          {/* Active User Switcher - ONLY visible & switchable for System Admin */}
-          {isAdmin ? (
+          {/* PostgreSQL logins are never impersonated by a UI dropdown. The
+              legacy user switcher is retained only outside secure-login mode. */}
+          {!secureLoginEnabled() && isAdmin ? (
             <div className="flex items-center gap-1 bg-white border border-[#7f9db9] rounded-xs px-1.5 py-0.5 text-xs shadow-inner">
               <UserCheck className="w-3 h-3 text-emerald-600 shrink-0" />
               <span className="text-[10px] text-slate-500 hidden xl:inline">المستخدم:</span>
