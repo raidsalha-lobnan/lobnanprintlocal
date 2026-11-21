@@ -91,8 +91,7 @@ import {
   CheckCircle2,
   Ruler,
   Paperclip,
-  RefreshCw,
-  FileSpreadsheet
+  RefreshCw
 } from 'lucide-react';
 import { PosCustomButton, loadPosCustomButtons, savePosCustomButtons, DEFAULT_POS_BUTTONS } from '../types/posCustomizer';
 import {
@@ -1428,7 +1427,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
         handleOpenInvoiceDetailsPreview();
         break;
       case 'open_daily_invoices':
-        setIsDailyInvoicesOpen(true);
+        setIsDailyInvoicesOpen(open => !open);
         break;
       case 'add_delivery_service':
         handleAddDeliveryServiceLine();
@@ -3933,16 +3932,6 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               {/* زر تفاصيل الفاتورة (مرفوع لشريط الأزرار العلوي) */}
               <button
                 type="button"
-                onClick={() => setIsDraftQueueOpen(true)}
-                className="h-8 px-2.5 py-1 bg-white hover:bg-blue-50 border border-blue-200 text-blue-800 rounded-lg font-bold text-xs flex items-center gap-1.5 whitespace-nowrap"
-                title="فتح مسودات الفواتير الواردة من Excel وOneDrive داخل الكاشير"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>مسودات Excel / OneDrive</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={handleOpenInvoiceDetailsPreview}
                 className="h-8 px-2.5 py-1 bg-white hover:bg-blue-50 border border-blue-300 hover:border-blue-400 text-blue-800 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
                 title="معاينة وطباعة مسودة الفاتورة لمراجعة البنود والأسعار مع الزبون قبل الحفظ"
@@ -3954,7 +3943,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               {/* زر سجل فواتير اليوم (مرفوع لشريط الأزرار العلوي) */}
               <button
                 type="button"
-                onClick={() => setIsDailyInvoicesOpen(true)}
+                aria-pressed={isDailyInvoicesOpen}
+                onClick={() => setIsDailyInvoicesOpen(open => !open)}
                 className="h-8 px-2.5 py-1 bg-[#1f4a7c] hover:bg-[#183a62] text-white rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
                 title="سجل فواتير اليوم وحالاتها (جديدة، قيد التصميم، تنفيذ، جاهزة، مسلمة)"
               >
@@ -3962,15 +3952,15 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                 <span>سجل فواتير اليوم</span>
               </button>
 
-              {/* زر مراجعة وسجل فواتير المبيعات */}
               <button
                 type="button"
-                onClick={() => setIsInvoicesReviewOpen(true)}
-                className="h-8 px-2.5 py-1 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
-                title="مراجعة وسجل كافة فواتير المبيعات السابقة والبحث والطباعة"
+                aria-pressed={posLayoutConfig.showFavoritesSidebar !== false}
+                onClick={() => handleToggleLayoutSection('showFavoritesSidebar')}
+                className="h-8 px-2.5 py-1 bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-950 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
+                title={posLayoutConfig.showFavoritesSidebar !== false ? 'إخفاء المفضلة' : 'إظهار المفضلة'}
               >
-                <Search className="w-3.5 h-3.5 text-indigo-200" />
-                <span>سجل المبيعات</span>
+                <Star className="w-3.5 h-3.5" />
+                <span>المفضلة</span>
               </button>
 
               {/* زر تخصيص الشاشة ومصمم الواجهة */}
