@@ -483,6 +483,7 @@ interface AccountingContextType {
   forcePushAndPullSync: () => Promise<{ success: boolean; message: string; invoicesCount: number }>;
   importMasterDatabaseSnapshot: () => Promise<{ success: boolean; message: string }>;
   unifiedRepository: UnifiedRepository | null;
+  refreshLocalView: () => void;
   syncCoordinatorState: SyncState;
   openConflictModal: () => void;
   closeConflictModal: () => void;
@@ -1255,6 +1256,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const unifiedRepoRef = React.useRef<UnifiedRepository | null>(null);
   // Keep the last rendered invoice count outside the asynchronous repository
   // callback, which otherwise captures only the initial React state.
+  const refreshLocalViewRef = React.useRef<(() => void) | null>(null);
+  const refreshLocalView = React.useCallback(() => refreshLocalViewRef.current?.(), []);
   const renderedInvoiceCountRef = React.useRef<number>(0);
   // Prevent two click/keyboard submissions from creating two financial sales.
   const posSubmissionInFlightRef = React.useRef(false);
@@ -1288,12 +1291,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         stopFn = layer.stop;
         retries = 0;
 
-        let latestRepositoryRefresh = 0;
         const syncStateWithRepository = async (repo: UnifiedRepository) => {
-          const refresh = ++latestRepositoryRefresh;
           try {
             const grouped = await repo.getAllVisibleGrouped();
-            if (unmounted || refresh !== latestRepositoryRefresh) return;
+            if (unmounted) return;
             // Repeated outbox notifications can return identical snapshots.
             // Preserve React array references when the accounting data is unchanged.
             const unchanged = (previous: unknown[], incoming: unknown[]) =>
@@ -1301,7 +1302,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             // Once authoritative initialization succeeds, an empty server collection
             // is meaningful: do not display an old localStorage list as cloud truth.
             const canonical = (await repo.getLocalDb().bootstrapStatus()) === 'initialized';
-            if (unmounted || refresh !== latestRepositoryRefresh) return;
+            if (unmounted) return;
             // A transient empty IndexedDB read is not proof that PostgreSQL has
             // deleted every invoice. Never make an already displayed ledger
             // disappear merely because one local projection was empty.
@@ -1321,7 +1322,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 console.warn('Invoice projection held until PostgreSQL verification', error);
               }
             }
-            if (unmounted || refresh !== latestRepositoryRefresh) return;
+            if (unmounted) return;
             if (allowEmptyInvoiceProjection && Array.isArray(grouped.invoices) &&
                 (canonical || grouped.invoices.length > 0))
               setInvoices(prev => unchanged(prev, grouped.invoices) ? prev : grouped.invoices);
@@ -1370,7 +1371,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               id: String(value?.id || ''), value, version: 0, pending: false
             }));
             const savedSettings = selectWorkspaceSettings(settingsRows);
-            if (savedSettings?.value && !unmounted && refresh === latestRepositoryRefresh) {
+            if (savedSettings?.value && !unmounted) {
               // The PostgreSQL record is authoritative across every device.
               // Retain one recoverable device-only copy of any older letterhead,
               // but never auto-upload obsolete localStorage values.
@@ -1399,12 +1400,28 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
         };
 
-        await syncStateWithRepository(layer.repository);
+        // Subscribe before the first read. Coalesce overlapping changes without
+        // discarding a completed snapshot while a newer read is still pending.
+        let reading = false;
+        let requested = false;
+        const refreshView = async () => {
+          requested = true;
+          if (reading) return;
+          reading = true;
+          try {
+            while (requested && !unmounted) {
+              requested = false;
+              await syncStateWithRepository(layer.repository);
+            }
+          } finally {
+            reading = false;
+          }
+        };
+        refreshLocalViewRef.current = refreshView;
         unsubscribeRepo = layer.repository.subscribe(recordsChanged => {
-          // Error/retry metadata belongs to the sync indicator, not the
-          // financial record lists. Do not redraw the entire application.
-          if (recordsChanged) void syncStateWithRepository(layer.repository);
+          if (recordsChanged) void refreshView();
         });
+        void refreshView();
 
         unsubscribeState = layer.coordinator.onState(st => {
           if (!unmounted) {
@@ -1456,6 +1473,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       unmounted = true;
       window.removeEventListener('online', wakeUpInitialization);
       if (retryTimer) clearTimeout(retryTimer);
+      refreshLocalViewRef.current = null;
       if (unsubscribeRepo) unsubscribeRepo();
       if (unsubscribeState) unsubscribeState();
       if (stopFn) stopFn();
@@ -11319,6 +11337,7 @@ return (
         forcePushAndPullSync,
         importMasterDatabaseSnapshot,
         unifiedRepository,
+        refreshLocalView,
         syncCoordinatorState,
         openConflictModal,
         closeConflictModal,
