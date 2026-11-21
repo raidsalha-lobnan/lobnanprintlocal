@@ -483,7 +483,7 @@ interface AccountingContextType {
   forcePushAndPullSync: () => Promise<{ success: boolean; message: string; invoicesCount: number }>;
   importMasterDatabaseSnapshot: () => Promise<{ success: boolean; message: string }>;
   unifiedRepository: UnifiedRepository | null;
-  refreshLocalView: () => void;
+  refreshEmployeeDirectory: () => Promise<number>;
   syncCoordinatorState: SyncState;
   openConflictModal: () => void;
   closeConflictModal: () => void;
@@ -1256,8 +1256,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const unifiedRepoRef = React.useRef<UnifiedRepository | null>(null);
   // Keep the last rendered invoice count outside the asynchronous repository
   // callback, which otherwise captures only the initial React state.
-  const refreshLocalViewRef = React.useRef<(() => void) | null>(null);
-  const refreshLocalView = React.useCallback(() => refreshLocalViewRef.current?.(), []);
+  const employeeReadSequence = React.useRef(0);
+  const appliedEmployeeRead = React.useRef(0);
   const renderedInvoiceCountRef = React.useRef<number>(0);
   // Prevent two click/keyboard submissions from creating two financial sales.
   const posSubmissionInFlightRef = React.useRef(false);
@@ -1293,6 +1293,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         const syncStateWithRepository = async (repo: UnifiedRepository) => {
           try {
+            const employeeRead = ++employeeReadSequence.current;
             const grouped = await repo.getAllVisibleGrouped();
             if (unmounted) return;
             // Repeated outbox notifications can return identical snapshots.
@@ -1335,7 +1336,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(grouped.printOrders) && (canonical || grouped.printOrders.length > 0)) setPrintOrders(prev => unchanged(prev, grouped.printOrders) ? prev : grouped.printOrders);
             if (Array.isArray(grouped.vouchers) && (canonical || grouped.vouchers.length > 0)) setVouchers(prev => unchanged(prev, grouped.vouchers) ? prev : grouped.vouchers);
             if (Array.isArray(grouped.purchases) && (canonical || grouped.purchases.length > 0)) setPurchases(prev => unchanged(prev, grouped.purchases) ? prev : grouped.purchases);
-            if (Array.isArray(grouped.employees) && (canonical || grouped.employees.length > 0)) setEmployees(prev => unchanged(prev, grouped.employees) ? prev : grouped.employees);
+            if (employeeRead > appliedEmployeeRead.current && Array.isArray(grouped.employees) && (canonical || grouped.employees.length > 0)) {
+              appliedEmployeeRead.current = employeeRead;
+              setEmployees(prev => unchanged(prev, grouped.employees) ? prev : grouped.employees);
+            }
             if (Array.isArray(grouped.roles) && (canonical || grouped.roles.length > 0)) setRoles(prev => unchanged(prev, grouped.roles) ? prev : grouped.roles);
             if (Array.isArray(grouped.users) && (canonical || grouped.users.length > 0)) setUsers(prev => unchanged(prev, grouped.users) ? prev : grouped.users);
             if (Array.isArray(grouped.expenses) && (canonical || grouped.expenses.length > 0)) setExpenses(prev => unchanged(prev, grouped.expenses) ? prev : grouped.expenses);
@@ -1417,7 +1421,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             reading = false;
           }
         };
-        refreshLocalViewRef.current = refreshView;
         unsubscribeRepo = layer.repository.subscribe(recordsChanged => {
           if (recordsChanged) void refreshView();
         });
@@ -1473,7 +1476,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       unmounted = true;
       window.removeEventListener('online', wakeUpInitialization);
       if (retryTimer) clearTimeout(retryTimer);
-      refreshLocalViewRef.current = null;
       if (unsubscribeRepo) unsubscribeRepo();
       if (unsubscribeState) unsubscribeState();
       if (stopFn) stopFn();
@@ -1635,6 +1637,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [employees, setEmployees] = useState<Employee[]>(() => {
     return safeLoadArray(`${STORAGE_KEY}_employees`, initialEmployees);
   });
+
+  const refreshEmployeeDirectory = React.useCallback(async () => {
+    if (!unifiedRepository) throw new Error('قاعدة الجهاز لم تجهز بعد');
+    const employeeRead = ++employeeReadSequence.current;
+    const records = await unifiedRepository.all('employees');
+    const directory = records.map(row => row.value as unknown as Employee);
+    if (employeeRead > appliedEmployeeRead.current && unifiedRepository === unifiedRepoRef.current) {
+      appliedEmployeeRead.current = employeeRead;
+      setEmployees(prev => JSON.stringify(prev) === JSON.stringify(directory) ? prev : directory);
+    }
+    return directory.length;
+  }, [unifiedRepository]);
 
   const [printOrders, setPrintOrders] = useState<PrintJobOrder[]>(() => {
     const loaded = safeLoadArray(`${STORAGE_KEY}_printOrders`, initialPrintOrders);
@@ -11337,7 +11351,7 @@ return (
         forcePushAndPullSync,
         importMasterDatabaseSnapshot,
         unifiedRepository,
-        refreshLocalView,
+        refreshEmployeeDirectory,
         syncCoordinatorState,
         openConflictModal,
         closeConflictModal,

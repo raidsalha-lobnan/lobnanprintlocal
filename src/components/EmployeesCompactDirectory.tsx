@@ -16,8 +16,23 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
 })=>{
  const {employees,vouchers,invoices,purchases,purchaseReturns,salesReturns,
   employeeAdvances,employeeDeductions,employeeIncentives,payrollSheets,
-  journalEntries,debtClearings,settings,setSelectedEmployeeForStatement,refreshLocalView}=useAccounting();
- React.useEffect(() => { refreshLocalView(); }, [refreshLocalView]);
+  journalEntries,debtClearings,settings,setSelectedEmployeeForStatement,unifiedRepository,refreshEmployeeDirectory}=useAccounting();
+ const [readAttempt,setReadAttempt]=useState(0);
+ const [directoryStatus,setDirectoryStatus]=useState('');
+ React.useEffect(() => {
+  let current=true;
+  if (!unifiedRepository) {
+   setDirectoryStatus('بانتظار قاعدة الجهاز');
+   return;
+  }
+  setDirectoryStatus('جارٍ قراءة سجل الموظفين…');
+  refreshEmployeeDirectory().then(count=>{
+   if(current)setDirectoryStatus(`آخر قراءة من الجهاز: ${count}`);
+  }).catch(()=>{
+   if(current)setDirectoryStatus('تعذرت قراءة سجل الجهاز. أعد المحاولة من «إظهار الكل».');
+  });
+  return ()=>{current=false;};
+ },[unifiedRepository,refreshEmployeeDirectory,readAttempt]);
  const [search,setSearch]=useState('');
  const [mode,setMode]=useState<DirectoryDateMode>('all');
  const [day,setDay]=useState(todayLocal);
@@ -112,10 +127,10 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
    <select value={salaryType} onChange={e=>setSalaryType(e.target.value)} aria-label="نوع الراتب" className="h-7 shrink-0 rounded-md border px-1 text-[11px]">
     <option value="all">كل الرواتب</option><option value="monthly">شهري</option><option value="weekly">أسبوعي</option><option value="daily">يومي</option>
    </select>
-   <button type="button" onClick={()=>{setSearch('');setMode('all');setFrom('');setTo('');setStatus('all');setSalaryType('all');refreshLocalView();}}
+   <button type="button" onClick={()=>{setSearch('');setMode('all');setFrom('');setTo('');setStatus('all');setSalaryType('all');setReadAttempt(n=>n+1);}}
     className="h-7 shrink-0 rounded-md border bg-slate-100 px-2 text-[11px] font-bold">إظهار الكل</button>
    <div role="status" className="ms-auto flex shrink-0 gap-2 text-[10px] font-bold text-slate-700">
-    <span>المعروض: {rows.length} / {employees.length}</span><span>|</span>
+    <span>{directoryStatus}</span><span>|</span><span>المعروض: {rows.length} / {employees.length}</span><span>|</span>
     <span>صافي الرصيد: <b dir="ltr" className="inline-block text-blue-800">{moneyDisplay(totals.closing)} {currency}</b></span>
    </div>
   </div>
