@@ -934,7 +934,9 @@ export class LocalSyncDb {
     const tx = db.transaction([RECORDS, OUTBOX], 'readonly');
     const done = completed(tx);
     const [records, outbox] = await Promise.all([
-      request(tx.objectStore(RECORDS).getAll()) as Promise<StoredRecord[]>,
+      request(entities.length === 1
+        ? tx.objectStore(RECORDS).index('byEntity').getAll(entities[0])
+        : tx.objectStore(RECORDS).getAll()) as Promise<StoredRecord[]>,
       request(tx.objectStore(OUTBOX).getAll()) as Promise<SyncCommand[]>
     ]);
     await done;
@@ -1161,14 +1163,16 @@ export class LocalSyncDb {
     const done=completed(tx);
     try {
       const store=tx.objectStore(RECORDS);
-      const [all,queued]=await Promise.all([
-        request(store.getAll()) as Promise<StoredRecord[]>,
+      const [users,roles,queued]=await Promise.all([
+        request(store.index('byEntity').getAll('users')) as Promise<StoredRecord[]>,
+        request(store.index('byEntity').getAll('roles')) as Promise<StoredRecord[]>,
         request(tx.objectStore(OUTBOX).getAll()) as Promise<SyncCommand[]>
       ]);
       // Older clients might have attempted to modify user/role identities in
       // the ordinary financial outbox. Preserve that work for investigation.
       if(queued.some(cmd=>cmd.changes.some(c=>c.entity==='users'||c.entity==='roles')))
         throw new Error('DIRECTORY_OUTBOX_REQUIRES_MANUAL_REVIEW');
+      const all=[...users,...roles];
       const byKey=new Map(incoming.map(row=>[row.key,row]));
       let changed=0;
       for(const prior of all){

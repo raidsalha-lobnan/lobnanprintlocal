@@ -45,6 +45,7 @@ export async function createUnifiedDataLayer(workspaceId:string){
     }
     return true;
   });
+  let stopped=false;
   try {
     const status=await local.bootstrapStatus();
     if(status==='empty') {
@@ -78,15 +79,28 @@ export async function createUnifiedDataLayer(workspaceId:string){
     // when this browser was previously bootstrapped under a narrower role.
     // Fetch ONLY the authorized user/role directory, not the entire ledger.
     // Offline users keep the existing local directory without mutation.
-    if(secureLoginEnabled()&&getCurrentSessionActorId()){
-      try{
-        const directory=await remote.fetchAuthorizedDirectory();
-        await local.refreshAuthorizedDirectory(directory.records,getCurrentSessionActorId());
-      }catch(error){
-        console.warn('Authorized directory refresh postponed; financial outbox preserved',error);
+    const actorId=getCurrentSessionActorId();
+    const directoryKey='lobnan_verified_directory_'+workspaceId;
+    const syncDirectoryAndStart=async()=>{
+      if(secureLoginEnabled()&&actorId){
+        try{
+          const directory=await remote.fetchAuthorizedDirectory();
+          if(stopped||actorId!==getCurrentSessionActorId())return;
+          await local.refreshAuthorizedDirectory(directory.records,getCurrentSessionActorId());
+          sessionStorage.setItem(directoryKey,actorId);
+        }catch(error){
+          console.warn('Authorized directory refresh postponed; financial outbox preserved',error);
+        }
       }
+      if(!stopped&&actorId===getCurrentSessionActorId())await coordinator.start();
+    };
+    // A reload of a previously verified session can use its durable local data
+    // immediately while the directory and incremental sync resume in order.
+    if(status==='initialized'&&actorId&&sessionStorage.getItem(directoryKey)===actorId){
+      void syncDirectoryAndStart().catch(error=>console.warn('Background sync startup failed',error));
+    }else{
+      await syncDirectoryAndStart();
     }
-    await coordinator.start();
   }catch(error){
     unregister();
     // An unsuccessful bootstrap previously leaked its IndexedDB connection,
@@ -100,6 +114,7 @@ export async function createUnifiedDataLayer(workspaceId:string){
     throw error;
   }
   return {repository,coordinator,local,stop:()=>{
+    stopped=true;
     unregister();
     coordinator.stop();
     void local.close().catch(closeError => {
