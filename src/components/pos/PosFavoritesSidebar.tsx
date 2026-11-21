@@ -5,17 +5,16 @@ import { CATEGORY_DEFINITIONS } from '../../utils/barcodeGenerator';
 import {
   Star,
   Plus,
-  Image as ImageIcon,
   Search,
   ChevronRight,
   ChevronLeft,
   Filter,
   Check,
-  Package,
   Layers,
   Sparkles,
   RefreshCw
 } from 'lucide-react';
+import { FavoriteItemVisual, FavoriteItemName } from './FavoriteItemDisplay';
 import { posSound } from '../../utils/audio';
 
 interface PosFavoritesSidebarProps {
@@ -439,32 +438,15 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
                   className={`bg-white border border-slate-200 hover:border-blue-500 hover:shadow-xs rounded-lg flex flex-col justify-between cursor-pointer transition-all group relative overflow-hidden active:scale-96 ${
                     densityMode === 'ultra' ? 'p-1' : 'p-1.5'
                   }`}
-                  title={`${item.name}\nالسعر: ${item.sellingPrice.toFixed(2)} ${settings.currency || '₪'}\nالمتوفر: ${item.stockQuantity} ${item.unit || 'حبة'}\n(انقر للإدراج في الفاتورة)`}
+                  title={`${item.name}\nالسعر: ${item.sellingPrice.toFixed(2)} ${settings.currency || '₪'}\n(انقر للإدراج في الفاتورة)`}
                 >
                   {/* حاوية صورة الصنف المصغرة بحجم مدمج */}
                   <div className={`relative w-full bg-slate-50 rounded overflow-hidden border border-slate-200 mb-0.5 flex items-center justify-center ${
                     densityMode === 'ultra' ? 'h-10' : 'h-13'
                   }`}>
-                    {item.imageUrl ? (
-                      <img
-                        src={item.imageUrl}
-                        alt={item.name}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center justify-center text-slate-300 p-0.5">
-                        <Package className={densityMode === 'ultra' ? "w-3.5 h-3.5 text-slate-400" : "w-4 h-4 text-slate-400"} />
-                        <span className="text-[7px] font-mono text-slate-400 font-bold truncate max-w-full">
-                          {item.code}
-                        </span>
-                      </div>
-                    )}
+                    <FavoriteItemVisual item={item} />
 
-                    {/* زر النجمة لتحديد / إلغاء المفضلة */}
+                  {/* زر النجمة لتحديد / إلغاء المفضلة */}
                     <button
                       type="button"
                       onClick={e => handleToggleFavorite(e, item)}
@@ -478,25 +460,12 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
                       <Star className={`w-2 h-2 ${isFav ? 'fill-amber-950' : ''}`} />
                     </button>
 
-                    {/* رصيد المخزون المصغر */}
-                    <span
-                      className={`absolute bottom-0.5 left-0.5 text-[7px] font-mono px-0.5 py-0 rounded font-bold leading-tight ${
-                        item.stockQuantity <= item.minAlertQuantity
-                          ? 'bg-rose-600 text-white'
-                          : 'bg-slate-900/85 text-white'
-                      }`}
-                    >
-                      {item.stockQuantity}
-                    </span>
+                    
                   </div>
 
                   {/* تفاصيل الصنف: الاسم بحجم مضغوط والسعر وزر الإضافة */}
                   <div className="flex-1 flex flex-col justify-between">
-                    <h4 className={`font-bold text-slate-800 line-clamp-2 leading-tight group-hover:text-blue-700 transition-colors mb-0.5 ${
-                      densityMode === 'ultra' ? 'text-[8.5px] h-5' : 'text-[9.5px] h-6'
-                    }`}>
-                      {item.name}
-                    </h4>
+                    <FavoriteItemName name={item.name} />
 
                     <div className="pt-0.5 border-t border-slate-100 flex items-center justify-between">
                       <span className={`font-mono font-black text-blue-700 ${

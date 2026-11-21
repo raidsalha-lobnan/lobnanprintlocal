@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { InventoryItem } from '../../types';
-import { X, Star, Plus, Image as ImageIcon, Search } from 'lucide-react';
+import { X, Star, Plus, Search } from 'lucide-react';
+import { FavoriteItemVisual, FavoriteItemName } from './FavoriteItemDisplay';
 import { posSound } from '../../utils/audio';
 
 interface FavoriteItemsDrawerProps {
@@ -195,18 +196,7 @@ export const FavoriteItemsDrawer: React.FC<FavoriteItemsDrawerProps> = ({
               >
                 {/* Item Image Display */}
                 <div className="relative w-full h-16 bg-slate-100 rounded overflow-hidden border border-slate-200 mb-1">
-                  {item.imageUrl ? (
-                    <img
-                      src={item.imageUrl}
-                      alt={item.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50">
-                      <ImageIcon className="w-5 h-5 text-slate-300 mb-0.5" />
-                      <span className="text-[8px] font-mono text-slate-400">{item.code}</span>
-                    </div>
-                  )}
+                  <FavoriteItemVisual item={item} />
 
                   {/* Favorite Star Badge */}
                   {item.isFavorite && (
@@ -215,17 +205,12 @@ export const FavoriteItemsDrawer: React.FC<FavoriteItemsDrawerProps> = ({
                     </span>
                   )}
 
-                  {/* Stock Badge */}
-                  <span className="absolute bottom-0.5 left-0.5 bg-slate-900/80 text-white font-mono font-bold text-[7.5px] px-1 py-0 rounded">
-                    {item.stockQuantity}
-                  </span>
+                  
                 </div>
 
                 {/* Details */}
                 <div className="flex-1 flex flex-col justify-between">
-                  <h4 className="font-bold text-[10px] text-slate-900 line-clamp-2 leading-tight group-hover:text-blue-700 transition-colors h-6 mb-0.5">
-                    {item.name}
-                  </h4>
+                  <FavoriteItemName name={item.name} />
 
                   <div className="pt-0.5 border-t border-slate-100 flex items-center justify-between">
                     <span className="font-mono font-black text-blue-700 text-[11px]">
