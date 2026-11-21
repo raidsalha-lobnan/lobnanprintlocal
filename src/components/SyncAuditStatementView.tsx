@@ -135,9 +135,6 @@ interface ServerStatusResponse {
 
 export const SyncAuditStatementView: React.FC = () => {
   const {
-    settings,
-    currentUser,
-    getActiveBranch,
     lastSyncTime,
     pendingSyncCount,
     forceSyncNow,
@@ -438,110 +435,89 @@ export const SyncAuditStatementView: React.FC = () => {
     });
   }, [auditLogs, activeFilterTab, searchTerm]);
 
-  const activeBranch = getActiveBranch();
   const statementVoucherNumber = useMemo(() => {
     const d = new Date();
     return `SYNC-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
   }, []);
 
   return (
-    <div className="space-y-3 p-1 sm:p-2 text-slate-800" dir="rtl">
+    <div className="space-y-1.5 p-0.5 sm:p-1 text-slate-800" dir="rtl">
 
-      {/* Compact sync statement: actions never erase or download the local accounting database. */}
-      <div className="bg-white rounded-xl border border-slate-300 shadow-xs p-3 print:border-none print:shadow-none">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Activity className="w-5 h-5 text-indigo-700" />
-              <h1 className="text-base sm:text-lg font-black text-slate-900">سند المزامنة والتدقيق</h1>
-              <span className="text-[10px] font-mono bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5">{statementVoucherNumber}</span>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">
-              {settings.name || 'مطبعة ومكتبة لبنان'} · {activeBranch?.name || 'الرئيسي'} · {currentUser?.fullName || currentUser?.username || 'المستخدم الحالي'}
-            </p>
+      {/* Condensed statement header and single-line indicators. */}
+      <div className="bg-white rounded-lg border border-slate-300 shadow-xs px-2 py-1.5 print:border-none print:shadow-none">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Activity className="w-4 h-4 text-indigo-700 shrink-0" />
+            <h1 className="text-sm font-black text-slate-900 whitespace-nowrap">سند المزامنة والتدقيق</h1>
+            <span className="text-[10px] font-mono text-slate-600 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 whitespace-nowrap">{statementVoucherNumber}</span>
           </div>
-          <div className="flex items-center flex-wrap gap-1.5 print:hidden">
+          <div className="flex items-center flex-wrap gap-1 print:hidden">
             <button type="button" onClick={handleTriggerFullSync} disabled={isServerSyncing}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 text-white hover:bg-emerald-800 text-xs font-bold disabled:opacity-50"
-              title="مزامنة التغييرات المعلقة عبر منسّق المزامنة، دون إعادة تنزيل قاعدة البيانات كاملة">
-              <RefreshCw className={`w-3.5 h-3.5 ${isServerSyncing ? 'animate-spin' : ''}`} />
+              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md bg-emerald-700 text-white hover:bg-emerald-800 text-[11px] font-bold disabled:opacity-50 whitespace-nowrap"
+              title="مزامنة التغييرات المعلقة دون إعادة تنزيل قاعدة البيانات كاملة">
+              <RefreshCw className={isServerSyncing ? 'w-3 h-3 animate-spin' : 'w-3 h-3'} />
               {isServerSyncing ? 'جارِ المزامنة' : 'مزامنة الآن'}
             </button>
             <button type="button" onClick={() => setIsConflictModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold hover:bg-amber-100"
-              title="فتح الطابور المحلي لمعرفة تفاصيل المعلقات والتعارضات">
-              <Clock className="w-3.5 h-3.5" /> المعلقات ({pendingSyncCount})
+              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-bold hover:bg-amber-100 whitespace-nowrap"
+              title="فتح تفاصيل العمليات المعلقة والتعارضات">
+              <Clock className="w-3 h-3" /> المعلقات ({pendingSyncCount})
             </button>
             <button type="button" onClick={() => setShowAdvancedTools(v => !v)}
               aria-expanded={showAdvancedTools}
-              className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 text-xs font-bold">
-              {showAdvancedTools ? 'إخفاء أدوات الفحص' : 'أدوات الفحص'}
+              className="px-2 py-1.5 rounded-md border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 text-[11px] font-bold whitespace-nowrap">
+              {showAdvancedTools ? 'إخفاء الفحص' : 'أدوات الفحص'}
             </button>
             <button type="button" onClick={() => window.print()}
-              className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-medium">
-              <Printer className="w-3.5 h-3.5" /> طباعة
+              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[11px] font-medium">
+              <Printer className="w-3 h-3" /> طباعة
             </button>
             <button type="button" onClick={() => setActiveTab('audit_log')}
-              className="inline-flex items-center gap-1 px-2.5 py-2 text-slate-600 hover:text-slate-900 text-xs font-medium">
-              <ArrowRight className="w-3.5 h-3.5" /> رجوع
+              className="inline-flex items-center gap-1 px-2 py-1.5 text-slate-600 hover:text-slate-900 text-[11px] font-medium">
+              <ArrowRight className="w-3 h-3" /> رجوع
             </button>
           </div>
         </div>
         {actionFeedback && (
-          <div role="status" className={`mt-2 p-2 rounded-lg border text-xs flex items-center justify-between gap-2 ${actionFeedback.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'}`}>
+          <div role="status" className={'mt-1 px-2 py-1 rounded border text-[11px] flex items-center justify-between gap-2 ' + (actionFeedback.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900')}>
             <span>{actionFeedback.message}</span>
             <button type="button" onClick={() => setActionFeedback(null)} className="underline shrink-0">إغلاق</button>
           </div>
         )}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3 text-xs">
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
-            <span className="text-slate-500">فحص اتصال الخادم</span>
-            <strong className={`block mt-0.5 ${connectionState === 'connected' ? 'text-emerald-700' : connectionState === 'disconnected' ? 'text-rose-700' : 'text-slate-600'}`}>
-              {connectionState === 'connected' ? `تم الاتصال ${serverPingMs === null ? '' : `(${serverPingMs} مللي ثانية)`}` : connectionState === 'disconnected' ? 'تعذّر الاتصال المباشر' : 'غير مؤكّد من هذا الرابط'}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200 pt-1.5 text-[11px] leading-tight">
+          <span className="inline-flex items-center gap-1 whitespace-nowrap" title="حالة فحص الاتصال، وليست إثباتًا لاكتمال المزامنة">
+            <span className="text-slate-500">الخادم:</span>
+            <strong className={connectionState === 'connected' ? 'text-emerald-700' : connectionState === 'disconnected' ? 'text-rose-700' : 'text-slate-600'}>
+              {connectionState === 'connected' ? 'متصل ' + (serverPingMs === null ? '' : '(' + serverPingMs + 'ms)') : connectionState === 'disconnected' ? 'غير متصل' : 'غير مؤكّد'}
             </strong>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
-            <span className="text-slate-500">آخر مزامنة مسجلة</span>
-            <strong className="block mt-0.5 text-slate-800">{lastSyncTime || 'لم تُسجّل بعد'}</strong>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
-            <span className="text-slate-500">المطابقة الكاملة</span>
-            <strong className="block mt-0.5 text-slate-800">{auditedCloudRecords ? 'تم فحص سجلات الخادم عند الطلب' : 'لم يُنفَّذ فحص شامل في هذه الجلسة'}</strong>
-          </div>
+          </span>
+          <span className="inline-flex items-center gap-1 whitespace-nowrap" title="وقت آخر مزامنة مسجلة">
+            <span className="text-slate-500">آخر مزامنة:</span><strong className="text-slate-800">{lastSyncTime || 'لم تُسجل'}</strong>
+          </span>
+          <span className="inline-flex items-center gap-1 whitespace-nowrap" title="مطابقة المحتوى تتطلب تشغيل الفحص الشامل يدويًا">
+            <span className="text-slate-500">المطابقة:</span><strong className="text-slate-800">{auditedCloudRecords ? 'فُحصت عند الطلب' : 'لم تُفحص'}</strong>
+          </span>
+          <span className="inline-flex items-center gap-1 whitespace-nowrap" title="عدد حركات الإرسال الناجحة في سجل هذا المتصفح">
+            <span className="text-slate-500">إرسال:</span><strong className="text-emerald-700">{auditLogs.filter(l => l.direction === 'push' && l.status === 'success').length}</strong>
+          </span>
+          <span className="inline-flex items-center gap-1 whitespace-nowrap" title="عدد حركات الاستقبال الناجحة في سجل هذا المتصفح">
+            <span className="text-slate-500">استقبال:</span><strong className="text-blue-700">{auditLogs.filter(l => l.direction === 'pull' && l.status === 'success').length}</strong>
+          </span>
+          <button type="button" onClick={() => setActiveFilterTab('issues')}
+            className="inline-flex items-center gap-1 whitespace-nowrap hover:underline" title="فتح أخطاء الاتصال المسجلة في هذا المتصفح">
+            <span className="text-slate-500">أخطاء الاتصال:</span><strong className="text-rose-700">{connectionIssues.length}</strong>
+          </button>
         </div>
-      </div>
-
-
-      {/* Small, honest counters from this browser's audit history. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-        <div className="bg-white px-3 py-2.5 rounded-lg border border-emerald-200">
-          <span className="block text-[11px] text-slate-500">إرسال ناجح · سجل الجهاز</span>
-          <strong className="block text-lg text-emerald-700">{auditLogs.filter(l => l.direction === 'push' && l.status === 'success').length}</strong>
-        </div>
-        <div className="bg-white px-3 py-2.5 rounded-lg border border-blue-200">
-          <span className="block text-[11px] text-slate-500">استقبال ناجح · سجل الجهاز</span>
-          <strong className="block text-lg text-blue-700">{auditLogs.filter(l => l.direction === 'pull' && l.status === 'success').length}</strong>
-        </div>
-        <button type="button" onClick={() => setIsConflictModalOpen(true)}
-          className="text-right bg-white px-3 py-2.5 rounded-lg border border-amber-200 hover:bg-amber-50">
-          <span className="block text-[11px] text-slate-500">عمليات معلّقة · افتح التفاصيل</span>
-          <strong className="block text-lg text-amber-800">{pendingSyncCount}</strong>
-        </button>
-        <button type="button" onClick={() => setActiveFilterTab('issues')}
-          className="text-right bg-white px-3 py-2.5 rounded-lg border border-rose-200 hover:bg-rose-50">
-          <span className="block text-[11px] text-slate-500">أخطاء اتصال · سجل الجهاز</span>
-          <strong className="block text-lg text-rose-700">{connectionIssues.length}</strong>
-        </button>
       </div>
 
       {/* 3. Entity-by-Entity Master Database Reconciliation Table */}
 
       <div className="bg-white rounded-xl border border-slate-300 shadow-xs overflow-hidden">
-        <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+        <div className="px-2 py-1.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-1">
           <div className="flex items-center gap-2">
             <Database className="w-4 h-4 text-indigo-600" />
             <h2 className="text-xs sm:text-sm font-bold text-slate-900">
-              جدول مطابقة الكيانات مع قاعدة بيانات خادم PostgreSQL المباشرة
+              مطابقة السجلات مع PostgreSQL
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -551,44 +527,43 @@ export const SyncAuditStatementView: React.FC = () => {
                 void loadCloudCounts();
               }}
               disabled={isLoadingCloudCounts}
-              className="px-2.5 py-1 text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+              className="px-2 py-1 text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-md font-bold inline-flex items-center gap-1 transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
               title="إعادة فحص وتحديث أعداد السجلات السحابية فوراً"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCloudCounts ? 'animate-spin' : ''}`} />
-              <span>فحص المطابقة (قراءة فقط)</span>
+              <span>فحص المطابقة</span>
             </button>
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-right border-collapse">
+          <table className="w-full text-[11px] leading-tight text-right border-collapse">
             <thead>
               <tr className="bg-slate-100 text-slate-600 border-b border-slate-200 font-bold text-[11px]">
-                <th className="p-2.5">اسم السجل / الكيان المحاسبي</th>
-                <th className="p-2.5 text-center">العدد بقاعدة بيانات الخادم</th>
-                <th className="p-2.5 text-center">العدد بالجهاز الحالي</th>
-                <th className="p-2.5 text-center">حالة النقل والتطابق</th>
-                <th className="p-2.5 text-center">الفارق</th>
+                <th className="px-2 py-1">اسم السجل / الكيان المحاسبي</th>
+                <th className="px-2 py-1 text-center">العدد بقاعدة بيانات الخادم</th>
+                <th className="px-2 py-1 text-center">العدد بالجهاز الحالي</th>
+                <th className="px-2 py-1 text-center">حالة النقل والتطابق</th>
+                <th className="px-2 py-1 text-center">الفارق</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {reconciliationData.map((row) => (
                 <tr key={row.key} className="hover:bg-slate-50/80 transition">
-                  <td className="p-2.5 font-bold text-slate-800 flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  <td className="px-2 py-1 font-bold text-slate-800 whitespace-nowrap">
                     <span>{row.name}</span>
                   </td>
-                  <td className="p-2.5 text-center font-mono font-bold text-slate-800">
+                  <td className="px-2 py-1 text-center font-mono font-bold text-slate-800">
                     {row.serverCount < 0 ? 'لم تُفحص' : row.serverCount.toLocaleString('ar-EG')}
                   </td>
-                  <td className="p-2.5 text-center font-mono font-bold text-blue-700">
+                  <td className="px-2 py-1 text-center font-mono font-bold text-blue-700">
                     {row.localCount.toLocaleString('ar-EG')}
                   </td>
-                  <td className="p-2.5 text-center">
+                  <td className="px-2 py-1 text-center">
                     {row.comparison.status === 'NOT_CHECKED' ? (
-                      <span className="text-slate-500 text-[10px]">لم يُفحص محتوى الخادم</span>
+                      <span className="text-slate-500 text-[10px] whitespace-nowrap">لم يُفحص محتوى الخادم</span>
                     ) : row.isSynced ? (
-                      <span className="font-bold text-emerald-700 text-[10px]">مطابق في وقت الفحص</span>
+                      <span className="font-bold text-emerald-700 text-[10px] whitespace-nowrap">مطابق في وقت الفحص</span>
                     ) : (
                       <span className="font-bold text-rose-700 text-[10px]">
                         غير مطابق: {row.comparison.missingOnCloud.length} لدى الجهاز فقط،
@@ -609,7 +584,7 @@ export const SyncAuditStatementView: React.FC = () => {
                       </details>
                     )}
                   </td>
-                  <td className="p-2.5 text-center font-mono text-[11px]">
+                  <td className="px-2 py-1 text-center font-mono text-[11px]">
                     <span className={row.diff === 0 ? 'text-slate-600 font-bold' : 'text-amber-700 font-bold'}>
                       {row.serverCount < 0 ? '—' : `${row.diff > 0 ? '+' : ''}${row.diff}`}
                     </span>
@@ -623,7 +598,7 @@ export const SyncAuditStatementView: React.FC = () => {
 
 
       {showAdvancedTools && (
-        <section className="bg-slate-50 border border-slate-300 rounded-xl p-3 space-y-3 print:hidden" aria-label="أدوات الفحص المتقدم">
+        <section className="bg-slate-50 border border-slate-300 rounded-lg p-2 space-y-2 print:hidden" aria-label="أدوات الفحص المتقدم">
           <div>
             <h2 className="font-bold text-sm text-slate-900">أدوات الفحص المتقدم</h2>
             <p className="text-xs text-slate-600 mt-1">هذه الأدوات اختيارية. معاينة القاعدة أو تصدير المطابقة يتطلب قراءة صريحة وقد يتضمن بيانات مالية حساسة؛ لا يرحّل قيودًا ولا يحذف المعلقات.</p>
@@ -677,11 +652,11 @@ export const SyncAuditStatementView: React.FC = () => {
       {/* 4. Detailed Live Sync Activity Log & Connection Issues */}
       <div className="bg-white rounded-xl border border-slate-300 shadow-xs overflow-hidden">
         {/* Filter Tabs */}
-        <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-2.5">
+        <div className="p-2 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-1.5">
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               onClick={() => setActiveFilterTab('all')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              className={`px-2 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
                 activeFilterTab === 'all'
                   ? 'bg-blue-600 text-white shadow-2xs'
                   : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
@@ -692,7 +667,7 @@ export const SyncAuditStatementView: React.FC = () => {
 
             <button
               onClick={() => setActiveFilterTab('pushed')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              className={`px-2 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
                 activeFilterTab === 'pushed'
                   ? 'bg-emerald-600 text-white shadow-2xs'
                   : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
@@ -703,7 +678,7 @@ export const SyncAuditStatementView: React.FC = () => {
 
             <button
               onClick={() => setActiveFilterTab('pulled')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              className={`px-2 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
                 activeFilterTab === 'pulled'
                   ? 'bg-blue-600 text-white shadow-2xs'
                   : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
@@ -715,7 +690,7 @@ export const SyncAuditStatementView: React.FC = () => {
 
             <button
               onClick={() => setActiveFilterTab('issues')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
+              className={`px-2 py-1 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
                 activeFilterTab === 'issues'
                   ? 'bg-rose-600 text-white shadow-2xs'
                   : 'bg-white text-rose-700 hover:bg-rose-50 border border-rose-300'
