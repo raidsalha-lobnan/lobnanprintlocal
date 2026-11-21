@@ -1641,7 +1641,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const refreshEmployeeDirectory = React.useCallback(async () => {
     if (!unifiedRepository) throw new Error('قاعدة الجهاز لم تجهز بعد');
     const employeeRead = ++employeeReadSequence.current;
-    const records = await unifiedRepository.all('employees');
+    const { employees: records } = await unifiedRepository.getLocalDb().listVisibleGrouped(['employees']);
     const directory = records.map(row => row.value as unknown as Employee);
     if (employeeRead > appliedEmployeeRead.current && unifiedRepository === unifiedRepoRef.current) {
       appliedEmployeeRead.current = employeeRead;

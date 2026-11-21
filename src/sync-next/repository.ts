@@ -189,6 +189,16 @@ export class UnifiedRepository {
     return 'recovered';
   }
 
+  async checkEmployeeDirectory() {
+    const remote = (this.sync as any).remote;
+    const snapshot = await remote.fetchAuthoritativeBootstrap();
+    if (!Array.isArray(snapshot?.records)) throw new Error('تعذرت قراءة سجل الموظفين من المركزي');
+    const employees = snapshot.records.filter((row: import('./types').StoredRecord) =>
+      row.entity === 'employees' && row.value !== null);
+    const added = await this.local.restoreMissingEmployees(employees, snapshot.cursor?.sequence);
+    return { centralCount: employees.length, added };
+  }
+
   async getCloudSnapshot(): Promise<Record<string, any[]>> {
     const remote = (this.sync as any).remote;
     if (remote && typeof remote.fetchCloudSnapshot === 'function') {

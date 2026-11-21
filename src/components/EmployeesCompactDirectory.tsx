@@ -33,6 +33,23 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
   });
   return ()=>{current=false;};
  },[unifiedRepository,refreshEmployeeDirectory,readAttempt]);
+ const [checking,setChecking]=useState(false);
+ const [comparison,setComparison]=useState('');
+ const checkDirectory=async()=>{
+  if (!unifiedRepository || checking) return;
+  setChecking(true);
+  setComparison('');
+  try {
+   const {centralCount,added}=await unifiedRepository.checkEmployeeDirectory();
+   const count=await refreshEmployeeDirectory();
+   setDirectoryStatus(`آخر قراءة من الجهاز: ${count}`);
+   setComparison(`المركزي: ${centralCount}، الجهاز: ${count}، سجلات استُكملت على الجهاز: ${added}`);
+  } catch(error) {
+   setComparison(`تعذرت مطابقة الموظفين: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+   setChecking(false);
+  }
+ };
  const [search,setSearch]=useState('');
  const [mode,setMode]=useState<DirectoryDateMode>('all');
  const [day,setDay]=useState(todayLocal);
@@ -129,11 +146,15 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
    </select>
    <button type="button" onClick={()=>{setSearch('');setMode('all');setFrom('');setTo('');setStatus('all');setSalaryType('all');setReadAttempt(n=>n+1);}}
     className="h-7 shrink-0 rounded-md border bg-slate-100 px-2 text-[11px] font-bold">إظهار الكل</button>
+   <button type="button" disabled={!unifiedRepository||checking} onClick={checkDirectory}
+    className="h-7 shrink-0 rounded-md border bg-blue-50 px-2 text-[11px] font-bold text-blue-900">
+    {checking?'جارٍ فحص المركزي…':'مطابقة الموظفين مع المركزي'}</button>
    <div role="status" className="ms-auto flex shrink-0 gap-2 text-[10px] font-bold text-slate-700">
     <span>{directoryStatus}</span><span>|</span><span>المعروض: {rows.length} / {employees.length}</span><span>|</span>
     <span>صافي الرصيد: <b dir="ltr" className="inline-block text-blue-800">{moneyDisplay(totals.closing)} {currency}</b></span>
    </div>
   </div>
+  {comparison&&<p role="status" className="text-xs font-bold">{comparison}</p>}
   {invalid&&<p className="shrink-0 text-[11px] font-bold text-red-700">بداية الفترة بعد نهايتها.</p>}
   <div className="shrink-0 overflow-x-auto"><div className="grid min-w-[850px] grid-cols-4 gap-1.5">
    {cards.map(({label,amount,cls,Icon})=><div key={label} className={'rounded-lg border px-2 py-1 '+cls}>

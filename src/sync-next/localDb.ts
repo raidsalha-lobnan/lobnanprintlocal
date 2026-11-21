@@ -639,6 +639,39 @@ export class LocalSyncDb {
     }
   }
 
+  async restoreMissingEmployees(rows: StoredRecord[], sequence: number): Promise<number> {
+    if (!Number.isSafeInteger(sequence) || sequence < 0 || rows.some(row =>
+      row.entity !== 'employees' || row.key !== recordKey('employees', row.id) ||
+      row.value?.id !== row.id || !row.id || !Number.isSafeInteger(row.version) || row.version < 1
+    )) throw new Error('INVALID_EMPLOYEE_SNAPSHOT');
+    const db = await this.getDb();
+    const tx = db.transaction([RECORDS, OUTBOX, META], 'readwrite');
+    const done = completed(tx);
+    let added = 0;
+    try {
+      const store = tx.objectStore(RECORDS);
+      const [cursor, commands] = await Promise.all([
+        request(tx.objectStore(META).get(CURSOR_KEY)),
+        request(tx.objectStore(OUTBOX).getAll()) as Promise<SyncCommand[]>
+      ]);
+      if ((cursor?.value?.sequence ?? 0) > sequence) throw new Error('تغيرت البيانات أثناء المطابقة، أعد المحاولة');
+      const protectedIds = new Set(commands.flatMap(cmd =>
+        cmd.changes.filter(change => change.entity === 'employees').map(change => change.id)));
+      for (const row of rows) {
+        if (protectedIds.has(row.id) || await request(store.getKey(row.key)) !== undefined) continue;
+        store.add(row);
+        added++;
+      }
+      await done;
+    } catch (error) {
+      try { tx.abort(); } catch {}
+      await done.catch(() => {});
+      throw error;
+    }
+    if (added) this.changed();
+    return added;
+  }
+
   /** Install the authenticated PostgreSQL workspace settings snapshot without
    * touching any pending operations. Needed when the event cursor already
    * advanced although the browser did not store the push acknowledgement.
