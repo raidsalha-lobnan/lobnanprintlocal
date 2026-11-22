@@ -1,5 +1,5 @@
 import {LocalServerSetup} from './components/LocalServerSetup';
-import {secureLoginEnabled} from './services/secureAuth';
+import {secureLoginEnabled,getCurrentSessionProfile} from './services/secureAuth';
 import { ManualInvoiceView } from './components/ManualInvoiceView';
 import React, { useEffect } from 'react';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -679,9 +679,12 @@ export default function App() {
   // No shared device token or manual server URL is shown to the browser.
   if (!secureLoginEnabled() && import.meta.env.VITE_SYNC_GATEWAY_MODE !== 'true' &&
       !localStorage.getItem('lobnan_local_sync_server_url')) return <LocalServerSetup />;
-  // A persisted browser user ID is not proof of authentication. Require
-  // re-verification against PostgreSQL after each fresh application load.
-  const [localUserId, setLocalUserId] = React.useState<string | null>(null);
+  // Restore only this tab's unexpired, server-issued PostgreSQL session.
+  // A user ID in localStorage alone never grants access. The API validates
+  // the bearer token on every protected request, including after reload.
+  const [localUserId, setLocalUserId] = React.useState<string | null>(() =>
+    secureLoginEnabled() ? getCurrentSessionProfile()?.id ?? null : null
+  );
 
   const isAuth = !!localUserId;
 
