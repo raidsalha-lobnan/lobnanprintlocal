@@ -1,4 +1,4 @@
-import {VersionConflict, PermanentSyncError, type ServerCursor, type ServerEvent, type SyncCommand, type CommitReceipt, type StoredRecord} from './types';
+import {VersionConflict, PermanentSyncError, type ServerCursor, type ServerEvent, type SyncCommand, type CommitReceipt, type StoredRecord, type RecordVersion} from './types';
 import type {Invoice} from '../types';
 import {verifyPosEditReceipt} from '../utils/posEditReceiptVerification';
 import type {SyncTransport} from './coordinator';
@@ -246,6 +246,30 @@ export class LocalHttpSyncTransport implements SyncTransport {
   }
   async fetchAuthoritativeBootstrap():Promise<{records:StoredRecord[];cursor:ServerCursor}> {
     return this.request(`bootstrap?workspace=${encodeURIComponent(this.workspaceId)}`);
+  }
+  /** Identity/version catalogue only: a missing local record is recovered by
+   * exact ID, not by re-downloading every invoice or financial movement.
+   */
+  async fetchRecordManifest():Promise<{records:RecordVersion[];cursor:ServerCursor}>{
+    const data=await this.request<{records:RecordVersion[];cursor:ServerCursor}>(
+      'records/manifest?workspace='+encodeURIComponent(this.workspaceId));
+    if(!Array.isArray(data?.records)||!data.cursor||
+      data.records.some(r=>!r||typeof r.entity!=='string'||typeof r.id!=='string'||
+        !Number.isSafeInteger(r.version)||r.version<1))
+      throw new Error('INVALID_POSTGRES_RECORD_MANIFEST');
+    return data;
+  }
+  async fetchRecordsById(keys:readonly RecordVersion[]):Promise<StoredRecord[]>{
+    const data=await this.request<{records:StoredRecord[]}>(
+      'records/resolve?workspace='+encodeURIComponent(this.workspaceId),
+      {method:'POST',body:JSON.stringify({keys:keys.map(({entity,id})=>({entity,id}))})}
+    );
+    if(!Array.isArray(data?.records)||data.records.some(r=>
+      !r||typeof r.entity!=='string'||typeof r.id!=='string'||
+      !Number.isSafeInteger(r.version)||r.version<1||
+      r.key!==r.entity+'\u001f'+r.id))
+      throw new Error('INVALID_POSTGRES_TARGETED_RECORDS');
+    return data.records;
   }
   /** Lightweight permission-filtered directory: no complete accounting download. */
   async fetchAuthorizedDirectory():Promise<{records:StoredRecord[]}>{
