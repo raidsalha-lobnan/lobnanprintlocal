@@ -21,7 +21,8 @@ import {preparePosDescriptionOnlyEdit} from '../utils/posDescriptionEdit';
 import {buildReceiptAmendment} from '../utils/receiptAmendment';
 import type {EditableReceipt} from '../utils/receiptAmendment';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
-import { ProposedChange, EntityName, JsonObject } from '../sync-next/types';
+import { ProposedChange, EntityName, JsonObject, recordKey } from '../sync-next/types';
+import type { SyncRecordRef } from '../sync-next/localDb';
 import {
   auth,
   db,
@@ -1293,10 +1294,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         stopFn = layer.stop;
         retries = 0;
 
-        const syncStateWithRepository = async (repo: UnifiedRepository) => {
+        const syncStateWithRepository = async (repo: UnifiedRepository, onlyEntities?: readonly EntityName[]) => {
           try {
             const employeeRead = ++employeeReadSequence.current;
-            const grouped = await repo.getAllVisibleGrouped();
+            const grouped = await repo.getAllVisibleGrouped(onlyEntities);
             if (unmounted) return;
             // Repeated outbox notifications can return identical snapshots.
             // Preserve React array references when the accounting data is unchanged.
@@ -1370,9 +1371,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 .map((sheet: DailyEntrySheet) => [sheet.date, sheet])) as Record<string, DailyEntrySheet>;
               setDailyEntrySheets(prev => JSON.stringify(prev) === JSON.stringify(nextSheets) ? prev : nextSheets);
             }
-            if (Array.isArray(grouped.companies) && (canonical || grouped.companies.length > 0)) setCompanies(grouped.companies);
-            if (Array.isArray(grouped.branches) && (canonical || grouped.branches.length > 0)) setBranches(grouped.branches);
-            if (Array.isArray(grouped.warehouses) && (canonical || grouped.warehouses.length > 0)) setWarehouses(grouped.warehouses);
+            if (Array.isArray(grouped.companies) && (canonical || grouped.companies.length > 0)) setCompanies(prev => unchanged(prev,grouped.companies) ? prev : grouped.companies);
+            if (Array.isArray(grouped.branches) && (canonical || grouped.branches.length > 0)) setBranches(prev => unchanged(prev,grouped.branches) ? prev : grouped.branches);
+            if (Array.isArray(grouped.warehouses) && (canonical || grouped.warehouses.length > 0)) setWarehouses(prev => unchanged(prev,grouped.warehouses) ? prev : grouped.warehouses);
             const settingsRows = (grouped.settings || []).map((value: any) => ({
               id: String(value?.id || ''), value, version: 0, pending: false
             }));
@@ -1407,25 +1408,73 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
         };
 
-        // Subscribe before the first read. Coalesce overlapping changes without
-        // discarding a completed snapshot while a newer read is still pending.
-        let reading = false;
-        let requested = false;
-        const refreshView = async () => {
-          requested = true;
-          if (reading) return;
-          reading = true;
-          try {
-            while (requested && !unmounted) {
-              requested = false;
-              await syncStateWithRepository(layer.repository);
+        // A server event changes a handful of IDs, not the whole ledger.
+        // Read and patch ONLY those invoices from IndexedDB; other entities
+        // are refreshed by collection. Full hydration is reserved for startup
+        // or a mutation whose affected keys are genuinely unknown.
+        const patchChangedInvoices = async (repo: UnifiedRepository, keys: readonly SyncRecordRef[]) => {
+          const unique = [...new Map(keys.map(key=>[recordKey(key.entity,key.id),key])).values()];
+          if(!unique.length)return;
+          const visible = await repo.getVisibleByIds(unique);
+          if(unmounted || repo !== unifiedRepoRef.current)return;
+          const wanted=new Map(unique.map(key=>[
+            key.id,visible[recordKey(key.entity,key.id)]?.value as Invoice | null | undefined
+          ]));
+          setInvoices(prev=>{
+            let didChange=false;
+            const existing=new Set<string>();
+            const next:Invoice[]=[];
+            for(const invoice of prev){
+              if(!wanted.has(invoice.id)){next.push(invoice);continue;}
+              existing.add(invoice.id);
+              const replacement=wanted.get(invoice.id);
+              if(!replacement){didChange=true;continue;}
+              if(JSON.stringify(invoice)===JSON.stringify(replacement))next.push(invoice);
+              else{didChange=true;next.push(replacement);}
             }
-          } finally {
-            reading = false;
+            for(const [id,value] of wanted){
+              if(!existing.has(id)&&value){next.push(value);didChange=true;}
+            }
+            return didChange?next:prev;
+          });
+        };
+        const syncChangedStateWithRepository = async (repo:UnifiedRepository, keys:readonly SyncRecordRef[]) => {
+          const invoices=keys.filter(key=>key.entity==='invoices');
+          const otherEntities=[...new Set(keys.filter(key=>key.entity!=='invoices').map(key=>key.entity))];
+          if(invoices.length)await patchChangedInvoices(repo,invoices);
+          if(otherEntities.length)await syncStateWithRepository(repo,otherEntities);
+        };
+        // Coalesce notifications while preserving every changed ID, including
+        // notifications emitted by other browser tabs during a long IDB read.
+        let reading=false;
+        let fullRequested=true;
+        const pendingKeys=new Map<string,SyncRecordRef>();
+        const refreshView=async(keys?:readonly SyncRecordRef[])=>{
+          if(keys?.length){
+            for(const key of keys)pendingKeys.set(recordKey(key.entity,key.id),key);
+          }else{
+            fullRequested=true;
+          }
+          if(reading)return;
+          reading=true;
+          try{
+            while(!unmounted&&(fullRequested||pendingKeys.size>0)){
+              if(fullRequested){
+                fullRequested=false;
+                pendingKeys.clear();
+                await syncStateWithRepository(layer.repository);
+              }else{
+                const changes=[...pendingKeys.values()];
+                pendingKeys.clear();
+                await syncChangedStateWithRepository(layer.repository,changes);
+              }
+            }
+          }finally{
+            reading=false;
           }
         };
-        unsubscribeRepo = layer.repository.subscribe(recordsChanged => {
-          if (recordsChanged) void refreshView();
+        unsubscribeRepo=layer.repository.subscribe((recordsChanged,keys)=>{
+          if(recordsChanged)void refreshView(keys);
         });
         void refreshView();
 
