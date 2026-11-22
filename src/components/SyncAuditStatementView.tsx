@@ -435,6 +435,13 @@ export const SyncAuditStatementView: React.FC = () => {
     });
   }, [auditLogs, activeFilterTab, searchTerm]);
 
+  // Startup source is recorded by boot.ts before it contacts PostgreSQL.
+  const bootSource = (() => {
+    try {
+      const raw=sessionStorage.getItem('lobnan_accounting_boot_source_v1');
+      return raw ? String(JSON.parse(raw)?.source || '') : '';
+    } catch { return ''; }
+  })();
   const statementVoucherNumber = useMemo(() => {
     const d = new Date();
     return `SYNC-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
@@ -602,6 +609,9 @@ export const SyncAuditStatementView: React.FC = () => {
           <div>
             <h2 className="font-bold text-sm text-slate-900">أدوات الفحص المتقدم</h2>
             <p className="text-xs text-slate-600 mt-1">هذه الأدوات اختيارية. معاينة القاعدة أو تصدير المطابقة يتطلب قراءة صريحة وقد يتضمن بيانات مالية حساسة؛ لا يرحّل قيودًا ولا يحذف المعلقات.</p>
+            <p className="text-[11px] text-slate-700 mt-1" role="status" title="مصدر التهيئة عند آخر فتح للبرنامج، وليس نتيجة فحص كامل لبيانات الخادم">
+              مصدر التهيئة: <strong>{bootSource === 'indexeddb-cache' ? 'النسخة المحلية الدائمة IndexedDB (دون تنزيل شامل)' : bootSource === 'postgres-initial' ? 'تهيئة أولى من PostgreSQL؛ تحقق من احتفاظ المتصفح بالتخزين عند تكرارها' : bootSource === 'indexeddb-review' ? 'بيانات محلية تحتاج مراجعة علامة التهيئة' : 'لم تتوفر بيانات التشخيص بعد'}</strong>
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={checkServerHealth} disabled={isLoadingServerStatus}
