@@ -73,6 +73,20 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
     notes.push(`نسخة قديمة في هذا المتصفح فقط، غير معتمدة ولا تُستعاد تلقائيًا: ${name(person)}`);
    for(const item of result.unresolved)
     notes.push(`عملية موظف لم تُحسم في سجل الجهاز (${item.status}): ${item.people.map(name).join('، ')}`);
+   const disputed=new Set([
+    ...result.initiallyMissing,...result.stillMissing,
+    ...result.onlyOnDevice,...result.legacyOnly
+   ].map(person=>person.id));
+   const origins:Record<string,string>={
+    'server-event':'حدث مزامنة PostgreSQL معتمد',
+    'verified-repair':'استعادة من مطابقة PostgreSQL',
+    'old-snapshot-pruning':'إزالة محلية سابقة أثناء مطابقة نسخة شاملة'
+   };
+   for(const event of result.employeeProjectionHistory
+      .filter(item=>disputed.has(item.id)).slice(0,12)){
+    notes.push(`سجل تشخيصي للموظف ${event.id}: ${origins[event.origin]||event.origin}
+      — ${event.operation} — ${event.at||'بلا وقت'}`);
+   }
    if(!notes.length && result.centralCount===result.localCount)
     notes.push('الموظفون الظاهرون في المركزي والجهاز متطابقون حسب معرّفات السجلات. إذا كنت تتوقع موظفًا آخر فلا تنشئه من جديد قبل فحص نسخة أو جهاز تسجيله.');
    setComparisonDetails(notes);
