@@ -7,12 +7,14 @@ import path from 'node:path';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (file: string) => readFileSync(path.join(root, file), 'utf8');
 
-test('production write bridge never initializes a Firebase client', () => {
+test('production local repository writer never initializes an alternate cloud client', () => {
   assert.equal(existsSync(path.join(root, 'src/firebase.ts')), false);
-  const bridge = source('src/services/durableLegacyBridge.ts');
+  const bridge = source('src/services/localRepositoryWrites.ts');
   assert.doesNotMatch(bridge, /from\s*['"]firebase\//);
   assert.match(bridge, /DURABLE_REPOSITORY_NOT_INITIALIZED/);
   assert.match(bridge, /BATCH_REQUIRES_ATOMIC_POSTGRES_COMMAND/);
+  assert.match(bridge, /registeredWriter/);
+  assert.doesNotMatch(bridge, /setDoc|deleteDoc|getDocs|firebase\//i);
 });
 
 test('all manual sync shortcuts use canonical coordinator rather than a full database overwrite', () => {
