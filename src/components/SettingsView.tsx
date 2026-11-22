@@ -477,7 +477,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
           : syncCoordinatorState.pending > 0
             ? ' توجد تغييرات محلية بانتظار تأكيد الخادم.'
             : ' لا توجد تغييرات معلقة مسجلة حاليًا.'}
-        <span className="block mt-0.5 text-[10px]">إعداد اتصال الجهاز وقائمة التبويب المفتوح يبقيان محليين؛ ولا تُنقل جلسات الدخول أو المفاتيح الخاصة.</span>
+        <span className="block mt-0.5 text-[10px]">إعداد اتصال الجهاز يبقى محليًا؛ ولا تُنقل جلسات الدخول أو المفاتيح الخاصة.</span>
       </div>
       {legacyImageBackup && isSystemAdmin && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
