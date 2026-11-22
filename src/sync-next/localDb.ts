@@ -657,7 +657,7 @@ export class LocalSyncDb {
     }
   }
 
-  async restoreMissingEmployees(rows: StoredRecord[], sequence: number): Promise<number> {
+  async restoreMissingEmployees(rows: StoredRecord[], sequence: number): Promise<{added:number;updated:number}> {
     if (!Number.isSafeInteger(sequence) || sequence < 0 || rows.some(row =>
       row.entity !== 'employees' || row.key !== recordKey('employees', row.id) ||
       row.value?.id !== row.id || !row.id || !Number.isSafeInteger(row.version) || row.version < 1
@@ -1132,15 +1132,19 @@ export class LocalSyncDb {
    * Refresh an already-initialized device from PostgreSQL on startup.
    * Never discard an outbox command: an unsynced or rejected financial edit
    * remains independently reviewable, but the confirmed server version is
-   * the displayed baseline. This also heals a device that missed events while
-   * its local cursor appeared current.
+   * the displayed baseline. Specify onlyEntities for bounded recovery: the
+   * public HTTP snapshot is role-filtered, so an invoice repair must not treat
+   * absent employee records as confirmed deletions.
    */
   async refreshAuthoritativeSnapshot(
-    snapshot: StoredRecord[], serverCursor: ServerCursor
+    snapshot: StoredRecord[], serverCursor: ServerCursor,
+    onlyEntities?: readonly EntityName[]
   ): Promise<number> {
     const db = await this.getDb();
     const tx = db.transaction([RECORDS, OUTBOX, META, RECEIPTS], 'readwrite');
     const done = completed(tx);
+    const entityScope=onlyEntities ? new Set<EntityName>(onlyEntities) : null;
+    if(entityScope && !entityScope.size)throw new Error('EMPTY_AUTHORITATIVE_REPAIR_SCOPE');
     try {
       const records = tx.objectStore(RECORDS);
       const receipts = tx.objectStore(RECEIPTS);
@@ -1151,6 +1155,7 @@ export class LocalSyncDb {
       let replaced = 0;
       const divergent: Array<{entity: string; id: string; previous: StoredRecord}> = [];
       for (const row of snapshot) {
+        if(entityScope && !entityScope.has(row.entity))continue;
         const key = recordKey(row.entity, row.id);
         if (key !== row.key || seen.has(key) ||
             !Number.isSafeInteger(row.version) || row.version < 1) {
@@ -1183,6 +1188,10 @@ export class LocalSyncDb {
       const oldRows = await request(records.getAll()) as StoredRecord[];
       const removed: Array<{entity: string; id: string; previous: StoredRecord}> = [];
       for (const prior of oldRows) {
+        // An invoice-only repair must NEVER remove missing employees, parties,
+        // payroll or any other entity (even if the returned snapshot is
+        // permission-filtered or temporarily incomplete).
+        if(entityScope && !entityScope.has(prior.entity))continue;
         if (seen.has(prior.key) || locallyTouched.has(prior.key)) continue;
         // Don't interpret a snapshot from behind this device's local cursor
         // as an authoritative deletion.
