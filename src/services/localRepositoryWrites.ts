@@ -19,7 +19,7 @@ export function registerLocalRepositoryWriter(writer:LocalWriter):()=>void{
   return ()=>{if(registeredWriter===writer)registeredWriter=null;};
 }
 
-export function localRecordRef(entity:string,id:string):LocalRecordRef{
+export function localRecordRef(entity:unknown,id:unknown):LocalRecordRef{
   if(!entity||!id)throw new Error('LOCAL_RECORD_REFERENCE_REQUIRED');
   return {path:String(entity)+'/'+String(id),id:String(id)};
 }
@@ -32,10 +32,10 @@ export function localCollectionRef(entity:string):{path:string}{
 // supporting them as automatic collection rewrites would risk invoices,
 // salaries, and queued offline commands. Convert each operation explicitly
 // into an audited PostgreSQL transaction before enabling it.
-export function readDisabledCollection(_ref:unknown):Promise<never>{
+export function readDisabledCollection(_ref:unknown):Promise<any>{
   return Promise.reject(new Error('READ_REQUIRES_CANONICAL_POSTGRES_REPOSITORY'));
 }
-export function disabledUnsafeBatch():never{
+export function disabledUnsafeBatch():any{
   throw new Error('BATCH_REQUIRES_ATOMIC_POSTGRES_COMMAND');
 }
 
