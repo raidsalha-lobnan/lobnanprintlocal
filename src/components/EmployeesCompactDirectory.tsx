@@ -52,7 +52,11 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
   setComparisonDetails([]);
   try {
    const result=await unifiedRepository.checkEmployeeDirectory();
-   const count=await refreshEmployeeDirectory();
+   // An empty directory is applied only after the operator has explicitly
+   // verified that PostgreSQL itself returns no employees.
+   const count=await refreshEmployeeDirectory({
+    allowVerifiedEmpty:result.centralCount===0&&result.localCount===0
+   });
    setDirectoryLoad('ready');
    setDirectoryStatus(`آخر قراءة من الجهاز: ${count}`);
    setComparison(`PostgreSQL: ${result.centralCount}، الجهاز: ${result.localCount}، استُعيد: ${result.added}، صُحّح: ${result.updated}`);
