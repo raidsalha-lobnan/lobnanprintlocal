@@ -4302,7 +4302,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           </div>
 
         {/* Customer, Sub-Customer, Balance & Order Options - ALL IN ONE SINGLE ROW */}
-        <div className="bg-white/80 px-2 py-1 mb-1 rounded-xl border border-slate-300 flex items-center gap-2 flex-nowrap overflow-x-auto text-sm shadow-sm w-full min-w-0">
+        <div className="bg-white/80 px-2 py-1 mb-1 rounded-xl border border-slate-300 flex items-center gap-2 flex-wrap text-sm shadow-sm w-full min-w-0">
           {/* 1. زر تبديل دائري لاختيار الطرف (عميل - مورد - موظف) */}
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="font-bold text-slate-700 text-[14px] shrink-0">الطرف:</span>
