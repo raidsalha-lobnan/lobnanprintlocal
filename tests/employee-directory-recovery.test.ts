@@ -103,3 +103,34 @@ test('PostgreSQL-verified eight-person roster survives reopening IndexedDB after
       'a roster check never deletes employees; only versioned events may do that');
   }finally{await reopened.close();}
 });
+
+
+test('employee history identifies a past broad-snapshot removal and the later verified repair',async()=>{
+  const db=new LocalSyncDb('staff-history-'+crypto.randomUUID());
+  await db.initializeAuthoritativeSnapshot([employee('001',1),employee('008',1)],cursor(1));
+  try{
+    // Reproduces the UNSCOPED historical invoice recovery: role-filtered
+    // bootstrap mistakenly omits employee 008 and prunes the local record.
+    await db.refreshAuthoritativeSnapshot([employee('001',1)],cursor(2));
+    assert.equal((await db.listVisibleGrouped(['employees'])).employees.length,1);
+    const removals=await db.employeeProjectionHistory();
+    assert.ok(removals.some(row=>row.id==='008' &&
+      row.origin==='old-snapshot-pruning'));
+    await db.restoreMissingEmployees([employee('001',1),employee('008',1)],2);
+    assert.equal((await db.listVisibleGrouped(['employees'])).employees.length,2);
+    assert.ok((await db.employeeProjectionHistory()).some(row=>row.id==='008' &&
+      row.origin==='verified-repair'));
+  }finally{await db.close();}
+});
+
+test('employee history distinguishes a real server tombstone from snapshot pruning',async()=>{
+  const db=new LocalSyncDb('staff-event-'+crypto.randomUUID());
+  await db.initializeAuthoritativeSnapshot([employee('008',1)],cursor(1));
+  try{
+    await db.applyEvent({commandId:'central-deletion-employee-008',
+      changes:[{entity:'employees',id:'008',value:null,version:2}],cursor:cursor(2)});
+    const history=await db.employeeProjectionHistory();
+    assert.ok(history.some(row=>row.id==='008'&&row.origin==='server-event'&&
+      row.operation==='deleted'&&row.version===2));
+  }finally{await db.close();}
+});
