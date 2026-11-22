@@ -39,7 +39,8 @@ import { salesReportCustomerName } from '../utils/salesReportCustomer';
 import { separateInvoiceConfirmation } from '../utils/invoiceConfirmation';
 
 type InvoiceDateFilterMode = 'all' | 'single' | 'range';
-const INVOICES_PAGE_SIZE = 75;
+const DEFAULT_INVOICES_PAGE_SIZE = 12;
+const COMPACT_INVOICE_ROW_HEIGHT = 30;
 
 // Filter by the invoice's currently approved document date, not creation,
 // import or audit timestamps. Historical DD/MM/YYYY invoices are supported.
@@ -104,6 +105,26 @@ export const InvoicesView: React.FC = () => {
   };
   const [searchQuery, setSearchQuery] = useState('');
   const [invoicePage, setInvoicePage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_INVOICES_PAGE_SIZE);
+  const tableViewportRef = React.useRef<HTMLDivElement | null>(null);
+  // The register is a fixed-height panel: choose how many 30px rows fit.
+  // ResizeObserver also handles additional sync warnings and a wrapped toolbar.
+  React.useLayoutEffect(() => {
+    const viewport = tableViewportRef.current;
+    if (!viewport) return;
+    const measure = () => {
+      const height = viewport.clientHeight;
+      if (height <= 0) return;
+      const headerHeight = viewport.querySelector('thead')?.getBoundingClientRect().height || 30;
+      const next = Math.max(1, Math.floor((height - headerHeight - 3) / COMPACT_INVOICE_ROW_HEIGHT));
+      setPageSize(previous => previous === next ? previous : next);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(viewport);
+    window.addEventListener('resize', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, []);
   const [filterType, setFilterType] = useState<string>('all');
   const [dateFilterMode, setDateFilterMode] = useState<InvoiceDateFilterMode>('all');
   const [singleDate, setSingleDate] = useState<string>(currentLocalDate);
@@ -157,12 +178,12 @@ export const InvoicesView: React.FC = () => {
   React.useEffect(() => setInvoicePage(1), [
     searchQuery,filterType,dateFilterMode,singleDate,dateFrom,dateTo
   ]);
-  const invoicePageCount = Math.max(1,Math.ceil(filteredInvoices.length / INVOICES_PAGE_SIZE));
+  const invoicePageCount = Math.max(1,Math.ceil(filteredInvoices.length / pageSize));
   const displayedInvoicePage = Math.min(invoicePage,invoicePageCount);
   const visibleInvoices = React.useMemo(() => filteredInvoices.slice(
-    (displayedInvoicePage-1)*INVOICES_PAGE_SIZE,
-    displayedInvoicePage*INVOICES_PAGE_SIZE
-  ),[filteredInvoices,displayedInvoicePage]);
+    (displayedInvoicePage-1)*pageSize,
+    displayedInvoicePage*pageSize
+  ),[filteredInvoices,displayedInvoicePage,pageSize]);
 
 
 
@@ -195,10 +216,10 @@ export const InvoicesView: React.FC = () => {
 
 
   return (
-    <div className="space-y-3">
+    <div className="flex h-full min-h-0 w-full flex-col gap-1.5 overflow-hidden" data-testid="sales-invoices-fixed-screen">
       {/* One compact, responsive sales register command bar. */}
       <section
-        className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-xs"
+        className="flex shrink-0 flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-xs"
         dir="rtl"
         aria-label="سجل فواتير المبيعات وأدواته"
       >
@@ -358,6 +379,8 @@ export const InvoicesView: React.FC = () => {
         </div>
       </section>
 
+      {/* Warnings remain accessible without pushing the invoice pager below the viewport. */}
+      <div className="max-h-24 shrink-0 space-y-1 overflow-y-auto empty:hidden">
       {revisions.filter(({cmd}) => cmd.actorId === currentUser?.id).map(({cmd,server}) => {
         const change = cmd.changes.find(entry => entry.entity === 'invoices');
         if (!change) return null;
@@ -421,23 +444,24 @@ export const InvoicesView: React.FC = () => {
         </section>
       )}
 
-      {/* Invoices Table - Single line per invoice */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
+      </div>
+      {/* Only this table fills the remaining screen height. The footer never scrolls away. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs" data-testid="sales-invoices-table-panel">
+        <div ref={tableViewportRef} className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
           <table className="w-full text-right text-xs">
-            <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+            <thead className="sticky top-0 z-10 bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
               <tr className="whitespace-nowrap">
-                <th className="py-2.5 px-3">رقم الفاتورة</th>
-                <th className="py-2.5 px-3">التاريخ</th>
-                <th className="py-2.5 px-3 min-w-[220px] max-w-[340px]">العميل</th>
-                <th className="py-2.5 px-3">النوع</th>
-                <th className="py-2.5 px-3">طريقة الدفع</th>
-                <th className="py-2.5 px-2 text-center">الصندوق / الخزينة</th>
-                <th className="py-2.5 px-2 text-center w-28 min-w-[105px] max-w-[110px]">قبل الضريبة</th>
-                <th className="py-2.5 px-2 text-center w-28 min-w-[105px] max-w-[110px]">الضريبة ({settings.vatRate}%)</th>
-                <th className="py-2.5 px-2 text-center w-28 min-w-[105px] max-w-[110px]">الإجمالي</th>
-                <th className="py-2.5 px-3">الحالة</th>
-                <th className="py-2.5 px-2 text-center shrink-0">الإجراءات</th>
+                <th className="py-1 px-3">رقم الفاتورة</th>
+                <th className="py-1 px-3">التاريخ</th>
+                <th className="py-1 px-3 min-w-[220px] max-w-[340px]">العميل</th>
+                <th className="py-1 px-3">النوع</th>
+                <th className="py-1 px-3">طريقة الدفع</th>
+                <th className="py-1 px-2 text-center">الصندوق / الخزينة</th>
+                <th className="py-1 px-2 text-center w-28 min-w-[105px] max-w-[110px]">قبل الضريبة</th>
+                <th className="py-1 px-2 text-center w-28 min-w-[105px] max-w-[110px]">الضريبة ({settings.vatRate}%)</th>
+                <th className="py-1 px-2 text-center w-28 min-w-[105px] max-w-[110px]">الإجمالي</th>
+                <th className="py-1 px-3">الحالة</th>
+                <th className="py-1 px-2 text-center shrink-0">الإجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -449,8 +473,8 @@ export const InvoicesView: React.FC = () => {
                 </tr>
               )}
               {visibleInvoices.map((inv, idx) => (
-                <tr key={`${inv.id || 'inv'}-${idx}`} className="hover:bg-slate-50/80 whitespace-nowrap transition-colors h-11">
-                  <td className="py-2 px-3 whitespace-nowrap align-middle">
+                <tr key={`${inv.id || 'inv'}-${idx}`} className="h-[30px] hover:bg-slate-50/80 whitespace-nowrap transition-colors">
+                  <td className="py-0.5 px-3 whitespace-nowrap align-middle">
                     <button
                       onClick={() => {
                         setEditingPosInvoiceId(inv.id);
@@ -462,11 +486,11 @@ export const InvoicesView: React.FC = () => {
                       {inv.invoiceNumber}
                     </button>
                   </td>
-                  <td className="py-2 px-3 text-slate-500 whitespace-nowrap font-mono text-[11px] align-middle">{formatDateDisplay(inv.date)}</td>
-                  <td className="py-2 px-3 font-bold text-slate-900 whitespace-nowrap min-w-[220px] max-w-[340px] truncate align-middle" title={formatInvoiceCustomerDisplay(inv, parties)}>
+                  <td className="py-0.5 px-3 text-slate-500 whitespace-nowrap font-mono text-[11px] align-middle">{formatDateDisplay(inv.date)}</td>
+                  <td className="py-0.5 px-3 font-bold text-slate-900 whitespace-nowrap min-w-[220px] max-w-[340px] truncate align-middle" title={formatInvoiceCustomerDisplay(inv, parties)}>
                     {formatInvoiceCustomerDisplay(inv, parties)}
                   </td>
-                  <td className="py-2 px-3 whitespace-nowrap align-middle">
+                  <td className="py-0.5 px-3 whitespace-nowrap align-middle">
                     <span
                       className={`text-[11px] px-2 py-0.5 rounded-md font-medium inline-block ${
                         inv.type === 'pos' ? 'bg-sky-50 text-sky-700 border border-sky-200' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
@@ -475,7 +499,7 @@ export const InvoicesView: React.FC = () => {
                       {inv.type === 'pos' ? 'نقطة بيع' : 'أمر مطبعة'}
                     </span>
                   </td>
-                  <td className="py-2 px-3 whitespace-nowrap align-middle">
+                  <td className="py-0.5 px-3 whitespace-nowrap align-middle">
                     <span className="text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded inline-flex items-center gap-1 w-max">
                       {inv.paymentMethod === 'cash' ? (
                         <>
@@ -495,7 +519,7 @@ export const InvoicesView: React.FC = () => {
                       )}
                     </span>
                   </td>
-                  <td className="py-2 px-2 text-center whitespace-nowrap align-middle">
+                  <td className="py-0.5 px-2 text-center whitespace-nowrap align-middle">
                     {(() => {
                       const tInfo = getInvoiceTreasuryDisplay(inv, treasuries);
                       return (
@@ -512,16 +536,16 @@ export const InvoicesView: React.FC = () => {
                       );
                     })()}
                   </td>
-                  <td className="py-2 px-2 text-center font-mono font-semibold text-slate-600 whitespace-nowrap align-middle w-28 min-w-[105px] max-w-[110px]">
+                  <td className="py-0.5 px-2 text-center font-mono font-semibold text-slate-600 whitespace-nowrap align-middle w-28 min-w-[105px] max-w-[110px]">
                     {((inv.subtotal || 0) - (inv.discountTotal || 0)).toLocaleString('ar-SA')} {inv.currencySymbol || settings.currency}
                   </td>
-                  <td className="py-2 px-2 text-center font-mono text-slate-500 whitespace-nowrap align-middle w-28 min-w-[105px] max-w-[110px]">
+                  <td className="py-0.5 px-2 text-center font-mono text-slate-500 whitespace-nowrap align-middle w-28 min-w-[105px] max-w-[110px]">
                     {(inv.taxAmount || 0).toLocaleString('ar-SA')} {inv.currencySymbol || settings.currency}
                   </td>
-                  <td className="py-2 px-2 text-center font-mono font-bold text-slate-900 text-xs whitespace-nowrap align-middle w-28 min-w-[105px] max-w-[110px]">
+                  <td className="py-0.5 px-2 text-center font-mono font-bold text-slate-900 text-xs whitespace-nowrap align-middle w-28 min-w-[105px] max-w-[110px]">
                     {(inv.totalAmount || 0).toLocaleString('ar-SA')} {inv.currencySymbol || settings.currency}
                   </td>
-                  <td className="py-2 px-3 whitespace-nowrap align-middle">
+                  <td className="py-0.5 px-3 whitespace-nowrap align-middle">
                     {(() => {
                       const wfMeta = getInvoiceWorkflowStatusMeta(inv.workflowStatus);
                       const computedPayStatus = computeInvoicePaymentStatus({
@@ -553,7 +577,7 @@ export const InvoicesView: React.FC = () => {
                       );
                     })()}
                   </td>
-                  <td className="py-2 px-2 text-center whitespace-nowrap align-middle shrink-0">
+                  <td className="py-0.5 px-2 text-center whitespace-nowrap align-middle shrink-0">
                     <div className="flex items-center justify-center gap-1 whitespace-nowrap">
                       <button
                         onClick={() => {
@@ -609,23 +633,28 @@ export const InvoicesView: React.FC = () => {
             </tbody>
           </table>
         </div>
-        {filteredInvoices.length > INVOICES_PAGE_SIZE && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs print:hidden" dir="rtl">
-            <span className="text-slate-600">
-              عرض {(displayedInvoicePage-1)*INVOICES_PAGE_SIZE+1}–{Math.min(displayedInvoicePage*INVOICES_PAGE_SIZE,filteredInvoices.length)}
-              {' '}من {filteredInvoices.length} فاتورة (البحث والطباعة والإجماليات تشمل الكل)
-            </span>
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={()=>setInvoicePage(p=>Math.max(1,p-1))}
-                disabled={displayedInvoicePage<=1}
-                className="rounded border border-slate-300 bg-white px-2 py-1 font-bold disabled:opacity-40">السابق</button>
-              <span className="font-bold tabular-nums">{displayedInvoicePage} / {invoicePageCount}</span>
-              <button type="button" onClick={()=>setInvoicePage(p=>Math.min(invoicePageCount,p+1))}
-                disabled={displayedInvoicePage>=invoicePageCount}
-                className="rounded border border-slate-300 bg-white px-2 py-1 font-bold disabled:opacity-40">التالي</button>
-            </div>
+        {/* Always visible at the bottom, including for a single page. */}
+        <nav className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-2 py-1.5 text-xs print:hidden" dir="rtl" aria-label="التنقل بين صفحات فواتير المبيعات" data-testid="sales-invoices-pagination">
+          <span className="font-medium text-slate-600" role="status">
+            {filteredInvoices.length ? (displayedInvoicePage-1)*pageSize+1 : 0}–{Math.min(displayedInvoicePage*pageSize,filteredInvoices.length)}
+            {' '}من {filteredInvoices.length} فاتورة
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button type="button" onClick={()=>setInvoicePage(1)}
+              disabled={displayedInvoicePage<=1}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 font-bold text-slate-800 disabled:opacity-40">الأولى</button>
+            <button type="button" onClick={()=>setInvoicePage(p=>Math.max(1,p-1))}
+              disabled={displayedInvoicePage<=1}
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-bold text-slate-800 disabled:opacity-40">السابق</button>
+            <span className="min-w-[64px] text-center font-bold tabular-nums text-indigo-800">{displayedInvoicePage} / {invoicePageCount}</span>
+            <button type="button" onClick={()=>setInvoicePage(p=>Math.min(invoicePageCount,p+1))}
+              disabled={displayedInvoicePage>=invoicePageCount}
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-bold text-slate-800 disabled:opacity-40">التالي</button>
+            <button type="button" onClick={()=>setInvoicePage(invoicePageCount)}
+              disabled={displayedInvoicePage>=invoicePageCount}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 font-bold text-slate-800 disabled:opacity-40">الأخيرة</button>
           </div>
-        )}
+        </nav>
       </div>
 
       {/* Invoice Status & Audit History Modal */}
