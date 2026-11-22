@@ -18,7 +18,7 @@ const required = [
   'package.json',
   'src/sync-next/localDb.ts',
   'src/sync-next/httpTransport.ts',
-  'src/services/durableLegacyBridge.ts'
+  'src/services/localRepositoryWrites.ts'
 ];
 const violations = [];
 for (const file of blocked) {
