@@ -484,7 +484,7 @@ interface AccountingContextType {
   forcePushAndPullSync: () => Promise<{ success: boolean; message: string; invoicesCount: number }>;
   importMasterDatabaseSnapshot: () => Promise<{ success: boolean; message: string }>;
   unifiedRepository: UnifiedRepository | null;
-  refreshEmployeeDirectory: () => Promise<number>;
+  refreshEmployeeDirectory: (options?: {allowVerifiedEmpty?: boolean}) => Promise<number>;
   syncCoordinatorState: SyncState;
   openConflictModal: () => void;
   closeConflictModal: () => void;
@@ -1262,6 +1262,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const canonicalProjectionReadyRef = React.useRef(false);
   const lastLegacyMirrorRef = React.useRef<Map<string,unknown>>(new Map());
   const renderedInvoiceCountRef = React.useRef<number>(0);
+  const renderedEmployeeCountRef = React.useRef<number>(0);
   // Prevent two click/keyboard submissions from creating two financial sales.
   const posSubmissionInFlightRef = React.useRef(false);
   const settingsWriteChainRef = React.useRef<Promise<unknown>>(Promise.resolve());
@@ -1341,7 +1342,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(grouped.purchases) && (canonical || grouped.purchases.length > 0)) setPurchases(prev => unchanged(prev, grouped.purchases) ? prev : grouped.purchases);
             if (employeeRead > appliedEmployeeRead.current && Array.isArray(grouped.employees) && (canonical || grouped.employees.length > 0)) {
               appliedEmployeeRead.current = employeeRead;
-              setEmployees(prev => unchanged(prev, grouped.employees) ? prev : grouped.employees);
+              setEmployees(prev => {
+                // A transient empty IDB read is not proof that every employee
+                // was deleted. Never blank a previously visible directory
+                // without an independently verified authoritative comparison.
+                if(grouped.employees.length===0 && prev.length>0){
+                  console.warn('EMPLOYEE_EMPTY_LOCAL_PROJECTION_HELD: previously visible staff retained');
+                  return prev;
+                }
+                return unchanged(prev,grouped.employees) ? prev : grouped.employees;
+              });
             }
             if (Array.isArray(grouped.roles) && (canonical || grouped.roles.length > 0)) setRoles(prev => unchanged(prev, grouped.roles) ? prev : grouped.roles);
             if (Array.isArray(grouped.users) && (canonical || grouped.users.length > 0)) setUsers(prev => unchanged(prev, grouped.users) ? prev : grouped.users);
@@ -1690,12 +1700,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [employees, setEmployees] = useState<Employee[]>(() => {
     return safeLoadArray(`${STORAGE_KEY}_employees`, initialEmployees);
   });
+  renderedEmployeeCountRef.current=employees.length;
 
-  const refreshEmployeeDirectory = React.useCallback(async () => {
+  const refreshEmployeeDirectory = React.useCallback(async (options?: {allowVerifiedEmpty?: boolean}) => {
     if (!unifiedRepository) throw new Error('قاعدة الجهاز لم تجهز بعد');
     const employeeRead = ++employeeReadSequence.current;
     const { employees: records } = await unifiedRepository.getLocalDb().listVisibleGrouped(['employees']);
     const directory = records.map(row => row.value as unknown as Employee);
+    if(directory.length===0 && renderedEmployeeCountRef.current>0 && !options?.allowVerifiedEmpty){
+      throw new Error('EMPLOYEE_EMPTY_LOCAL_PROJECTION_HELD: القائمة المحلية فارغة مؤقتًا، احتفظنا بآخر موظفين ظاهرين حتى المطابقة مع المركزي');
+    }
     if (employeeRead > appliedEmployeeRead.current && unifiedRepository === unifiedRepoRef.current) {
       appliedEmployeeRead.current = employeeRead;
       setEmployees(prev => JSON.stringify(prev) === JSON.stringify(directory) ? prev : directory);
