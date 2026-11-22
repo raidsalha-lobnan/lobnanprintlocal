@@ -244,6 +244,9 @@ export class UnifiedRepository {
           .map(change=>describe(change))
       }));
     return {
+      // IDs only, used to distinguish a verified PostgreSQL deletion from
+      // an incomplete local employee list after a browser reload.
+      centralIds:employees.map(row=>row.id),
       centralCount:employees.length,localCount:after.employees.length,
       added:recovered.added,updated:recovered.updated,
       initiallyMissing,stillMissing,onlyOnDevice,legacyOnly,unresolved
