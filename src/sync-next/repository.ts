@@ -194,14 +194,60 @@ export class UnifiedRepository {
     return 'recovered';
   }
 
+  /** On-demand, read-only PostgreSQL comparison with a guarded local repair.
+   * Never synthesizes missing employees, never posts archived browser rows, and
+   * never overrides any ID with an unresolved local outbox command.
+   */
   async checkEmployeeDirectory() {
     const remote = (this.sync as any).remote;
+    if (!remote?.fetchAuthoritativeBootstrap)
+      throw new Error('تعذرت قراءة سجل الموظفين المعتمد من PostgreSQL');
+    const [before, operations] = await Promise.all([
+      this.local.listVisibleGrouped(['employees']),
+      this.local.pending()
+    ]);
     const snapshot = await remote.fetchAuthoritativeBootstrap();
-    if (!Array.isArray(snapshot?.records)) throw new Error('تعذرت قراءة سجل الموظفين من المركزي');
-    const employees = snapshot.records.filter((row: import('./types').StoredRecord) =>
+    if (!Array.isArray(snapshot?.records) || !snapshot.cursor)
+      throw new Error('تعذرت قراءة سجل الموظفين من المركزي');
+    const employees = (snapshot.records as import('./types').StoredRecord[]).filter(row =>
       row.entity === 'employees' && row.value !== null);
-    const added = await this.local.restoreMissingEmployees(employees, snapshot.cursor?.sequence);
-    return { centralCount: employees.length, added };
+    const describe=(row:{id:string;value?:JsonObject|null})=>({
+      id:row.id,
+      code:String(row.value?.code||''),
+      name:String(row.value?.name||'')
+    });
+    const centralIds=new Set(employees.map(row=>row.id));
+    const localBefore=before.employees||[];
+    const existingIds=new Set(localBefore.map(row=>row.id));
+    const onlyOnDevice=localBefore.filter(row=>!centralIds.has(row.id)).map(describe);
+    const initiallyMissing=employees.filter(row=>!existingIds.has(row.id)).map(describe);
+    const recovered=await this.local.restoreMissingEmployees(employees,snapshot.cursor.sequence);
+    const after=await this.local.listVisibleGrouped(['employees']);
+    const afterIds=new Set((after.employees||[]).map(row=>row.id));
+    const stillMissing=employees.filter(row=>!afterIds.has(row.id)).map(describe);
+    // Historical localStorage is NOT authority. Expose unmatched identifiers
+    // only for operator-led recovery, without creating financial or HR records.
+    let legacyOnly:Array<{id:string;code:string;name:string}>=[];
+    try{
+      if(typeof localStorage!=='undefined'){
+        const legacy=JSON.parse(localStorage.getItem('alnoor_press_accounting_v1_employees')||'[]');
+        if(Array.isArray(legacy))legacyOnly=legacy
+          .filter(row=>row && typeof row.id==='string' && row.id &&
+            !centralIds.has(row.id)&&!afterIds.has(row.id))
+          .map(describe);
+      }
+    }catch{/* Local browser legacy storage is optional. */}
+    const unresolved=operations.filter(cmd=>cmd.changes.some(change=>change.entity==='employees'))
+      .map(cmd=>({
+        commandId:cmd.id,status:cmd.status,
+        people:cmd.changes.filter(change=>change.entity==='employees')
+          .map(change=>describe(change))
+      }));
+    return {
+      centralCount:employees.length,localCount:after.employees.length,
+      added:recovered.added,updated:recovered.updated,
+      initiallyMissing,stillMissing,onlyOnDevice,legacyOnly,unresolved
+    };
   }
 
   async getCloudSnapshot(): Promise<Record<string, any[]>> {
