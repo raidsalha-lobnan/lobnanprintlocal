@@ -23,6 +23,7 @@ import type {EditableReceipt} from '../utils/receiptAmendment';
 import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
 import { ProposedChange, EntityName, JsonObject, recordKey } from '../sync-next/types';
 import type { SyncRecordRef } from '../sync-next/localDb';
+import {reconcileUnexpectedEmployeeLoss} from '../sync-next/employeeProjectionGuard';
 import {
   localRecordRef,
   localCollectionRef,
@@ -1258,7 +1259,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const canonicalProjectionReadyRef = React.useRef(false);
   const lastLegacyMirrorRef = React.useRef<Map<string,unknown>>(new Map());
   const renderedInvoiceCountRef = React.useRef<number>(0);
-  const renderedEmployeeCountRef = React.useRef<number>(0);
+  const renderedEmployeeSnapshotRef = React.useRef<Employee[]>([]);
   // Prevent two click/keyboard submissions from creating two financial sales.
   const posSubmissionInFlightRef = React.useRef(false);
   const settingsWriteChainRef = React.useRef<Promise<unknown>>(Promise.resolve());
@@ -1336,18 +1337,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(grouped.printOrders) && (canonical || grouped.printOrders.length > 0)) setPrintOrders(prev => unchanged(prev, grouped.printOrders) ? prev : grouped.printOrders);
             if (Array.isArray(grouped.vouchers) && (canonical || grouped.vouchers.length > 0)) setVouchers(prev => unchanged(prev, grouped.vouchers) ? prev : grouped.vouchers);
             if (Array.isArray(grouped.purchases) && (canonical || grouped.purchases.length > 0)) setPurchases(prev => unchanged(prev, grouped.purchases) ? prev : grouped.purchases);
-            if (employeeRead > appliedEmployeeRead.current && Array.isArray(grouped.employees) && (canonical || grouped.employees.length > 0)) {
-              appliedEmployeeRead.current = employeeRead;
-              setEmployees(prev => {
-                // A transient empty IDB read is not proof that every employee
-                // was deleted. Never blank a previously visible directory
-                // without an independently verified authoritative comparison.
-                if(grouped.employees.length===0 && prev.length>0){
-                  console.warn('EMPLOYEE_EMPTY_LOCAL_PROJECTION_HELD: previously visible staff retained');
-                  return prev;
-                }
-                return unchanged(prev,grouped.employees) ? prev : grouped.employees;
-              });
+            if (employeeRead > appliedEmployeeRead.current && Array.isArray(grouped.employees) &&
+                (canonical || grouped.employees.length > 0)) {
+              // Do not silently replace eight visible employees with seven on
+              // a stale or incomplete IndexedDB projection. Compare missing
+              // identifiers with PostgreSQL and recover only confirmed staff.
+              // A real deletion verified on the server is still honored.
+              const decision=await reconcileUnexpectedEmployeeLoss<Employee>(
+                repo,renderedEmployeeSnapshotRef.current,grouped.employees);
+              if(unmounted||repo!==unifiedRepoRef.current)return;
+              if(employeeRead>appliedEmployeeRead.current){
+                appliedEmployeeRead.current=employeeRead;
+                setEmployees(prev=>unchanged(prev,decision.employees)?prev:decision.employees);
+              }
             }
             if (Array.isArray(grouped.roles) && (canonical || grouped.roles.length > 0)) setRoles(prev => unchanged(prev, grouped.roles) ? prev : grouped.roles);
             if (Array.isArray(grouped.users) && (canonical || grouped.users.length > 0)) setUsers(prev => unchanged(prev, grouped.users) ? prev : grouped.users);
@@ -1696,21 +1698,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [employees, setEmployees] = useState<Employee[]>(() => {
     return safeLoadArray(`${STORAGE_KEY}_employees`, initialEmployees);
   });
-  renderedEmployeeCountRef.current=employees.length;
+  renderedEmployeeSnapshotRef.current=employees;
 
   const refreshEmployeeDirectory = React.useCallback(async (options?: {allowVerifiedEmpty?: boolean}) => {
     if (!unifiedRepository) throw new Error('قاعدة الجهاز لم تجهز بعد');
     const employeeRead = ++employeeReadSequence.current;
     const { employees: records } = await unifiedRepository.getLocalDb().listVisibleGrouped(['employees']);
     const directory = records.map(row => row.value as unknown as Employee);
-    if(directory.length===0 && renderedEmployeeCountRef.current>0 && !options?.allowVerifiedEmpty){
-      throw new Error('EMPLOYEE_EMPTY_LOCAL_PROJECTION_HELD: القائمة المحلية فارغة مؤقتًا، احتفظنا بآخر موظفين ظاهرين حتى المطابقة مع المركزي');
-    }
+    // A verified-empty PostgreSQL roster may be applied explicitly from the
+    // operator's comparison. Other unexpected local losses need a central
+    // identity check before the UI or compatibility cache is overwritten.
+    const selected = options?.allowVerifiedEmpty ? directory :
+      (await reconcileUnexpectedEmployeeLoss<Employee>(
+        unifiedRepository,renderedEmployeeSnapshotRef.current,directory)).employees;
     if (employeeRead > appliedEmployeeRead.current && unifiedRepository === unifiedRepoRef.current) {
       appliedEmployeeRead.current = employeeRead;
-      setEmployees(prev => JSON.stringify(prev) === JSON.stringify(directory) ? prev : directory);
+      setEmployees(prev => JSON.stringify(prev) === JSON.stringify(selected) ? prev : selected);
     }
-    return directory.length;
+    return selected.length;
   }, [unifiedRepository]);
 
   const [printOrders, setPrintOrders] = useState<PrintJobOrder[]>(() => {
