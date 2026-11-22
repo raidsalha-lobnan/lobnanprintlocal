@@ -4122,7 +4122,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           )}
           {/* Main Top Header System Strip (أعلى شاشة الكاشير): الفرع | المستخدم | رقم الفاتورة | التاريخ | حالة الفاتورة */}
           <div className="bg-white/90 border border-slate-300 rounded-lg p-1 mb-1 shadow-2xs w-full min-w-0">
-            <div className="flex flex-nowrap items-center justify-between gap-1 text-xs w-full min-w-0 overflow-x-auto pb-0.5">
+            <div className="flex flex-nowrap items-center justify-start gap-1 text-xs w-full min-w-0 overflow-x-auto pb-0.5">
               
               {/* 1. رقم الفاتورة (تسلسلي موحد غير مكرر لكل حالات الفاتورة يصدر بعد إتمام الحفظ) */}
               <div className="flex items-center gap-1 bg-slate-50 border border-slate-300 rounded-lg px-1.5 py-0.5 shrink-0 whitespace-nowrap">
@@ -4302,7 +4302,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           </div>
 
         {/* Customer, Sub-Customer, Balance & Order Options - ALL IN ONE SINGLE ROW */}
-        <div className="bg-white/80 px-2 py-1 mb-1 rounded-xl border border-slate-300 flex flex-nowrap items-center gap-1.5 text-xs shadow-sm w-full min-w-0">
+        <div className="bg-white/80 px-1.5 py-1 mb-1 rounded-xl border border-slate-300 flex flex-nowrap items-center gap-1 text-xs shadow-sm w-full min-w-0">
           {/* 1. زر تبديل دائري لاختيار الطرف (عميل - مورد - موظف) */}
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="font-bold text-slate-700 text-xs shrink-0">الطرف:</span>
@@ -4326,7 +4326,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           </div>
 
           {/* 2. خانة إدخال وبحث ومطابقة أحرف وإمكانية الإضافة السريعة */}
-          <div className="flex items-center gap-1 min-w-[145px] flex-[1_1_285px]">
+          <div className="flex items-center gap-1 w-[220px] min-w-[170px] max-w-[220px] flex-[0_1_220px]">
             <div className="flex-1 min-w-0 relative group">
               <AutocompleteCombobox
                 items={targetComboboxOptions}
@@ -4426,7 +4426,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           </div>
 
           {/* 3. العميل الفرعي */}
-          <div className="flex items-center gap-1 min-w-[145px] flex-[1_1_260px]">
+          <div className="flex items-center gap-1 w-[220px] min-w-[170px] max-w-[220px] flex-[0_1_220px]">
             <span className="font-bold text-slate-700 text-xs shrink-0">الفرعي:</span>
             <div className="flex-1 min-w-0 flex items-center gap-1">
               <SubCustomerField
@@ -4535,11 +4535,11 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
         {/* Sub-tools Toolbar Row: ملاحظات الفاتورة | خدمة التوصيل | يد الباركود | سطر الباركود | كاميرا الباركود | تجميع الكميات | آخر سعر | الأسعار الخاصة */}
         {posLayoutConfig.showExtraHeaderOptions && (
-          <div className="mt-0.5 pt-0.5 border-t border-slate-300/80 flex flex-nowrap overflow-x-auto items-center justify-between gap-1 text-xs w-full min-w-0">
-            <div className="flex items-center gap-1.5 flex-nowrap flex-1 min-w-0 w-full">
+          <div className="mt-0.5 pt-0.5 border-t border-slate-300/80 flex flex-nowrap overflow-x-auto items-center justify-start gap-1 text-xs w-full min-w-0">
+            <div className="flex items-center gap-1 flex-nowrap flex-none w-max min-w-0">
               {/* خانة ملاحظات الفاتورة ككل (تظهر في كشف حساب العميل) */}
               <div
-                className="flex items-center gap-2 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-lg px-1.5 py-1 transition-all shadow-sm flex-[1_1_280px] min-w-[145px] max-w-full"
+                className="flex items-center gap-1 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-lg px-1.5 py-1 transition-all shadow-sm w-[245px] min-w-[185px] max-w-[245px] shrink-0"
                 title="ملاحظة عامة خاصة بالفاتورة ككل وتظهر في كشف حساب العميل"
               >
                 <FileText className="w-4 h-4 text-blue-600 shrink-0" />
