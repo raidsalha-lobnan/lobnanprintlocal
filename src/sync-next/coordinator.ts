@@ -60,6 +60,9 @@ export class SyncCoordinator {
   // rejected/conflicting commands and the authoritative event cursor are unchanged.
   private lastReviewedConflictSignature: string | null = null;
   private forceConflictReview = false;
+  // IDs changed by authenticated incremental events since the previous
+  // conflict check. Unrelated invoices must not trigger a huge SQL bootstrap.
+  private recentlyPulledKeys = new Set<string>();
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -450,14 +453,16 @@ export class SyncCoordinator {
   private async reconcileConflicts():Promise<void>{
     const queued=await this.local.pending();
     const unresolved=queued.filter(c=>!c.invoiceRevision && (c.status==='conflict'||c.status==='rejected'));
+    const pulledKeys=this.recentlyPulledKeys;
+    this.recentlyPulledKeys=new Set<string>();
     if(!unresolved.length||!this.remote.fetchAuthoritativeBootstrap)return;
-    // The preceding pullAllPages() has already replayed all new server events.
-    // Therefore a stable local event cursor + identical unresolved commands
-    // means the same authoritative state was already reviewed, and the large
-    // financial bootstrap must not be downloaded again.
-    const cursor=await this.local.cursor();
+    // Recheck only a new/changed blocked operation, an authenticated event
+    // affecting one of its record IDs, or an explicit manual review. A daily
+    // sale on an unrelated invoice must NEVER download the whole SQL workspace.
+    const relevantServerChange=unresolved.some(cmd=>cmd.changes.some(change=>
+      pulledKeys.has(recordKey(change.entity,change.id))));
     const identity=JSON.stringify([
-      this.workspaceId,getCurrentSessionActorId(),cursor?.sequence??null,
+      this.workspaceId,getCurrentSessionActorId(),
       ...unresolved.map(cmd=>[cmd.id,cmd.status,cmd.error||''])
     ]);
     const storageKey='lobnan_conflict_review_'+this.workspaceId;
@@ -466,7 +471,7 @@ export class SyncCoordinator {
       try{previouslyReviewed=sessionStorage.getItem(storageKey)===identity;}
       catch{/* Storage access is not guaranteed on all browsers. */}
     }
-    if(previouslyReviewed && !this.forceConflictReview)return;
+    if(previouslyReviewed && !this.forceConflictReview && !relevantServerChange)return;
     this.forceConflictReview=false;
     const snapshot=await this.remote.fetchAuthoritativeBootstrap();
     const index=new Map(snapshot.records.map(r=>[recordKey(r.entity,r.id),r]));
@@ -693,8 +698,10 @@ export class SyncCoordinator {
       try {
         for (const event of page) {
           await this.local.applyEvent(event, !supportsBatch);
-          if (supportsBatch) for (const change of event.changes)
-            changedKeys.push({entity:change.entity,id:change.id});
+          for (const change of event.changes){
+            this.recentlyPulledKeys.add(recordKey(change.entity,change.id));
+            if (supportsBatch) changedKeys.push({entity:change.entity,id:change.id});
+          }
           this.emitApplied(event.changes);
           cursor = event.cursor;
         }
