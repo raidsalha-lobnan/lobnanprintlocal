@@ -1,6 +1,6 @@
 import {
   AppliedChange, EntityName, JsonObject, LocalView,
-  ProposedChange, VersionedChange, recordKey, ServerCursor,
+  ProposedChange, VersionedChange, RecordVersion, recordKey, ServerCursor,
   ServerEvent, StoredRecord, SyncCommand,
   toJsonObject, validateChanges
 } from './types';
@@ -10,7 +10,7 @@ import {isProtectedRejectedBulkPartySnapshot,isVerifiedRejectedBulkBystander,rej
 import {planBlockedCommandQuarantine} from './blockedQueueQuarantine';
 import {canIndependentSaleBypassKey,isNewAtomicPosSale} from './atomicRecoveryPolicy';
 
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const RECORDS = 'records';
 const OUTBOX = 'outbox';
 const META = 'meta';
@@ -90,6 +90,11 @@ export class LocalSyncDb {
 
         if (!records.indexNames.contains('byEntity')) {
           records.createIndex('byEntity', 'entity');
+        }
+        // Key-only IndexedDB cursors expose [entity,version] + primary key
+        // without cloning large invoice/item/photo JSON payloads.
+        if (!records.indexNames.contains('byEntityVersion')) {
+          records.createIndex('byEntityVersion', ['entity','version']);
         }
 
         if (!db.objectStoreNames.contains(OUTBOX)) {
@@ -1091,6 +1096,87 @@ export class LocalSyncDb {
       result[entity] = [...(indexed.get(entity)?.values() ?? [])].filter(row => row.value !== null);
     }
     return result;
+  }
+
+  /** Find missing/outdated local baselines without reading a SINGLE invoice
+   * body. The byEntityVersion key cursor returns IDs and versions only.
+   * Never assume that a missing server manifest key implies permission to
+   * delete an existing local record; tombstones arrive as versioned events.
+   */
+  async missingServerVersions(manifest:readonly RecordVersion[]):Promise<RecordVersion[]>{
+    if(!manifest.length)return [];
+    const db=await this.getDb();
+    const tx=db.transaction([RECORDS,OUTBOX],'readonly');
+    const done=completed(tx);
+    const versions=new Promise<Map<string,number>>((resolve,reject)=>{
+      const found=new Map<string,number>();
+      const cursor=tx.objectStore(RECORDS).index('byEntityVersion').openKeyCursor();
+      cursor.onerror=()=>reject(cursor.error||new Error('IDB_VERSION_CURSOR_FAILED'));
+      cursor.onsuccess=()=>{
+        const item=cursor.result;
+        if(!item){resolve(found);return;}
+        const version=Array.isArray(item.key)?Number(item.key[1]):NaN;
+        if(Number.isSafeInteger(version)){
+          found.set(String(item.primaryKey),version);
+        }
+        item.continue();
+      };
+    });
+    const [localVersions,outbox]=await Promise.all([
+      versions,request(tx.objectStore(OUTBOX).getAll()) as Promise<SyncCommand[]>
+    ]);
+    await done;
+    const protectedIds=new Set(outbox.flatMap(cmd=>cmd.changes
+      .map(c=>recordKey(c.entity,c.id))));
+    const requested=new Set<string>();
+    const missing:RecordVersion[]=[];
+    for(const row of manifest){
+      if(!row||!Number.isSafeInteger(row.version)||row.version<1 ||
+        typeof row.id!=='string'||typeof row.entity!=='string')continue;
+      const key=recordKey(row.entity,row.id);
+      if(requested.has(key))throw new Error('DUPLICATE_POSTGRES_MANIFEST_ID');
+      requested.add(key);
+      if(protectedIds.has(key))continue;
+      if((localVersions.get(key)??0)<row.version)missing.push(row);
+    }
+    return missing;
+  }
+
+  /** Apply only exact SQL-proven records. Never modifies the replay cursor,
+   * pushes a write, clears an offline command, or deletes unrelated records.
+   * Re-read versions and outbox atomically: another tab can edit at any time.
+   */
+  async adoptAuthoritativeRecords(rows:readonly StoredRecord[]):Promise<number>{
+    if(!rows.length)return 0;
+    if(rows.length>80||rows.some(r=>!r||typeof r.id!=='string'||
+      r.key!==recordKey(r.entity,r.id)||r.value===null||
+      !r.value||!Number.isSafeInteger(r.version)||r.version<1))
+      throw new Error('INVALID_TARGETED_POSTGRES_RECORDS');
+    const db=await this.getDb();
+    const tx=db.transaction([RECORDS,OUTBOX],'readwrite');
+    const done=completed(tx);
+    const applied:StoredRecord[]=[];
+    try{
+      const store=tx.objectStore(RECORDS);
+      const commands=await request(tx.objectStore(OUTBOX).getAll()) as SyncCommand[];
+      const protectedIds=new Set(commands.flatMap(cmd=>cmd.changes
+        .map(change=>recordKey(change.entity,change.id))));
+      for(const row of rows){
+        if(protectedIds.has(row.key))continue;
+        const previous=await request(store.get(row.key)) as StoredRecord|undefined;
+        if(previous && (previous.version>row.version||
+          (previous.version===row.version&&previous.value!==null)))continue;
+        store.put(row);
+        applied.push(row);
+      }
+      await done;
+    }catch(error){
+      try{tx.abort()}catch{}
+      await done.catch(()=>{});
+      throw error;
+    }
+    if(applied.length)this.changed(true,applied);
+    return applied.length;
   }
 
   /** Resolve only the changed IDs against a consistent local transaction.
