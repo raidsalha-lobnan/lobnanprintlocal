@@ -41,7 +41,8 @@ import {
   AlertCircle,
   FileSpreadsheet,
   Database,
-  Cloud
+  Cloud,
+  ChevronDown
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -93,28 +94,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
     return !role || role.code === 'SYS_ADMIN' || role.code === 'GEN_MGR';
   }, [currentUser, roles]);
 
-  const [activeTab, setActiveTabState] = useState<'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup' | 'reset_db' | 'telegram'>(() => {
-    try {
-      const saved = localStorage.getItem('settings_subtab');
-      if (saved && ['general', 'units', 'shortcuts', 'currency', 'sql', 'backup', 'reset_db', 'telegram'].includes(saved)) {
-        return saved as any;
-      }
-    } catch {}
-    return (initialTab as any) || 'general';
-  });
+  type SettingsSection = 'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup' | 'reset_db' | 'telegram';
+  // An explicit section selected from the main menu always wins over an
+  // earlier locally remembered section (for example backup vs currency).
+  const [activeTab, setActiveTabState] = useState<SettingsSection>(initialTab);
+  const [showSettingsOptions, setShowSettingsOptions] = useState(false);
+  const settingsOptionsRef = React.useRef<HTMLDivElement | null>(null);
 
-  const setActiveTab = React.useCallback((tab: 'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup' | 'reset_db' | 'telegram') => {
+  const setActiveTab = React.useCallback((tab: SettingsSection) => {
     setActiveTabState(tab);
-    try {
-      localStorage.setItem('settings_subtab', tab);
-    } catch {}
+    setShowSettingsOptions(false);
   }, []);
 
   React.useEffect(() => {
-    if (initialTab && !localStorage.getItem('settings_subtab')) {
-      setActiveTab(initialTab as any);
-    }
-  }, [initialTab, setActiveTab]);
+    setActiveTabState(initialTab);
+    setShowSettingsOptions(false);
+  }, [initialTab]);
+
+  React.useEffect(() => {
+    if (!showSettingsOptions) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!settingsOptionsRef.current?.contains(event.target as Node)) {
+        setShowSettingsOptions(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowSettingsOptions(false);
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [showSettingsOptions]);
+
+  const settingsSections: Array<{id: SettingsSection;label: string; icon: React.ComponentType<{className?:string}>;danger?:boolean}> = [
+    {id:'general',label:'البيانات الرسمية والضريبة',icon:Building},
+    {id:'units',label:'وحدات القياس وآليات الاحتساب',icon:Scale},
+    {id:'currency',label:'العملات وأسعار الصرف',icon:Coins},
+    {id:'shortcuts',label:'اختصارات الشاشة الرئيسية',icon:SlidersHorizontal},
+    {id:'sql',label:'التشغيل المحلي وربط خادم SQL',icon:Server},
+    {id:'telegram',label:'تكامل تليجرام (البوت)',icon:Cloud},
+    {id:'backup',label:'النسخ الاحتياطي والصيانة',icon:ShieldAlert},
+    {id:'reset_db',label:'تصفير قاعدة البيانات (التشغيل الفعلي)',icon:Trash2,danger:true}
+  ];
 
   const [appTitle, setAppTitle] = useState(settings.appTitle || 'برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان - م.رائد صالحة');
   const [businessName, setBusinessName] = useState(settings.businessName || 'مطبعة ومكتبة لبنان');
@@ -384,12 +408,57 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
           </div>
         </div>
 
-        {isSaved && (
-          <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
-            <CheckCircle className="w-3.5 h-3.5" />
-            <span>تم حفظ الإعدادات محليًا، وتنتظر تأكيد المزامنة مع الخادم</span>
-          </span>
-        )}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {isSaved && (
+            <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
+              <CheckCircle className="w-3.5 h-3.5" />
+              <span>تم حفظ الإعدادات محليًا، وتنتظر تأكيد المزامنة مع الخادم</span>
+            </span>
+          )}
+          <div className="relative" ref={settingsOptionsRef}>
+            <button
+              type="button"
+              onClick={() => setShowSettingsOptions(open => !open)}
+              aria-expanded={showSettingsOptions}
+              aria-controls="settings-options-dropdown"
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-800 hover:bg-slate-100"
+              data-testid="settings-options-toggle"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              <span>خيارات الإعدادات</span>
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showSettingsOptions ? 'rotate-180' : ''}`} />
+            </button>
+            {showSettingsOptions && (
+              <div
+                id="settings-options-dropdown"
+                role="menu"
+                aria-label="أقسام الإعدادات"
+                className="absolute left-0 top-full z-50 mt-1 grid max-h-[65vh] w-[min(90vw,420px)] grid-cols-1 gap-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-xl sm:grid-cols-2"
+                data-testid="settings-options-dropdown"
+              >
+                {settingsSections.map(section => (
+                  <button
+                    key={section.id}
+                    type="button"
+                    role="menuitem"
+                    aria-current={activeTab === section.id ? 'page' : undefined}
+                    onClick={() => setActiveTab(section.id)}
+                    className={`flex items-center gap-2 rounded-md px-2.5 py-2 text-right text-xs font-bold transition-colors ${
+                      activeTab === section.id
+                        ? 'bg-blue-600 text-white'
+                        : section.danger
+                          ? 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                          : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <section.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{section.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {settingsSaveError && (
@@ -415,113 +484,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
           </button>
         </div>
       )}
-      {/* Navigation Sub-tabs */}
-      <div className="flex items-center gap-1.5 border-b border-slate-200 pb-1 overflow-x-auto no-scrollbar">
-        <button
-          type="button"
-          onClick={() => setActiveTab('general')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'general'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-          }`}
-        >
-          <Building className="w-3.5 h-3.5" />
-          <span>البيانات الرسمية والضريبة</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('units')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'units'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-          }`}
-        >
-          <Scale className="w-3.5 h-3.5" />
-          <span>وحدات القياس وآليات الاحتساب</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('shortcuts')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'shortcuts'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-          }`}
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>اختصارات الشاشة الرئيسية</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('currency')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'currency'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-          }`}
-        >
-          <Coins className="w-3.5 h-3.5" />
-          <span>تعدد العملات وأسعار الصرف (₪)</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('sql')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'sql'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-          }`}
-        >
-          <Server className="w-3.5 h-3.5" />
-          <span>التشغيل المحلي وربط خادم SQL</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('telegram')}
-          className={`w-full text-right px-3 py-2.5 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === 'telegram'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-          }`}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" x2="11" y1="2" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-          <span>تكامل تليجرام (البوت)</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('backup')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'backup'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-          }`}
-        >
-          <ShieldAlert className="w-3.5 h-3.5" />
-          <span>النسخ الاحتياطي والصيانة</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('reset_db')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'reset_db'
-              ? 'bg-rose-600 text-white shadow-xs'
-              : 'bg-rose-50/70 text-rose-700 hover:bg-rose-100 border border-rose-200'
-          }`}
-        >
-          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-          <span>تصفير قاعدة البيانات (التشغيل الفعلي)</span>
-        </button>
-      </div>
-
       {/* Tab 1: General Business Info */}
       {activeTab === 'general' && (
         <form onSubmit={handleSave} onChangeCapture={() => setGeneralDirty(true)} className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-5 space-y-5 text-xs">
