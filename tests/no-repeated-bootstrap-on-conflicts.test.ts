@@ -14,9 +14,10 @@ test('unchanged rejected command does not download PostgreSQL bootstrap on every
     id:'uncommitted-party',name:'Uncommitted',code:'CUST-0912'}}]);
   await db.markError(blocked.id,'rejected','ENTITY_PERMISSION_DENIED');
   let fullDownloads=0;
+  const serverEvents:ServerEvent[]=[];
   const remote:SyncTransport={
     async push(_command:SyncCommand){throw new Error('rejected commands must not be pushed');},
-    async pull(){return [];},
+    async pull(after){return serverEvents.filter(e=>(e.cursor.sequence??0)>(after?.sequence??0));},
     async fetchAuthoritativeBootstrap(){fullDownloads++;return {records:[],cursor:cursor(1)};},
     watchLatest(){return ()=>{};}
   };
@@ -36,6 +37,13 @@ test('unchanged rejected command does not download PostgreSQL bootstrap on every
     }],cursor:cursor(2)} as ServerEvent);
     coordinator.requestSync();
     await coordinator.waitUntilIdle();
-    assert.equal(fullDownloads,2,'an advanced server event cursor permits a new review');
+    assert.equal(fullDownloads,1,'an unrelated server event cannot trigger a full workspace download');
+    serverEvents.push({commandId:'changed-rejected-party',changes:[{
+      entity:'parties',id:'uncommitted-party',version:1,
+      value:{id:'uncommitted-party',code:'CUST-0912',name:'Server version'}
+    }],cursor:cursor(3)});
+    coordinator.requestSync();
+    await coordinator.waitUntilIdle();
+    assert.equal(fullDownloads,2,'changing the exact conflicted record permits a fresh review');
   }finally{coordinator.stop();await db.close();}
 });
