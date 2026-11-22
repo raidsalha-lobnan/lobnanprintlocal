@@ -1,4 +1,4 @@
-import {registerDurableWriter} from '../services/durableLegacyBridge';
+import {registerLocalRepositoryWriter} from '../services/localRepositoryWrites';
 import {LocalHttpSyncTransport, getLocalSyncConfig} from './httpTransport';
 import {LocalSyncDb} from './localDb';
 import {SyncCoordinator} from './coordinator';
@@ -21,14 +21,14 @@ export async function createUnifiedDataLayer(workspaceId:string){
   const remote=new LocalHttpSyncTransport(config.url,config.token,workspaceId);
   const coordinator=new SyncCoordinator(local,remote,workspaceId);
   const repository=new UnifiedRepository(local,coordinator);
-  // Legacy top-level SDK writes from existing UI are redirected to the same durable local queue.
+  // Every supported UI record write is durably queued in IndexedDB, then synced to PostgreSQL.
   const supported=new Set<string>([
     'invoices','parties','inventory','vouchers','purchases','purchaseReturns','salesReturns',
     'accounts','treasuries','treasuryTransactions','employees','employeeAdvances',
     'employeeDeductions','employeeIncentives','payrollSheets','journalEntries','expenses',
     'stockMovements','printOrders','debtClearings','companies','branches','warehouses',
     'warehouseOperations','roles','users','dailyEntrySheets','settings']);
-  const unregister=registerDurableWriter(async(operation,ref,payload,options)=>{
+  const unregister=registerLocalRepositoryWriter(async(operation,ref,payload,options)=>{
     const segments=String(ref?.path||'').split('/');
     if(segments.length!==2)return false;
     const entity=segments[0]==='journals'?'journalEntries':segments[0];
