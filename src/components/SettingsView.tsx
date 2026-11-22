@@ -401,9 +401,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
             <Settings className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-slate-900">إعدادات النظام والمنشأة</h2>
+            <h2 className="text-sm font-bold text-slate-900">
+              {settingsSections.find(section => section.id === activeTab)?.label || 'إعدادات النظام والمنشأة'}
+            </h2>
             <p className="text-[10px] text-slate-400 font-light">
-              إدارة بيانات المنشأة، تعدد العملات وأسعار الصرف، الربط بقواعد بيانات SQL، والنسخ الاحتياطي
+              {activeTab === 'general' ? 'بيانات المنشأة والترويسة والأرقام الضريبية الرسمية'
+                : activeTab === 'backup' ? 'النسخ الاحتياطية والاستعادة ومتابعة صيانة البيانات'
+                : 'خيارات هذا القسم فقط، وبقية الإعدادات من زر خيارات الإعدادات'}
             </p>
           </div>
         </div>
