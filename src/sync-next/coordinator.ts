@@ -459,8 +459,15 @@ export class SyncCoordinator {
     // Recheck only a new/changed blocked operation, an authenticated event
     // affecting one of its record IDs, or an explicit manual review. A daily
     // sale on an unrelated invoice must NEVER download the whole SQL workspace.
-    const relevantServerChange=unresolved.some(cmd=>cmd.changes.some(change=>
-      pulledKeys.has(recordKey(change.entity,change.id))));
+    const relevantServerChange=unresolved.some(cmd=>{
+      // Shared inventory and debtor balance rows change during independent
+      // sales. A conflicted atomic POS sale is uniquely identified by its
+      // own invoice ID; unrelated stock movement is not proof of resolution.
+      if(isNewAtomicPosSale(cmd) && cmd.atomicInvoiceId)
+        return pulledKeys.has(recordKey('invoices',cmd.atomicInvoiceId));
+      return cmd.changes.some(change=>
+        pulledKeys.has(recordKey(change.entity,change.id)));
+    });
     const identity=JSON.stringify([
       this.workspaceId,getCurrentSessionActorId(),
       ...unresolved.map(cmd=>[cmd.id,cmd.status,cmd.error||''])
