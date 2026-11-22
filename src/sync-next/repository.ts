@@ -222,7 +222,10 @@ export class UnifiedRepository {
     const onlyOnDevice=localBefore.filter(row=>!centralIds.has(row.id)).map(describe);
     const initiallyMissing=employees.filter(row=>!existingIds.has(row.id)).map(describe);
     const recovered=await this.local.restoreMissingEmployees(employees,snapshot.cursor.sequence);
-    const after=await this.local.listVisibleGrouped(['employees']);
+    const [after,audit]=await Promise.all([
+      this.local.listVisibleGrouped(['employees']),
+      this.local.employeeProjectionHistory()
+    ]);
     const afterIds=new Set((after.employees||[]).map(row=>row.id));
     const stillMissing=employees.filter(row=>!afterIds.has(row.id)).map(describe);
     // Historical localStorage is NOT authority. Expose unmatched identifiers
@@ -249,7 +252,8 @@ export class UnifiedRepository {
       centralIds:employees.map(row=>row.id),
       centralCount:employees.length,localCount:after.employees.length,
       added:recovered.added,updated:recovered.updated,
-      initiallyMissing,stillMissing,onlyOnDevice,legacyOnly,unresolved
+      initiallyMissing,stillMissing,onlyOnDevice,legacyOnly,unresolved,
+      employeeProjectionHistory:audit
     };
   }
 
