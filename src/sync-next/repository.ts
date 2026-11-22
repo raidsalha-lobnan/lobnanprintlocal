@@ -190,7 +190,7 @@ export class UnifiedRepository {
     if (!confirmedInvoices.length) return 'verified-empty';
     // Uses an atomic IndexedDB transaction, retains all pending/conflicted
     // commands, and emits one repository change after a successful repair.
-    await this.local.refreshAuthoritativeSnapshot(snapshot.records, snapshot.cursor);
+    await this.local.refreshAuthoritativeSnapshot(snapshot.records, snapshot.cursor, ['invoices']);
     return 'recovered';
   }
 
