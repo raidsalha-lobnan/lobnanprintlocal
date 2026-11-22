@@ -150,7 +150,7 @@ export const SubCustomerField: React.FC<SubCustomerFieldProps> = ({
           onFocus={() => setShowSuggestions(true)}
           onBlur={handleBlur}
           placeholder={compact ? "اسم أو هاتف الزبون الفرعي..." : "اسم ثانوي أو زبون فرعي ورقم هاتفه (مثال: محمود أحمد 01557735502)"}
-          className={`w-[324.631px] border rounded px-2.5 ${compact ? 'py-0.5' : 'py-1'} text-center font-bold text-xs shadow-2xs focus:outline-none pl-7 pr-7 bg-[#fdfbe9] border-amber-300 text-slate-800 focus:bg-white focus:border-amber-500`}
+          className={`w-full min-w-0 border rounded px-2.5 ${compact ? 'py-0.5' : 'py-1'} text-center font-bold text-xs shadow-2xs focus:outline-none pl-7 pr-7 bg-[#fdfbe9] border-amber-300 text-slate-800 focus:bg-white focus:border-amber-500`}
         />
 
         {linkedSubCustomers.length > 0 && (
