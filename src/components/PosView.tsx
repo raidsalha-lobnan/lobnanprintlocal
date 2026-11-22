@@ -4326,7 +4326,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           </div>
 
           {/* 2. خانة إدخال وبحث ومطابقة أحرف وإمكانية الإضافة السريعة */}
-          <div className="flex items-center gap-1 w-[300px] min-w-[170px] max-w-[300px] flex-[0_1_300px]">
+          <div className="flex items-center gap-1 w-[320px] min-w-[170px] max-w-[320px] flex-[0_1_320px]">
             <div className="flex-1 min-w-0 relative group">
               <AutocompleteCombobox
                 items={targetComboboxOptions}
@@ -4426,7 +4426,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           </div>
 
           {/* 3. العميل الفرعي */}
-          <div className="flex items-center gap-1 w-[300px] min-w-[170px] max-w-[300px] flex-[0_1_300px]">
+          <div className="flex items-center gap-1 w-[320px] min-w-[170px] max-w-[320px] flex-[0_1_320px]">
             <span className="font-bold text-slate-700 text-xs shrink-0">الفرعي:</span>
             <div className="flex-1 min-w-0 flex items-center gap-1">
               <SubCustomerField
@@ -4539,7 +4539,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
             <div className="flex items-center gap-1 flex-nowrap flex-none w-max min-w-0">
               {/* خانة ملاحظات الفاتورة ككل (تظهر في كشف حساب العميل) */}
               <div
-                className="flex items-center gap-1 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-lg px-1.5 py-1 transition-all shadow-sm w-[350px] min-w-[185px] max-w-[350px] shrink-0"
+                className="flex items-center gap-1 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-lg px-1.5 py-1 transition-all shadow-sm w-[450px] min-w-[185px] max-w-[450px] shrink-0"
                 title="ملاحظة عامة خاصة بالفاتورة ككل وتظهر في كشف حساب العميل"
               >
                 <FileText className="w-4 h-4 text-blue-600 shrink-0" />
