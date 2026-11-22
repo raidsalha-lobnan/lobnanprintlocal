@@ -1,4 +1,4 @@
-import { LocalSyncDb } from './localDb';
+import { LocalSyncDb, type SyncRecordRef } from './localDb';
 import {compareQueueWithAuthoritativeRecords} from './queueDiagnostics';
 import {compareDeviceQueueWithPostgresV2} from './deviceQueueReviewV2';
 import { SyncCoordinator } from './coordinator';
@@ -16,8 +16,13 @@ export class UnifiedRepository {
     private sync: SyncCoordinator
   ) {}
 
-  subscribe(callback: (recordsChanged: boolean) => void): () => void {
+  subscribe(callback: (recordsChanged: boolean, keys?: readonly SyncRecordRef[]) => void): () => void {
     return this.local.subscribe(callback);
+  }
+
+  /** Targeted local reads; never fetches PostgreSQL or scans unrelated invoices. */
+  async getVisibleByIds(keys: readonly SyncRecordRef[]): Promise<Record<string, LocalView|null>> {
+    return this.local.listVisibleByKeys(keys);
   }
 
   async all(entity: EntityName): Promise<LocalView[]> {
@@ -207,8 +212,8 @@ export class UnifiedRepository {
     return {};
   }
 
-  async getAllVisibleGrouped(): Promise<Record<string, any[]>> {
-    const supported: EntityName[] = [
+  async getAllVisibleGrouped(onlyEntities?: readonly EntityName[]): Promise<Record<string, any[]>> {
+    const supported: EntityName[] = onlyEntities ? [...new Set(onlyEntities)] : [
       'invoices', 'parties', 'inventory', 'vouchers', 'printOrders',
       'purchases', 'purchaseReturns', 'salesReturns', 'accounts',
       'treasuries', 'treasuryTransactions', 'employees',
