@@ -666,6 +666,8 @@ export class LocalSyncDb {
     const tx = db.transaction([RECORDS, OUTBOX, META], 'readwrite');
     const done = completed(tx);
     let added = 0;
+    let updated = 0;
+    const restored:StoredRecord[]=[];
     try {
       const store = tx.objectStore(RECORDS);
       const [cursor, commands] = await Promise.all([
@@ -676,9 +678,21 @@ export class LocalSyncDb {
       const protectedIds = new Set(commands.flatMap(cmd =>
         cmd.changes.filter(change => change.entity === 'employees').map(change => change.id)));
       for (const row of rows) {
-        if (protectedIds.has(row.id) || await request(store.getKey(row.key)) !== undefined) continue;
-        store.add(row);
-        added++;
+        // Never override local offline edits, rejected operations or conflicts.
+        if (protectedIds.has(row.id)) continue;
+        const previous=await request(store.get(row.key)) as StoredRecord|undefined;
+        if(!previous){
+          store.add(row);
+          added++;
+          restored.push(row);
+        }else if(previous.version < row.version ||
+          (previous.version===row.version && previous.value===null)){
+          // A record may exist as a stale tombstone or lower version. getKey()
+          // alone incorrectly treated it as a present, visible employee.
+          store.put(row);
+          updated++;
+          restored.push(row);
+        }
       }
       await done;
     } catch (error) {
@@ -686,8 +700,8 @@ export class LocalSyncDb {
       await done.catch(() => {});
       throw error;
     }
-    if (added) this.changed(true,rows);
-    return added;
+    if (restored.length) this.changed(true,restored);
+    return {added,updated};
   }
 
   /** Install the authenticated PostgreSQL workspace settings snapshot without
