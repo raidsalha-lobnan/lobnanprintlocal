@@ -56,6 +56,10 @@ export class SyncCoordinator {
   private busy = false;
   private requested = false;
   private queueMaintenance = false;
+  // Avoid fetching a full PostgreSQL snapshot on every 30-second pass when
+  // rejected/conflicting commands and the authoritative event cursor are unchanged.
+  private lastReviewedConflictSignature: string | null = null;
+  private forceConflictReview = false;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -447,13 +451,31 @@ export class SyncCoordinator {
     const queued=await this.local.pending();
     const unresolved=queued.filter(c=>!c.invoiceRevision && (c.status==='conflict'||c.status==='rejected'));
     if(!unresolved.length||!this.remote.fetchAuthoritativeBootstrap)return;
+    // The preceding pullAllPages() has already replayed all new server events.
+    // Therefore a stable local event cursor + identical unresolved commands
+    // means the same authoritative state was already reviewed, and the large
+    // financial bootstrap must not be downloaded again.
+    const cursor=await this.local.cursor();
+    const identity=JSON.stringify([
+      this.workspaceId,getCurrentSessionActorId(),cursor?.sequence??null,
+      ...unresolved.map(cmd=>[cmd.id,cmd.status,cmd.error||''])
+    ]);
+    const storageKey='lobnan_conflict_review_'+this.workspaceId;
+    let previouslyReviewed=this.lastReviewedConflictSignature===identity;
+    if(!previouslyReviewed && typeof sessionStorage!=='undefined'){
+      try{previouslyReviewed=sessionStorage.getItem(storageKey)===identity;}
+      catch{/* Storage access is not guaranteed on all browsers. */}
+    }
+    if(previouslyReviewed && !this.forceConflictReview)return;
+    this.forceConflictReview=false;
     const snapshot=await this.remote.fetchAuthoritativeBootstrap();
     const index=new Map(snapshot.records.map(r=>[recordKey(r.entity,r.id),r]));
+    let reviewFailed=false;
     let supportsRepairedAtomicPos:boolean|null=null;
     // Verify every harmless bystander in a rejected historical bulk snapshot
     // against authenticated PostgreSQL. Preserve the original queued command.
     try{await this.local.recordVerifiedRejectedBulkBystanders(unresolved,snapshot.records);}
-    catch(error){this.report({lastError:'BULK_BYSTANDER_PROOF_UNAVAILABLE: '+String(error)});}
+    catch(error){reviewFailed=true;this.report({lastError:'BULK_BYSTANDER_PROOF_UNAVAILABLE: '+String(error)});}
     for(const cmd of unresolved){
       try{
       if(!this.started)return;
@@ -526,8 +548,16 @@ export class SyncCoordinator {
       }
       }catch(error){
         // Only this old conflict needs extra review. Never stop unrelated sync.
+        reviewFailed=true;
         this.report({lastError:'ISOLATED_CONFLICT_REVIEW_FAILED: '+cmd.id+': '+String(error)});
         continue;
+      }
+    }
+    if(!reviewFailed){
+      this.lastReviewedConflictSignature=identity;
+      if(typeof sessionStorage!=='undefined'){
+        try{sessionStorage.setItem(storageKey,identity);}
+        catch{/* A failed optional cache must not interrupt queue safety. */}
       }
     }
   }
@@ -682,6 +712,8 @@ export class SyncCoordinator {
     if(typeof this.local.releasePendingRetryDelays==='function')
       await this.local.releasePendingRetryDelays();
     const startedAt = Date.now();
+    // Explicit user-requested sync may re-check previously reviewed conflicts.
+    this.forceConflictReview=true;
     this.requestSync();
     await sleep(0);
     while (this.busy || this.requested) {
