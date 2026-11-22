@@ -422,6 +422,24 @@ const srv=http.createServer(async(req,res)=>{
       const snapshot=await service.bootstrap(workspace);
       return json(res,200,STRICT_AUTH?safeSnapshot(filterSnapshot(snapshot,access),access):snapshot,cors);
     }
+    if(req.method==='GET' && url.pathname==='/api/v1/records/manifest'){
+      // Identity + version only; never expose unauthorised records or payload.
+      // A cursor alone cannot reveal missing older records after local data loss.
+      const snapshot=await service.recordManifest(workspace);
+      const visible=STRICT_AUTH?filterSnapshot(snapshot,access).records:snapshot.records;
+      return json(res,200,{
+        cursor:snapshot.cursor,
+        records:visible.map(row=>({entity:row.entity,id:row.id,version:row.version}))
+      },cors);
+    }
+    if(req.method==='POST' && url.pathname==='/api/v1/records/resolve'){
+      // Only exact requested IDs, up to 80. Read-only and authenticated.
+      const body=await parseBody(req,16000);
+      const records=await service.resolveRecords(workspace,body?.keys);
+      const visible=STRICT_AUTH?filterSnapshot({records},access).records:records;
+      return json(res,200,{records:STRICT_AUTH
+        ?safeSnapshot({records:visible},access).records:visible},cors);
+    }
     if(req.method==='GET' && url.pathname==='/api/v1/events'){
       const pulled=await service.pull(workspace,Number(url.searchParams.get('after')||0),
         Math.min(500,Number(url.searchParams.get('limit')||100)));
