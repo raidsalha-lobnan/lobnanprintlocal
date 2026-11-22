@@ -39,6 +39,7 @@ import { salesReportCustomerName } from '../utils/salesReportCustomer';
 import { separateInvoiceConfirmation } from '../utils/invoiceConfirmation';
 
 type InvoiceDateFilterMode = 'all' | 'single' | 'range';
+const INVOICES_PAGE_SIZE = 75;
 
 // Filter by the invoice's currently approved document date, not creation,
 // import or audit timestamps. Historical DD/MM/YYYY invoices are supported.
@@ -102,6 +103,7 @@ export const InvoicesView: React.FC = () => {
     } catch (error) { window.alert(String(error)); }
   };
   const [searchQuery, setSearchQuery] = useState('');
+  const [invoicePage, setInvoicePage] = useState(1);
   const [filterType, setFilterType] = useState<string>('all');
   const [dateFilterMode, setDateFilterMode] = useState<InvoiceDateFilterMode>('all');
   const [singleDate, setSingleDate] = useState<string>(currentLocalDate);
@@ -114,8 +116,9 @@ export const InvoicesView: React.FC = () => {
 
   // Never count a locally queued TEMP document as an officially numbered sale.
   // It remains visible below in a separate, non-printable recovery section.
-  const {confirmed: confirmedInvoices, awaitingConfirmation} = separateInvoiceConfirmation(invoices);
-  const filteredInvoices = confirmedInvoices
+  const {confirmed: confirmedInvoices, awaitingConfirmation} = React.useMemo(
+    ()=>separateInvoiceConfirmation(invoices),[invoices]);
+  const filteredInvoices = React.useMemo(() => confirmedInvoices
     .filter(inv => {
       const matchType = filterType === 'all' || inv.type === filterType;
       const invoiceDate = toInvoiceDateKey(inv.date);
@@ -143,9 +146,25 @@ export const InvoicesView: React.FC = () => {
       const createdCmp = (b.createdAt || '').localeCompare(a.createdAt || '');
       if (createdCmp !== 0) return createdCmp;
       return (b.date || '').localeCompare(a.date || '');
-    });
+    }), [confirmedInvoices,filterType,dateFilterMode,singleDate,dateFrom,dateTo,searchQuery,parties]);
 
-  const totalInvoiced = filteredInvoices.reduce((acc, inv) => acc + inv.totalAmount, 0);
+  const totalInvoiced = React.useMemo(
+    () => filteredInvoices.reduce((acc, inv) => acc + inv.totalAmount, 0),
+    [filteredInvoices]
+  );
+  // Keep every filter, total and exported report scoped to ALL matching invoices;
+  // only the expensive DOM table is paged. Never drop an accounting record.
+  React.useEffect(() => setInvoicePage(1), [
+    searchQuery,filterType,dateFilterMode,singleDate,dateFrom,dateTo
+  ]);
+  const invoicePageCount = Math.max(1,Math.ceil(filteredInvoices.length / INVOICES_PAGE_SIZE));
+  const displayedInvoicePage = Math.min(invoicePage,invoicePageCount);
+  const visibleInvoices = React.useMemo(() => filteredInvoices.slice(
+    (displayedInvoicePage-1)*INVOICES_PAGE_SIZE,
+    displayedInvoicePage*INVOICES_PAGE_SIZE
+  ),[filteredInvoices,displayedInvoicePage]);
+
+
 
   const handlePrintDetailedInvoices = () => {
     const periodLabel = salesReportPeriod(filteredInvoices, {
@@ -429,7 +448,7 @@ export const InvoicesView: React.FC = () => {
                   </td>
                 </tr>
               )}
-              {filteredInvoices.map((inv, idx) => (
+              {visibleInvoices.map((inv, idx) => (
                 <tr key={`${inv.id || 'inv'}-${idx}`} className="hover:bg-slate-50/80 whitespace-nowrap transition-colors h-11">
                   <td className="py-2 px-3 whitespace-nowrap align-middle">
                     <button
@@ -590,6 +609,23 @@ export const InvoicesView: React.FC = () => {
             </tbody>
           </table>
         </div>
+        {filteredInvoices.length > INVOICES_PAGE_SIZE && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs print:hidden" dir="rtl">
+            <span className="text-slate-600">
+              عرض {(displayedInvoicePage-1)*INVOICES_PAGE_SIZE+1}–{Math.min(displayedInvoicePage*INVOICES_PAGE_SIZE,filteredInvoices.length)}
+              {' '}من {filteredInvoices.length} فاتورة (البحث والطباعة والإجماليات تشمل الكل)
+            </span>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={()=>setInvoicePage(p=>Math.max(1,p-1))}
+                disabled={displayedInvoicePage<=1}
+                className="rounded border border-slate-300 bg-white px-2 py-1 font-bold disabled:opacity-40">السابق</button>
+              <span className="font-bold tabular-nums">{displayedInvoicePage} / {invoicePageCount}</span>
+              <button type="button" onClick={()=>setInvoicePage(p=>Math.min(invoicePageCount,p+1))}
+                disabled={displayedInvoicePage>=invoicePageCount}
+                className="rounded border border-slate-300 bg-white px-2 py-1 font-bold disabled:opacity-40">التالي</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Invoice Status & Audit History Modal */}
