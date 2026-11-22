@@ -24,7 +24,7 @@ test('local incremental invoice projection reads individual IDs without scanning
   });
   const nativeGetAll=IDBObjectStore.prototype.getAll;
   let recordStoreFullReads=0;
-  (IDBObjectStore.prototype as any).getAll=function(...args:unknown[]){
+  (IDBObjectStore.prototype as any).getAll=function(this:IDBObjectStore,...args:unknown[]){
     if(this.name==='records'){
       recordStoreFullReads++;
       throw new Error('FULL_RECORD_STORE_SCAN_FOR_ONE_CHANGED_INVOICE');
@@ -39,6 +39,10 @@ test('local incremental invoice projection reads individual IDs without scanning
       cursor:cursor(2)
     });
     assert.deepEqual(notifications.at(-1),[{entity:'invoices',id:'invoice-410'}]);
+    // A targeted multi-collection query must NOT scan the 500 invoice rows.
+    const nonInvoiceGroups=await db.listVisibleGrouped(['parties','inventory']);
+    assert.equal(nonInvoiceGroups.parties.length,0);
+    assert.equal(nonInvoiceGroups.inventory.length,0);
     const rowsById=await db.listVisibleByKeys([
       {entity:'invoices',id:'invoice-410'},
       {entity:'invoices',id:'invoice-1'}
