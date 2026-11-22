@@ -219,10 +219,11 @@ export const InvoicesView: React.FC = () => {
     <div className="flex h-full min-h-0 w-full flex-col gap-1.5 overflow-hidden" data-testid="sales-invoices-fixed-screen">
       {/* One compact, responsive sales register command bar. */}
       <section
-        className="flex shrink-0 flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-xs"
+        className="flex shrink-0 flex-nowrap items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-xs"
         dir="rtl"
         aria-label="سجل فواتير المبيعات وأدواته"
       >
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden whitespace-nowrap">
         <div className="flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700">
             <FileText className="h-4 w-4" />
@@ -313,7 +314,7 @@ export const InvoicesView: React.FC = () => {
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex shrink-0 flex-nowrap items-center gap-1.5">
           <button
             type="button"
             onClick={handlePrintDetailedInvoices}
@@ -369,14 +370,29 @@ export const InvoicesView: React.FC = () => {
           </button>
         </div>
 
-        <div className="mr-auto flex shrink-0 flex-wrap items-center gap-2 border-r border-slate-200 pr-2 text-[11px]">
-          <span className="whitespace-nowrap font-semibold text-slate-600" role="status">
-            {filteredInvoices.length} / {confirmedInvoices.length} فاتورة معتمدة
-          </span>
-          <span className="whitespace-nowrap font-bold tabular-nums text-slate-900" title="إجمالي الفواتير المعروضة">
+        <div className="flex shrink-0 items-center gap-2 border-r border-slate-200 pr-2 text-[11px]">
+          <span className="whitespace-nowrap font-bold tabular-nums text-slate-900" title="إجمالي مبالغ جميع الفواتير المطابقة للبحث والتصفية">
             {totalInvoiced.toLocaleString('ar-SA')} {settings.currency}
           </span>
         </div>
+        </div>
+        <nav className="flex shrink-0 items-center gap-1 border-r border-slate-200 pr-2 text-xs print:hidden"
+          dir="rtl" aria-label="التنقل بين صفحات فواتير المبيعات" data-testid="sales-invoices-pagination">
+          <button type="button" onClick={()=>setInvoicePage(1)}
+            disabled={displayedInvoicePage<=1} title="الصفحة الأولى"
+            className="rounded border border-slate-300 bg-white px-1.5 py-1 font-bold whitespace-nowrap disabled:opacity-40">الأولى</button>
+          <button type="button" onClick={()=>setInvoicePage(p=>Math.max(1,p-1))}
+            disabled={displayedInvoicePage<=1} title="الصفحة السابقة"
+            className="rounded border border-slate-300 bg-white px-1.5 py-1 font-bold whitespace-nowrap disabled:opacity-40">السابق</button>
+          <span className="min-w-[54px] text-center font-bold tabular-nums text-indigo-800" role="status"
+            aria-label="رقم الصفحة الحالية من إجمالي الصفحات">{displayedInvoicePage} / {invoicePageCount}</span>
+          <button type="button" onClick={()=>setInvoicePage(p=>Math.min(invoicePageCount,p+1))}
+            disabled={displayedInvoicePage>=invoicePageCount} title="الصفحة التالية"
+            className="rounded border border-slate-300 bg-white px-1.5 py-1 font-bold whitespace-nowrap disabled:opacity-40">التالي</button>
+          <button type="button" onClick={()=>setInvoicePage(invoicePageCount)}
+            disabled={displayedInvoicePage>=invoicePageCount} title="الصفحة الأخيرة"
+            className="rounded border border-slate-300 bg-white px-1.5 py-1 font-bold whitespace-nowrap disabled:opacity-40">الأخيرة</button>
+        </nav>
       </section>
 
       {/* Warnings remain accessible without pushing the invoice pager below the viewport. */}
@@ -633,28 +649,7 @@ export const InvoicesView: React.FC = () => {
             </tbody>
           </table>
         </div>
-        {/* Always visible at the bottom, including for a single page. */}
-        <nav className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-2 py-1.5 text-xs print:hidden" dir="rtl" aria-label="التنقل بين صفحات فواتير المبيعات" data-testid="sales-invoices-pagination">
-          <span className="font-medium text-slate-600" role="status">
-            {filteredInvoices.length ? (displayedInvoicePage-1)*pageSize+1 : 0}–{Math.min(displayedInvoicePage*pageSize,filteredInvoices.length)}
-            {' '}من {filteredInvoices.length} فاتورة
-          </span>
-          <div className="flex items-center gap-1.5">
-            <button type="button" onClick={()=>setInvoicePage(1)}
-              disabled={displayedInvoicePage<=1}
-              className="rounded-md border border-slate-300 bg-white px-2 py-1 font-bold text-slate-800 disabled:opacity-40">الأولى</button>
-            <button type="button" onClick={()=>setInvoicePage(p=>Math.max(1,p-1))}
-              disabled={displayedInvoicePage<=1}
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-bold text-slate-800 disabled:opacity-40">السابق</button>
-            <span className="min-w-[64px] text-center font-bold tabular-nums text-indigo-800">{displayedInvoicePage} / {invoicePageCount}</span>
-            <button type="button" onClick={()=>setInvoicePage(p=>Math.min(invoicePageCount,p+1))}
-              disabled={displayedInvoicePage>=invoicePageCount}
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-bold text-slate-800 disabled:opacity-40">التالي</button>
-            <button type="button" onClick={()=>setInvoicePage(invoicePageCount)}
-              disabled={displayedInvoicePage>=invoicePageCount}
-              className="rounded-md border border-slate-300 bg-white px-2 py-1 font-bold text-slate-800 disabled:opacity-40">الأخيرة</button>
-          </div>
-        </nav>
+
       </div>
 
       {/* Invoice Status & Audit History Modal */}
