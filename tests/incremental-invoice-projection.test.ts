@@ -64,3 +64,39 @@ test('local incremental invoice projection reads individual IDs without scanning
     await db.close();
   }
 });
+
+test('two remote invoice events notify the UI once per page, not one full reload per event',async()=>{
+  const db=new LocalSyncDb('batched-invoices-'+crypto.randomUUID());
+  await db.initializeAuthoritativeSnapshot([invoice(1),invoice(2)],cursor(1));
+  const changes=[
+    {commandId:'device-two-edit-one',
+      changes:[{entity:'invoices' as const,id:'invoice-1',version:2,
+        value:{id:'invoice-1',invoiceNumber:'INV-00001',totalAmount:91}}],
+      cursor:cursor(2)},
+    {commandId:'device-two-edit-two',
+      changes:[{entity:'invoices' as const,id:'invoice-2',version:2,
+        value:{id:'invoice-2',invoiceNumber:'INV-00002',totalAmount:92}}],
+      cursor:cursor(3)}
+  ];
+  const notifications:Array<readonly {entity:string;id:string}[]|undefined>=[];
+  const unsubscribe=db.subscribe((updated,keys)=>{if(updated)notifications.push(keys);});
+  const remote:import('../src/sync-next/coordinator').SyncTransport={
+    async push(command){throw Error('No local write expected: '+command.id);},
+    async pull(since){return changes.filter(c=>(c.cursor.sequence||0)>(since?.sequence||0));},
+    watchLatest(){return ()=>{};}
+  };
+  const {SyncCoordinator}=await import('../src/sync-next/coordinator');
+  const coordinator=new SyncCoordinator(db,remote,'batched-invoices');
+  try{
+    await coordinator.start();
+    await coordinator.waitUntilIdle();
+    assert.equal(notifications.length,1,'remote event page should emit one projection change');
+    assert.deepEqual(notifications[0]?.map(k=>k.id),['invoice-1','invoice-2']);
+    assert.equal((await db.listVisibleByKeys([{entity:'invoices',id:'invoice-2'}]))
+      [recordKey('invoices','invoice-2')]?.value?.totalAmount,92);
+  }finally{
+    coordinator.stop();
+    unsubscribe();
+    await db.close();
+  }
+});
