@@ -38,6 +38,42 @@ export class SyncService {
       return {records:parseRows(r.rows),cursor:makeCursor(w.rows[0]?.next_sequence ?? 0)};
     },'REPEATABLE READ READ ONLY');
   }
+  /** Lightweight, consistent SQL identity/version catalogue. The HTTP route
+   * applies the CURRENT authenticated user's read/branch policy before exposing
+   * any IDs. Values never leave the server in the manifest.
+   */
+  async recordManifest(workspace){
+    return this.withTx(async client=>{
+      const [head,rows]=await Promise.all([
+        client.query('SELECT next_sequence FROM sync_workspaces WHERE id=$1',[workspace]),
+        client.query('SELECT entity,record_id,version,value FROM sync_records WHERE workspace=$1 AND value IS NOT NULL ORDER BY entity,record_id',[workspace])
+      ]);
+      return {records:parseRows(rows.rows),cursor:makeCursor(head.rows[0]?.next_sequence??0)};
+    },'REPEATABLE READ READ ONLY');
+  }
+
+  /** Fetch ONLY the exact records missing/stale on one device. No cursor
+   * movement, no SQL mutations, no financial write, no complete bootstrap.
+   */
+  async resolveRecords(workspace,keys){
+    if(!Array.isArray(keys)||keys.length<1||keys.length>80 ||
+       keys.some(k=>!k||typeof k.entity!=='string'||
+         !/^[a-zA-Z][a-zA-Z0-9]{0,63}$/.test(k.entity)||
+         typeof k.id!=='string'||!/^[a-zA-Z0-9_-]{1,200}$/.test(k.id)))
+      throw new InputError('INVALID_RECORD_RESOLUTION_KEYS',400);
+    const entities=keys.map(k=>k.entity),ids=keys.map(k=>k.id);
+    const result=await this.pool.query(
+      `SELECT records.entity,records.record_id,records.version,records.value
+       FROM unnest($2::text[],$3::text[]) AS requested(entity,record_id)
+       JOIN sync_records AS records
+         ON records.workspace=$1 AND records.entity=requested.entity
+         AND records.record_id=requested.record_id
+       WHERE records.value IS NOT NULL`,
+      [workspace,entities,ids]
+    );
+    return parseRows(result.rows);
+  }
+
   async pull(workspace,after=0,limit=100) {
     if (!Number.isSafeInteger(after)||after<0||!Number.isSafeInteger(limit)||limit<1||limit>500) throw new InputError('INVALID_CURSOR');
     const r=await this.pool.query('SELECT sequence,command_id,changes FROM sync_events WHERE workspace=$1 AND sequence>$2 ORDER BY sequence ASC LIMIT $3',[workspace,after,limit]);
