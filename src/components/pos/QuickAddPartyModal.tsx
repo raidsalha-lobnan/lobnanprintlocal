@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   UserPlus,
@@ -63,6 +63,8 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
   const [salaryAmount, setSalaryAmount] = useState<number>(0);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const employeeWriteRef = useRef(false);
+  const [savingEmployee, setSavingEmployee] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -105,6 +107,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(targetType==='employee'&&employeeWriteRef.current)return;
     setErrorMessage(null);
 
     const trimmedName = name.trim();
@@ -197,6 +200,8 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
         onClose();
       } else if (targetType === 'employee') {
         if(!unifiedRepository)throw new Error('قاعدة الموظفين المحلية غير جاهزة؛ لم يُحفظ الموظف.');
+        employeeWriteRef.current=true;
+        setSavingEmployee(true);
         const nextNumber=employees.reduce((highest,e)=>{
           const match=/^EMP-(\d+)$/i.exec(String(e.code||'').trim());
           return match?Math.max(highest,Number(match[1])):highest;
@@ -223,6 +228,11 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
       }
     } catch (err: any) {
       setErrorMessage(err?.message || 'حدث خطأ أثناء إضافة العميل');
+    } finally {
+      if(targetType==='employee'){
+        employeeWriteRef.current=false;
+        setSavingEmployee(false);
+      }
     }
   };
 
@@ -539,7 +549,8 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-md cursor-pointer transition-colors active:scale-95"
+              disabled={targetType==='employee'&&(savingEmployee||!unifiedRepository)}
+              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-md cursor-pointer transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Check className="w-4 h-4" />
               <span>{partyToEdit ? 'حفظ تعديلات العميل والاعتماد' : 'حفظ وإدراج في الفاتورة فوراً'}</span>
