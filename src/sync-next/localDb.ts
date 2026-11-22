@@ -952,10 +952,18 @@ export class LocalSyncDb {
     const db = await this.getDb();
     const tx = db.transaction([RECORDS, OUTBOX], 'readonly');
     const done = completed(tx);
+    // IndexedDB used to read EVERY record whenever two entities were requested.
+    // A party + inventory update must not deserialize thousands of invoices.
+    // Full reads are reserved for genuine startup hydration (many entities).
+    const recordsStore=tx.objectStore(RECORDS);
+    const requestedEntities=[...new Set(entities)];
+    const recordsPromise:Promise<StoredRecord[]>=requestedEntities.length>=20
+      ? request(recordsStore.getAll()) as Promise<StoredRecord[]>
+      : Promise.all(requestedEntities.map(entity=>
+          request(recordsStore.index('byEntity').getAll(entity)) as Promise<StoredRecord[]>
+        )).then(groups=>groups.flat());
     const [records, outbox] = await Promise.all([
-      request(entities.length === 1
-        ? tx.objectStore(RECORDS).index('byEntity').getAll(entities[0])
-        : tx.objectStore(RECORDS).getAll()) as Promise<StoredRecord[]>,
+      recordsPromise,
       request(tx.objectStore(OUTBOX).getAll()) as Promise<SyncCommand[]>
     ]);
     await done;
@@ -1018,6 +1026,7 @@ export class LocalSyncDb {
         {id:rec.id,value:rec.value,version:rec.version,pending:false});
     }
     const requested=new Set(unique.map(([key])=>key));
+    const storedByKey=new Map(unique.map(([key],index)=>[key,stored[index]] as const));
     const ordered=outbox.sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));
     for(const cmd of ordered){
       if(cmd.invoiceRevision||cmd.status!=='pending')continue;
@@ -1027,8 +1036,7 @@ export class LocalSyncDb {
         const baseline=visible.get(key);
         // A null tombstone is not a committed version, so look up the original
         // server version from the already-fetched record rather than inventing one.
-        const position=unique.findIndex(([candidate])=>candidate===key);
-        const committed=position>=0?stored[position]:undefined;
+        const committed=storedByKey.get(key);
         const serverVersion=committed?.version;
         const settingsPatch=change.entity==='settings'&&change.value?._settingsPatchV1===true;
         if(!settingsPatch && serverVersion!==undefined && change.expectedVersion<serverVersion)continue;
