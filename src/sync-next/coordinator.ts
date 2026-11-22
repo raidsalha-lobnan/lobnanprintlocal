@@ -684,11 +684,24 @@ export class SyncCoordinator {
 
       if (page.length === 0) break;
 
-      for (const event of page) {
-        // Local data and cursor advance atomically.
-        await this.local.applyEvent(event);
-        this.emitApplied(event.changes);
-        cursor = event.cursor;
+      // Commit each event atomically, then notify the UI once for the page.
+      // This avoids re-reading 500+ invoices for every single incoming event.
+      // Compatibility: test repositories without batch notifications retain
+      // the old per-event behavior.
+      const supportsBatch = typeof this.local.notifyAppliedChanges === 'function';
+      const changedKeys: Array<{entity:StoredRecord['entity'];id:string}> = [];
+      try {
+        for (const event of page) {
+          await this.local.applyEvent(event, !supportsBatch);
+          if (supportsBatch) for (const change of event.changes)
+            changedKeys.push({entity:change.entity,id:change.id});
+          this.emitApplied(event.changes);
+          cursor = event.cursor;
+        }
+      } finally {
+        // Also notify already-committed events when a later event fails.
+        if(supportsBatch && changedKeys.length)
+          this.local.notifyAppliedChanges(changedKeys);
       }
 
       if (page.length < 100) break;
