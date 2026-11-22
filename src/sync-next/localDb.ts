@@ -16,6 +16,7 @@ const OUTBOX = 'outbox';
 const META = 'meta';
 const RECEIPTS = 'receipts';
 const CURSOR_KEY = 'serverCursor';
+const VERIFIED_EMPLOYEE_ROSTER_KEY = 'verifiedEmployeeRosterV1';
 
 /** Identifies one record whose local visible projection may have changed.
  * IDs only: never broadcast financial values or credentials between tabs.
@@ -657,6 +658,21 @@ export class LocalSyncDb {
     }
   }
 
+  /** Read the last signed-in actor's PostgreSQL-confirmed staff IDs.
+   * A persisted identity check survives browser reload without keeping a
+   * duplicate employee table or adding any financial outbox commands.
+   */
+  async verifiedEmployeeIds():Promise<string[]|null>{
+    const db=await this.getDb();
+    const tx=db.transaction(META,'readonly');
+    const row=await request(tx.objectStore(META).get(VERIFIED_EMPLOYEE_ROSTER_KEY)) as
+      {value?:{actorId?:string;ids?:string[]}}|undefined;
+    const proof=row?.value;
+    if(!proof||proof.actorId!==(getCurrentSessionActorId()||'')||
+      !Array.isArray(proof.ids)||!proof.ids.every(x=>typeof x==='string'))return null;
+    return proof.ids;
+  }
+
   async restoreMissingEmployees(rows: StoredRecord[], sequence: number): Promise<{added:number;updated:number}> {
     if (!Number.isSafeInteger(sequence) || sequence < 0 || rows.some(row =>
       row.entity !== 'employees' || row.key !== recordKey('employees', row.id) ||
@@ -694,6 +710,13 @@ export class LocalSyncDb {
           restored.push(row);
         }
       }
+      // This roster is derived exclusively from an authenticated PostgreSQL
+      // snapshot, not stale localStorage or optimistic React state.
+      tx.objectStore(META).put({
+        key:VERIFIED_EMPLOYEE_ROSTER_KEY,
+        value:{actorId:getCurrentSessionActorId()||'',
+          ids:rows.map(row=>row.id),sequence,checkedAt:new Date().toISOString()}
+      });
       await done;
     } catch (error) {
       try { tx.abort(); } catch {}
@@ -1117,6 +1140,11 @@ export class LocalSyncDb {
         store.put(row);
       }
       meta.put({ key: CURSOR_KEY, value: cursor });
+      meta.put({key:VERIFIED_EMPLOYEE_ROSTER_KEY,value:{
+        actorId:getCurrentSessionActorId()||'',
+        ids:records.filter(row=>row.entity==='employees' && row.value!==null).map(row=>row.id),
+        sequence:cursor.sequence,checkedAt:new Date().toISOString()
+      }});
       meta.put({ key: 'authoritativeBootstrap', value: true });
       await done;
       this.changed();
