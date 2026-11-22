@@ -23,7 +23,7 @@ test('every one of the 28 business entity types has a synchronized local, server
     .split('const supported: EntityName[] = [')[1].split('];')[0];
   for(const [layer,s] of [
     ['type union',typeSource],['PostgreSQL validator',serverSource],
-    ['legacy durable bridge',bootSource],['local unified projection',repositorySource]
+    ['local repository writer',bootSource],['local unified projection',repositorySource]
   ] as const){
     assert.deepEqual(matchNames(s),expected,'Entity mismatch in '+layer);
   }
@@ -92,8 +92,8 @@ test('a multi-entity financial command remains one operation with separate per-s
   assert.equal(summary.length,5);
 });
 
-test('all legacy set/delete paths and direct entity deltas explicitly report local durability',()=>{
-  const bridge=read('src/services/durableLegacyBridge.ts');
+test('all local repository save/delete paths and direct entity deltas report local durability',()=>{
+  const bridge=read('src/services/localRepositoryWrites.ts');
   const context=read('src/context/AccountingContext.tsx');
   const app=read('src/App.tsx');
   assert.match(bridge,/accounting_save_started/);
