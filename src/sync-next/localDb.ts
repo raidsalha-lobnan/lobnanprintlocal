@@ -1266,7 +1266,13 @@ export class LocalSyncDb {
       for (const cmd of outbox) {
         for (const change of cmd.changes) locallyTouched.add(recordKey(change.entity, change.id));
       }
-      const oldRows = await request(records.getAll()) as StoredRecord[];
+      // A targeted invoice repair should not even deserialize other entity
+      // collections. This keeps the recovery bounded as the HR/ledger grows.
+      const oldRows:StoredRecord[]=entityScope
+        ? (await Promise.all([...entityScope].map(entity=>
+            request(records.index('byEntity').getAll(entity)) as Promise<StoredRecord[]>
+          ))).flat()
+        : await request(records.getAll()) as StoredRecord[];
       const removed: Array<{entity: string; id: string; previous: StoredRecord}> = [];
       for (const prior of oldRows) {
         // An invoice-only repair must NEVER remove missing employees, parties,
