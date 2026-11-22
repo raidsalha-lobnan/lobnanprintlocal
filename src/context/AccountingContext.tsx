@@ -24,17 +24,13 @@ import { SyncCoordinator, SyncState } from '../sync-next/coordinator';
 import { ProposedChange, EntityName, JsonObject, recordKey } from '../sync-next/types';
 import type { SyncRecordRef } from '../sync-next/localDb';
 import {
-  auth,
-  db,
-  doc,
-  getDoc,
-  setDoc,
-  deleteDoc,
-  writeBatch,
-  collection,
-  getDocs,
-  onSnapshot
-} from '../services/durableLegacyBridge';
+  localRecordRef,
+  localCollectionRef,
+  persistLocalRecord,
+  removeLocalRecord,
+  readDisabledCollection,
+  disabledUnsafeBatch
+} from '../services/localRepositoryWrites';
 import {
   Account,
   InventoryItem,
@@ -1940,7 +1936,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     // مزامنة سحابية فورية لكشف الإدخال اليومي عبر Firestore ليعمل متزامناً لدى كافة المستخدمين
     try {
-      setDoc(doc(db, 'dailyEntrySheets', date), cleanDocForFirestore(sheetData), { merge: true }).catch(err => {
+      persistLocalRecord(localRecordRef( 'dailyEntrySheets', date), cleanDocForFirestore(sheetData), { merge: true }).catch(err => {
         console.warn('Firestore live write dailyEntrySheets error:', err);
       });
     } catch (e) {
@@ -1973,7 +1969,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     try {
-      deleteDoc(doc(db, 'dailyEntrySheets', date)).catch(err => {
+      removeLocalRecord(localRecordRef( 'dailyEntrySheets', date)).catch(err => {
         console.warn('Firestore delete dailyEntrySheets error:', err);
       });
     } catch (e) {
@@ -2506,7 +2502,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     // Delete immediately from Firestore if online
     if (navigator.onLine) {
-      deleteDoc(doc(db, colName, String(id))).catch(e => {
+      removeLocalRecord(localRecordRef( colName, String(id))).catch(e => {
         console.warn(`Direct deleteDoc notice for ${colName}/${id}:`, e);
       });
     }
@@ -2817,10 +2813,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         try { localStorage.removeItem(`${STORAGE_KEY}_printOrders`); } catch {}
         try { localStorage.setItem(`${STORAGE_KEY}_printOrders`, JSON.stringify([])); } catch {}
 
-        getDocs(collection(db, 'printOrders')).then(snapshot => {
+        readDisabledCollection(localCollectionRef( 'printOrders')).then(snapshot => {
           snapshot.docs.forEach(d => {
             registerDeletedDoc('printOrders', d.id);
-            deleteDoc(doc(db, 'printOrders', d.id)).catch(() => {});
+            removeLocalRecord(localRecordRef( 'printOrders', d.id)).catch(() => {});
           });
           localStorage.setItem('accounting_printOrders_purged_v2', 'true');
         }).catch(() => {
@@ -2899,7 +2895,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         };
         const updated = { ...prev, [date]: updatedSheet };
         try {
-          setDoc(doc(db, 'dailyEntrySheets', date), cleanDocForFirestore(updatedSheet), { merge: true }).catch(() => {});
+          persistLocalRecord(localRecordRef( 'dailyEntrySheets', date), cleanDocForFirestore(updatedSheet), { merge: true }).catch(() => {});
         } catch (e) {}
         return updated;
       });
@@ -2919,7 +2915,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         };
         const updated = { ...prev, [date]: updatedSheet };
         try {
-          setDoc(doc(db, 'dailyEntrySheets', date), cleanDocForFirestore(updatedSheet), { merge: true }).catch(() => {});
+          persistLocalRecord(localRecordRef( 'dailyEntrySheets', date), cleanDocForFirestore(updatedSheet), { merge: true }).catch(() => {});
         } catch (e) {}
         return updated;
       });
@@ -3130,7 +3126,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       broadcastEntityChange('companies', next);
       return next;
     });
-    setDoc(doc(db, 'companies', newComp.id), cleanDocForFirestore(newComp)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'companies', newComp.id), cleanDocForFirestore(newComp)).catch(() => {});
     return newComp;
   };
 
@@ -3142,7 +3138,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try { localStorage.setItem(`${STORAGE_KEY}_companies`, JSON.stringify(next)); } catch {}
       pushDeltaToServer('companies', 'upsert', merged);
       broadcastEntityChange('companies', next);
-      setDoc(doc(db, 'companies', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
+      persistLocalRecord(localRecordRef( 'companies', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
       return next;
     });
   };
@@ -3156,7 +3152,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try { localStorage.setItem(`${STORAGE_KEY}_companies`, JSON.stringify(next)); } catch {}
       pushDeltaToServer('companies', 'delete', { id, _deleted: true });
       broadcastEntityChange('companies', next);
-      deleteDoc(doc(db, 'companies', id)).catch(e => console.warn('Could not delete company in cloud:', e));
+      removeLocalRecord(localRecordRef( 'companies', id)).catch(e => console.warn('Could not delete company in cloud:', e));
       return next;
     });
     registerDeletedDoc('companies', id);
@@ -3178,7 +3174,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       broadcastEntityChange('branches', next);
       return next;
     });
-    setDoc(doc(db, 'branches', newBranch.id), cleanDocForFirestore(newBranch)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'branches', newBranch.id), cleanDocForFirestore(newBranch)).catch(() => {});
     return newBranch;
   };
 
@@ -3190,7 +3186,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try { localStorage.setItem(`${STORAGE_KEY}_branches`, JSON.stringify(next)); } catch {}
       pushDeltaToServer('branches', 'upsert', merged);
       broadcastEntityChange('branches', next);
-      setDoc(doc(db, 'branches', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
+      persistLocalRecord(localRecordRef( 'branches', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
       return next;
     });
   };
@@ -3204,7 +3200,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try { localStorage.setItem(`${STORAGE_KEY}_branches`, JSON.stringify(next)); } catch {}
       pushDeltaToServer('branches', 'delete', { id, _deleted: true });
       broadcastEntityChange('branches', next);
-      deleteDoc(doc(db, 'branches', id)).catch(e => console.warn('Could not delete branch in cloud:', e));
+      removeLocalRecord(localRecordRef( 'branches', id)).catch(e => console.warn('Could not delete branch in cloud:', e));
       return next;
     });
     registerDeletedDoc('branches', id);
@@ -3234,14 +3230,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       broadcastEntityChange('warehouses', next);
       return next;
     });
-    setDoc(doc(db, 'warehouses', newWh.id), cleanDocForFirestore(newWh)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'warehouses', newWh.id), cleanDocForFirestore(newWh)).catch(() => {});
 
     // Link new warehouse to its branch if not already linked
     if (wh.branchId) {
       setBranches(prev => prev.map(b => {
         if (b.id === wh.branchId && !b.warehouseIds.includes(newWh.id)) {
           const updatedB = { ...b, warehouseIds: [...b.warehouseIds, newWh.id], updatedAt: new Date().toISOString() };
-          setDoc(doc(db, 'branches', b.id), cleanDocForFirestore(updatedB)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'branches', b.id), cleanDocForFirestore(updatedB)).catch(() => {});
           return updatedB;
         }
         return b;
@@ -3263,7 +3259,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try { localStorage.setItem(`${STORAGE_KEY}_warehouses`, JSON.stringify(next)); } catch {}
       pushDeltaToServer('warehouses', 'upsert', nextWh);
       broadcastEntityChange('warehouses', next);
-      setDoc(doc(db, 'warehouses', id), cleanDocForFirestore(nextWh), { merge: true }).catch(() => {});
+      persistLocalRecord(localRecordRef( 'warehouses', id), cleanDocForFirestore(nextWh), { merge: true }).catch(() => {});
       return next;
     });
 
@@ -3272,7 +3268,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setBranches(prev => prev.map(b => {
         if (b.id === updated.branchId && !b.warehouseIds.includes(id)) {
           const updatedB = { ...b, warehouseIds: [...b.warehouseIds, id], updatedAt: new Date().toISOString() };
-          setDoc(doc(db, 'branches', b.id), cleanDocForFirestore(updatedB)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'branches', b.id), cleanDocForFirestore(updatedB)).catch(() => {});
           return updatedB;
         }
         return b;
@@ -3289,7 +3285,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try { localStorage.setItem(`${STORAGE_KEY}_warehouses`, JSON.stringify(next)); } catch {}
       pushDeltaToServer('warehouses', 'delete', { id, _deleted: true });
       broadcastEntityChange('warehouses', next);
-      deleteDoc(doc(db, 'warehouses', id)).catch(e => console.warn('Could not delete warehouse in cloud:', e));
+      removeLocalRecord(localRecordRef( 'warehouses', id)).catch(e => console.warn('Could not delete warehouse in cloud:', e));
       return next;
     });
     registerDeletedDoc('warehouses', id);
@@ -3299,7 +3295,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         warehouseIds: b.warehouseIds.filter(wId => wId !== id),
         updatedAt: new Date().toISOString()
       };
-      setDoc(doc(db, 'branches', b.id), cleanDocForFirestore(updatedB)).catch(() => {});
+      persistLocalRecord(localRecordRef( 'branches', b.id), cleanDocForFirestore(updatedB)).catch(() => {});
       return updatedB;
     }));
     if (activeWarehouseId === id) {
@@ -3701,7 +3697,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (newStockMovementsToAdd.length > 0) {
         setStockMovements(prevMovements => [...newStockMovementsToAdd, ...prevMovements]);
         newStockMovementsToAdd.forEach(sm => {
-          setDoc(doc(db, 'stockMovements', sm.id), cleanDocForFirestore(sm)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'stockMovements', sm.id), cleanDocForFirestore(sm)).catch(() => {});
         });
       }
 
@@ -3709,7 +3705,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       newOp.items.forEach(opItem => {
         const it = updatedInventory.find(item => item.id === opItem.itemId);
         if (it) {
-          setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(it)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'inventory', it.id), cleanDocForFirestore(it)).catch(() => {});
         }
       });
 
@@ -3717,7 +3713,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     setWarehouseOperations(prev => [newOp, ...prev]);
-    setDoc(doc(db, 'warehouseOperations', newOp.id), cleanDocForFirestore(newOp)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'warehouseOperations', newOp.id), cleanDocForFirestore(newOp)).catch(() => {});
     return newOp;
   };
 
@@ -3731,7 +3727,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
     setRoles(prev => [...prev, newRole]);
     pushDeltaToServer('roles', 'upsert', newRole);
-    setDoc(doc(db, 'roles', newRole.id), cleanDocForFirestore(newRole)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'roles', newRole.id), cleanDocForFirestore(newRole)).catch(() => {});
     return newRole;
   };
 
@@ -3746,7 +3742,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
     if (finalRole) {
       pushDeltaToServer('roles', 'upsert', finalRole);
-      setDoc(doc(db, 'roles', id), cleanDocForFirestore(finalRole)).catch(() => {});
+      persistLocalRecord(localRecordRef( 'roles', id), cleanDocForFirestore(finalRole)).catch(() => {});
     }
   };
 
@@ -3754,7 +3750,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setRoles(prev => prev.filter(r => r.id !== id));
     pushDeltaToServer('roles', 'delete', { id, _deleted: true });
     registerDeletedDoc('roles', id);
-    deleteDoc(doc(db, 'roles', id)).catch(e => console.warn('Could not delete role in cloud:', e));
+    removeLocalRecord(localRecordRef( 'roles', id)).catch(e => console.warn('Could not delete role in cloud:', e));
     return { success: true };
   };
 
@@ -3776,7 +3772,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     // Immediate Firestore persistence so user can log in immediately from any browser/device
     pushDeltaToServer('users', 'upsert', newUser);
-    setDoc(doc(db, 'users', newUser.id), newUser).catch(e => {
+    persistLocalRecord(localRecordRef( 'users', newUser.id), newUser).catch(e => {
       console.warn('Direct save user to cloud note:', e);
     });
 
@@ -3792,7 +3788,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const target = next.find(u => u.id === id);
       if (target) {
         pushDeltaToServer('users', 'upsert', target);
-        setDoc(doc(db, 'users', id), target).catch(e => {
+        persistLocalRecord(localRecordRef( 'users', id), target).catch(e => {
           console.warn('Direct update user in cloud note:', e);
         });
       }
@@ -3813,7 +3809,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
     pushDeltaToServer('users', 'delete', { id, _deleted: true });
     registerDeletedDoc('users', id);
-    deleteDoc(doc(db, 'users', id)).catch(e => console.warn('Could not delete user in cloud:', e));
+    removeLocalRecord(localRecordRef( 'users', id)).catch(e => console.warn('Could not delete user in cloud:', e));
     if (currentUserId === id) {
       const remaining = users.filter(u => u.id !== id);
       if (remaining.length > 0) setCurrentUserId(remaining[0].id);
@@ -4169,7 +4165,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setTreasuries(prev => [...prev, newTreasury]);
-    setDoc(doc(db, 'treasuries', newTreasury.id), cleanDocForFirestore(newTreasury)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'treasuries', newTreasury.id), cleanDocForFirestore(newTreasury)).catch(() => {});
     return { success: true, treasury: newTreasury, message: `تمت إضافة الخزنة برقم حساب (${accountCode}) بنجاح` };
   };
 
@@ -4199,7 +4195,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             setAccounts(accs => accs.map(a => a.code === t.accountCode ? { ...a, code: updated.accountCode! } : a));
           }
           pushDeltaToServer('treasuries', 'upsert', updatedTreasury);
-          setDoc(doc(db, 'treasuries', id), cleanDocForFirestore(updatedTreasury)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'treasuries', id), cleanDocForFirestore(updatedTreasury)).catch(() => {});
           return updatedTreasury;
         }
         return t;
@@ -4225,7 +4221,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setTreasuries(prev => prev.filter(t => t.id !== id));
     pushDeltaToServer('treasuries', 'delete', { id, _deleted: true });
     registerDeletedDoc('treasuries', id);
-    deleteDoc(doc(db, 'treasuries', id)).catch(e => console.warn('Could not delete treasury in cloud:', e));
+    removeLocalRecord(localRecordRef( 'treasuries', id)).catch(e => console.warn('Could not delete treasury in cloud:', e));
     return { success: true, message: `تم حذف الخزنة (${target.name}) بنجاح` };
   };
 
@@ -4310,7 +4306,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       createdAt: new Date().toISOString()
     };
     setJournalEntries(prev => [newJournal, ...prev]);
-    setDoc(doc(db, 'journals', newJournal.id), cleanDocForFirestore(newJournal)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'journals', newJournal.id), cleanDocForFirestore(newJournal)).catch(() => {});
 
     // 2. Update Accounts in chart of accounts
     setAccounts(prev =>
@@ -4374,7 +4370,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             currencyBalances: currentBalances,
             transactions: [tx, ...(t.transactions || [])]
           };
-          setDoc(doc(db, 'treasuries', t.id), cleanDocForFirestore(updatedSourceT)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'treasuries', t.id), cleanDocForFirestore(updatedSourceT)).catch(() => {});
           return updatedSourceT;
         }
 
@@ -4421,7 +4417,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             currencyBalances: currentBalances,
             transactions: [tx, ...(t.transactions || [])]
           };
-          setDoc(doc(db, 'treasuries', t.id), cleanDocForFirestore(updatedDestT)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'treasuries', t.id), cleanDocForFirestore(updatedDestT)).catch(() => {});
           return updatedDestT;
         }
 
@@ -4621,7 +4617,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       pushToServerSync('vouchers', newVoucher);
       return next;
     });
-    setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
 
     return {
       success: true,
@@ -4711,7 +4707,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       createdAt: new Date().toISOString()
     };
     setJournalEntries(prev => [newJournal, ...prev]);
-    setDoc(doc(db, 'journals', newJournal.id), cleanDocForFirestore(newJournal)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'journals', newJournal.id), cleanDocForFirestore(newJournal)).catch(() => {});
 
     // 2. Update Accounts in Chart of Accounts
     setAccounts(prev =>
@@ -4781,7 +4777,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             currencyBalances: curBal,
             transactions: [tx, ...(t.transactions || [])]
           };
-          setDoc(doc(db, 'treasuries', t.id), cleanDocForFirestore(updatedT)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'treasuries', t.id), cleanDocForFirestore(updatedT)).catch(() => {});
           return updatedT;
         }
         return t;
@@ -4812,7 +4808,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       pushToServerSync('vouchers', newVoucher);
       return next;
     });
-    setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
 
     return {
       success: true,
@@ -4882,7 +4878,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       createdAt: new Date().toISOString()
     };
     setJournalEntries(prev => [jEntry, ...prev]);
-    setDoc(doc(db, 'journals', jEntry.id), cleanDocForFirestore(jEntry)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'journals', jEntry.id), cleanDocForFirestore(jEntry)).catch(() => {});
 
     // 2. Update accounts in chart of accounts (Payables and Receivables only, NOT Cash/Bank)
     setAccounts(prev =>
@@ -4914,7 +4910,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setDebtClearings(prev => [record, ...prev]);
-    setDoc(doc(db, 'debtClearings', record.id), cleanDocForFirestore(record)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'debtClearings', record.id), cleanDocForFirestore(record)).catch(() => {});
     return { success: true, message: `تم قيد سند المقاصة بنجاح برقم ${clrNum}`, record };
   };
 
@@ -5485,7 +5481,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setExpenses(prev => [newExpense, ...prev]);
 
     // Direct cloud save
-    setDoc(doc(db, 'expenses', newExpense.id), cleanDocForFirestore(newExpense)).catch(err => {
+    persistLocalRecord(localRecordRef( 'expenses', newExpense.id), cleanDocForFirestore(newExpense)).catch(err => {
       console.warn('Direct cloud save expense notice:', err);
     });
 
@@ -5532,14 +5528,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const targetJournalId = existing.journalEntryId;
     setJournalEntries(prev => prev.filter(je => je.id !== targetJournalId && je.referenceId !== id));
     if (targetJournalId) {
-      deleteDoc(doc(db, 'journalEntries', targetJournalId)).catch(() => {});
-      deleteDoc(doc(db, 'journals', targetJournalId)).catch(() => {});
+      removeLocalRecord(localRecordRef( 'journalEntries', targetJournalId)).catch(() => {});
+      removeLocalRecord(localRecordRef( 'journals', targetJournalId)).catch(() => {});
     }
 
     // 3. Remove expense item from state & cloud
     setExpenses(prev => prev.filter(e => e.id !== id));
     registerDeletedDoc('expenses', id);
-    deleteDoc(doc(db, 'expenses', id)).catch(() => {});
+    removeLocalRecord(localRecordRef( 'expenses', id)).catch(() => {});
   };
 
   const addStockMovement = (movement: Omit<StockMovement, 'id'>) => {
@@ -5730,7 +5726,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
     registerDeletedDoc('inventory', id);
-    deleteDoc(doc(db, 'inventory', id)).catch(() => {});
+    removeLocalRecord(localRecordRef( 'inventory', id)).catch(() => {});
     return { success: true, message: 'تم حذف الصنف بنجاح' };
   };
 
@@ -5768,7 +5764,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
         }
         const updatedItem = { ...it, stockQuantity: newQuantity, lastMovementDate: today };
-        setDoc(doc(db, 'inventory', id), cleanDocForFirestore(updatedItem)).catch(() => {});
+        persistLocalRecord(localRecordRef( 'inventory', id), cleanDocForFirestore(updatedItem)).catch(() => {});
         return updatedItem;
       }
       return it;
@@ -5955,7 +5951,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
     registerDeletedDoc('parties', id);
-    deleteDoc(doc(db, 'parties', id)).catch(err => console.warn('Direct cloud delete party notice:', err));
+    removeLocalRecord(localRecordRef( 'parties', id)).catch(err => console.warn('Direct cloud delete party notice:', err));
     if (selectedPartyForStatement?.id === id) {
       setSelectedPartyForStatement(null);
     }
@@ -5971,7 +5967,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       paymentHistory: employeeData.paymentHistory || []
     };
     setEmployees(prev => [newEmp, ...prev]);
-    setDoc(doc(db, 'employees', newEmp.id), cleanDocForFirestore(newEmp)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'employees', newEmp.id), cleanDocForFirestore(newEmp)).catch(() => {});
     return newEmp;
   };
 
@@ -5983,13 +5979,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const next = employees.map(emp => (emp.id === id ? merged : emp));
       localStorage.setItem(`${STORAGE_KEY}_employees`, JSON.stringify(next));
     } catch {}
-    setDoc(doc(db, 'employees', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
+    persistLocalRecord(localRecordRef( 'employees', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
   };
 
   const deleteEmployee = (id: string) => {
     setEmployees(prev => prev.filter(emp => emp.id !== id));
     registerDeletedDoc('employees', id);
-    deleteDoc(doc(db, 'employees', id)).catch(() => {});
+    removeLocalRecord(localRecordRef( 'employees', id)).catch(() => {});
   };
 
   const payEmployeeSalary = (
@@ -6024,7 +6020,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             ...emp,
             paymentHistory: [paymentRecord, ...(emp.paymentHistory || [])]
           };
-          setDoc(doc(db, 'employees', emp.id), cleanDocForFirestore(updatedEmp)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'employees', emp.id), cleanDocForFirestore(updatedEmp)).catch(() => {});
           return updatedEmp;
         }
         return emp;
@@ -6053,7 +6049,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       pushToServerSync('vouchers', newVoucher);
       return next;
     });
-    setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
 
     addJournalEntry({
       date: today,
@@ -6122,7 +6118,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       pushToServerSync('vouchers', newVoucher);
       return next;
     });
-      setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
+      persistLocalRecord(localRecordRef( 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
 
       // Journal entry: Debit 1104 (سلف ومستحقات الموظفين), Credit Treasury (1101/1102)
       addJournalEntry({
@@ -6168,7 +6164,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 ...(e.paymentHistory || [])
               ]
             };
-            setDoc(doc(db, 'employees', e.id), cleanDocForFirestore(updatedEmp)).catch(() => {});
+            persistLocalRecord(localRecordRef( 'employees', e.id), cleanDocForFirestore(updatedEmp)).catch(() => {});
             return updatedEmp;
           }
           return e;
@@ -6191,14 +6187,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setEmployeeAdvances(prev => [newAdvance, ...prev]);
-    setDoc(doc(db, 'employeeAdvances', newAdvance.id), cleanDocForFirestore(newAdvance)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'employeeAdvances', newAdvance.id), cleanDocForFirestore(newAdvance)).catch(() => {});
   };
 
   const cancelEmployeeAdvance = (id: string) => {
     setEmployeeAdvances(prev => prev.map(a => {
       if (a.id === id) {
         const updated = { ...a, status: 'cancelled' as const };
-        setDoc(doc(db, 'employeeAdvances', id), cleanDocForFirestore(updated)).catch(() => {});
+        persistLocalRecord(localRecordRef( 'employeeAdvances', id), cleanDocForFirestore(updated)).catch(() => {});
         return updated;
       }
       return a;
@@ -6220,14 +6216,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setEmployeeDeductions(prev => [newDed, ...prev]);
-    setDoc(doc(db, 'employeeDeductions', newDed.id), cleanDocForFirestore(newDed)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'employeeDeductions', newDed.id), cleanDocForFirestore(newDed)).catch(() => {});
   };
 
   const cancelEmployeeDeduction = (id: string) => {
     setEmployeeDeductions(prev => prev.map(d => {
       if (d.id === id) {
         const updated = { ...d, status: 'cancelled' as const };
-        setDoc(doc(db, 'employeeDeductions', id), cleanDocForFirestore(updated)).catch(() => {});
+        persistLocalRecord(localRecordRef( 'employeeDeductions', id), cleanDocForFirestore(updated)).catch(() => {});
         return updated;
       }
       return d;
@@ -6249,14 +6245,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setEmployeeIncentives(prev => [newInc, ...prev]);
-    setDoc(doc(db, 'employeeIncentives', newInc.id), cleanDocForFirestore(newInc)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'employeeIncentives', newInc.id), cleanDocForFirestore(newInc)).catch(() => {});
   };
 
   const cancelEmployeeIncentive = (id: string) => {
     setEmployeeIncentives(prev => prev.map(i => {
       if (i.id === id) {
         const updated = { ...i, status: 'cancelled' as const };
-        setDoc(doc(db, 'employeeIncentives', id), cleanDocForFirestore(updated)).catch(() => {});
+        persistLocalRecord(localRecordRef( 'employeeIncentives', id), cleanDocForFirestore(updated)).catch(() => {});
         return updated;
       }
       return i;
@@ -6281,7 +6277,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setPayrollSheets(prev => [newSheet, ...prev]);
-    setDoc(doc(db, 'payrollSheets', newSheet.id), cleanDocForFirestore(newSheet)).catch(() => {});
+    persistLocalRecord(localRecordRef( 'payrollSheets', newSheet.id), cleanDocForFirestore(newSheet)).catch(() => {});
     return newSheet;
   };
 
@@ -6297,13 +6293,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       })
     );
     if (finalSheet) {
-      setDoc(doc(db, 'payrollSheets', id), cleanDocForFirestore(finalSheet)).catch(() => {});
+      persistLocalRecord(localRecordRef( 'payrollSheets', id), cleanDocForFirestore(finalSheet)).catch(() => {});
     }
   };
 
   const deleteDraftPayrollSheet = (id: string) => {
     setPayrollSheets(prev => prev.filter(s => !(s.id === id && s.status === 'draft')));
-    deleteDoc(doc(db, 'payrollSheets', id)).catch(() => {});
+    removeLocalRecord(localRecordRef( 'payrollSheets', id)).catch(() => {});
   };
 
   const unapprovePayrollSheet = (id: string): { success: boolean; message?: string } => {
@@ -7888,7 +7884,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setTimeout(() => {
       const target = invoices.find(inv => inv.id === id);
       if (target && !isLocalOnlyMode) {
-        setDoc(doc(db, 'invoices', id), cleanDocForFirestore({ ...target, ...updates })).catch(err => {
+        persistLocalRecord(localRecordRef( 'invoices', id), cleanDocForFirestore({ ...target, ...updates })).catch(err => {
           if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
             console.warn('Legacy cloud quota notice; canonical queue retains pending data');
           } else {
@@ -7936,7 +7932,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     // 1. حفظ في سلة المحذوفات في Firestore
     if (!isLocalOnlyMode) {
-      setDoc(doc(db, 'deletedInvoices', id), cleanDocForFirestore(deletedSnapshot)).catch(err => {
+      persistLocalRecord(localRecordRef( 'deletedInvoices', id), cleanDocForFirestore(deletedSnapshot)).catch(err => {
         if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
           console.warn('Legacy cloud quota notice; canonical queue retains pending data');
         } else {
@@ -7955,7 +7951,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
     registerDeletedDoc('invoices', id);
     if (!isLocalOnlyMode) {
-      deleteDoc(doc(db, 'invoices', id)).catch(err => {
+      removeLocalRecord(localRecordRef( 'invoices', id)).catch(err => {
         if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
           console.warn('Legacy cloud quota notice; canonical queue retains pending data');
         }
@@ -7983,7 +7979,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         createdAt: now.toISOString()
       };
       if (!isLocalOnlyMode) {
-        setDoc(doc(db, 'auditLog', auditEntry.id), cleanDocForFirestore(auditEntry)).catch(e => {
+        persistLocalRecord(localRecordRef( 'auditLog', auditEntry.id), cleanDocForFirestore(auditEntry)).catch(e => {
           if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota limit exceeded')) {
             console.warn('Legacy cloud quota notice; canonical queue retains pending data');
           }
@@ -8038,7 +8034,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                         sm.id.includes(id);
         if (isMatch) {
           registerDeletedDoc('stockMovements', sm.id);
-          deleteDoc(doc(db, 'stockMovements', sm.id)).catch(() => {});
+          removeLocalRecord(localRecordRef( 'stockMovements', sm.id)).catch(() => {});
           return false;
         }
         return true;
@@ -8058,7 +8054,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                         (target && v.description?.includes(target.invoiceNumber));
         if (isMatch) {
           registerDeletedDoc('vouchers', v.id);
-          deleteDoc(doc(db, 'vouchers', v.id)).catch(() => {});
+          removeLocalRecord(localRecordRef( 'vouchers', v.id)).catch(() => {});
           return false;
         }
         return true;
@@ -8075,7 +8071,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const isMatch = je.referenceId === id || (target && je.description?.includes(target.invoiceNumber));
         if (isMatch) {
           registerDeletedDoc('journalEntries', je.id);
-          deleteDoc(doc(db, 'journalEntries', je.id)).catch(() => {});
+          removeLocalRecord(localRecordRef( 'journalEntries', je.id)).catch(() => {});
           return false;
         }
         return true;
@@ -8114,7 +8110,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       pushToServerSync('treasuries', auditedTreasuries);
       broadcastEntityChange('treasuries', auditedTreasuries);
       auditedTreasuries.forEach(t => {
-        setDoc(doc(db, 'treasuries', t.id), cleanDocForFirestore(t)).catch(() => {});
+        persistLocalRecord(localRecordRef( 'treasuries', t.id), cleanDocForFirestore(t)).catch(() => {});
       });
       return auditedTreasuries;
     });
@@ -8332,7 +8328,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         pushToServerSync('treasuries', auditedTreasuries);
         broadcastEntityChange('treasuries', auditedTreasuries);
         auditedTreasuries.forEach(t => {
-          setDoc(doc(db, 'treasuries', t.id), cleanDocForFirestore(t)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'treasuries', t.id), cleanDocForFirestore(t)).catch(() => {});
         });
         return auditedTreasuries;
       });
@@ -8380,22 +8376,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // حذف كل وثيقة فردية
         const idList = Array.from(invoiceIds);
         for (const id of idList) {
-          deleteDoc(doc(db, 'invoices', id)).catch(() => {});
-          deleteDoc(doc(db, 'deletedInvoices', id)).catch(() => {});
+          removeLocalRecord(localRecordRef( 'invoices', id)).catch(() => {});
+          removeLocalRecord(localRecordRef( 'deletedInvoices', id)).catch(() => {});
         }
 
         // حذف كافة وثائق الفواتير المتبقية مباشرة من مجموعة Firestore
-        const invSnap = await getDocs(collection(db, 'invoices'));
+        const invSnap = await readDisabledCollection(localCollectionRef( 'invoices'));
         if (!invSnap.empty) {
-          const b = writeBatch(db);
-          invSnap.docs.forEach(d => b.delete(doc(db, 'invoices', d.id)));
+          const b = disabledUnsafeBatch();
+          invSnap.docs.forEach(d => b.delete(localRecordRef( 'invoices', d.id)));
           await b.commit();
         }
         if (clearDeletedInvoicesTrash) {
-          const delSnap = await getDocs(collection(db, 'deletedInvoices'));
+          const delSnap = await readDisabledCollection(localCollectionRef( 'deletedInvoices'));
           if (!delSnap.empty) {
-            const b = writeBatch(db);
-            delSnap.docs.forEach(d => b.delete(doc(db, 'deletedInvoices', d.id)));
+            const b = disabledUnsafeBatch();
+            delSnap.docs.forEach(d => b.delete(localRecordRef( 'deletedInvoices', d.id)));
             await b.commit();
           }
         }
@@ -8427,7 +8423,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       deleted.forEach(t => {
         registerDeletedDoc('treasuries', t.id);
-        deleteDoc(doc(db, 'treasuries', t.id)).catch(() => {});
+        removeLocalRecord(localRecordRef( 'treasuries', t.id)).catch(() => {});
       });
 
       let finalTreasuries = kept;
@@ -8483,7 +8479,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     delete cleanRestored.deletionReason;
 
     // 1. حذف من سلة المحذوفات في Firestore
-    deleteDoc(doc(db, 'deletedInvoices', id)).catch(() => {});
+    removeLocalRecord(localRecordRef( 'deletedInvoices', id)).catch(() => {});
     setDeletedInvoices(prev => prev.filter(d => d.id !== id));
 
     // 2. إزالة المعرف من سجل الحذف المحظور
@@ -8499,7 +8495,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch {}
 
     // 3. إعادة الحفظ في الفواتير النشطة في Firestore
-    setDoc(doc(db, 'invoices', id), cleanDocForFirestore(cleanRestored)).catch(err => {
+    persistLocalRecord(localRecordRef( 'invoices', id), cleanDocForFirestore(cleanRestored)).catch(err => {
       console.warn('Error writing restored invoice to Firestore:', err);
     });
     setInvoices(prev => {
@@ -8529,21 +8525,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         },
         createdAt: now.toISOString()
       };
-      setDoc(doc(db, 'auditLog', auditEntry.id), cleanDocForFirestore(auditEntry)).catch(() => {});
+      persistLocalRecord(localRecordRef( 'auditLog', auditEntry.id), cleanDocForFirestore(auditEntry)).catch(() => {});
     } catch {}
 
     return cleanRestored;
   };
 
   const permanentlyDeleteInvoice = async (id: string): Promise<void> => {
-    deleteDoc(doc(db, 'deletedInvoices', id)).catch(() => {});
+    removeLocalRecord(localRecordRef( 'deletedInvoices', id)).catch(() => {});
     setDeletedInvoices(prev => prev.filter(d => d.id !== id));
   };
 
   const getInvoiceDeleteAuditLogs = async (invoiceId: string = '29'): Promise<AuditLogEntry[]> => {
     const searchTarget = (invoiceId || '').trim();
     try {
-      const snapshot = await getDocs(collection(db, 'auditLog'));
+      const snapshot = await readDisabledCollection(localCollectionRef( 'auditLog'));
       const rawLogs = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as AuditLogEntry));
 
       const filtered = rawLogs.filter(log => {
@@ -8792,7 +8788,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     // Save directly to Firestore for real-time multi-user syncing
-    setDoc(doc(db, 'printOrders', newOrder.id), cleanDocForFirestore(newOrder)).catch(err => {
+    persistLocalRecord(localRecordRef( 'printOrders', newOrder.id), cleanDocForFirestore(newOrder)).catch(err => {
       console.warn('Direct cloud save print order notice:', err);
     });
 
@@ -8882,7 +8878,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setTimeout(() => {
       const target = printOrders.find(j => j.id === id);
       if (target) {
-        setDoc(doc(db, 'printOrders', id), cleanDocForFirestore({ ...target, ...updates })).catch(err => {
+        persistLocalRecord(localRecordRef( 'printOrders', id), cleanDocForFirestore({ ...target, ...updates })).catch(err => {
           console.warn('Direct cloud update print order notice:', err);
         });
       }
@@ -8952,7 +8948,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return next;
       });
       try {
-        deleteDoc(doc(db, 'printOrders', id)).catch(err => {
+        removeLocalRecord(localRecordRef( 'printOrders', id)).catch(err => {
           console.warn('Firestore delete print order notice:', err);
         });
       } catch (e) {}
@@ -8984,7 +8980,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     ids.forEach(id => {
       try {
-        deleteDoc(doc(db, 'printOrders', id)).catch(() => {});
+        removeLocalRecord(localRecordRef( 'printOrders', id)).catch(() => {});
       } catch (e) {}
     });
 
@@ -9015,16 +9011,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     printOrders.forEach(po => {
       try {
         registerDeletedDoc('printOrders', po.id);
-        deleteDoc(doc(db, 'printOrders', po.id)).catch(() => {});
+        removeLocalRecord(localRecordRef( 'printOrders', po.id)).catch(() => {});
       } catch (e) {}
     });
 
     // Also fetch and delete ALL documents directly in Firestore collection 'printOrders' in case there are orphaned ones
     try {
-      getDocs(collection(db, 'printOrders')).then(snapshot => {
+      readDisabledCollection(localCollectionRef( 'printOrders')).then(snapshot => {
         snapshot.docs.forEach(d => {
           registerDeletedDoc('printOrders', d.id);
-          deleteDoc(doc(db, 'printOrders', d.id)).catch(() => {});
+          removeLocalRecord(localRecordRef( 'printOrders', d.id)).catch(() => {});
         });
       }).catch(() => {});
     } catch (e) {}
@@ -9037,7 +9033,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           (v.notes && (v.notes.includes('امر تشغيل') || v.notes.includes('JOB-') || v.notes.includes('أمر طباعة')));
         if (isLinkedToPrintOrder) {
           registerDeletedDoc('vouchers', v.id);
-          deleteDoc(doc(db, 'vouchers', v.id)).catch(() => {});
+          removeLocalRecord(localRecordRef( 'vouchers', v.id)).catch(() => {});
           return false;
         }
         return true;
@@ -9054,7 +9050,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           (sm.notes && (sm.notes.includes('امر تشغيل') || sm.notes.includes('JOB-')));
         if (isLinked) {
           registerDeletedDoc('stockMovements', sm.id);
-          deleteDoc(doc(db, 'stockMovements', sm.id)).catch(() => {});
+          removeLocalRecord(localRecordRef( 'stockMovements', sm.id)).catch(() => {});
           return false;
         }
         return true;
@@ -9232,7 +9228,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setPurchases(prev => [newPur, ...prev]);
 
     // Direct cloud save
-    setDoc(doc(db, 'purchases', newPur.id), cleanDocForFirestore(newPur)).catch(err => {
+    persistLocalRecord(localRecordRef( 'purchases', newPur.id), cleanDocForFirestore(newPur)).catch(err => {
       console.warn('Direct cloud save purchase notice:', err);
     });
 
@@ -9269,7 +9265,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           purchasePrice: unitCostInBase,
           lastMovementDate: invoiceData.date
         };
-        setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
+        persistLocalRecord(localRecordRef( 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
         return updatedItem;
       }
       return it;
@@ -9331,7 +9327,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           (invoiceData.paymentReceiptNote?` — ${invoiceData.paymentReceiptNote}`:'')
       };
       setVouchers(prev=>[voucher,...prev]);
-      setDoc(doc(db,'vouchers',voucherId),cleanDocForFirestore(voucher)).catch(()=>{});
+      persistLocalRecord(localRecordRef('vouchers',voucherId),cleanDocForFirestore(voucher)).catch(()=>{});
     }
 
     if (baseRemainingToSupplier > 0) {
@@ -9347,7 +9343,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setParties(prev => prev.map(p => {
         if (p.id === invoiceData.supplierId) {
           const updatedP = { ...p, balance: p.balance - baseRemainingToSupplier };
-          setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
           return updatedP;
         }
         return p;
@@ -9527,7 +9523,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     // Direct cloud save
-    setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(err => {
+    persistLocalRecord(localRecordRef( 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(err => {
       console.warn('Direct cloud save voucher notice:', err);
     });
 
@@ -9581,7 +9577,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setParties(prev => prev.map(p => {
           if (p.id === voucherData.partyId) {
             const updatedP = { ...p, balance: Number((p.balance - baseAmount).toFixed(2)) };
-            setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+            persistLocalRecord(localRecordRef( 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
             return updatedP;
           }
           return p;
@@ -9636,7 +9632,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setParties(prev => prev.map(p => {
           if (p.id === voucherData.partyId) {
             const updatedP = { ...p, balance: Number((p.balance + baseAmount).toFixed(2)) };
-            setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+            persistLocalRecord(localRecordRef( 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
             return updatedP;
           }
           return p;
@@ -9655,7 +9651,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return finalVoucher;
     }));
     if (finalVoucher) {
-      setDoc(doc(db, 'vouchers', id), cleanDocForFirestore(finalVoucher)).catch(() => {});
+      persistLocalRecord(localRecordRef( 'vouchers', id), cleanDocForFirestore(finalVoucher)).catch(() => {});
     }
   };
 
@@ -9699,7 +9695,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return remainingVouchers;
     });
     registerDeletedDoc('vouchers', id);
-    deleteDoc(doc(db, 'vouchers', id)).catch(() => {});
+    removeLocalRecord(localRecordRef( 'vouchers', id)).catch(() => {});
 
     // Audit and purge linked transactions from treasuries and recalculate balances
     setTreasuries(prevTreasuries => {
@@ -9708,7 +9704,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       pushToServerSync('treasuries', auditedTreasuries);
       broadcastEntityChange('treasuries', auditedTreasuries);
       auditedTreasuries.forEach(t => {
-        setDoc(doc(db, 'treasuries', t.id), cleanDocForFirestore(t)).catch(() => {});
+        persistLocalRecord(localRecordRef( 'treasuries', t.id), cleanDocForFirestore(t)).catch(() => {});
       });
       return auditedTreasuries;
     });
@@ -9722,7 +9718,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
     registerDeletedDoc('purchases', id);
-    deleteDoc(doc(db, 'purchases', id)).catch(() => {});
+    removeLocalRecord(localRecordRef( 'purchases', id)).catch(() => {});
   };
 
   const createPurchaseReturn = (returnData: Omit<PurchaseReturn, 'id' | 'returnNumber' | 'createdAt'>): PurchaseReturn => {
@@ -9766,7 +9762,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setPurchaseReturns(prev => [newReturn, ...prev]);
 
     // Direct cloud save
-    setDoc(doc(db, 'purchaseReturns', newReturn.id), cleanDocForFirestore(newReturn)).catch(err => {
+    persistLocalRecord(localRecordRef( 'purchaseReturns', newReturn.id), cleanDocForFirestore(newReturn)).catch(err => {
       console.warn('Direct cloud save purchase return notice:', err);
     });
 
@@ -9800,7 +9796,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           stockQuantity: newQty,
           lastMovementDate: today
         };
-        setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
+        persistLocalRecord(localRecordRef( 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
         return updatedItem;
       }
       return it;
@@ -9841,7 +9837,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setParties(prev => prev.map(p => {
         if (p.id === returnData.supplierId) {
           const updatedP = { ...p, balance: p.balance + baseTotalAmount };
-          setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
           return updatedP;
         }
         return p;
@@ -9875,7 +9871,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
     registerDeletedDoc('purchaseReturns', id);
-    deleteDoc(doc(db, 'purchaseReturns', id)).catch(() => {});
+    removeLocalRecord(localRecordRef( 'purchaseReturns', id)).catch(() => {});
   };
 
   const createSalesReturn = (returnData: Omit<SalesReturn, 'id' | 'returnNumber' | 'createdAt'>): SalesReturn => {
@@ -9920,7 +9916,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSalesReturns(prev => [newReturn, ...prev]);
 
     // Direct cloud save
-    setDoc(doc(db, 'salesReturns', newReturn.id), cleanDocForFirestore(newReturn)).catch(err => {
+    persistLocalRecord(localRecordRef( 'salesReturns', newReturn.id), cleanDocForFirestore(newReturn)).catch(err => {
       console.warn('Direct cloud save sales return notice:', err);
     });
 
@@ -9954,7 +9950,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           stockQuantity: newQty,
           lastMovementDate: today
         };
-        setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
+        persistLocalRecord(localRecordRef( 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
         return updatedItem;
       }
       return it;
@@ -9994,7 +9990,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setParties(prev => prev.map(p => {
         if (p.id === returnData.customerId) {
           const updatedP = { ...p, balance: Number((p.balance - baseTotalAmount).toFixed(2)) };
-          setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+          persistLocalRecord(localRecordRef( 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
           return updatedP;
         }
         return p;
@@ -10027,7 +10023,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
     registerDeletedDoc('salesReturns', id);
-    deleteDoc(doc(db, 'salesReturns', id)).catch(() => {});
+    removeLocalRecord(localRecordRef( 'salesReturns', id)).catch(() => {});
   };
 
   const [lastBackupInfo, setLastBackupInfo] = useState<{ timestamp: string; filename: string; totalRecords?: number } | null>(() => {
@@ -10235,7 +10231,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       currentUser?.roleId === 'role-admin' ||
       currentUser?.roleName === 'مدير النظام' ||
       currentUser?.username === 'admin' ||
-      (currentUser?.email && auth.currentUser?.email === currentUser.email);
+      false; // The authenticated PostgreSQL API enforces the privileged operation.
 
     if (!isSystemAdmin) {
       return {
@@ -10741,16 +10737,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     (async () => {
       try {
         let deleteCount = 0;
-        let deleteBatch = writeBatch(db);
+        let deleteBatch = disabledUnsafeBatch();
         const batchPromises: Promise<void>[] = [];
 
         for (const [colName, ids] of Object.entries(deletedDocMap)) {
           for (const id of ids) {
-            deleteBatch.delete(doc(db, colName, String(id)));
+            deleteBatch.delete(localRecordRef( colName, String(id)));
             deleteCount++;
             if (deleteCount % 400 === 0) {
               batchPromises.push(deleteBatch.commit());
-              deleteBatch = writeBatch(db);
+              deleteBatch = disabledUnsafeBatch();
             }
           }
         }
@@ -10763,16 +10759,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (options.scope === 'all') {
           for (const colName of ['invoices', 'printOrders', 'salesReturns', 'stockMovements']) {
             try {
-              const snap = await getDocs(collection(db, colName));
+              const snap = await readDisabledCollection(localCollectionRef( colName));
               if (!snap.empty) {
-                let purgeBatch = writeBatch(db);
+                let purgeBatch = disabledUnsafeBatch();
                 let purgeCount = 0;
                 for (const d of snap.docs) {
                   purgeBatch.delete(d.ref);
                   purgeCount++;
                   if (purgeCount % 400 === 0) {
                     await purgeBatch.commit();
-                    purgeBatch = writeBatch(db);
+                    purgeBatch = disabledUnsafeBatch();
                   }
                 }
                 if (purgeCount % 400 !== 0 && purgeCount > 0) {
@@ -10974,18 +10970,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           // 1. Critical Priority: Invoices push
           const importedInvoices = Array.isArray(data.invoices) ? data.invoices : [];
           if (importedInvoices.length > 0) {
-            let invBatch = writeBatch(db);
+            let invBatch = disabledUnsafeBatch();
             let invOp = 0;
             for (const inv of importedInvoices) {
               if (!inv || !inv.id) continue;
               const docId = String(inv.id).replace(/\//g, '_');
               const cleanInv = cleanDocForFirestore(inv);
               if (cleanInv) {
-                invBatch.set(doc(db, 'invoices', docId), cleanInv, { merge: true });
+                invBatch.set(localRecordRef( 'invoices', docId), cleanInv, { merge: true });
                 invOp++;
                 if (invOp % 250 === 0) {
                   await invBatch.commit();
-                  invBatch = writeBatch(db);
+                  invBatch = disabledUnsafeBatch();
                 }
               }
             }
@@ -11025,7 +11021,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           for (const [colName, items] of Object.entries(otherCols)) {
             if (items.length === 0) continue;
             try {
-              let batch = writeBatch(db);
+              let batch = disabledUnsafeBatch();
               let op = 0;
               for (let idx = 0; idx < items.length; idx++) {
                 const item = items[idx];
@@ -11034,11 +11030,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 const docId = rawId.replace(/\//g, '_');
                 const cleanItem = cleanDocForFirestore(item);
                 if (cleanItem) {
-                  batch.set(doc(db, colName, docId), cleanItem, { merge: true });
+                  batch.set(localRecordRef( colName, docId), cleanItem, { merge: true });
                   op++;
                   if (op % 250 === 0) {
                     await batch.commit();
-                    batch = writeBatch(db);
+                    batch = disabledUnsafeBatch();
                   }
                 }
               }
@@ -11056,7 +11052,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               try {
                 const docId = String(dateKey).replace(/\//g, '_');
                 const cleanSheet = cleanDocForFirestore({ date: dateKey, ...(sheetData as any) });
-                await setDoc(doc(db, 'dailyEntrySheets', docId), cleanSheet, { merge: true });
+                await persistLocalRecord(localRecordRef( 'dailyEntrySheets', docId), cleanSheet, { merge: true });
               } catch {}
             }
           }
@@ -11064,7 +11060,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (finalSettings) {
             try {
               const cleanSettings = cleanDocForFirestore(finalSettings);
-              await setDoc(doc(db, 'settings', 'global'), cleanSettings, { merge: true });
+              await persistLocalRecord(localRecordRef( 'settings', 'global'), cleanSettings, { merge: true });
             } catch {}
           }
 
@@ -11096,10 +11092,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         const collectionsToWipe = ['invoices', 'deletedInvoices', 'printOrders', 'stockMovements', 'vouchers', 'purchases', 'dailyEntrySheets'];
         for (const colName of collectionsToWipe) {
-          const snap = await getDocs(collection(db, colName));
+          const snap = await readDisabledCollection(localCollectionRef( colName));
           if (!snap.empty) {
-            const batch = writeBatch(db);
-            snap.docs.forEach(d => batch.delete(doc(db, colName, d.id)));
+            const batch = disabledUnsafeBatch();
+            snap.docs.forEach(d => batch.delete(localRecordRef( colName, d.id)));
             await batch.commit();
           }
         }
