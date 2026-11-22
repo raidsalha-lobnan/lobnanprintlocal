@@ -67,8 +67,8 @@ interface EmployeesViewProps {
 export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'employees' }) => {
   const {
     employees,
-    addEmployee,
-    updateEmployee,
+    unifiedRepository,
+    refreshEmployeeDirectory,
     deleteEmployee,
     payEmployeeSalary,
     employeeAdvances,
@@ -129,6 +129,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
 
   // Modal states
   const [showAddEditModal, setShowAddEditModal] = useState(false);
+  const [savingEmployee, setSavingEmployee] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -251,8 +252,13 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
   };
 
   // Submit Add/Edit form
-  const handleSaveEmployee = (e: React.FormEvent) => {
+  const handleSaveEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(savingEmployee)return;
+    if(!unifiedRepository){
+      alert('قاعدة الموظفين المحلية لم تجهز بعد. لم يتم حفظ الموظف؛ تحقق من المزامنة قبل إعادة المحاولة.');
+      return;
+    }
     if (!formName.trim() || !formJobTitle.trim()) {
       alert('يرجى كتابة اسم الموظف والمسمى الوظيفي');
       return;
@@ -281,15 +287,32 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
       paymentHistory: editingEmployee ? editingEmployee.paymentHistory : []
     };
 
-    if (editingEmployee) {
-      updateEmployee(editingEmployee.id, empData);
-    } else {
-      const createdEmployee = addEmployee(empData);
-      finishMasterForm('employee', createdEmployee.id);
+    if(employees.some(emp=>
+      emp.code?.trim().toLowerCase()===empData.code.trim().toLowerCase() &&
+      emp.id!==editingEmployee?.id)){
+      alert('رقم الموظف مستخدم بالفعل في قاعدة الجهاز. راجع الرقم أو طابق الموظفين مع المركزي قبل الحفظ.');
+      return;
     }
-
-    posSound.playSuccessBeep();
-    setShowAddEditModal(false);
+    setSavingEmployee(true);
+    try{
+      const id=editingEmployee?.id || 'emp-'+crypto.randomUUID();
+      const record:Employee=editingEmployee
+        ? {...editingEmployee,...empData,id}
+        : {...empData,id,paymentHistory:empData.paymentHistory||[]};
+      // This resolves only after IndexedDB has durably enqueued the employee.
+      // PostgreSQL confirmation is handled separately by the sync coordinator.
+      await unifiedRepository.put('employees',id,record as unknown as import('../sync-next/types').JsonObject);
+      try{await refreshEmployeeDirectory();}catch(error){
+        console.warn('Employee directory will refresh from durable repository',error);
+      }
+      if(!editingEmployee)finishMasterForm('employee',id);
+      posSound.playSuccessBeep();
+      setShowAddEditModal(false);
+    }catch(error){
+      alert('تعذر حفظ الموظف في قاعدة الجهاز، ولا يجوز اعتباره محفوظًا. احتفظ ببيانات النموذج وحاول بعد مراجعة الخطأ:\\n'+String(error));
+    }finally{
+      setSavingEmployee(false);
+    }
   };
 
   // Submit salary payment
@@ -954,10 +977,11 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  disabled={savingEmployee || !unifiedRepository}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center gap-1.5 cursor-pointer shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Check className="w-4 h-4" />
-                  <span>{editingEmployee ? 'تحديث بيانات الموظف' : 'حفظ الموظف الجديد'}</span>
+                  <span>{savingEmployee?'جارٍ تثبيت الموظف في قاعدة الجهاز…':editingEmployee?'تحديث بيانات الموظف':'حفظ الموظف الجديد'}</span>
                 </button>
               </div>
             </form>
