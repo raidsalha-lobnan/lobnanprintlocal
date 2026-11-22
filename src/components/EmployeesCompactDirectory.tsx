@@ -19,17 +19,27 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
   journalEntries,debtClearings,settings,setSelectedEmployeeForStatement,unifiedRepository,refreshEmployeeDirectory}=useAccounting();
  const [readAttempt,setReadAttempt]=useState(0);
  const [directoryStatus,setDirectoryStatus]=useState('');
+ const [directoryLoad,setDirectoryLoad]=useState<'loading'|'ready'|'error'>('loading');
+ const [comparisonDetails,setComparisonDetails]=useState<string[]>([]);
  React.useEffect(() => {
   let current=true;
   if (!unifiedRepository) {
+   setDirectoryLoad('loading');
    setDirectoryStatus('بانتظار قاعدة الجهاز');
    return;
   }
+  setDirectoryLoad('loading');
   setDirectoryStatus('جارٍ قراءة سجل الموظفين…');
   refreshEmployeeDirectory().then(count=>{
-   if(current)setDirectoryStatus(`آخر قراءة من الجهاز: ${count}`);
+   if(current){
+    setDirectoryLoad('ready');
+    setDirectoryStatus(`آخر قراءة من الجهاز: ${count}`);
+   }
   }).catch(()=>{
-   if(current)setDirectoryStatus('تعذرت قراءة سجل الجهاز. أعد المحاولة من «إظهار الكل».');
+   if(current){
+    setDirectoryLoad('error');
+    setDirectoryStatus('تعذرت قراءة سجل الجهاز. أعد المحاولة من «إظهار الكل».');
+   }
   });
   return ()=>{current=false;};
  },[unifiedRepository,refreshEmployeeDirectory,readAttempt]);
@@ -39,11 +49,29 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
   if (!unifiedRepository || checking) return;
   setChecking(true);
   setComparison('');
+  setComparisonDetails([]);
   try {
-   const {centralCount,added}=await unifiedRepository.checkEmployeeDirectory();
+   const result=await unifiedRepository.checkEmployeeDirectory();
    const count=await refreshEmployeeDirectory();
+   setDirectoryLoad('ready');
    setDirectoryStatus(`آخر قراءة من الجهاز: ${count}`);
-   setComparison(`المركزي: ${centralCount}، الجهاز: ${count}، سجلات استُكملت على الجهاز: ${added}`);
+   setComparison(`PostgreSQL: ${result.centralCount}، الجهاز: ${result.localCount}، استُعيد: ${result.added}، صُحّح: ${result.updated}`);
+   const name=(person:{id:string;code:string;name:string})=>
+    `${person.code||person.id} — ${person.name||'اسم غير متاح'} (${person.id})`;
+   const notes:string[]=[];
+   for(const person of result.initiallyMissing)
+    notes.push(`كان موجودًا في المركزي وغائبًا من الجهاز: ${name(person)}`);
+   for(const person of result.stillMissing)
+    notes.push(`ما زال موجودًا في المركزي وغير ظاهر محليًا؛ راجع العمليات المعلّقة: ${name(person)}`);
+   for(const person of result.onlyOnDevice)
+    notes.push(`موجود على الجهاز وغير موجود ضمن سجلات المركزي المعادة لهذا الحساب: ${name(person)}`);
+   for(const person of result.legacyOnly)
+    notes.push(`نسخة قديمة في هذا المتصفح فقط، غير معتمدة ولا تُستعاد تلقائيًا: ${name(person)}`);
+   for(const item of result.unresolved)
+    notes.push(`عملية موظف لم تُحسم في سجل الجهاز (${item.status}): ${item.people.map(name).join('، ')}`);
+   if(!notes.length && result.centralCount===result.localCount)
+    notes.push('الموظفون الظاهرون في المركزي والجهاز متطابقون حسب معرّفات السجلات. إذا كنت تتوقع موظفًا آخر فلا تنشئه من جديد قبل فحص نسخة أو جهاز تسجيله.');
+   setComparisonDetails(notes);
   } catch(error) {
    setComparison(`تعذرت مطابقة الموظفين: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
@@ -154,7 +182,15 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
     <span>صافي الرصيد: <b dir="ltr" className="inline-block text-blue-800">{moneyDisplay(totals.closing)} {currency}</b></span>
    </div>
   </div>
-  {comparison&&<p role="status" className="text-xs font-bold">{comparison}</p>}
+  {comparison&&<div role="status" className="shrink-0 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-bold">
+    <div>{comparison}</div>
+    {!!comparisonDetails.length&&<details className="mt-1">
+      <summary className="cursor-pointer text-blue-800">تفاصيل السجلات المختلف عليها ({comparisonDetails.length})</summary>
+      <div className="max-h-32 overflow-y-auto pt-1 font-medium text-slate-800">
+        {comparisonDetails.map((item,i)=><div key={i} className="border-t border-slate-200 py-1">{item}</div>)}
+      </div>
+    </details>}
+   </div>}
   {invalid&&<p className="shrink-0 text-[11px] font-bold text-red-700">بداية الفترة بعد نهايتها.</p>}
   <div className="shrink-0 overflow-x-auto"><div className="grid min-w-[850px] grid-cols-4 gap-1.5">
    {cards.map(({label,amount,cls,Icon})=><div key={label} className={'rounded-lg border px-2 py-1 '+cls}>
@@ -175,7 +211,12 @@ export const EmployeesCompactDirectory:React.FC<Props>=({
        <th key={t} className="border-l border-blue-900 px-1 py-2 text-center font-bold">{t}</th>)}
      </tr></thead>
      <tbody className="divide-y divide-slate-200">
-      {!rows.length&&<tr><td colSpan={11} className="py-10 text-center text-slate-500">لا يوجد موظفون مطابقون للتصفية.</td></tr>}
+      {!rows.length&&<tr><td colSpan={11} className="py-10 text-center text-slate-500">
+       {directoryLoad==='loading'?'جارٍ قراءة الموظفين من قاعدة الجهاز؛ العدد الظاهر ليس نهائيًا…':
+        directoryLoad==='error'?'تعذرت قراءة الموظفين من قاعدة الجهاز؛ لا يعني ذلك أن السجلات حُذفت.':
+        employees.length===0?'لا تظهر سجلات موظفين محليًا. استخدم «مطابقة الموظفين مع المركزي» للتحقق قبل إنشاء سجل جديد.':
+        'لا يوجد موظفون مطابقون للبحث أو التصفية الحالية.'}
+      </td></tr>}
       {rows.map((r,i)=><tr key={r.entity.id} className={i%2?'bg-slate-50/80':'bg-white'}>
        <td className="px-1 py-2 text-center font-mono font-bold text-blue-800">{r.entity.code}</td>
        <td className="px-2 py-2"><span className="block truncate font-bold" title={r.entity.name}>{r.entity.name}</span></td>
