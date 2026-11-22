@@ -4575,8 +4575,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
               <span className="w-px h-5 bg-slate-300 mx-0.5 shrink-0 hidden sm:block" />
 
-              {/* سطر الباركود - خانة الباركود (تم تكبيرها بالعرض) */}
-              <div className="relative w-[551px] shrink-0">
+              {/* حقل الباركود بعرض ثابت مختصر يكفي لإدخال الباركود دون شغل بقية سطر الكاشير */}
+              <div className="relative w-[160px] max-w-full shrink-0">
                 <input
                   ref={barcodeInputRef}
                   type="text"
