@@ -1426,7 +1426,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const visible = await repo.getVisibleByIds(unique);
           if(unmounted || repo !== unifiedRepoRef.current)return;
           const wanted=new Map(unique.map(key=>[
-            key.id,visible[recordKey(key.entity,key.id)]?.value as Invoice | null | undefined
+            key.id,visible[recordKey(key.entity,key.id)]?.value as unknown as Invoice | null | undefined
           ]));
           setInvoices(prev=>{
             let didChange=false;
