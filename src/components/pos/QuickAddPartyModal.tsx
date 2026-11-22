@@ -14,7 +14,7 @@ import {
   Users
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
-import { Party } from '../../types';
+import { Party, type Employee } from '../../types';
 import {registeredSubCustomer} from '../../utils/subCustomerIdentity';
 
 interface QuickAddPartyModalProps {
@@ -42,7 +42,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
   lockType = false,
   onSuccess
 }) => {
-  const { parties, addParty, updateParty, addEmployee } = useAccounting();
+  const { parties, addParty, updateParty, employees, unifiedRepository, refreshEmployeeDirectory } = useAccounting();
 
   const [targetType, setTargetType] = useState<'customer' | 'supplier' | 'employee'>(initialType);
   const [name, setName] = useState('');
@@ -103,7 +103,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
@@ -196,18 +196,29 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
         onSuccess({ id: created.id, name: created.name, code: created.code, phone: created.phone });
         onClose();
       } else if (targetType === 'employee') {
-        const createdEmp = addEmployee({
-          name: trimmedName,
-          jobTitle: jobTitle.trim() || 'موظف',
-          department: department.trim() || 'عام',
-          phone: phone.trim() || '',
-          salaryType: 'monthly',
-          salaryAmount: Number(salaryAmount) || 0,
-          status: 'active',
-          hireDate: new Date().toISOString().split('T')[0]
-        });
-
-        onSuccess({ id: createdEmp.id, name: createdEmp.name, code: createdEmp.code || createdEmp.id, phone: createdEmp.phone });
+        if(!unifiedRepository)throw new Error('قاعدة الموظفين المحلية غير جاهزة؛ لم يُحفظ الموظف.');
+        const nextNumber=employees.reduce((highest,e)=>{
+          const match=/^EMP-(\\d+)$/i.exec(String(e.code||'').trim());
+          return match?Math.max(highest,Number(match[1])):highest;
+        },0)+1;
+        const createdId='emp-'+crypto.randomUUID();
+        const createdEmp:Employee={
+          id:createdId,code:'EMP-'+String(nextNumber).padStart(3,'0'),
+          name:trimmedName,jobTitle:jobTitle.trim()||'موظف',
+          department:'sales_pos',phone:phone.trim()||'',
+          salaryType:'monthly',salaryAmount:Number(salaryAmount)||0,
+          status:'active',hireDate:new Date().toISOString().split('T')[0],
+          paymentMethod:'cash',paymentHistory:[],
+          notes:department.trim()&&department.trim()!=='المبيعات والكاشير'
+            ? 'القسم المدخل: '+department.trim():undefined
+        };
+        // Do not close or report success until the durable device outbox commits.
+        await unifiedRepository.put('employees',createdEmp.id,
+          createdEmp as unknown as import('../../sync-next/types').JsonObject);
+        try{await refreshEmployeeDirectory();}catch(error){
+          console.warn('Quick employee will rehydrate from durable repository',error);
+        }
+        onSuccess({id:createdEmp.id,name:createdEmp.name,code:createdEmp.code,phone:createdEmp.phone});
         onClose();
       }
     } catch (err: any) {
