@@ -1,6 +1,6 @@
 import { LocalSyncDb } from './localDb';
 import {planConflictResolution,planAtomicCommandAlreadyConfirmed} from './conflictResolution';
-import {recordKey,type StoredRecord} from './types';
+import {recordKey,type StoredRecord,type RecordVersion} from './types';
 import {getCurrentSessionActorId,getCurrentSessionToken,secureLoginEnabled} from '../services/secureAuth';
 import {isSafeAutoCodeRetryCandidate} from './catalogAutoRecovery';
 import {canIndependentSaleBypassKey,isRecoverableRejectedAtomicSale,isNewAtomicPosSale} from './atomicRecoveryPolicy';
@@ -30,6 +30,9 @@ export interface SyncTransport {
   }>>;
 
   fetchAuthoritativeBootstrap?():Promise<{records:StoredRecord[];cursor:ServerCursor}>;
+  /** Read-only PostgreSQL identity/version audit (NOT a full bootstrap). */
+  fetchRecordManifest?():Promise<{records:RecordVersion[];cursor:ServerCursor}>;
+  fetchRecordsById?(keys:readonly RecordVersion[]):Promise<StoredRecord[]>;
   checkSettingsReceipts?(proofs:SettingsReceiptProof[]):Promise<VerifiedSettingsReceipt[]>;
   checkAtomicPosReceipts?(proofs:SettingsReceiptProof[]):Promise<Array<{commandId:string;changes:AppliedChange[]}>>;
   /** True only when the authenticated SQL server advertises the tested rebase. */
@@ -46,6 +49,9 @@ export interface SyncState {
   pending: number;
   conflict: number;
   archived?: number; // Locally quarantined, NOT server acknowledged.
+  lastRecordAuditAt?:number|null;
+  lastRecordRepairCount?:number;
+  lastRecordMissingCount?:number;
   lastSuccessAt: number | null;
   lastError: string | null;
   isLeader: boolean;
@@ -63,6 +69,9 @@ export class SyncCoordinator {
   // IDs changed by authenticated incremental events since the previous
   // conflict check. Unrelated invoices must not trigger a huge SQL bootstrap.
   private recentlyPulledKeys = new Set<string>();
+  private lastManifestCheckAt=0;
+  private manifestUnavailableUntil=0;
+  private readonly manifestIntervalMs=5*60*1000;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -76,6 +85,9 @@ export class SyncCoordinator {
     pending: 0,
     conflict: 0,
     archived: 0,
+    lastRecordAuditAt:null,
+    lastRecordRepairCount:0,
+    lastRecordMissingCount:0,
     lastSuccessAt: null,
     lastError: null,
     isLeader: false
@@ -115,6 +127,9 @@ export class SyncCoordinator {
 
   private visibilityHandler = () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      // A tab returning after absence may have missed a local record even when
+      // the SQL event head has not changed. Re-audit IDs, not invoice payloads.
+      if(Date.now()-this.lastManifestCheckAt>60_000)this.lastManifestCheckAt=0;
       this.requestSync();
     }
   };
@@ -337,6 +352,7 @@ export class SyncCoordinator {
         await this.reconcileConflicts();
         await this.pushPending();
         await this.pullAllPages();
+        await this.reconcileMissingAuthoritativeRecords();
       }
 
       await this.refreshCounts();
@@ -685,6 +701,60 @@ export class SyncCoordinator {
     }
   }
 
+  /** SQL is the source of truth even when the local event cursor looks
+   * current. A five-minute key/version audit detects records silently absent
+   * from IndexedDB, then downloads ONLY those exact IDs. Ordinary 2.5s head
+   * polling and 30s sync never re-fetch full financial datasets.
+   */
+  private async reconcileMissingAuthoritativeRecords():Promise<void>{
+    if(!this.remote.fetchRecordManifest || !this.remote.fetchRecordsById)return;
+    const now=Date.now();
+    if(now<this.manifestUnavailableUntil||
+      now-this.lastManifestCheckAt<this.manifestIntervalMs)return;
+    this.lastManifestCheckAt=now;
+    try{
+      const manifest=await this.remote.fetchRecordManifest();
+      if(!Array.isArray(manifest.records)||!manifest.cursor)
+        throw new Error('POSTGRES_RECORD_MANIFEST_MALFORMED');
+      const localCursor=await this.local.cursor();
+      if(Number.isSafeInteger(localCursor?.sequence) &&
+         Number.isSafeInteger(manifest.cursor.sequence) &&
+         manifest.cursor.sequence!<localCursor!.sequence!)
+        throw new Error('POSTGRES_RECORD_MANIFEST_STALE');
+      const missing=await this.local.missingServerVersions(manifest.records);
+      let restored=0;
+      for(let index=0;index<missing.length;index+=80){
+        if(!this.started||!this.online())break;
+        const keys=missing.slice(index,index+80);
+        const requested=new Map(keys.map(k=>[recordKey(k.entity,k.id),k]));
+        const rows=await this.remote.fetchRecordsById(keys);
+        for(const row of rows){
+          const wanted=requested.get(recordKey(row.entity,row.id));
+          if(!wanted || row.version<wanted.version)
+            throw new Error('POSTGRES_TARGETED_RESOLUTION_MISMATCH');
+        }
+        restored+=await this.local.adoptAuthoritativeRecords(rows);
+      }
+      this.report({
+        lastRecordAuditAt:Date.now(),
+        lastRecordMissingCount:missing.length,
+        lastRecordRepairCount:restored
+      });
+      if(restored)console.info(
+        'POSTGRES_SMART_RECONCILIATION_RESTORED',restored,'of',missing.length,
+        'without clearing local cursor, accounts, invoices or outbox');
+    }catch(error){
+      // The UI may deploy ahead of the local Windows Node server. Missing
+      // endpoint must NEVER block sales, invalidate a session, or discard writes.
+      if(/LOCAL_SYNC_HTTP_404|INVALID_SERVER_REPLY/.test(String(error))){
+        this.manifestUnavailableUntil=Date.now()+15*60_000;
+        console.warn('POSTGRES_MANIFEST_BACKEND_UPDATE_REQUIRED',error);
+      }else{
+        console.warn('POSTGRES_SMART_RECONCILIATION_RETRY_WITHOUT_DATA_LOSS',error);
+      }
+    }
+  }
+
   private async pullAllPages() {
     let cursor = await this.local.cursor();
 
@@ -741,6 +811,7 @@ export class SyncCoordinator {
     const startedAt = Date.now();
     // Explicit user-requested sync may re-check previously reviewed conflicts.
     this.forceConflictReview=true;
+    this.lastManifestCheckAt=0;
     this.requestSync();
     await sleep(0);
     while (this.busy || this.requested) {
