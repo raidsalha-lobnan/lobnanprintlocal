@@ -1,6 +1,6 @@
 import { DailyEntryRow, DailyEntrySheet, Party, InventoryItem, Treasury, PaymentMethod } from '../types';
 import { DraftInvoiceItem, MultiItemDraftInvoice, autoMatchDraftEntities } from './liveSheetService';
-import { db, doc, setDoc } from './durableLegacyBridge';
+import { localRecordRef, persistLocalRecord } from './localRepositoryWrites';
 
 export const DAILY_ENTRY_STORAGE_KEY = 'accounting_daily_entry_sheets_v1';
 
@@ -203,16 +203,10 @@ export function markDailyEntryRowsApprovedInStorage(
     sheets[date] = sheet;
     localStorage.setItem(DAILY_ENTRY_STORAGE_KEY, JSON.stringify(sheets));
 
-    // مزامنة فورية مع Firestore
-    try {
-      if (db) {
-        setDoc(doc(db, 'dailyEntrySheets', date), sheet).catch(err => {
-          console.warn('Firestore dailyEntrySheets write notice:', err);
-        });
-      }
-    } catch (e) {
-      console.warn('Firestore sync error:', e);
-    }
+    // This is an IndexedDB durable write; the coordinator handles PostgreSQL.
+    void persistLocalRecord(localRecordRef('dailyEntrySheets',date),sheet).catch(error=>{
+      console.warn('Daily-entry local save failed; PostgreSQL has not acknowledged it',error);
+    });
   } catch (err) {
     console.error('Error marking daily entry rows approved in storage:', err);
   }
