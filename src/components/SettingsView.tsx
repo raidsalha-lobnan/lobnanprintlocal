@@ -176,6 +176,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
   const [invoiceFooter, setInvoiceFooter] = useState(settings.invoiceFooter || settings.invoiceFooterNote || '');
   const [isSaved, setIsSaved] = useState(false);
   const [showLivePreview, setShowLivePreview] = useState(false);
+  const [previewKind, setPreviewKind] = useState<'a4' | 'thermal'>('a4');
 
   // Logo file upload handler
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -212,13 +213,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
   const handleStampUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    resizeAndCompressImage(file, 300, 300).then(setStampUrl).catch(console.error);
+    resizeAndCompressImage(file, 300, 300).then(url=>{setStampUrl(url);setGeneralDirty(true);}).catch(console.error);
   };
 
   const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    resizeAndCompressImage(file, 300, 300).then(setSignatureUrl).catch(console.error);
+    resizeAndCompressImage(file, 300, 300).then(url=>{setSignatureUrl(url);setGeneralDirty(true);}).catch(console.error);
   };
 
   // Multiple Addresses handlers
@@ -470,6 +471,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
           {settingsSaveError}
         </div>
       )}
+      {activeTab !== 'general' && (
       <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
         إعدادات المنشأة والوحدات والعملات والتصنيفات مشتركة بين الأجهزة من قاعدة البيانات الموحدة.
         {syncCoordinatorState.conflict > 0
@@ -479,6 +481,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
             : ' لا توجد تغييرات معلقة مسجلة حاليًا.'}
         <span className="block mt-0.5 text-[10px]">إعداد اتصال الجهاز يبقى محليًا؛ ولا تُنقل جلسات الدخول أو المفاتيح الخاصة.</span>
       </div>
+      )}
       {legacyImageBackup && isSystemAdmin && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
           <span>توجد صورة ترويسة أو شعار أقدم محفوظ على هذا الجهاز تختلف عن الإعدادات المعتمدة. لن تُنشر تلقائيًا حتى لا تحل نسخة قديمة محل الأحدث.</span>
@@ -488,667 +491,297 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
           </button>
         </div>
       )}
-      {/* Tab 1: General Business Info */}
+      {/* Compact official identity, print assets and taxation: all existing values remain editable. */}
       {activeTab === 'general' && (
-        <form onSubmit={handleSave} onChangeCapture={() => setGeneralDirty(true)} className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-5 space-y-5 text-xs">
-          
-          {/* Section 1: Business Identity & Official Data */}
-          <div>
-            <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
-              <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                <Building className="w-4 h-4 text-blue-600" />
-                <span>البيانات الرسمية والضريبية للمنشأة (المطبعة والمكتبة)</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowLivePreview(!showLivePreview)}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition cursor-pointer"
-                title="معاينة شكل الترويسة على الأوراق المطبوعة وعلى إيصال الكاشير الحراري"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>{showLivePreview ? 'إخفاء المعاينة الحية' : 'معاينة ترويسة المطبوعات والكاشير'}</span>
-              </button>
+        <form
+          onSubmit={handleSave}
+          onChangeCapture={() => setGeneralDirty(true)}
+          className="space-y-2.5 rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xs"
+          data-testid="official-tax-compact-settings"
+        >
+          <section className="space-y-2" aria-label="البيانات الرسمية للمنشأة">
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-1.5">
+              <Building className="h-4 w-4 shrink-0 text-blue-600" />
+              <h3 className="text-xs font-bold text-slate-900">بيانات المنشأة الرسمية</h3>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              <div className="sm:col-span-2 lg:col-span-3 bg-blue-50/70 p-3 rounded-lg border border-blue-200">
-                <label className="block text-blue-950 font-bold mb-1 text-[11px] flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-                    مسمى وترويسة البرنامج في أعلى الشاشة (شريط العنوان العلوي وتبويب المتصفح):
-                  </span>
-                  <span className="text-[10px] text-blue-700 font-medium">يظهر في الشريط الأزرق العلوي وعنوان النافذة</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={appTitle}
-                  onChange={e => setAppTitle(e.target.value)}
-                  placeholder="برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان - م.رائد صالحة"
-                  className="w-full bg-white border border-blue-300 rounded-lg p-2.5 text-xs focus:bg-white focus:ring-2 focus:ring-blue-500 font-bold text-blue-950 shadow-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">اسم المطبعة والمكتبة التجاري (عربي):</label>
-                <input
-                  type="text"
-                  required
-                  value={businessName}
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-100 bg-blue-50/50 px-2 py-1.5">
+              <label htmlFor="official-app-title" className="shrink-0 font-bold text-slate-700">
+                اسم البرنامج في شريط العنوان
+              </label>
+              <input
+                id="official-app-title"
+                type="text"
+                required
+                value={appTitle}
+                onChange={e => setAppTitle(e.target.value)}
+                className="h-8 min-w-[240px] flex-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-900 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              <label className="block min-w-0">
+                <span className="mb-1 block font-semibold text-slate-700">الاسم التجاري (عربي)</span>
+                <input type="text" required value={businessName}
                   onChange={e => setBusinessName(e.target.value)}
-                  placeholder="مطبعة ومكتبة لبنان"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500 font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">الاسم التجاري بالإنجليزية (اختياري):</label>
-                <input
-                  type="text"
-                  value={businessNameEn}
-                  onChange={e => setBusinessNameEn(e.target.value)}
-                  placeholder="Al-Noor Modern Press & Bookstore"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 font-mono text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">نوع النشاط والوصف الرسمي:</label>
-                <input
-                  type="text"
-                  value={activityType}
+                  className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 font-bold focus:border-blue-500 focus:outline-none" />
+              </label>
+              <label className="block min-w-0">
+                <span className="mb-1 block font-semibold text-slate-700">الاسم التجاري (إنجليزي)</span>
+                <input type="text" value={businessNameEn}
+                  onChange={e => setBusinessNameEn(e.target.value)} dir="ltr"
+                  className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-left focus:border-blue-500 focus:outline-none" />
+              </label>
+              <label className="block min-w-0 sm:col-span-2 xl:col-span-1">
+                <span className="mb-1 block font-semibold text-slate-700">نوع النشاط والوصف الرسمي</span>
+                <input type="text" value={activityType}
                   onChange={e => setActivityType(e.target.value)}
-                  placeholder="طباعة أوفست وديجيتال - خامات ومطبوعات وقرطاسية"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">الرقم الضريبي الرسمي (VAT):</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={taxNumber}
+                  className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 focus:border-blue-500 focus:outline-none" />
+              </label>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="min-w-0">
+                <label htmlFor="official-vat-number" className="mb-1 block font-semibold text-slate-700">الرقم الضريبي الرسمي</label>
+                <div className="flex min-w-0 items-center gap-1">
+                  <input id="official-vat-number" type="text" value={taxNumber}
                     onChange={e => setTaxNumber(e.target.value)}
-                    placeholder="اختياري"
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-2 font-mono font-bold text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                  />
-                  <label className="flex items-center gap-1.5 cursor-pointer text-[10px] text-slate-600 font-semibold bg-slate-50 border border-slate-200 px-2 py-1.5 rounded-lg shrink-0">
-                    <input type="checkbox" checked={showTaxNumberInPrints} onChange={e => setShowTaxNumberInPrints(e.target.checked)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-                    عرض في الطباعة
+                    className="h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 focus:border-blue-500 focus:outline-none" />
+                  <label className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 px-1.5 text-[10px] text-slate-700" title="عرض الرقم الضريبي في المطبوعات">
+                    <input type="checkbox" checked={showTaxNumberInPrints}
+                      onChange={e => setShowTaxNumberInPrints(e.target.checked)} />
+                    طباعة
                   </label>
                 </div>
               </div>
-              
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">رقم السجل التجاري / الترخيص:</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={crNumber}
+              <div className="min-w-0">
+                <label htmlFor="official-cr-number" className="mb-1 block font-semibold text-slate-700">رقم السجل التجاري / الترخيص</label>
+                <div className="flex min-w-0 items-center gap-1">
+                  <input id="official-cr-number" type="text" value={crNumber}
                     onChange={e => setCrNumber(e.target.value)}
-                    placeholder="اختياري"
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-2 font-mono font-bold text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                  />
-                  <label className="flex items-center gap-1.5 cursor-pointer text-[10px] text-slate-600 font-semibold bg-slate-50 border border-slate-200 px-2 py-1.5 rounded-lg shrink-0">
-                    <input type="checkbox" checked={showCrNumberInPrints} onChange={e => setShowCrNumberInPrints(e.target.checked)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-                    عرض في الطباعة
+                    className="h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 focus:border-blue-500 focus:outline-none" />
+                  <label className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 px-1.5 text-[10px] text-slate-700" title="عرض السجل التجاري في المطبوعات">
+                    <input type="checkbox" checked={showCrNumberInPrints}
+                      onChange={e => setShowCrNumberInPrints(e.target.checked)} />
+                    طباعة
                   </label>
                 </div>
               </div>
+              <label className="block min-w-0">
+                <span className="mb-1 block font-semibold text-slate-700">ضريبة القيمة المضافة (%)</span>
+                <input type="number" value={vatRate} onChange={e => setVatRate(Number(e.target.value))}
+                  className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 font-mono font-bold focus:border-blue-500 focus:outline-none" />
+              </label>
+              <label className="block min-w-0">
+                <span className="mb-1 block font-semibold text-slate-700">رمز العملة المعروض</span>
+                <input type="text" value={currency} onChange={e => setCurrency(e.target.value)}
+                  className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 font-bold focus:border-blue-500 focus:outline-none" />
+              </label>
             </div>
-          </div>
+          </section>
 
-          {/* Section 2: Logo and Full Header Uploads (لوقو المنشأة أو الهيدر الكامل) */}
-          <div className="pt-4 border-t border-slate-200">
-            <h3 className="text-xs font-bold text-slate-900 mb-2 flex items-center gap-1.5">
-              <ImageIcon className="w-4 h-4 text-indigo-600" />
-              <span>الهوية البصرية وترويسة المطبوعات (لوقو المنشأة أو هيدر كامل)</span>
-            </h3>
-
-            {/* Note & Rules Banner */}
-            <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 text-[11px] text-blue-900 mb-3.5 space-y-1 leading-relaxed">
-              <div className="flex items-center gap-1.5 font-bold text-blue-950">
-                <AlertCircle className="w-4 h-4 text-blue-600 shrink-0" />
-                <span>قواعد اعتماد الترويسة في الطباعة:</span>
-              </div>
-              <ul className="list-disc list-inside space-y-0.5 text-blue-800 pr-1">
-                <li>
-                  <strong>عند رفع هيدر كامل:</strong> يتم اعتماده كترويسة رسمية لكافة الكشوفات والأوراق المطبوعة (الفواتير A4، كشوفات الحساب، سندات القبض والصرف، بطاقات التشغيل، مسيرات الرواتب).
-                </li>
-                <li>
-                  <strong>الكاشير الحراري (80mm):</strong> يُستثنى من الهيدر الكامل لضيق الورق الحراري، وتُطبع فواتيره باللوقو مع اسم المنشأة والعناوين وأرقام الهواتف المكتوبة.
-                </li>
-                <li>
-                  <strong>في حال عدم رفع هيدر كامل:</strong> يعتمد النظام تلقائياً اللوقو مع اسم المنشأة وكافة البيانات المكتوبة (العناوين والهواتف والأرقام الضريبية).
-                </li>
-              </ul>
+          <section className="space-y-2 border-t border-slate-200 pt-2" aria-label="الهوية البصرية والترويسة">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <h3 className="flex items-center gap-1.5 font-bold text-slate-900">
+                <ImageIcon className="h-4 w-4 text-blue-600" />
+                صور المطبوعات والختم والتوقيع
+              </h3>
+              <span className="text-[10px] text-slate-500">
+                الترويسة الكاملة لـ A4، والشعار للفاتورة الحرارية
+              </span>
             </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Box A: Upload Company Logo (رفع لوقو المنشأة) */}
-              <div className="border border-slate-200 rounded-xl p-3.5 bg-slate-50/50 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                      <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-                      <span>1. لوقو المنشأة (شعار المطبعة / المكتبة)</span>
-                    </span>
-                    {logoUrl && (
-                      <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded">
-                        مرفوع ✓
-                      </span>
-                    )}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                {
+                  key:'logo', title:'شعار المنشأة',value:logoUrl,
+                  onUpload:handleLogoUpload,
+                  onRemove:() => {setLogoUrl('');setGeneralDirty(true);},
+                  hint:'يظهر في إيصال الكاشير الحراري'
+                },
+                {
+                  key:'letterhead',title:'الترويسة الكاملة A4',value:headerImageUrl,
+                  onUpload:handleHeaderImageUpload,
+                  onRemove:() => {setHeaderImageUrl('');setGeneralDirty(true);},
+                  hint:'ترويسة عالية الدقة للمطبوعات'
+                },
+                {
+                  key:'stamp',title:'الختم الرسمي (4 سم)',value:stampUrl,
+                  onUpload:handleStampUpload,
+                  onRemove:() => {setStampUrl('');setGeneralDirty(true);},
+                  hint:'الختم المستخدم في الفواتير والسندات'
+                },
+                {
+                  key:'signature',title:'توقيع المدير / المخوّل',value:signatureUrl,
+                  onUpload:handleSignatureUpload,
+                  onRemove:() => {setSignatureUrl('');setGeneralDirty(true);},
+                  hint:'التوقيع الرسمي للمستندات'
+                }
+              ].map(asset => (
+                <div key={asset.key} className="min-w-0 rounded-md border border-slate-200 bg-slate-50/60 p-2">
+                  <div className="mb-1.5 flex items-center justify-between gap-1">
+                    <strong className="truncate text-[11px] text-slate-800" title={asset.hint}>{asset.title}</strong>
+                    {asset.value && <span className="shrink-0 text-[10px] font-bold text-emerald-700">مرفوع</span>}
                   </div>
-                  <p className="text-[10px] text-slate-400 font-light mb-3">
-                    يظهر اللوقو في ترويسة الكشوفات القياسية، ويظهر دائماً أعلى فواتير الكاشير الحراري.
-                  </p>
-
-                  {/* Logo Preview & Input */}
-                  <div className="flex items-center gap-3">
-                    {logoUrl ? (
-                      <div className="relative w-24 h-24 bg-white border border-slate-300 rounded-lg p-1.5 flex items-center justify-center shadow-xs shrink-0 group">
-                        <img
-                          src={logoUrl}
-                          alt="Logo Preview"
-                          className="max-w-full max-h-full object-contain"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setLogoUrl('')}
-                          className="absolute -top-2 -right-2 bg-rose-600 hover:bg-rose-700 text-white rounded-full p-1 shadow-md transition cursor-pointer"
-                          title="حذف اللوقو"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="w-24 h-24 bg-white border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 text-[10px] shrink-0">
-                        <ImageIcon className="w-6 h-6 mb-1 text-slate-300" />
-                        <span>لا يوجد لوقو</span>
-                      </div>
-                    )}
-
-                    <div className="flex-1 space-y-2">
-                      <label className="inline-flex items-center justify-center gap-1.5 w-full bg-white hover:bg-slate-100 text-slate-700 font-bold border border-slate-300 rounded-lg px-3 py-2 text-xs shadow-2xs transition cursor-pointer">
-                        <Upload className="w-3.5 h-3.5 text-blue-600" />
-                        <span>{logoUrl ? 'تغيير صورة اللوقو' : 'رفع ملف اللوقو (PNG/JPG)'}</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleLogoUpload}
-                          className="hidden"
-                        />
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-14 w-[76px] shrink-0 items-center justify-center overflow-hidden rounded border border-dashed border-slate-300 bg-white">
+                      {asset.value ? (
+                        <img src={asset.value} alt={asset.title} className="h-full w-full object-contain" />
+                      ) : (
+                        <ImageIcon className="h-5 w-5 text-slate-300" />
+                      )}
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <label className="inline-flex h-7 cursor-pointer items-center justify-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-1.5 text-[11px] font-bold text-blue-800 hover:bg-blue-100">
+                        <Upload className="h-3 w-3 shrink-0" />
+                        <span>{asset.value ? 'استبدال' : 'رفع صورة'}</span>
+                        <input type="file" accept="image/*" onChange={asset.onUpload} className="sr-only" aria-label={'رفع '+asset.title} />
                       </label>
-                      <p className="text-[10px] text-slate-400">
-                        الصيغ المدعومة: PNG أو JPG بخلفية شفافة أو بيضاء (مستحسن 300×300).
-                      </p>
+                      {asset.value && (
+                        <button type="button" onClick={asset.onRemove}
+                          title={'إزالة '+asset.title}
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-rose-200 bg-white px-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50">
+                          <Trash2 className="h-3 w-3" />
+                          إزالة
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Box B: Upload Full Header Banner (رفع هيدر كامل للمطبوعات) */}
-              <div className="border border-slate-200 rounded-xl p-3.5 bg-slate-50/50 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>2. هيدر مطبوعات كامل (Full Letterhead Banner)</span>
-                    </span>
-                    {headerImageUrl ? (
-                      <span className="bg-indigo-100 text-indigo-800 border border-indigo-300 text-[10px] font-bold px-2 py-0.5 rounded">
-                        معتمد لكافة الكشوفات ✓
-                      </span>
-                    ) : (
-                      <span className="bg-slate-200 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded">
-                        غير مرفوع
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-slate-400 font-light mb-3">
-                    ترويسة مصممة مسبقاً بعرض الصفحة تحتوي الشعار والاسم والبيانات. عند رفعه يُعتمد لكل المطبوعات الرسمية.
-                    يُحفظ الأصل عالي الدقة دون ضغط عندما تسمح أبعاده وحجمه؛ يوصى بصورة PNG بعرض 2400–3200 بكسل. الترويسة القديمة لا تتحسن دون إعادة رفع أصلها.
-                  </p>
-
-                  {/* Header Banner Preview & Input */}
-                  <div className="space-y-2">
-                    {headerImageUrl ? (
-                      <div className="relative w-full h-20 bg-white border border-slate-300 rounded-lg p-1 flex items-center justify-center shadow-xs overflow-hidden group">
-                        <img
-                          src={headerImageUrl}
-                          alt="Header Banner Preview"
-                          className="w-full h-full object-contain"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setHeaderImageUrl('')}
-                          className="absolute top-1.5 left-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-md px-2 py-0.5 text-[10px] font-bold shadow-md transition cursor-pointer flex items-center gap-1"
-                          title="إلغاء الهيدر والعودة للترويسة القياسية"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>إزالة الهيدر</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="w-full h-16 bg-white border-2 border-dashed border-slate-300 rounded-lg flex items-center justify-center text-slate-400 text-[10px] gap-2">
-                        <FileSpreadsheet className="w-5 h-5 text-slate-300" />
-                        <span>لم يتم رفع هيدر كامل بعد (سيتم استخدام اللوقو والبيانات كترويسة افتراضية)</span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2">
-                      <label className="inline-flex items-center justify-center gap-1.5 flex-1 bg-white hover:bg-slate-100 text-slate-700 font-bold border border-slate-300 rounded-lg px-3 py-2 text-xs shadow-2xs transition cursor-pointer">
-                        <Upload className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>{headerImageUrl ? 'استبدال الهيدر الكامل' : 'رفع هيدر كامل للمطبوعات'}</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleHeaderImageUpload}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </div>\n
-                {/* Stamp & Signature Section */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-                  {/* Stamp Upload */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                        <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-                        <span>3. ختم المنشأة الرسمي (أبعاد 4 سم دائري)</span>
-                      </span>
-                      {stampUrl && (
-                        <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded">
-                          مرفوع ✓ (4cm دائري مع افكت الحبر)
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[9px] text-slate-400 font-light mb-3 leading-relaxed">
-                      يتم ضبط أبعاد الختم بدقة عند الطباعة على 4 سم دائري مع تطبيق تأثير حبر الختم الواقعي والميلان الطبيعي على كافة الفواتير والسندات والكشوفات.
-                    </p>
-                    <div className="flex items-center gap-3">
-                      {stampUrl ? (
-                        <div className="relative w-20 h-20 bg-white border border-slate-300 rounded-full p-1.5 flex items-center justify-center shadow-xs shrink-0 group overflow-hidden">
-                          <img
-                            src={stampUrl}
-                            alt="Stamp Preview"
-                            className="max-w-full max-h-full object-contain rounded-full -rotate-6 mix-blend-multiply filter contrast-125 saturate-110"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setStampUrl('')}
-                            className="absolute -top-1 -right-1 bg-red-100 text-red-600 rounded-full p-1 border border-red-200 opacity-0 group-hover:opacity-100 transition shadow-xs hover:bg-red-200 hover:text-red-700 z-10"
-                            title="إزالة الختم"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="w-20 h-20 bg-white border border-slate-300 border-dashed rounded-full flex flex-col items-center justify-center text-slate-400 shrink-0">
-                          <ImageIcon className="w-5 h-5 mb-1 opacity-50" />
-                          <span className="text-[9px] font-bold">بدون ختم</span>
-                        </div>
-                      )}
-                      <div className="flex-1">
-                        <label className="inline-flex items-center justify-center gap-1.5 w-full bg-white hover:bg-slate-100 text-slate-700 font-bold border border-slate-300 rounded-lg px-3 py-2 text-xs shadow-2xs transition cursor-pointer">
-                          <Upload className="w-3.5 h-3.5 text-blue-600" />
-                          <span>{stampUrl ? 'تغيير الختم' : 'رفع ختم الشركة (PNG / 4cm دائري)'}</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleStampUpload}
-                            className="hidden"
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Signature Upload */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                        <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-                        <span>4. توقيع المدير / المخول</span>
-                      </span>
-                      {signatureUrl && (
-                        <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded">
-                          مرفوع ✓
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[9px] text-slate-400 font-light mb-3 leading-relaxed">
-                      يظهر بجوار الختم الرسمي لاعتماد الفواتير والسندات في المعاملات الرسمية.
-                    </p>
-                    <div className="flex items-center gap-3">
-                      {signatureUrl ? (
-                        <div className="relative w-20 h-20 bg-white border border-slate-300 rounded-lg p-1.5 flex items-center justify-center shadow-xs shrink-0 group">
-                          <img
-                            src={signatureUrl}
-                            alt="Signature Preview"
-                            className="max-w-full max-h-full object-contain"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setSignatureUrl('')}
-                            className="absolute -top-2 -right-2 bg-red-100 text-red-600 rounded-full p-1 border border-red-200 opacity-0 group-hover:opacity-100 transition shadow-xs hover:bg-red-200 hover:text-red-700"
-                            title="إزالة التوقيع"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="w-20 h-20 bg-white border border-slate-300 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-400 shrink-0">
-                          <ImageIcon className="w-5 h-5 mb-1 opacity-50" />
-                          <span className="text-[9px] font-bold">بدون توقيع</span>
-                        </div>
-                      )}
-                      <div className="flex-1">
-                        <label className="inline-flex items-center justify-center gap-1.5 w-full bg-white hover:bg-slate-100 text-slate-700 font-bold border border-slate-300 rounded-lg px-3 py-2 text-xs shadow-2xs transition cursor-pointer">
-                          <Upload className="w-3.5 h-3.5 text-blue-600" />
-                          <span>{signatureUrl ? 'تغيير التوقيع' : 'رفع التوقيع (PNG)'}</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleSignatureUpload}
-                            className="hidden"
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </div>\n
-              </div>
+              ))}
             </div>
-          </div>
+          </section>
 
-          {/* Section 3: Multiple Phone Numbers (أرقام الهواتف المتعددة) */}
-          <div className="pt-4 border-t border-slate-200">
-            <h3 className="text-xs font-bold text-slate-900 mb-1.5 flex items-center gap-1.5">
-              <PhoneIcon className="w-4 h-4 text-blue-600" />
-              <span>أرقام الهواتف والتواصل المتعددة (إدارة، مبيعات، فاكس، واتساب)</span>
-            </h3>
-            <p className="text-[10px] text-slate-400 font-light mb-2.5">
-              يمكنك إضافة عدة أرقام هواتف لتظهر في ترويسة الفواتير والكشوفات وإيصالات الكاشير الحراري.
-            </p>
-
-            <div className="space-y-2">
-              {/* Add Phone Input */}
-              <div className="flex items-center gap-2 max-w-xl">
-                <input
-                  type="text"
-                  placeholder="مثال: 02-2987654 (الإدارة) أو 0599-123456 (المبيعات والواتساب)..."
-                  value={newPhoneInput}
+          <section className="grid grid-cols-1 gap-2 border-t border-slate-200 pt-2 md:grid-cols-2" aria-label="التواصل والفروع">
+            <div className="min-w-0 rounded-md border border-slate-200 p-2">
+              <h3 className="mb-1.5 flex items-center gap-1.5 font-bold text-slate-900">
+                <PhoneIcon className="h-3.5 w-3.5 text-blue-600" />
+                أرقام الهواتف والتواصل
+              </h3>
+              <div className="flex items-center gap-1.5">
+                <input type="text" value={newPhoneInput} placeholder="رقم هاتف جديد"
                   onChange={e => setNewPhoneInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddPhone();
-                    }
-                  }}
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500 font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddPhone}
-                  className="flex items-center gap-1 bg-slate-800 hover:bg-slate-900 text-white font-bold px-3 py-2 rounded-lg text-xs transition cursor-pointer shrink-0"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>إضافة رقم</span>
+                  onKeyDown={e => {if(e.key==='Enter'){e.preventDefault();handleAddPhone();}}}
+                  className="h-8 w-full min-w-0 flex-1 rounded-md border border-slate-300 px-2 focus:border-blue-500 focus:outline-none" />
+                <button type="button" onClick={() => {handleAddPhone();setGeneralDirty(true);}}
+                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-blue-600 px-2 font-bold text-white hover:bg-blue-700">
+                  <Plus className="h-3.5 w-3.5" /> إضافة
                 </button>
               </div>
-
-              {/* Phones List */}
-              <div className="flex flex-wrap gap-2 pt-1">
-                {phones.map((ph, idx) => (
-                  <div
-                    key={idx}
-                    className="inline-flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800 font-mono"
-                  >
-                    <PhoneIcon className="w-3 h-3 text-slate-500" />
-                    <span>{ph}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemovePhone(idx)}
-                      className="text-slate-400 hover:text-rose-600 transition cursor-pointer p-0.5"
-                      title="حذف هذا الرقم"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                {phones.length === 0 && (
-                  <span className="text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200">
-                    لم تتم إضافة أرقام هواتف بعد.
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Section 4: Multiple Addresses (العناوين والفروع المتعددة) */}
-          <div className="pt-4 border-t border-slate-200">
-            <h3 className="text-xs font-bold text-slate-900 mb-1.5 flex items-center gap-1.5">
-              <MapPin className="w-4 h-4 text-blue-600" />
-              <span>عناوين وفروع المنشأة المتعددة</span>
-            </h3>
-            <p className="text-[10px] text-slate-400 font-light mb-2.5">
-              سجّل كافة عناوين وفروع المنشأة لتظهر بتنسيق رسمي في الترويسة والكاشير الحراري.
-            </p>
-
-            <div className="space-y-2">
-              {/* Add Address Input */}
-              <div className="flex items-center gap-2 max-w-2xl">
-                <input
-                  type="text"
-                  placeholder="مثال: الفرع الرئيسي: رام الله - شارع الإرسال | فرع القدس: شارع صلاح الدين..."
-                  value={newAddressInput}
-                  onChange={e => setNewAddressInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddAddress();
-                    }
-                  }}
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddAddress}
-                  className="flex items-center gap-1 bg-slate-800 hover:bg-slate-900 text-white font-bold px-3 py-2 rounded-lg text-xs transition cursor-pointer shrink-0"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>إضافة عنوان</span>
-                </button>
-              </div>
-
-              {/* Addresses List */}
-              <div className="space-y-1.5 pt-1">
-                {addresses.map((addr, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between gap-2 bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800"
-                  >
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                      <span>{addr}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAddress(idx)}
-                      className="text-slate-400 hover:text-rose-600 text-xs font-bold transition cursor-pointer p-0.5"
-                      title="حذف هذا العنوان"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                {addresses.length === 0 && (
-                  <span className="text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200 inline-block">
-                    لم تتم إضافة عناوين بعد.
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Section 5: Billing & Tax Rates */}
-          <div className="pt-4 border-t border-slate-200">
-            <h3 className="text-xs font-bold text-slate-900 mb-2.5 flex items-center gap-1.5">
-              <Printer className="w-4 h-4 text-blue-600" />
-              <span>إعدادات الفوترة والضريبة وتذييل السندات</span>
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">نسبة ضريبة القيمة المضافة (%):</label>
-                <input
-                  type="number"
-                  value={vatRate}
-                  onChange={e => setVatRate(Number(e.target.value))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 font-mono font-bold text-slate-900 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">رمز العملة المعروض:</label>
-                <input
-                  type="text"
-                  value={currency}
-                  onChange={e => setCurrency(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-bold focus:bg-white focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">نص تذييل الفاتورة وسندات التسليم:</label>
-                <textarea
-                  rows={2}
-                  value={invoiceFooter}
-                  onChange={e => setInvoiceFooter(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Section 6: Live Visual Preview Accordion */}
-          {showLivePreview && (
-            <div className="pt-4 border-t-2 border-dashed border-blue-200 bg-slate-50/80 -mx-4 sm:-mx-5 px-4 sm:px-5 pb-3">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-                  <Eye className="w-4 h-4 text-blue-600" />
-                  <span>معاينة حية لشكل الترويسة المعتمدة في الطباعة والكاشير:</span>
+              {phones.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {phones.map((phone,index) => (
+                    <span key={index} className="inline-flex min-w-0 items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[11px]">
+                      <span className="break-all">{phone}</span>
+                      <button type="button" title="حذف الرقم" aria-label={'حذف '+phone}
+                        onClick={() => {handleRemovePhone(index);setGeneralDirty(true);}}
+                        className="font-bold text-rose-600 hover:text-rose-800">×</button>
+                    </span>
+                  ))}
                 </div>
-                <span className="text-[11px] font-bold text-blue-700">
-                  {headerImageUrl ? 'ترويسة بالهيدر الكامل المعتمد' : 'ترويسة قياسية (باللوقو والبيانات)'}
-                </span>
+              )}
+            </div>
+            <div className="min-w-0 rounded-md border border-slate-200 p-2">
+              <h3 className="mb-1.5 flex items-center gap-1.5 font-bold text-slate-900">
+                <MapPin className="h-3.5 w-3.5 text-blue-600" />
+                العناوين وفروع المنشأة
+              </h3>
+              <div className="flex items-center gap-1.5">
+                <input type="text" value={newAddressInput} placeholder="عنوان أو فرع جديد"
+                  onChange={e => setNewAddressInput(e.target.value)}
+                  onKeyDown={e => {if(e.key==='Enter'){e.preventDefault();handleAddAddress();}}}
+                  className="h-8 w-full min-w-0 flex-1 rounded-md border border-slate-300 px-2 focus:border-blue-500 focus:outline-none" />
+                <button type="button" onClick={() => {handleAddAddress();setGeneralDirty(true);}}
+                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-blue-600 px-2 font-bold text-white hover:bg-blue-700">
+                  <Plus className="h-3.5 w-3.5" /> إضافة
+                </button>
               </div>
+              {addresses.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {addresses.map((address,index) => (
+                    <span key={index} className="inline-flex min-w-0 items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[11px]">
+                      <span className="break-words">{address}</span>
+                      <button type="button" title="حذف العنوان" aria-label={'حذف '+address}
+                        onClick={() => {handleRemoveAddress(index);setGeneralDirty(true);}}
+                        className="font-bold text-rose-600 hover:text-rose-800">×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* A4 Document Header Preview */}
-                <div className="lg:col-span-2 bg-white rounded-xl border border-slate-300 p-4 shadow-xs">
-                  <div className="text-[11px] font-bold text-slate-500 mb-2 border-b pb-1 flex justify-between">
-                    <span>1. شكل الترويسة في الأوراق والكشوفات المطبوعة (A4):</span>
-                    <span className="text-slate-400 font-mono">210mm × 297mm</span>
-                  </div>
-                  <PrintHeader
-                    title="فاتورة ضريبية / كشف حساب"
-                    subtitle="معاينة حية للمطبوعات الرسمية"
-                    docNumber="INV-2024-PREVIEW"
-                    docDate={new Date().toISOString().split('T')[0]}
-                    overrideSettings={{
-                      businessName,
-                      businessNameEn,
-                      activityType,
-                      taxNumber,
-                      crNumber,
-                      showTaxNumberInPrints,
-                      showCrNumberInPrints,
-                      logoUrl,
-                      headerImageUrl,
-                      addresses,
-                      phones
-                    }}
-                  />
-                  
-                  {/* Live Stamp & Signature Footer Preview in A4 */}
-                  <div className="mt-6 pt-4 border-t border-slate-200 grid grid-cols-2 gap-4 text-center text-xs">
-                    <div className="space-y-1 flex flex-col items-center">
-                      <span className="font-bold text-slate-700 block text-[11px]">توقيع واعتماد الإدارة</span>
-                      <div className="h-16 flex items-center justify-center">
-                        {signatureUrl ? (
-                          <img src={signatureUrl} alt="Signature Preview" className="max-h-14 max-w-[120px] object-contain mix-blend-multiply opacity-90" />
-                        ) : (
-                          <div className="border-b border-dashed border-slate-400 w-28 mt-8"></div>
-                        )}
+          <section className="border-t border-slate-200 pt-2">
+            <label htmlFor="official-invoice-footer" className="mb-1 block font-semibold text-slate-800">
+              نص تذييل الفاتورة وسندات التسليم
+            </label>
+            <textarea id="official-invoice-footer" rows={2} value={invoiceFooter}
+              onChange={e => setInvoiceFooter(e.target.value)} placeholder="النص الذي يظهر أسفل الفاتورة"
+              className="w-full resize-y rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none" />
+          </section>
+
+          {showLivePreview && (
+            <section className="space-y-2 rounded-md border border-blue-200 bg-slate-50 p-2" aria-label="معاينة المطبوعات">
+              <h3 className="flex items-center gap-1.5 font-bold text-slate-900">
+                <Eye className="h-3.5 w-3.5 text-blue-600" />
+                {previewKind === 'a4' ? 'معاينة الترويسة على ورق A4' : 'معاينة إيصال الكاشير الحراري (80mm)'}
+              </h3>
+              <div className="max-h-[56vh] overflow-auto rounded border border-slate-200 bg-white p-3">
+                {previewKind === 'a4' ? (
+                  <>
+                    <PrintHeader
+                      title="فاتورة ضريبية / كشف حساب"
+                      subtitle="معاينة حية"
+                      docNumber="INV-PREVIEW"
+                      docDate={new Date().toISOString().split('T')[0]}
+                      overrideSettings={{
+                        businessName,businessNameEn,activityType,taxNumber,crNumber,
+                        showTaxNumberInPrints,showCrNumberInPrints,logoUrl,
+                        headerImageUrl,addresses,phones
+                      }}
+                    />
+                    <div className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-200 pt-2 text-center">
+                      <div>
+                        <span className="mb-1 block font-semibold text-slate-700">توقيع المدير</span>
+                        {signatureUrl ? <img src={signatureUrl} alt="توقيع المدير" className="mx-auto h-16 max-w-[140px] object-contain" /> :
+                          <div className="mx-auto mt-6 w-28 border-b border-dashed border-slate-400" />}
                       </div>
-                    </div>
-                    
-                    <div className="space-y-1 flex flex-col items-center">
-                      <span className="font-bold text-slate-700 block text-[11px]">الختم الرسمي (4 سم دائري)</span>
-                      <div className="flex items-center justify-center">
+                      <div>
+                        <span className="mb-1 block font-semibold text-slate-700">الختم الرسمي</span>
                         <OfficialStamp stampUrl={stampUrl} showDefaultIfEmpty={!stampUrl} />
                       </div>
                     </div>
+                  </>
+                ) : (
+                  <div className="mx-auto max-w-md">
+                    <ThermalReceiptHeader
+                      receiptTitle="فاتورة مبيعات نقدية"
+                      overrideSettings={{
+                        businessName,businessNameEn,activityType,taxNumber,crNumber,
+                        showTaxNumberInPrints,showCrNumberInPrints,logoUrl,addresses,phones
+                      }}
+                    />
                   </div>
-
-                  <p className="text-[10px] text-slate-400 text-center mt-3 italic">
-                    {headerImageUrl
-                      ? 'تم اعتماد الهيدر الكامل والختم 4 سم الدائري بنجاح لكافة الكشوفات والمطبوعات.'
-                      : 'في حال عدم رفع هيدر، تظهر الترويسة باللوقو مع اسم المنشأة والعناوين والهواتف.'}
-                  </p>
-                </div>
-
-                {/* Thermal Receipt Header Preview */}
-                <div className="bg-white rounded-xl border border-slate-300 p-4 shadow-xs">
-                  <div className="text-[11px] font-bold text-slate-500 mb-2 border-b pb-1 flex justify-between">
-                    <span>2. إيصال الكاشير الحراري:</span>
-                    <span className="text-slate-400 font-mono">80mm Thermal</span>
-                  </div>
-                  <ThermalReceiptHeader
-                    receiptTitle="فاتورة مبيعات نقدية"
-                    overrideSettings={{
-                      businessName,
-                      businessNameEn,
-                      activityType,
-                      taxNumber,
-                      crNumber,
-                      showTaxNumberInPrints,
-                      showCrNumberInPrints,
-                      logoUrl,
-                      addresses,
-                      phones
-                    }}
-                  />
-                  <p className="text-[10px] text-slate-400 text-center mt-2 italic">
-                    الكاشير الحراري يستخدم دائماً اللوقو والعناوين والهواتف المكتوبة.
-                  </p>
-                </div>
+                )}
               </div>
-            </div>
+            </section>
           )}
 
-          {/* Bottom Action Save Bar */}
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setShowLivePreview(!showLivePreview)}
-              className="text-xs text-slate-600 hover:text-blue-600 font-semibold flex items-center gap-1 cursor-pointer"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span>{showLivePreview ? 'إغلاق المعاينة' : 'عرض المعاينة الحية للترويسة'}</span>
-            </button>
-
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-5 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer"
-            >
-              <Save className="w-4 h-4" />
-              <span>حفظ البيانات الرسمية والترويسة</span>
+          <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white/95 px-1 pt-2 pb-1 backdrop-blur-sm">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button type="button"
+                onClick={() => {setPreviewKind('a4');setShowLivePreview(showLivePreview && previewKind==='a4' ? false : true);}}
+                aria-pressed={showLivePreview && previewKind==='a4'}
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 px-2 font-bold text-slate-700 hover:bg-slate-50">
+                <Eye className="h-3.5 w-3.5" /> معاينة A4
+              </button>
+              <button type="button"
+                onClick={() => {setPreviewKind('thermal');setShowLivePreview(showLivePreview && previewKind==='thermal' ? false : true);}}
+                aria-pressed={showLivePreview && previewKind==='thermal'}
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 px-2 font-bold text-slate-700 hover:bg-slate-50">
+                <Printer className="h-3.5 w-3.5" /> معاينة الحراري
+              </button>
+            </div>
+            <button type="submit" disabled={isSavingSettings}
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-emerald-700 px-4 font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60">
+              <Save className="h-3.5 w-3.5" />
+              {isSavingSettings ? 'جارٍ حفظ الإعدادات…' : 'حفظ البيانات الرسمية والترويسة'}
             </button>
           </div>
         </form>
