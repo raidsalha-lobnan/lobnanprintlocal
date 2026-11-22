@@ -80,3 +80,26 @@ test('invoice-only cache recovery cannot remove employee 008 from a filtered ser
     assert.equal((await db.listVisibleGrouped(['employees'])).employees.length,8);
   }finally{await db.close();}
 });
+
+
+test('PostgreSQL-verified eight-person roster survives reopening IndexedDB after a stale seven-person display',async()=>{
+  const workspace='staff-roster-'+crypto.randomUUID();
+  const namespace='staff-roster-verification-'+crypto.randomUUID();
+  const first=new LocalSyncDb(workspace,namespace);
+  await first.initializeAuthoritativeSnapshot(
+    Array.from({length:8},(_,i)=>employee(String(i+1).padStart(3,'0'),1)),cursor(1));
+  assert.equal((await first.verifiedEmployeeIds())?.length,8);
+  await first.close();
+  const reopened=new LocalSyncDb(workspace,namespace);
+  try{
+    assert.deepEqual((await reopened.verifiedEmployeeIds())?.slice(-1),['008']);
+    // Central confirmation of a real seven-person roster updates the
+    // saved identity checkpoint; it does not delete local staff by itself.
+    const result=await reopened.restoreMissingEmployees(
+      Array.from({length:7},(_,i)=>employee(String(i+1).padStart(3,'0'),1)),1);
+    assert.deepEqual(result,{added:0,updated:0});
+    assert.equal((await reopened.verifiedEmployeeIds())?.length,7);
+    assert.equal((await reopened.listVisibleGrouped(['employees'])).employees.length,8,
+      'a roster check never deletes employees; only versioned events may do that');
+  }finally{await reopened.close();}
+});
