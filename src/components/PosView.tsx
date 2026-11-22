@@ -4103,7 +4103,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           <div className="flex-1 min-w-0 flex flex-col gap-1 lg:h-full lg:min-h-0">
             {/* 2A. INVOICE HEADER SECTION (رأس الفاتورة - تفاصيل العميل والفرع ورقم الفاتورة) */}
             {posLayoutConfig.showCustomerHeader && (
-              <div className="bg-[#d3dfed] p-1 border border-slate-300 rounded-xl shadow-2xs w-fit">
+              <div className="bg-[#d3dfed] p-1 border border-slate-300 rounded-xl shadow-2xs w-full min-w-0">
           {isLiveCustomizing && (
             <div className="flex items-center justify-between bg-amber-200/90 px-2 py-0.5 rounded mb-2 text-xs text-amber-950 font-bold border border-amber-300">
               <span className="flex items-center gap-1.5">
@@ -4121,8 +4121,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
             </div>
           )}
           {/* Main Top Header System Strip (أعلى شاشة الكاشير): الفرع | المستخدم | رقم الفاتورة | التاريخ | حالة الفاتورة */}
-          <div className="bg-white/90 border border-slate-300 rounded-lg p-1 mb-1 shadow-2xs w-fit overflow-hidden">
-            <div className="flex flex-nowrap items-center justify-between gap-2.5 text-sm w-fit overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <div className="bg-white/90 border border-slate-300 rounded-lg p-1 mb-1 shadow-2xs w-full min-w-0 overflow-hidden">
+            <div className="flex flex-nowrap items-center justify-between gap-2 text-sm w-full min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
               
               {/* 1. رقم الفاتورة (تسلسلي موحد غير مكرر لكل حالات الفاتورة يصدر بعد إتمام الحفظ) */}
               <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 shrink-0">
@@ -4141,7 +4141,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               </div>
 
               {/* 4. التاريخ (تلقائياً وقت الجهاز المعتمد مع إمكانية تثبيت التاريخ) */}
-              <div className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 shrink-0 ml-[245px] transition-colors ${
+              <div className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 shrink-0 transition-colors ${
                 posLayoutConfig.isDateLocked ? 'bg-amber-50/90 border-amber-400 ring-1 ring-amber-300' : 'bg-slate-50 border-slate-300'
               }`}>
                 <Calendar className={`w-4 h-4 shrink-0 ${posLayoutConfig.isDateLocked ? 'text-amber-700' : 'text-emerald-700'}`} />
@@ -4206,7 +4206,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               </div>
 
               {/* 5. حالة الفاتورة (قائمة منسدلة معتمدة وموحدة) */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 shrink-0 ml-0 -mr-[250px]">
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 shrink-0">
                 <span className="font-bold text-slate-700 text-[14px] shrink-0">حالة الفاتورة:</span>
                 <select
                   value={invoiceWorkflowStatus}
@@ -4265,7 +4265,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               </div>
 
               {/* 7. سعر البيع */}
-              <div className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 shrink-0 -mr-2 ml-[250px] ${
+              <div className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 shrink-0 ${
                 userPricePolicy.allowedTier !== 'all' 
                   ? 'bg-amber-50/60 border-amber-300' 
                   : 'bg-slate-50 border-slate-300'
@@ -4302,7 +4302,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           </div>
 
         {/* Customer, Sub-Customer, Balance & Order Options - ALL IN ONE SINGLE ROW */}
-        <div className="bg-white/80 px-2 py-0.5 mb-1 rounded-xl border border-slate-300 flex items-center gap-4 flex-wrap text-sm shadow-sm w-[1382px] max-w-full">
+        <div className="bg-white/80 px-2 py-1 mb-1 rounded-xl border border-slate-300 flex items-center gap-2 flex-nowrap overflow-x-auto text-sm shadow-sm w-full min-w-0">
           {/* 1. زر تبديل دائري لاختيار الطرف (عميل - مورد - موظف) */}
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="font-bold text-slate-700 text-[14px] shrink-0">الطرف:</span>
@@ -4336,7 +4336,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                 showCode={false}
                 clearOnFocus={false}
                 inputRef={customerInputRef}
-                inputClassName="text-[14px] font-bold h-9 w-[324.631px]"
+                inputClassName="text-[14px] font-bold h-8 w-full min-w-0"
                 placeholder={
                   posTargetType === 'customer'
                     ? 'اكتب اسم العميل للبحث...'
@@ -4389,7 +4389,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                   : 'فتح شاشة إضافة موظف جديد'
               }
             >
-              <Plus className="w-[14.5px] h-[17.5px] ml-[1px] pr-[-5px] -mr-[9px] -ml-[2px] pl-[-1px] pt-[-7px]" />
+              <Plus className="w-4 h-4" />
             </button>
             {selectedCustomerId && (
               <>
@@ -4407,7 +4407,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                   title="كشف حساب"
                   className="p-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-blue-700 rounded-lg cursor-pointer shrink-0 transition-colors"
                 >
-                  <Search className="w-[16.2437px] h-[19.2437px] pl-[3px] ml-[6px]" />
+                  <Search className="w-4 h-4" />
                 </button>
                 {currentCustomer && !isCashCustomerParty(currentCustomer) && (
                   <button
@@ -4484,14 +4484,14 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                 className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm shrink-0 cursor-pointer transition-colors"
                 title="فتح شاشة إضافة عميل جديد"
               >
-                <Plus className="w-[14.5px] h-[17.5px] ml-[1px] pr-[-5px] -mr-[9px] -ml-[2px] pl-[-1px] pt-[-7px]" />
+                <Plus className="w-4 h-4" />
               </button>
             </div>
           </div>
 
           {/* 4. الرصيد الفعلي المطابق 100% لكشف الحساب */}
           <div 
-            className={`flex items-center gap-2 px-2.5 py-1 rounded-lg shrink-0 shadow-2xs border transition-colors whitespace-nowrap w-auto min-w-[280px] ${
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg shrink-0 shadow-2xs border transition-colors whitespace-nowrap w-auto min-w-0 ${
               activeTargetBalanceInfo.isCredit 
                 ? 'bg-emerald-50 border-emerald-200' 
                 : 'bg-red-50 border-red-200'
@@ -4509,7 +4509,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               {activeTargetBalanceInfo.formattedBalance} ₪
             </span>
             {activeTargetBalanceInfo.hasTarget && activeTargetBalanceInfo.statusText && (
-              <span className={`text-[11px] font-bold px-2 py-0.5 pt-[1.75px] pb-[2.75px] ml-[2px] mr-[52px] rounded shrink-0 whitespace-nowrap text-center ${
+              <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap text-center ${
                 activeTargetBalanceInfo.isCredit 
                   ? 'bg-emerald-100 text-emerald-800' 
                   : 'bg-red-100/90 text-red-700'
@@ -4535,11 +4535,11 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
         {/* Sub-tools Toolbar Row: ملاحظات الفاتورة | خدمة التوصيل | يد الباركود | سطر الباركود | كاميرا الباركود | تجميع الكميات | آخر سعر | الأسعار الخاصة */}
         {posLayoutConfig.showExtraHeaderOptions && (
-          <div className="mt-0.5 pt-0.5 border-t border-slate-300/80 flex flex-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] items-center justify-between gap-2 text-sm w-fit">
-            <div className="flex items-center gap-2 flex-nowrap flex-1 min-w-0 w-[1379.97px]">
+          <div className="mt-0.5 pt-0.5 border-t border-slate-300/80 flex flex-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] items-center justify-between gap-2 text-sm w-full min-w-0">
+            <div className="flex items-center gap-2 flex-nowrap flex-1 min-w-0 w-full">
               {/* خانة ملاحظات الفاتورة ككل (تظهر في كشف حساب العميل) */}
               <div
-                className="flex items-center gap-2 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-xl px-3 py-1.5 transition-all shadow-sm w-[620.987px] max-w-full"
+                className="flex items-center gap-2 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-lg px-2 py-1 transition-all shadow-sm flex-[1_1_420px] min-w-[240px] max-w-full"
                 title="ملاحظة عامة خاصة بالفاتورة ككل وتظهر في كشف حساب العميل"
               >
                 <FileText className="w-4 h-4 text-blue-600 shrink-0" />
@@ -4548,7 +4548,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                   value={invoiceNotes}
                   onChange={e => setInvoiceNotes(e.target.value)}
                   placeholder="ملاحظات الفاتورة (تظهر في كشف الحساب)..."
-                  className="w-[620.987px] max-w-full text-[14px] text-slate-800 placeholder:text-slate-400 focus:outline-hidden bg-transparent font-medium h-7"
+                  className="w-full min-w-0 text-[14px] text-slate-800 placeholder:text-slate-400 focus:outline-hidden bg-transparent font-medium h-7"
                 />
                 {invoiceNotes && (
                   <button
