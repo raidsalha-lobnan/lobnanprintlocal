@@ -4121,14 +4121,14 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
             </div>
           )}
           {/* Main Top Header System Strip (أعلى شاشة الكاشير): الفرع | المستخدم | رقم الفاتورة | التاريخ | حالة الفاتورة */}
-          <div className="bg-white/90 border border-slate-300 rounded-lg p-1 mb-1 shadow-2xs w-full min-w-0 overflow-hidden">
-            <div className="flex flex-nowrap items-center justify-between gap-2 text-sm w-full min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <div className="bg-white/90 border border-slate-300 rounded-lg p-1 mb-1 shadow-2xs w-full min-w-0">
+            <div className="flex flex-nowrap items-center justify-between gap-1 text-xs w-full min-w-0 overflow-x-auto pb-0.5">
               
               {/* 1. رقم الفاتورة (تسلسلي موحد غير مكرر لكل حالات الفاتورة يصدر بعد إتمام الحفظ) */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 shrink-0">
-                <span className="font-bold text-slate-700 text-[14px] shrink-0">رقم الفاتورة:</span>
+              <div className="flex items-center gap-1 bg-slate-50 border border-slate-300 rounded-lg px-1.5 py-0.5 shrink-0 whitespace-nowrap">
+                <span className="font-bold text-slate-700 text-xs shrink-0">رقم الفاتورة:</span>
                 <div
-                  className={`bg-blue-600 text-white font-mono font-black text-[14px] px-2.5 py-0.5 rounded shadow-2xs flex items-center gap-1`}
+                  className={`bg-blue-600 text-white font-mono font-black text-xs px-1.5 py-0.5 rounded shadow-2xs flex items-center gap-1`}
                   title="يتم توليد وإصدار رقم الفاتورة تلقائياً بعد إتمام عملية البيع والحفظ لضمان عدم تكرار الأرقام بين الأجهزة"
                 >
                   <Lock className={`w-3.5 h-3.5 text-blue-200`} />
@@ -4141,11 +4141,11 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               </div>
 
               {/* 4. التاريخ (تلقائياً وقت الجهاز المعتمد مع إمكانية تثبيت التاريخ) */}
-              <div className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 shrink-0 transition-colors ${
+              <div className={`flex items-center gap-1 border rounded-lg px-1.5 py-0.5 shrink-0 whitespace-nowrap transition-colors ${
                 posLayoutConfig.isDateLocked ? 'bg-amber-50/90 border-amber-400 ring-1 ring-amber-300' : 'bg-slate-50 border-slate-300'
               }`}>
                 <Calendar className={`w-4 h-4 shrink-0 ${posLayoutConfig.isDateLocked ? 'text-amber-700' : 'text-emerald-700'}`} />
-                <span className="font-bold text-slate-700 text-[14px] shrink-0">التاريخ:</span>
+                <span className="font-bold text-slate-700 text-xs shrink-0">التاريخ:</span>
                 <DateInput
                   value={invoiceDate}
                   onChange={e => {
@@ -4157,7 +4157,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                       savePosLayoutConfig(updated, currentUser?.id);
                     }
                   }}
-                  className="bg-transparent border-none font-mono text-[14px] font-bold text-slate-800 focus:outline-none cursor-pointer w-[102px]"
+                  className="bg-transparent border-none font-mono text-[14px] font-bold text-slate-800 focus:outline-none cursor-pointer w-[98px]"
                   title={
                     posLayoutConfig.isDateLocked
                       ? 'التاريخ مثبت على هذا اليوم لجميع العمليات الجديدة حتى إلغاء التثبيت'
@@ -4206,15 +4206,15 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               </div>
 
               {/* 5. حالة الفاتورة (قائمة منسدلة معتمدة وموحدة) */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 shrink-0">
-                <span className="font-bold text-slate-700 text-[14px] shrink-0">حالة الفاتورة:</span>
+              <div className="flex items-center gap-1 bg-slate-50 border border-slate-300 rounded-lg px-1.5 py-0.5 shrink-0 whitespace-nowrap">
+                <span className="font-bold text-slate-700 text-xs shrink-0">حالة الفاتورة:</span>
                 <select
                   value={invoiceWorkflowStatus}
                   onChange={e => {
                     setInvoiceWorkflowStatus(e.target.value as PosInvoiceWorkflowStatus);
                     posSound.click();
                   }}
-                  className={`text-[14px] font-black px-2.5 py-0.5 rounded border cursor-pointer focus:outline-none w-[122px] ${
+                  className={`text-xs font-black px-1 py-0.5 rounded border cursor-pointer focus:outline-none w-[110px] ${
                     getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).bgColor
                   } ${getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).color} ${getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).borderColor}`}
                   title={getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).description}
@@ -4233,13 +4233,13 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               </div>
 
               {/* 6. المخزن */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 shrink-0">
+              <div className="flex items-center gap-1 bg-slate-50 border border-slate-300 rounded-lg px-1.5 py-0.5 shrink-0 whitespace-nowrap">
                 <Package className="w-4 h-4 text-amber-700 shrink-0" />
-                <span className="font-bold text-slate-700 text-[14px] shrink-0">المخزن:</span>
+                <span className="font-bold text-slate-700 text-xs shrink-0">المخزن:</span>
                 <select
                   value={warehouse}
                   onChange={e => setWarehouse(e.target.value)}
-                  className="bg-transparent border-none text-[14px] font-bold text-slate-800 focus:outline-none cursor-pointer"
+                  className="bg-transparent border-none text-xs font-bold text-slate-800 focus:outline-none cursor-pointer max-w-[190px]"
                   title="اختر المستودع"
                 >
                   {warehouses && warehouses.length > 0 ? (
@@ -4265,13 +4265,13 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               </div>
 
               {/* 7. سعر البيع */}
-              <div className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 shrink-0 ${
+              <div className={`flex items-center gap-1 border rounded-lg px-1.5 py-0.5 shrink-0 whitespace-nowrap ${
                 userPricePolicy.allowedTier !== 'all' 
                   ? 'bg-amber-50/60 border-amber-300' 
                   : 'bg-slate-50 border-slate-300'
               }`}>
                 <Tag className="w-4 h-4 text-emerald-700 shrink-0" />
-                <span className="font-bold text-slate-700 text-[14px] shrink-0">سعر البيع:</span>
+                <span className="font-bold text-slate-700 text-xs shrink-0">سعر البيع:</span>
                 <select
                   value={pricingTier}
                   disabled={userPricePolicy.allowedTier !== 'all'}
@@ -4280,7 +4280,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                     setPricingTier(newTier);
                     setTableLines(prev => applyCustomerPricingToLines(effectivePricingCustomerObj, prev, newTier));
                   }}
-                  className="bg-transparent border-none text-[14px] font-bold text-emerald-900 focus:outline-none cursor-pointer disabled:opacity-85 disabled:cursor-not-allowed w-[70px]"
+                  className="bg-transparent border-none text-xs font-bold text-emerald-900 focus:outline-none cursor-pointer disabled:opacity-85 disabled:cursor-not-allowed w-[80px]"
                   title={userPricePolicy.allowedTier !== 'all' ? `محدد ومقيد لصلاحية المستخدم (${userPricePolicy.allowedTier})` : 'فئة سعر البيع المعتمدة بالفاتورة'}
                 >
                   {(userPricePolicy.allowedTier === 'all' || userPricePolicy.allowedTier === 'price1') && (
@@ -4302,10 +4302,10 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           </div>
 
         {/* Customer, Sub-Customer, Balance & Order Options - ALL IN ONE SINGLE ROW */}
-        <div className="bg-white/80 px-2 py-1 mb-1 rounded-xl border border-slate-300 flex items-center gap-2 flex-wrap text-sm shadow-sm w-full min-w-0">
+        <div className="bg-white/80 px-2 py-1 mb-1 rounded-xl border border-slate-300 flex flex-nowrap items-center gap-1.5 text-xs shadow-sm w-full min-w-0">
           {/* 1. زر تبديل دائري لاختيار الطرف (عميل - مورد - موظف) */}
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="font-bold text-slate-700 text-[14px] shrink-0">الطرف:</span>
+            <span className="font-bold text-slate-700 text-xs shrink-0">الطرف:</span>
             <button
               type="button"
               onClick={() => {
@@ -4326,7 +4326,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           </div>
 
           {/* 2. خانة إدخال وبحث ومطابقة أحرف وإمكانية الإضافة السريعة */}
-          <div className="flex items-center gap-2 min-w-[280px] max-w-[400px] flex-1">
+          <div className="flex items-center gap-1 min-w-[145px] flex-[1_1_285px]">
             <div className="flex-1 min-w-0 relative group">
               <AutocompleteCombobox
                 items={targetComboboxOptions}
@@ -4426,9 +4426,9 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           </div>
 
           {/* 3. العميل الفرعي */}
-          <div className="flex items-center gap-2 min-w-[240px] max-w-[350px] flex-1">
-            <span className="font-bold text-slate-700 text-[14px] shrink-0">الفرعي:</span>
-            <div className="flex-1 min-w-0 flex items-center gap-2">
+          <div className="flex items-center gap-1 min-w-[145px] flex-[1_1_260px]">
+            <span className="font-bold text-slate-700 text-xs shrink-0">الفرعي:</span>
+            <div className="flex-1 min-w-0 flex items-center gap-1">
               <SubCustomerField
                 compact={false}
                 parentCustomerId={selectedCustomerId}
@@ -4498,18 +4498,18 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
             }`}
             title={`الرصيد الفعلي المطابق لكشف الحساب: ${activeTargetBalanceInfo.balance.toFixed(2)} ₪ ${activeTargetBalanceInfo.statusText}`}
           >
-            <span className={`text-[14px] font-bold shrink-0 whitespace-nowrap ${
+            <span className={`text-xs font-bold shrink-0 whitespace-nowrap ${
               activeTargetBalanceInfo.isCredit ? 'text-emerald-700' : 'text-red-600'
             }`}>
               {activeTargetBalanceInfo.label}
             </span>
-            <span className={`font-mono font-black text-[14px] sm:text-base shrink-0 whitespace-nowrap text-center px-1 ${
+            <span className={`font-mono font-black text-xs sm:text-sm shrink-0 whitespace-nowrap text-center px-1 ${
               activeTargetBalanceInfo.isCredit ? 'text-emerald-700' : 'text-red-600'
             }`}>
               {activeTargetBalanceInfo.formattedBalance} ₪
             </span>
             {activeTargetBalanceInfo.hasTarget && activeTargetBalanceInfo.statusText && (
-              <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap text-center ${
+              <span className={`text-[10px] font-bold px-1 py-0.5 rounded shrink-0 whitespace-nowrap text-center ${
                 activeTargetBalanceInfo.isCredit 
                   ? 'bg-emerald-100 text-emerald-800' 
                   : 'bg-red-100/90 text-red-700'
@@ -4535,11 +4535,11 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
         {/* Sub-tools Toolbar Row: ملاحظات الفاتورة | خدمة التوصيل | يد الباركود | سطر الباركود | كاميرا الباركود | تجميع الكميات | آخر سعر | الأسعار الخاصة */}
         {posLayoutConfig.showExtraHeaderOptions && (
-          <div className="mt-0.5 pt-0.5 border-t border-slate-300/80 flex flex-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] items-center justify-between gap-2 text-sm w-full min-w-0">
-            <div className="flex items-center gap-2 flex-nowrap flex-1 min-w-0 w-full">
+          <div className="mt-0.5 pt-0.5 border-t border-slate-300/80 flex flex-nowrap overflow-x-auto items-center justify-between gap-1 text-xs w-full min-w-0">
+            <div className="flex items-center gap-1.5 flex-nowrap flex-1 min-w-0 w-full">
               {/* خانة ملاحظات الفاتورة ككل (تظهر في كشف حساب العميل) */}
               <div
-                className="flex items-center gap-2 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-lg px-2 py-1 transition-all shadow-sm flex-[1_1_420px] min-w-[240px] max-w-full"
+                className="flex items-center gap-2 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-lg px-1.5 py-1 transition-all shadow-sm flex-[1_1_280px] min-w-[145px] max-w-full"
                 title="ملاحظة عامة خاصة بالفاتورة ككل وتظهر في كشف حساب العميل"
               >
                 <FileText className="w-4 h-4 text-blue-600 shrink-0" />
@@ -4566,7 +4566,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               <button
                 type="button"
                 onClick={handleAddDeliveryServiceLine}
-                className="px-1.5 py-0.5.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[14px] cursor-pointer shadow-xs flex items-center gap-1.5 transition-colors shrink-0"
+                className="px-1.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs cursor-pointer shadow-xs flex items-center gap-1 transition-colors shrink-0 whitespace-nowrap"
                 title="إضافة خدمة توصيل تلقائياً كصنف في الفاتورة لتحديد الملاحظات والسعر"
               >
                 <Truck className="w-4 h-4 text-emerald-100" />
@@ -4627,7 +4627,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               </button>
 
               {/* تجميع الكميات */}
-              <label className="pos-advanced-config flex items-center gap-1.5 cursor-pointer shrink-0 text-[14px] text-slate-700 font-bold bg-white hover:bg-slate-50 px-1.5 py-0.5 rounded-lg border border-slate-300 select-none shadow-2xs transition-colors ml-2">
+              <label className="pos-advanced-config flex items-center gap-1.5 cursor-pointer shrink-0 text-xs text-slate-700 font-bold bg-white hover:bg-slate-50 px-1.5 py-0.5 rounded-lg border border-slate-300 select-none shadow-2xs transition-colors whitespace-nowrap">
                 <input
                   type="checkbox"
                   checked={aggregateDuplicateItems}
@@ -4639,7 +4639,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
               {/* استخدام آخر سعر */}
               <label
-                className={`pos-advanced-config flex items-center gap-1.5 shrink-0 text-[14px] font-bold px-1.5 py-0.5 rounded-lg border select-none shadow-2xs transition-colors ${
+                className={`pos-advanced-config flex items-center gap-1 shrink-0 text-xs font-bold px-1 py-0.5 rounded-lg border select-none shadow-2xs transition-colors ${
                   isCashCustomer
                     ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
                     : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300 cursor-pointer'
@@ -4669,7 +4669,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                 <button
                   type="button"
                   onClick={() => setIsSpecialPricesModalOpen(true)}
-                  className="pos-advanced-config px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg font-bold text-[14px] cursor-pointer shadow-2xs flex items-center gap-1 shrink-0"
+                  className="pos-advanced-config px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg font-bold text-xs cursor-pointer shadow-2xs flex items-center gap-1 shrink-0 whitespace-nowrap"
                   title="تحديد أو تعديل الأسعار الخاصة لهذا العميل"
                 >
                   <DollarSign className="w-4 h-4 text-amber-700" />
