@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { comparePartiesByCode, sortPartiesByCode } from '../../utils/partyUtils';
+import type { Employee } from '../../types';
 
 export interface ComboboxOption {
   id: string;
@@ -112,7 +113,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
   inputRef: externalInputRef,
   id
 }) => {
-  const { addParty, addInventoryItem, addEmployee } = useAccounting();
+  const { addParty, addInventoryItem, employees, unifiedRepository, refreshEmployeeDirectory } = useAccounting();
 
   const [isOpen, setIsOpen] = useState(false);
   const [inputText, setInputText] = useState(value || '');
@@ -123,6 +124,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
   const internalInputRef = useRef<HTMLInputElement | null>(null);
   const activeInputRef = externalInputRef || internalInputRef;
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const employeeQuickAddInFlight = useRef(false);
 
   // Sync internal inputText when value or selectedId changes
   useEffect(() => {
@@ -347,26 +349,38 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
         };
         handleSelect(option);
       } else if (entityType === 'employee') {
-        const created = addEmployee({
-          name: trimmed,
-          jobTitle: 'موظف',
-          department: 'عام',
-          salaryType: 'monthly',
-          salaryAmount: 0,
-          status: 'active',
-          hireDate: new Date().toISOString().split('T')[0]
-        });
-        const option: ComboboxOption = {
-          id: created.id,
-          name: created.name,
-          code: created.id,
-          subText: 'موظف جديد',
-          raw: created
-        };
-        handleSelect(option);
+        if(employeeQuickAddInFlight.current)return;
+        if(!unifiedRepository)throw new Error('قاعدة الموظفين المحلية لم تجهز؛ تعذر الحفظ.');
+        employeeQuickAddInFlight.current=true;
+        try{
+          const lastCode=employees.reduce((highest,e)=>{
+            const m=/^EMP-(\d+)$/i.exec(String(e.code||'').trim());
+            return m?Math.max(highest,Number(m[1])):highest;
+          },0);
+          const id='emp-'+crypto.randomUUID();
+          const created:Employee={
+            id,code:'EMP-'+String(lastCode+1).padStart(3,'0'),
+            name:trimmed,jobTitle:'موظف',department:'sales_pos',
+            phone:'',salaryType:'monthly',salaryAmount:0,
+            status:'active',hireDate:new Date().toISOString().split('T')[0],
+            paymentMethod:'cash',paymentHistory:[]
+          };
+          await unifiedRepository.put('employees',id,
+            created as unknown as import('../../sync-next/types').JsonObject);
+          try{await refreshEmployeeDirectory();}catch(error){
+            console.warn('Employee dropdown will refresh from durable repository',error);
+          }
+          handleSelect({id,name:created.name,code:created.code,subText:'موظف محفوظ على الجهاز بانتظار الاعتماد المركزي',raw:created});
+        }finally{
+          employeeQuickAddInFlight.current=false;
+        }
       }
     } catch (err) {
       console.error('Error during quick add in combobox:', err);
+      if(entityType==='employee'){
+        window.alert('تعذر حفظ الموظف في قاعدة الجهاز، ولم يُنشأ سجل معتمد. '+String(err));
+        return;
+      }
     }
     setIsOpen(false);
   };
