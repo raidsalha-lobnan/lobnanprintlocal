@@ -1703,11 +1703,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const refreshEmployeeDirectory = React.useCallback(async (options?: {allowVerifiedEmpty?: boolean}) => {
     if (!unifiedRepository) throw new Error('قاعدة الجهاز لم تجهز بعد');
     const employeeRead = ++employeeReadSequence.current;
-    const { employees: records } = await unifiedRepository.getLocalDb().listVisibleGrouped(['employees']);
-    const directory = records.map(row => row.value as unknown as Employee);
-    // A verified-empty PostgreSQL roster may be applied explicitly from the
-    // operator's comparison. Other unexpected local losses need a central
-    // identity check before the UI or compatibility cache is overwritten.
+    const localDb=unifiedRepository.getLocalDb();
+    const firstRead=await localDb.listVisibleGrouped(['employees']);
+    let directory=firstRead.employees.map(row => row.value as unknown as Employee);
+    if(!options?.allowVerifiedEmpty){
+      // The authenticated PostgreSQL roster is persisted as IDs only on
+      // initialization and every manual staff comparison. If a tab closed
+      // after a seven-employee projection was cached, the missing eighth
+      // employee can still be detected on the NEXT launch.
+      const verifiedIds=await localDb.verifiedEmployeeIds();
+      const localIds=new Set(directory.map(employee=>employee.id));
+      if(verifiedIds?.some(id=>!localIds.has(id))){
+        try{
+          await unifiedRepository.checkEmployeeDirectory();
+          const confirmed=await localDb.listVisibleGrouped(['employees']);
+          directory=confirmed.employees.map(row=>row.value as unknown as Employee);
+        }catch(error){
+          // Do not silently destroy prior visible rows or clear any outbox.
+          console.warn('EMPLOYEE_RELOAD_ROSTER_REPAIR_DEFERRED',error);
+        }
+      }
+    }
+    // An explicit operator-verified empty roster is permitted. All other
+    // unexpected losses are checked by identity against PostgreSQL.
     const selected = options?.allowVerifiedEmpty ? directory :
       (await reconcileUnexpectedEmployeeLoss<Employee>(
         unifiedRepository,renderedEmployeeSnapshotRef.current,directory)).employees;
