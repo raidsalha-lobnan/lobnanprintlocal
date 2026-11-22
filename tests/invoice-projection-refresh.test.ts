@@ -12,8 +12,8 @@ function fixture(records:any[],localSequence=12,remoteSequence=12){
  const repairs:unknown[][]=[];
  const local={
   cursor:async()=>cursor(localSequence),
-  refreshAuthoritativeSnapshot:async(rows:unknown[],serverCursor:unknown)=>{
-   repairs.push([rows,serverCursor]);
+  refreshAuthoritativeSnapshot:async(rows:unknown[],serverCursor:unknown,entities?:unknown)=>{
+   repairs.push([rows,serverCursor,entities]);
    return rows.length;
   }
  };
@@ -30,6 +30,7 @@ test('temporarily missing invoices repair the local cache from PostgreSQL withou
  assert.equal(await f.repo.verifyUnexpectedEmptyInvoiceProjection(),'recovered');
  assert.equal(f.repairs.length,1);
  assert.equal((f.repairs[0][0] as any[])[0].id,'invoice-91');
+ assert.deepEqual(f.repairs[0][2],['invoices'],'invoice repair must never reconcile employee records');
 });
 
 test('an explicitly verified empty PostgreSQL invoice collection can clear the display',async()=>{
