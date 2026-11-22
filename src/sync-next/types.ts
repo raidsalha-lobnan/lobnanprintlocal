@@ -43,6 +43,12 @@ export interface SyncCommand {
   status: 'pending' | 'conflict' | 'rejected';
   error?: string;
 }
+/** PostgreSQL-authorized identity/version metadata, never a record payload. */
+export interface RecordVersion {
+  entity: EntityName;
+  id: string;
+  version: number;
+}
 export interface StoredRecord {
   key: string;
   entity: EntityName;
