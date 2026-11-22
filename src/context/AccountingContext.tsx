@@ -1258,6 +1258,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // callback, which otherwise captures only the initial React state.
   const employeeReadSequence = React.useRef(0);
   const appliedEmployeeRead = React.useRef(0);
+  const canonicalProjectionReadyRef = React.useRef(false);
+  const lastLegacyMirrorRef = React.useRef<Map<string,unknown>>(new Map());
   const renderedInvoiceCountRef = React.useRef<number>(0);
   // Prevent two click/keyboard submissions from creating two financial sales.
   const posSubmissionInFlightRef = React.useRef(false);
@@ -1399,6 +1401,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 return next;
               });
             }
+            canonicalProjectionReadyRef.current=true;
           } catch (e) {
             console.warn('Repository sync to React state notice:', e);
           }
@@ -1474,6 +1477,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     return () => {
       unmounted = true;
+      canonicalProjectionReadyRef.current=false;
       window.removeEventListener('online', wakeUpInitialization);
       if (retryTimer) clearTimeout(retryTimer);
       if (unsubscribeRepo) unsubscribeRepo();
@@ -2594,59 +2598,57 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [selectedReturnForPrint, setSelectedReturnForPrint] = useState<PurchaseReturn | null>(null);
   const [selectedSalesReturnForPrint, setSelectedSalesReturnForPrint] = useState<SalesReturn | null>(null);
 
-  // Instant LocalStorage Persistence + Debounced Cloud Auto-Sync
+  // Legacy UI compatibility mirror. IndexedDB is the durable accounting store.
+  // Wait for canonical hydration before writing, then serialize only changed slices.
   useEffect(() => {
-    try {
-      localStorage.setItem(`${STORAGE_KEY}_settings`, JSON.stringify(settings));
-      localStorage.setItem(`${STORAGE_KEY}_accounts`, JSON.stringify(accounts));
-      localStorage.setItem(`${STORAGE_KEY}_treasuries`, JSON.stringify(treasuries));
-      localStorage.setItem(`${STORAGE_KEY}_journals`, JSON.stringify(journalEntries));
-      localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(inventory));
-      localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(parties));
-      localStorage.setItem(`${STORAGE_KEY}_employees`, JSON.stringify(employees));
-      localStorage.setItem(`${STORAGE_KEY}_printOrders`, JSON.stringify(printOrders));
-      localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(invoices));
-      localStorage.setItem(`${STORAGE_KEY}_purchases`, JSON.stringify(purchases));
-      localStorage.setItem(`${STORAGE_KEY}_purchaseReturns`, JSON.stringify(purchaseReturns));
-      localStorage.setItem(`${STORAGE_KEY}_salesReturns`, JSON.stringify(salesReturns));
-      localStorage.setItem(`${STORAGE_KEY}_vouchers`, JSON.stringify(vouchers));
-      localStorage.setItem(`${STORAGE_KEY}_advances`, JSON.stringify(employeeAdvances));
-      localStorage.setItem(`${STORAGE_KEY}_deductions`, JSON.stringify(employeeDeductions));
-      localStorage.setItem(`${STORAGE_KEY}_incentives`, JSON.stringify(employeeIncentives));
-      localStorage.setItem(`${STORAGE_KEY}_payrollSheets`, JSON.stringify(payrollSheets));
-      localStorage.setItem(`${STORAGE_KEY}_stockMovements`, JSON.stringify(stockMovements));
-      localStorage.setItem(`${STORAGE_KEY}_companies`, JSON.stringify(companies));
-      localStorage.setItem(`${STORAGE_KEY}_branches`, JSON.stringify(branches));
-      localStorage.setItem(`${STORAGE_KEY}_warehouses`, JSON.stringify(warehouses));
-      localStorage.setItem(`${STORAGE_KEY}_warehouse_operations`, JSON.stringify(warehouseOperations));
-      localStorage.setItem(`${STORAGE_KEY}_debt_clearings`, JSON.stringify(debtClearings));
-      localStorage.setItem(`${STORAGE_KEY}_active_warehouse_id`, activeWarehouseId);
-      localStorage.setItem(`${STORAGE_KEY}_roles`, JSON.stringify(roles));
-      localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(users));
-      localStorage.setItem(`${STORAGE_KEY}_active_company_id`, activeCompanyId);
-      localStorage.setItem(`${STORAGE_KEY}_active_branch_id`, activeBranchId);
-      localStorage.setItem(`${STORAGE_KEY}_current_user_id`, currentUserId);
-
-      const nowTime = new Date().toLocaleTimeString('en-US');
-      localStorage.setItem(`${STORAGE_KEY}_last_local_save`, nowTime);
-
-      if (!isInitialMount.current && isCloudHydratedRef.current) {
-        localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
-
-        // Debounced automatic background sync to main database when online
-        if (debouncedSyncRef.current) {
-          clearTimeout(debouncedSyncRef.current);
-        }
-        debouncedSyncRef.current = setTimeout(() => {
-          if (navigator.onLine && syncToServerRef.current) {
-            syncToServerRef.current();
-          }
-        }, 2500);
+    if (!canonicalProjectionReadyRef.current || !unifiedRepoRef.current) return;
+    let changed=false;
+    const mirror=(suffix:string,value:unknown,json=true)=>{
+      const key=`${STORAGE_KEY}_${suffix}`;
+      if(lastLegacyMirrorRef.current.get(key)===value)return;
+      try{
+        const next=json?JSON.stringify(value):String(value??'');
+        if(localStorage.getItem(key)!==next)localStorage.setItem(key,next);
+        lastLegacyMirrorRef.current.set(key,value);
+        changed=true;
+      }catch(error){
+        console.warn('Legacy compatibility mirror deferred for '+suffix,error);
       }
-    } catch (err) {
-      console.warn('LocalStorage immediate save notice:', err);
+    };
+    mirror('settings',settings);
+    mirror('accounts',accounts);
+    mirror('treasuries',treasuries);
+    mirror('journals',journalEntries);
+    mirror('inventory',inventory);
+    mirror('parties',parties);
+    mirror('employees',employees);
+    mirror('printOrders',printOrders);
+    mirror('invoices',invoices);
+    mirror('purchases',purchases);
+    mirror('purchaseReturns',purchaseReturns);
+    mirror('salesReturns',salesReturns);
+    mirror('vouchers',vouchers);
+    mirror('advances',employeeAdvances);
+    mirror('deductions',employeeDeductions);
+    mirror('incentives',employeeIncentives);
+    mirror('payrollSheets',payrollSheets);
+    mirror('stockMovements',stockMovements);
+    mirror('companies',companies);
+    mirror('branches',branches);
+    mirror('warehouses',warehouses);
+    mirror('warehouse_operations',warehouseOperations);
+    mirror('debt_clearings',debtClearings);
+    mirror('active_warehouse_id',activeWarehouseId,false);
+    mirror('roles',roles);
+    mirror('users',users);
+    mirror('active_company_id',activeCompanyId,false);
+    mirror('active_branch_id',activeBranchId,false);
+    mirror('current_user_id',currentUserId,false);
+    if(changed){
+      try{localStorage.setItem(`${STORAGE_KEY}_last_local_save`,new Date().toLocaleTimeString('en-US'));}catch{}
     }
-  }, [settings, accounts, treasuries, journalEntries, inventory, parties, employees, printOrders, invoices, purchases, purchaseReturns, salesReturns, vouchers, employeeAdvances, employeeDeductions, employeeIncentives, payrollSheets, stockMovements, companies, branches, warehouses, warehouseOperations, activeWarehouseId, roles, users, activeCompanyId, activeBranchId, currentUserId]);
+    // Only SyncCoordinator may decide whether to sync the offline outbox.
+  }, [settings, accounts, treasuries, journalEntries, inventory, parties, employees, printOrders, invoices, purchases, purchaseReturns, salesReturns, vouchers, employeeAdvances, employeeDeductions, employeeIncentives, payrollSheets, stockMovements, companies, branches, warehouses, warehouseOperations, debtClearings, activeWarehouseId, roles, users, activeCompanyId, activeBranchId, currentUserId, unifiedRepository]);
 
   // Continuous reactive reconciliation of treasuries against active invoices, vouchers, purchases, and expenses
   useEffect(() => {
