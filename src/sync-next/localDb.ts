@@ -17,6 +17,11 @@ const META = 'meta';
 const RECEIPTS = 'receipts';
 const CURSOR_KEY = 'serverCursor';
 
+/** Identifies one record whose local visible projection may have changed.
+ * IDs only: never broadcast financial values or credentials between tabs.
+ */
+export type SyncRecordRef = Readonly<{entity:EntityName;id:string}>;
+
 function request<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     r.onsuccess = () => resolve(r.result);
@@ -38,7 +43,7 @@ export class LocalSyncDb {
   private dbPromise: Promise<IDBDatabase>;
   private disposed = false;
   private readonly databaseName: string;
-  private listeners = new Set<(recordsChanged: boolean) => void>();
+  private listeners = new Set<(recordsChanged: boolean, keys?: readonly SyncRecordRef[]) => void>();
   private channel: BroadcastChannel | null = null;
 
   constructor(private workspaceId: string, namespace = 'lobnan-offline-v1') {
@@ -54,7 +59,13 @@ export class LocalSyncDb {
       this.channel.onmessage = event => {
         // Outbox retry metadata is not a change to any accounting record.
         const recordsChanged = event.data?.recordsChanged !== false;
-        for (const fn of this.listeners) fn(recordsChanged);
+        const keys = Array.isArray(event.data?.keys) &&
+          event.data.keys.every((r:unknown) =>
+            !!r && typeof r === 'object' &&
+            typeof (r as SyncRecordRef).entity === 'string' &&
+            typeof (r as SyncRecordRef).id === 'string')
+          ? event.data.keys as SyncRecordRef[] : undefined;
+        for (const fn of this.listeners) fn(recordsChanged, keys);
       };
     }
   }
@@ -132,12 +143,19 @@ export class LocalSyncDb {
     }
   }
 
-  private changed(recordsChanged = true) {
-    for (const fn of this.listeners) fn(recordsChanged);
-    this.channel?.postMessage({ recordsChanged });
+  private changed(recordsChanged = true, keys?: readonly SyncRecordRef[]) {
+    for (const fn of this.listeners) fn(recordsChanged, keys);
+    this.channel?.postMessage({ recordsChanged, ...(keys?.length ? {
+      keys:keys.map(({entity,id})=>({entity,id}))
+    } : {}) });
   }
 
-  subscribe(fn: (recordsChanged: boolean) => void): () => void {
+  /** Announce a fully committed batch; safe to use only after IDB transactions complete. */
+  notifyAppliedChanges(keys: readonly SyncRecordRef[]): void {
+    if(keys.length) this.changed(true,keys);
+  }
+
+  subscribe(fn: (recordsChanged: boolean, keys?: readonly SyncRecordRef[]) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
@@ -298,7 +316,7 @@ export class LocalSyncDb {
       tx.objectStore(OUTBOX).add(cmd);
 
       await done;
-      this.changed();
+      this.changed(true,safeChanges);
       return cmd;
     } catch (error) {
       try { tx.abort(); } catch {}
@@ -499,7 +517,7 @@ export class LocalSyncDb {
     return row?.value ?? null;
   }
 
-  async applyEvent(event: ServerEvent): Promise<void> {
+  async applyEvent(event: ServerEvent, notify = true): Promise<void> {
     const db = await this.getDb();
 
     const tx = db.transaction(
@@ -564,7 +582,7 @@ export class LocalSyncDb {
       }
 
       await done;
-      this.changed();
+      if(notify) this.changed(true,event.changes);
     } catch (e) {
       try { tx.abort(); } catch {}
       await done.catch(() => {});
@@ -631,7 +649,7 @@ export class LocalSyncDb {
       }
 
       await done;
-      this.changed();
+      this.changed(true,changes);
     } catch (e) {
       try { tx.abort(); } catch {}
       await done.catch(() => {});
@@ -855,7 +873,8 @@ export class LocalSyncDb {
     // Repeated retry attempts must not re-render every invoice and button.
     // A status transition (pending -> conflict/rejected) still refreshes
     // the visible records and the conflict review UI.
-    if (cmd) this.changed(status !== previousStatus);
+    if (cmd) this.changed(status !== previousStatus,
+      status !== previousStatus ? cmd.changes : undefined);
   }
 
   async listVisible(
@@ -974,6 +993,57 @@ export class LocalSyncDb {
       result[entity] = [...(indexed.get(entity)?.values() ?? [])].filter(row => row.value !== null);
     }
     return result;
+  }
+
+  /** Resolve only the changed IDs against a consistent local transaction.
+   * Reads neither unrelated invoices nor all records, and preserves the same
+   * pending-overlay/version rules used by listVisibleGrouped.
+   */
+  async listVisibleByKeys(keys: readonly SyncRecordRef[]): Promise<Record<string, LocalView | null>> {
+    const unique = [...new Map(keys.map(k=>[recordKey(k.entity,k.id),k])).entries()];
+    if(!unique.length) return {};
+    const db=await this.getDb();
+    const tx=db.transaction([RECORDS,OUTBOX],'readonly');
+    const done=completed(tx);
+    const [stored, outbox]=await Promise.all([
+      Promise.all(unique.map(async ([key])=>request(tx.objectStore(RECORDS).get(key)) as Promise<StoredRecord|undefined>)),
+      request(tx.objectStore(OUTBOX).getAll()) as Promise<SyncCommand[]>
+    ]);
+    await done;
+    const visible=new Map<string,LocalView|null>();
+    for(let i=0;i<unique.length;i++){
+      const [key]=unique[i];
+      const rec=stored[i];
+      visible.set(key,rec?.value===null||!rec ? null :
+        {id:rec.id,value:rec.value,version:rec.version,pending:false});
+    }
+    const requested=new Set(unique.map(([key])=>key));
+    const ordered=outbox.sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));
+    for(const cmd of ordered){
+      if(cmd.invoiceRevision||cmd.status!=='pending')continue;
+      for(const change of cmd.changes){
+        const key=recordKey(change.entity,change.id);
+        if(!requested.has(key))continue;
+        const baseline=visible.get(key);
+        // A null tombstone is not a committed version, so look up the original
+        // server version from the already-fetched record rather than inventing one.
+        const position=unique.findIndex(([candidate])=>candidate===key);
+        const committed=position>=0?stored[position]:undefined;
+        const serverVersion=committed?.version;
+        const settingsPatch=change.entity==='settings'&&change.value?._settingsPatchV1===true;
+        if(!settingsPatch && serverVersion!==undefined && change.expectedVersion<serverVersion)continue;
+        if(!settingsPatch && serverVersion===undefined && change.expectedVersion!==0)continue;
+        const value=settingsPatch
+          ? composeLocalSettingsDraft(baseline?.value,change.value as unknown as SettingsFieldPatch)
+          : change.value;
+        visible.set(key,value===null?null:{
+          id:change.id,value,
+          version:settingsPatch?(serverVersion??change.expectedVersion):change.expectedVersion,
+          pending:true
+        });
+      }
+    }
+    return Object.fromEntries(visible);
   }
 
   /** Whether IndexedDB has already been initialized (including an empty cloud).
