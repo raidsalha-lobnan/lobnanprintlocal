@@ -156,7 +156,8 @@ export const SyncAuditStatementView: React.FC = () => {
     stockMovements,
     warehouseOperations,
     dailyEntrySheets,
-    unifiedRepository
+    unifiedRepository,
+    syncCoordinatorState
   } = useAccounting();
 
   const [activeFilterTab, setActiveFilterTab] = useState<'all' | 'pushed' | 'pulled' | 'issues'>('all');
@@ -501,8 +502,17 @@ export const SyncAuditStatementView: React.FC = () => {
           <span className="inline-flex items-center gap-1 whitespace-nowrap" title="وقت آخر مزامنة مسجلة">
             <span className="text-slate-500">آخر مزامنة:</span><strong className="text-slate-800">{lastSyncTime || 'لم تُسجل'}</strong>
           </span>
-          <span className="inline-flex items-center gap-1 whitespace-nowrap" title="مطابقة المحتوى تتطلب تشغيل الفحص الشامل يدويًا">
-            <span className="text-slate-500">المطابقة:</span><strong className="text-slate-800">{auditedCloudRecords ? 'فُحصت عند الطلب' : 'لم تُفحص'}</strong>
+          <span className="inline-flex items-center gap-1 whitespace-nowrap"
+            title="فحص تلقائي لمعرّفات وإصدارات سجلات PostgreSQL؛ عند وجود نقص تُستعاد السجلات المتأثرة فقط دون تنزيل القاعدة كاملة">
+            <span className="text-slate-500">المطابقة الذكية:</span>
+            <strong className="text-slate-800">{syncCoordinatorState.lastRecordAuditAt
+              ? new Date(syncCoordinatorState.lastRecordAuditAt).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'})
+              : 'بانتظار أول فحص'}</strong>
+            {syncCoordinatorState.lastRecordAuditAt&&(
+              <strong className={syncCoordinatorState.lastRecordRepairCount?'text-amber-700':'text-emerald-700'}>
+                (استُعيد {syncCoordinatorState.lastRecordRepairCount||0})
+              </strong>
+            )}
           </span>
           <span className="inline-flex items-center gap-1 whitespace-nowrap" title="عدد حركات الإرسال الناجحة في سجل هذا المتصفح">
             <span className="text-slate-500">إرسال:</span><strong className="text-emerald-700">{auditLogs.filter(l => l.direction === 'push' && l.status === 'success').length}</strong>
