@@ -347,7 +347,7 @@ export class LocalSyncDb {
           changes: [{...change, expectedVersion: reviewedVersion}]});
       }
       await done;
-      this.changed();
+      this.changed(true,cmd.changes);
     } catch (error) {
       try { tx.abort(); } catch {}
       await done.catch(() => {});
@@ -401,7 +401,7 @@ export class LocalSyncDb {
       });
       for(const cmd of current.quarantined)outbox.delete(cmd.id);
       await done;
-      this.changed();
+      this.changed(true,current.quarantined.flatMap(cmd=>cmd.changes));
       return {archiveId,archivedAt,counts:current.counts};
     }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
   }
@@ -686,7 +686,7 @@ export class LocalSyncDb {
       await done.catch(() => {});
       throw error;
     }
-    if (added) this.changed();
+    if (added) this.changed(true,rows);
     return added;
   }
 
@@ -713,7 +713,7 @@ export class LocalSyncDb {
         }
       }
       await done;
-      if(updated)this.changed();
+      if(updated)this.changed(true,valid);
     }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
   }
 
@@ -755,7 +755,7 @@ export class LocalSyncDb {
         count++;
       }
       await done;
-      if(count)this.changed();
+      if(count)this.changed(true,proofs.flatMap(proof=>proof.changes||[]));
       return count;
     }catch(error){
       try{tx.abort()}catch{}
@@ -797,7 +797,7 @@ export class LocalSyncDb {
         resolvedAt:new Date().toISOString()});
       outbox.delete(commandId);
       await done;
-      this.changed();
+      this.changed(true,authoritative);
       return true;
     }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
   }
@@ -838,7 +838,7 @@ export class LocalSyncDb {
       outbox.delete(commandId);
       outbox.add(next);
       await done;
-      this.changed();
+      this.changed(true,[authoritative]);
       return true;
     }catch(error){try{tx.abort()}catch{}await done.catch(()=>{});throw error;}
   }
@@ -1265,7 +1265,7 @@ export class LocalSyncDb {
         }
       }
       await done;
-      if(changed)this.changed();
+      if(changed)this.changed(true,[...all,...incoming]);
       return changed;
     }catch(error){
       try{tx.abort()}catch{}
@@ -1376,7 +1376,7 @@ export class LocalSyncDb {
     const done = completed(tx);
     tx.objectStore(OUTBOX).delete(commandId);
     await done;
-    this.changed();
+    this.changed(true,command.changes);
   }
 
   async autoResolveInvoiceConflict(_commandId: string): Promise<string> {
