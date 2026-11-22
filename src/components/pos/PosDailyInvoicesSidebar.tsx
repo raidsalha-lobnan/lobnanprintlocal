@@ -112,6 +112,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
   const [activeFilterTab, setActiveFilterTab] = useState<DailyInvoiceFilterTab>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [invoicePage, setInvoicePage] = useState(1);
 
   // Additional Collection Modal State
   const [collectingInvoice, setCollectingInvoice] = useState<Invoice | null>(null);
@@ -329,7 +330,19 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
           return true;
       }
     });
-  }, [rangeInvoices, activeFilterTab, searchQuery, currentCustomerId, currentCustomerName]);
+  }, [rangeInvoices, activeFilterTab, searchQuery, currentCustomerId, currentCustomerName,parties]);
+
+  // Render bounded pages only. All filters, counters and totals remain based
+  // on the complete filtered result; no invoice is excluded from searching.
+  const pageSize=75;
+  useEffect(()=>setInvoicePage(1),[
+    startDate,endDate,activeFilterTab,searchQuery,currentCustomerId,currentCustomerName
+  ]);
+  const totalPages=Math.max(1,Math.ceil(filteredInvoices.length/pageSize));
+  const currentPage=Math.min(invoicePage,totalPages);
+  const visibleFilteredInvoices=useMemo(()=>filteredInvoices.slice(
+    (currentPage-1)*pageSize,currentPage*pageSize
+  ),[filteredInvoices,currentPage]);
 
   // Handle Changing Workflow Status
   const handleChangeStatus = (inv: Invoice, newStatus: PosInvoiceWorkflowStatus) => {
@@ -566,6 +579,23 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
         </div>
       </div>
 
+      {/* Page only the displayed rows; totals and customer search remain global. */}
+      {filteredInvoices.length > pageSize && (
+        <div className="flex items-center justify-between gap-1 px-2 py-1 bg-slate-100 border-b border-slate-200 text-[11px] shrink-0" dir="rtl">
+          <span className="text-slate-600 tabular-nums">
+            {(currentPage-1)*pageSize+1}–{Math.min(currentPage*pageSize,filteredInvoices.length)} من {filteredInvoices.length}
+          </span>
+          <div className="flex gap-1 items-center">
+            <button type="button" disabled={currentPage<=1}
+              onClick={()=>setInvoicePage(p=>Math.max(1,p-1))}
+              className="border border-slate-300 bg-white rounded px-2 py-0.5 font-bold disabled:opacity-40">السابق</button>
+            <span className="tabular-nums text-slate-700">{currentPage}/{totalPages}</span>
+            <button type="button" disabled={currentPage>=totalPages}
+              onClick={()=>setInvoicePage(p=>Math.min(totalPages,p+1))}
+              className="border border-slate-300 bg-white rounded px-2 py-0.5 font-bold disabled:opacity-40">التالي</button>
+          </div>
+        </div>
+      )}
       {/* Content Area */}
       <div className="flex-1 overflow-auto bg-slate-50 flex flex-col min-h-0">
         {filteredInvoices.length === 0 ? (
@@ -595,7 +625,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {filteredInvoices.map((inv, idx) => {
+                  {visibleFilteredInvoices.map((inv, idx) => {
                     const pMeta = getInvoicePaymentStatusMeta(
                       inv.paymentStatus ||
                         computeInvoicePaymentStatus({
@@ -807,7 +837,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
         ) : (
           /* Cards View fallback */
           <div className="flex flex-col gap-2 p-2 pb-10">
-            {filteredInvoices.map((inv, idx) => {
+            {visibleFilteredInvoices.map((inv, idx) => {
               const pMeta = getInvoicePaymentStatusMeta(
                 inv.paymentStatus ||
                   computeInvoicePaymentStatus({
