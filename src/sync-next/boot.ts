@@ -48,6 +48,14 @@ export async function createUnifiedDataLayer(workspaceId:string){
   let stopped=false;
   try {
     const status=await local.bootstrapStatus();
+    // Read-only startup evidence: this lets an operator distinguish a lost
+    // browser database from ordinary IndexedDB rehydration after an F5 refresh.
+    try {
+      sessionStorage.setItem('lobnan_accounting_boot_source_v1',JSON.stringify({
+        source:status==='empty'?'postgres-initial':status==='initialized'?'indexeddb-cache':'indexeddb-review',
+        at:new Date().toISOString()
+      }));
+    } catch { /* Browsers may disable session storage. */ }
     if(status==='empty') {
       // Never upload historical device localStorage or retired cloud cache automatically.
       const snapshot=await remote.fetchAuthoritativeBootstrap();
