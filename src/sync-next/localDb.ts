@@ -545,6 +545,17 @@ export class LocalSyncDb {
             version: c.version,
             value: c.value
           });
+          if(c.entity==='employees'){
+            // Preserve metadata explaining a later seven-vs-eight mismatch.
+            // Do not store employee names or payroll details in audit receipts.
+            tx.objectStore(RECEIPTS).put({
+              id:'employee-server-event-'+String(event.cursor.sequence)+'-'+c.id,
+              resolution:'AUTHORITATIVE_POSTGRES_EMPLOYEE_EVENT',
+              employeeId:c.id,version:c.version,
+              operation:c.value===null?'deleted':'upserted',
+              commandId:event.commandId,at:new Date().toISOString()
+            });
+          }
         }
       }
 
@@ -679,7 +690,7 @@ export class LocalSyncDb {
       row.value?.id !== row.id || !row.id || !Number.isSafeInteger(row.version) || row.version < 1
     )) throw new Error('INVALID_EMPLOYEE_SNAPSHOT');
     const db = await this.getDb();
-    const tx = db.transaction([RECORDS, OUTBOX, META], 'readwrite');
+    const tx = db.transaction([RECORDS, OUTBOX, META, RECEIPTS], 'readwrite');
     const done = completed(tx);
     let added = 0;
     let updated = 0;
@@ -717,6 +728,12 @@ export class LocalSyncDb {
         value:{actorId:getCurrentSessionActorId()||'',
           ids:rows.map(row=>row.id),sequence,checkedAt:new Date().toISOString()}
       });
+      if(restored.length)tx.objectStore(RECEIPTS).put({
+        id:'employee-postgres-repair-'+crypto.randomUUID(),
+        resolution:'AUTHORITATIVE_POSTGRES_EMPLOYEE_REPAIR',
+        employeeIds:restored.map(row=>row.id),sequence,
+        at:new Date().toISOString()
+      });
       await done;
     } catch (error) {
       try { tx.abort(); } catch {}
@@ -725,6 +742,42 @@ export class LocalSyncDb {
     }
     if (restored.length) this.changed(true,restored);
     return {added,updated};
+  }
+
+  /** Read-only provenance for a missing employee: actual server events,
+   * earlier broad-snapshot removals, and verified manual repairs.
+   * Never modifies records or the financial outbox.
+   */
+  async employeeProjectionHistory():Promise<Array<{
+    id:string;origin:string;operation:string;at:string;version?:number
+  }>>{
+    const db=await this.getDb();
+    const tx=db.transaction(RECEIPTS,'readonly');
+    const done=completed(tx);
+    const receipts=await request(tx.objectStore(RECEIPTS).getAll()) as any[];
+    await done;
+    const history:Array<{
+      id:string;origin:string;operation:string;at:string;version?:number
+    }>=[];
+    for(const item of receipts){
+      if(item.resolution==='AUTHORITATIVE_POSTGRES_EMPLOYEE_EVENT'&&
+         typeof item.employeeId==='string'){
+        history.push({id:item.employeeId,origin:'server-event',
+          operation:item.operation,at:item.at||'',
+          version:Number(item.version)});
+      }else if(item.resolution==='AUTHORITATIVE_POSTGRES_EMPLOYEE_REPAIR'){
+        for(const id of item.employeeIds||[])
+          if(typeof id==='string')history.push({id,origin:'verified-repair',
+            operation:'restored',at:item.at||''});
+      }else if(item.resolution==='AUTHORITATIVE_POSTGRES_DELETION'){
+        for(const previous of item.removedRecords||[])
+          if(previous?.entity==='employees'&&typeof previous.id==='string')
+            history.push({id:previous.id,origin:'old-snapshot-pruning',
+              operation:'removed-from-local-cache',at:item.restoredAt||'',
+              version:previous.previous?.version});
+      }
+    }
+    return history.sort((a,b)=>b.at.localeCompare(a.at)).slice(0,40);
   }
 
   /** Install the authenticated PostgreSQL workspace settings snapshot without
