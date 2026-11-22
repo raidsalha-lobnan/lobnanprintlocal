@@ -271,7 +271,14 @@ export class LocalHttpSyncTransport implements SyncTransport {
     const probe=async()=>{
       if(busy||this.stopped)return;
       busy=true;
-      try {const head=await this.head();if(head!==lastSeen){lastSeen=head;onChanged();}}
+      try {
+        const head=await this.head();
+        // Coordinator.start() already performs the first incremental catch-up.
+        // Sampling the initial head is not a new remote change; do not schedule
+        // a second overlapping catch-up when the browser is first opened.
+        if(lastSeen<0){lastSeen=head;return;}
+        if(head!==lastSeen){lastSeen=head;onChanged();}
+      }
       catch(err){onError(err);}
       finally{busy=false;}
     };
