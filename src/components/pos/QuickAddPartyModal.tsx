@@ -198,7 +198,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
       } else if (targetType === 'employee') {
         if(!unifiedRepository)throw new Error('قاعدة الموظفين المحلية غير جاهزة؛ لم يُحفظ الموظف.');
         const nextNumber=employees.reduce((highest,e)=>{
-          const match=/^EMP-(\\d+)$/i.exec(String(e.code||'').trim());
+          const match=/^EMP-(\d+)$/i.exec(String(e.code||'').trim());
           return match?Math.max(highest,Number(match[1])):highest;
         },0)+1;
         const createdId='emp-'+crypto.randomUUID();
