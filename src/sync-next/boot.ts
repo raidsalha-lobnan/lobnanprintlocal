@@ -47,7 +47,19 @@ export async function createUnifiedDataLayer(workspaceId:string){
   });
   let stopped=false;
   try {
-    const status=await local.bootstrapStatus();
+    let status=await local.bootstrapStatus();
+    // A historic browser can retain thousands of SQL-proven records, a
+    // replay cursor and two authenticated same-user identity proofs while
+    // missing ONLY the authoritativeBootstrap metadata marker. Recover that
+    // marker atomically; never reset IndexedDB, replace records, or drain
+    // the outbox to fix startup.
+    if(status==='existing-data' && secureLoginEnabled()){
+      const actor=getCurrentSessionActorId();
+      if(actor && await local.repairVerifiedBootstrapMetadata(actor)){
+        status='initialized';
+        console.info('Verified offline cache metadata restored without changing records or outbox');
+      }
+    }
     // Read-only startup evidence: this lets an operator distinguish a lost
     // browser database from ordinary IndexedDB rehydration after an F5 refresh.
     try {
@@ -101,13 +113,10 @@ export async function createUnifiedDataLayer(workspaceId:string){
     // A valid PostgreSQL-cached, SAME-user IndexedDB is fully functional
     // without the internet. Do not await a network directory fetch (which may
     // hang until timeout) BEFORE offering the POS its durable local writer.
-    // The remembered session hint is only used with this same actor and an
-    // initialized local snapshot. The durable verified IDB proof also works
-    // after the tab/browser closes and reopens offline.
-    let verifiedSessionHint=false;
-    try{verifiedSessionHint=sessionStorage.getItem(directoryKey)===actorId}catch{}
+    // SessionStorage is NOT identity evidence. The durable, dual-actor
+    // SQL-proven IDB proof also works after the browser fully reopens offline.
     const verifiedCachedActor=status==='initialized'&&!!actorId&&
-      (await local.canOpenVerifiedOfflineCache(actorId) || verifiedSessionHint);
+      await local.canOpenVerifiedOfflineCache(actorId);
     if(secureLoginEnabled() && !verifiedCachedActor){
       // A new device or another actor MUST revalidate its access online.
       // Never reveal a different user's cached financial/HR directory when
