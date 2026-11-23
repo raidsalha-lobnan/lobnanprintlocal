@@ -89,25 +89,37 @@ export async function createUnifiedDataLayer(workspaceId:string){
     // Offline users keep the existing local directory without mutation.
     const actorId=getCurrentSessionActorId();
     const directoryKey='lobnan_verified_directory_'+workspaceId;
-    const syncDirectoryAndStart=async()=>{
-      if(secureLoginEnabled()&&actorId){
-        try{
-          const directory=await remote.fetchAuthorizedDirectory();
-          if(stopped||actorId!==getCurrentSessionActorId())return;
-          await local.refreshAuthorizedDirectory(directory.records,getCurrentSessionActorId());
-          sessionStorage.setItem(directoryKey,actorId);
-        }catch(error){
-          console.warn('Authorized directory refresh postponed; financial outbox preserved',error);
-        }
-      }
-      if(!stopped&&actorId===getCurrentSessionActorId())await coordinator.start();
+    if(secureLoginEnabled()&&!actorId)throw new Error('SESSION_LOGIN_REQUIRED');
+    const syncDirectory=async()=>{
+      if(!secureLoginEnabled()||!actorId||stopped)return;
+      const directory=await remote.fetchAuthorizedDirectory();
+      if(stopped||actorId!==getCurrentSessionActorId())
+        throw new Error('SESSION_CHANGED_DURING_DIRECTORY_REFRESH');
+      await local.refreshAuthorizedDirectory(directory.records,actorId);
+      try{sessionStorage.setItem(directoryKey,actorId)}catch{ /* optional session hint */ }
     };
-    // A reload of a previously verified session can use its durable local data
-    // immediately while the directory and incremental sync resume in order.
-    if(status==='initialized'&&actorId&&sessionStorage.getItem(directoryKey)===actorId){
-      void syncDirectoryAndStart().catch(error=>console.warn('Background sync startup failed',error));
-    }else{
-      await syncDirectoryAndStart();
+    // A valid PostgreSQL-cached, SAME-user IndexedDB is fully functional
+    // without the internet. Do not await a network directory fetch (which may
+    // hang until timeout) BEFORE offering the POS its durable local writer.
+    // The remembered session hint is only used with this same actor and an
+    // initialized local snapshot. The durable verified IDB proof also works
+    // after the tab/browser closes and reopens offline.
+    let verifiedSessionHint=false;
+    try{verifiedSessionHint=sessionStorage.getItem(directoryKey)===actorId}catch{}
+    const verifiedCachedActor=status==='initialized'&&!!actorId&&
+      (await local.canOpenVerifiedOfflineCache(actorId) || verifiedSessionHint);
+    if(secureLoginEnabled() && !verifiedCachedActor){
+      // A new device or another actor MUST revalidate its access online.
+      // Never reveal a different user's cached financial/HR directory when
+      // the gateway cannot be reached.
+      await syncDirectory();
+    }
+    if(!stopped&&actorId===getCurrentSessionActorId())await coordinator.start();
+    if(verifiedCachedActor){
+      // Reconnect/role refresh runs asynchronously. Failed network requests
+      // never invalidate the local outbox, block the cashier, or clear a draft.
+      void syncDirectory().catch(error=>
+        console.warn('Authenticated directory refresh postponed; local POS ready',error));
     }
   }catch(error){
     unregister();
