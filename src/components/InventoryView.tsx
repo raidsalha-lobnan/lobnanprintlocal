@@ -105,6 +105,10 @@ export const InventoryView: React.FC = () => {
     setDailyExchangeRate(activeCurrency.rateAgainstBase || 1.0);
   }, [activeCurrency.rateAgainstBase, selectedCurrencyCode]);
 
+  const [inventoryPage,setInventoryPage] = useState(1);
+  const [fittingRows,setFittingRows] = useState(12);
+  const tableViewportRef = useRef<HTMLDivElement|null>(null);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -378,6 +382,38 @@ export const InventoryView: React.FC = () => {
       return matchCat && matchSearch;
     }), allCategories);
   }, [inventory, allCategories, categoryFilter, searchQuery, filterOnlyLowStock, filterOnlyFavorites, selectedWarehouseFilter]);
+
+  // The viewport (not a fixed 20-row guess) decides how many compact rows
+  // fit without any vertical page scroll. Card mode uses one compact row.
+  const inventoryPageSize=viewMode==='table'?fittingRows:4;
+  const inventoryPageCount=Math.max(1,Math.ceil(filteredItems.length/inventoryPageSize));
+  const activeInventoryPage=Math.min(inventoryPage,inventoryPageCount);
+  const visibleItems=useMemo(()=>filteredItems.slice(
+    (activeInventoryPage-1)*inventoryPageSize,
+    activeInventoryPage*inventoryPageSize
+  ),[filteredItems,activeInventoryPage,inventoryPageSize]);
+  useEffect(()=>setInventoryPage(1),[
+    searchQuery,categoryFilter,selectedWarehouseFilter,
+    filterOnlyLowStock,filterOnlyFavorites,viewMode
+  ]);
+  useEffect(()=>{
+    if(viewMode!=='table')return;
+    const host=tableViewportRef.current;
+    if(!host)return;
+    const measure=()=>{
+      const height=host.clientHeight;
+      if(!height)return;
+      const header=host.querySelector('thead')?.getBoundingClientRect().height || 32;
+      // Row content stays within the 32px height; leave a little rounding margin.
+      const rows=Math.max(1,Math.floor((height-header-5)/33));
+      setFittingRows(before=>before===rows?before:rows);
+    };
+    measure();
+    const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(measure);
+    observer?.observe(host);
+    window.addEventListener('resize',measure);
+    return ()=>{observer?.disconnect();window.removeEventListener('resize',measure);};
+  },[viewMode]);
 
   // Inventory financial totals
   const totalCostValue = inventory.reduce((acc, it) => acc + (it.stockQuantity * it.purchasePrice), 0);
@@ -697,7 +733,7 @@ export const InventoryView: React.FC = () => {
 
 
   return (
-    <div className="space-y-4">
+    <div className="flex h-full min-h-0 w-full flex-col gap-1.5 overflow-hidden" data-testid="inventory-fixed-screen">
       {/* Barcode / Scanner Alert Banner */}
       {barcodeNotification && (
         <div className="bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 p-2.5 rounded-lg flex items-center justify-between text-xs text-emerald-900 dark:text-emerald-200 shadow-xs animate-in fade-in duration-200">
@@ -714,195 +750,127 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Compact inventory summary — equal-height, clearly aligned cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" dir="rtl" aria-label="ملخص المخزون">
-        <div className="flex min-h-[96px] flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
-          <div className="flex items-start justify-between gap-3">
-            <span className="text-xs font-semibold leading-5 text-slate-500">إجمالي قيمة المخزون (بالتكلفة)</span>
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><Boxes className="h-4 w-4" /></span>
-          </div>
-          <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{totalCostValue.toLocaleString('ar-SA')} <span className="text-xs font-medium text-slate-500">{settings.currency}</span></div>
-          {selectedCurrencyCode !== 'ILS' && <div className="mt-1 text-xs font-semibold text-blue-700">≈ {(totalCostValue / dailyExchangeRate).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {activeCurrency.symbol}</div>}
+      {/* Single-line accounting totals; no large display cards. */}
+      <div className="grid shrink-0 grid-cols-4 gap-1.5" dir="rtl" aria-label="ملخص المخزون">
+        <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px]">
+          <span className="min-w-0 truncate font-semibold text-slate-600" title="إجمالي قيمة المخزون (بالتكلفة)">إجمالي قيمة المخزون</span>
+          <strong className="shrink-0 whitespace-nowrap text-xs font-bold tabular-nums text-slate-900" title={selectedCurrencyCode!=='ILS'?('≈ '+(totalCostValue/dailyExchangeRate).toFixed(2)+' '+activeCurrency.symbol):undefined}>{totalCostValue.toLocaleString('ar-SA')} {settings.currency}</strong>
         </div>
-        <div className="flex min-h-[96px] flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
-          <div className="flex items-start justify-between gap-3">
-            <span className="text-xs font-semibold leading-5 text-slate-500">القيمة البيعية المتوقعة</span>
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><DollarSign className="h-4 w-4" /></span>
-          </div>
-          <div className="mt-2 text-xl font-bold tabular-nums text-emerald-700">{totalSaleValue.toLocaleString('ar-SA')} <span className="text-xs font-medium text-slate-500">{settings.currency}</span></div>
-          {selectedCurrencyCode !== 'ILS' && <div className="mt-1 text-xs font-semibold text-emerald-700">≈ {(totalSaleValue / dailyExchangeRate).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {activeCurrency.symbol}</div>}
+        <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px]">
+          <span className="min-w-0 truncate font-semibold text-slate-600">القيمة البيعية المتوقعة</span>
+          <strong className="shrink-0 whitespace-nowrap text-xs font-bold tabular-nums text-emerald-700" title={selectedCurrencyCode!=='ILS'?('≈ '+(totalSaleValue/dailyExchangeRate).toFixed(2)+' '+activeCurrency.symbol):undefined}>{totalSaleValue.toLocaleString('ar-SA')} {settings.currency}</strong>
         </div>
-        <div className="flex min-h-[96px] flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
-          <div className="flex items-start justify-between gap-3">
-            <span className="text-xs font-semibold leading-5 text-slate-500">خامات وأوراق وأحبار الطباعة</span>
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600"><Layers className="h-4 w-4" /></span>
-          </div>
-          <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{rawMaterialsValue.toLocaleString('ar-SA')} <span className="text-xs font-medium text-slate-500">{settings.currency}</span></div>
+        <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px]">
+          <span className="min-w-0 truncate font-semibold text-slate-600">خامات وأوراق الطباعة</span>
+          <strong className="shrink-0 whitespace-nowrap text-xs font-bold tabular-nums text-slate-900">{rawMaterialsValue.toLocaleString('ar-SA')} {settings.currency}</strong>
         </div>
-        <button type="button" onClick={() => handleOpenStockCard(undefined, 'alerts')}
-          title="عرض الأصناف التي بلغت حد الطلب أو انخفضت عنه"
-          className="group flex min-h-[96px] w-full flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 text-right shadow-xs transition hover:border-rose-300 hover:bg-rose-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400">
-          <div className="flex w-full items-start justify-between gap-3">
-            <span className="text-xs font-semibold leading-5 text-slate-500 group-hover:text-rose-700">أصناف تحت حد الطلب (نواقص)</span>
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-rose-600"><AlertTriangle className="h-4 w-4" /></span>
-          </div>
-          <div className="mt-2 flex w-full items-center justify-between gap-2">
-            <span className="text-xl font-bold tabular-nums text-rose-600">{lowStockCount} <span className="text-xs font-medium text-slate-500">صنف</span></span>
-            <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700">عرض النواقص</span>
-          </div>
+        <button type="button" onClick={() => handleOpenStockCard(undefined,'alerts')}
+          title="عرض الأصناف تحت حد الطلب" className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-rose-200 bg-white px-2 py-1.5 text-right text-[11px] hover:bg-rose-50">
+          <span className="min-w-0 truncate font-semibold text-slate-600">أصناف تحت حد الطلب</span>
+          <strong className="shrink-0 whitespace-nowrap text-xs font-bold tabular-nums text-rose-700">{lowStockCount} صنف</strong>
         </button>
       </div>
 
-      {/* Inventory controls: actions, search and filters, view options */}
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs" dir="rtl" aria-label="أدوات إدارة الأصناف">
-        <div className="flex flex-col gap-3 px-4 py-3.5 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <div className="ml-2 flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-700"><Boxes className="h-[18px] w-[18px]" /></span>
-              <div className="leading-tight">
-                <h2 className="text-sm font-bold text-slate-800">إدارة الأصناف</h2>
-                <span className="mt-1 block text-[11px] text-slate-500">{filteredItems.length} من {inventory.length} صنف</span>
-              </div>
-            </div>
-            <button type="button" onClick={() => handleOpenAdd()}
-              className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-              <Plus className="h-4 w-4" /> إضافة صنف
-            </button>
-            <button type="button" onClick={() => setShowCategoriesModal(true)}
-              className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
-              <Layers className="h-4 w-4" /> التصنيفات
-            </button>
-            <button type="button" onClick={() => handleOpenStockCard(undefined, 'card')}
-              title="فتح بطاقة حركة المخزون"
-              className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 text-xs font-semibold text-white transition hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500">
-              <ClipboardList className="h-4 w-4 text-amber-300" /> بطاقة الحركة
-            </button>
-            <button type="button" onClick={() => setActiveTab('warehouses')}
-              title="فتح عمليات المستودعات"
-              className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400">
-              <PackageCheck className="h-4 w-4 text-indigo-600" /> العمليات
-            </button>
+      {/* Two compact tool rows; controls remain keyboard and barcode accessible. */}
+      <section className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5" dir="rtl" aria-label="أدوات إدارة الأصناف">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 shrink-0 items-center gap-2">
+            <h2 className="whitespace-nowrap text-sm font-bold text-slate-800">إدارة الأصناف</h2>
+            <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-slate-500">{filteredItems.length} من {inventory.length}</span>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <button type="button" onClick={() => handleOpenBarcodeBank()}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
-              <BarcodeIcon className="h-4 w-4" /> بنك الباركود و QR
+          <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+            <button type="button" onClick={handleOpenAdd}
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded bg-blue-600 px-2.5 text-[11px] font-bold text-white hover:bg-blue-700">
+              <Plus className="h-3.5 w-3.5" /> إضافة صنف
             </button>
-            <button type="button" onClick={() => { setScannerForSearch(true); setShowBarcodeScanner(prev => !prev); }}
-              aria-label={showBarcodeScanner ? 'إغلاق ماسح الكاميرا' : 'فتح ماسح الكاميرا'}
-              aria-pressed={showBarcodeScanner} title="مسح الباركود باستخدام الكاميرا"
-              className={'inline-flex h-9 w-9 items-center justify-center rounded-lg border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ' + (showBarcodeScanner ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-blue-700 hover:bg-blue-50')}>
-              <Camera className="h-4 w-4" />
+            <button type="button" onClick={()=>setShowCategoriesModal(true)}
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded border border-slate-200 px-2 text-[11px] font-semibold hover:bg-slate-50">
+              <Layers className="h-3.5 w-3.5" /> التصنيفات
+            </button>
+            <button type="button" onClick={()=>handleOpenStockCard(undefined,'card')}
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded border border-slate-200 px-2 text-[11px] font-semibold hover:bg-slate-50">
+              <ClipboardList className="h-3.5 w-3.5" /> بطاقة الحركة
+            </button>
+            <button type="button" onClick={()=>setActiveTab('warehouses')}
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded border border-slate-200 px-2 text-[11px] font-semibold hover:bg-slate-50">
+              <PackageCheck className="h-3.5 w-3.5" /> العمليات
+            </button>
+            <button type="button" onClick={()=>handleOpenBarcodeBank()}
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded border border-slate-200 px-2 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50">
+              <BarcodeIcon className="h-3.5 w-3.5" /> بنك الباركود وQR
+            </button>
+            <button type="button" title="كاميرا الباركود" aria-label="كاميرا الباركود"
+              onClick={()=>{setScannerForSearch(true);setShowBarcodeScanner(prev=>!prev);}}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-200 text-blue-600 hover:bg-blue-50">
+              <Camera className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
-
-        <div className="border-t border-slate-100 bg-slate-50/40 px-4 py-3">
-          <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.55fr)_minmax(220px,1fr)_minmax(220px,1fr)]">
-            <div className="min-w-0">
-              <label htmlFor="inventory-list-search" className="mb-1.5 block text-[11px] font-semibold text-slate-600">البحث عن صنف</label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input id="inventory-list-search" type="search"
-                  placeholder="ابحث بالاسم أو الكود أو الباركود..."
-                  value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                  className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white pr-10 pl-10 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
-                <button type="button" onClick={() => { setScannerForSearch(true); setShowBarcodeScanner(true); }}
-                  title="البحث عبر كاميرا الباركود" aria-label="البحث عبر كاميرا الباركود"
-                  className="absolute left-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700">
-                  <Camera className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            <div className="min-w-0">
-              <label htmlFor="inventory-list-category" className="mb-1.5 block text-[11px] font-semibold text-slate-600">المجموعة</label>
-              <div className="relative flex h-10 min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
-                <Filter className="h-4 w-4 shrink-0 text-indigo-500" />
-                <select id="inventory-list-category" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
-                  aria-label="تصفية الأصناف حسب المجموعة"
-                  className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-sm font-semibold text-slate-700 outline-none">
-                  <option value="all">كل المجموعات ({inventory.length})</option>
-                  {categoryFilterOptions.map(cat => <option key={cat.id} value={cat.id}>{cat.name} ({cat.count})</option>)}
-                </select>
-                {categoryFilter !== 'all' && (
-                  <button type="button" onClick={() => setCategoryFilter('all')} title="إظهار كل المجموعات"
-                    aria-label="إظهار كل المجموعات"
-                    className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="min-w-0 md:col-span-2 xl:col-span-1">
-              <label htmlFor="inventory-list-warehouse" className="mb-1.5 block text-[11px] font-semibold text-slate-600">المستودع</label>
-              <div className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
-                <Boxes className="h-4 w-4 shrink-0 text-slate-500" />
-                <select id="inventory-list-warehouse" value={selectedWarehouseFilter}
-                  onChange={e => setSelectedWarehouseFilter(e.target.value)}
-                  aria-label="تصفية الأصناف حسب المستودع"
-                  className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-sm font-semibold text-slate-700 outline-none">
-                  <option value="all">جميع المستودعات ({warehouses.length})</option>
-                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.code} - {w.name}</option>)}
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-2.5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="ml-1 text-[11px] font-semibold text-slate-500">تصفية سريعة</span>
-            <button type="button" onClick={() => setFilterOnlyFavorites(prev => !prev)}
-              aria-pressed={filterOnlyFavorites}
-              className={'inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ' + (filterOnlyFavorites ? 'border-amber-400 bg-amber-100 text-amber-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50')}>
-              <Star className={'h-4 w-4 ' + (filterOnlyFavorites ? 'fill-amber-500 text-amber-600' : 'text-amber-500')} />
-              المفضلة ({inventory.filter(i => i.isFavorite).length})
+        <div className="mt-1.5 flex min-w-0 flex-nowrap items-center gap-1.5 border-t border-slate-100 pt-1.5">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input id="inventory-list-search" type="search"
+              aria-label="البحث عن صنف" placeholder="الاسم أو الكود أو الباركود..."
+              value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
+              className="h-8 w-full rounded border border-slate-300 bg-white pr-7 pl-7 text-[11px] outline-none focus:border-blue-500" />
+            <button type="button" title="بحث بكاميرا الباركود" aria-label="بحث بكاميرا الباركود"
+              onClick={()=>{setScannerForSearch(true);setShowBarcodeScanner(true);}}
+              className="absolute left-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-500 hover:text-blue-700">
+              <Camera className="h-3.5 w-3.5" />
             </button>
-            <button type="button" onClick={() => setFilterOnlyLowStock(prev => !prev)}
-              aria-pressed={filterOnlyLowStock}
-              className={'inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ' + (filterOnlyLowStock ? 'border-rose-500 bg-rose-100 text-rose-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-rose-50')}>
-              <AlertTriangle className="h-4 w-4" /> النواقص ({lowStockCount})
-            </button>
-            {(searchQuery || categoryFilter !== 'all' || selectedWarehouseFilter !== 'all' || filterOnlyFavorites || filterOnlyLowStock) && (
-              <button type="button"
-                onClick={() => {
-                  setSearchQuery(''); setCategoryFilter('all'); setSelectedWarehouseFilter('all');
-                  setFilterOnlyFavorites(false); setFilterOnlyLowStock(false);
-                }}
-                className="inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800">
-                <X className="h-3.5 w-3.5" /> مسح التصفية
-              </button>
-            )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5">
-              <Coins className="h-4 w-4 shrink-0 text-emerald-600" />
-              <label htmlFor="inventory-list-currency" className="text-[11px] font-semibold text-slate-600">العملة</label>
-              <select id="inventory-list-currency" value={selectedCurrencyCode}
-                onChange={e => setSelectedCurrencyCode(e.target.value)}
-                className="cursor-pointer border-0 bg-transparent text-xs font-bold text-slate-700 outline-none">
-                {approvedCurrencies.length === 0 && <option value="">لا توجد عملات مفعلة في الإعدادات</option>}
-                {approvedCurrencies.map(c => <option key={c.code} value={c.code}>({c.symbol}) {c.code}</option>)}
-              </select>
-              {selectedCurrencyCode !== 'ILS' && (
-                <label className="inline-flex items-center gap-1 border-r border-slate-200 pr-2 text-[11px] text-slate-600">
-                  السعر
-                  <input type="number" min="0.01" step="0.01" value={dailyExchangeRate}
-                    onChange={e => setDailyExchangeRate(parseFloat(e.target.value) || 1.0)}
-                    className="w-16 rounded border border-amber-200 bg-white px-1 py-0.5 text-center text-xs font-semibold tabular-nums text-slate-800" />
-                </label>
-              )}
-            </div>
-            <div className="inline-flex items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-100 p-1" aria-label="طريقة العرض">
-              <button type="button" onClick={() => setViewMode('table')} aria-pressed={viewMode === 'table'}
-                className={'inline-flex min-h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ' + (viewMode === 'table' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-500 hover:text-slate-800')}>
-                <List className="h-4 w-4" /> جدول
-              </button>
-              <button type="button" onClick={() => setViewMode('cards')} aria-pressed={viewMode === 'cards'}
-                className={'inline-flex min-h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ' + (viewMode === 'cards' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-500 hover:text-slate-800')}>
-                <LayoutGrid className="h-4 w-4" /> بطاقات
-              </button>
-            </div>
+          <select id="inventory-list-category" aria-label="المجموعة" title="المجموعة"
+            value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)}
+            className="h-8 min-w-[165px] max-w-[220px] flex-1 rounded border border-slate-300 bg-white px-1.5 text-[11px] font-semibold outline-none">
+            <option value="all">كل المجموعات ({inventory.length})</option>
+            {categoryFilterOptions.map(cat=><option key={cat.id} value={cat.id}>{cat.name} ({cat.count})</option>)}
+          </select>
+          <select id="inventory-list-warehouse" aria-label="المستودع" title="المستودع"
+            value={selectedWarehouseFilter} onChange={e=>setSelectedWarehouseFilter(e.target.value)}
+            className="h-8 min-w-[160px] max-w-[225px] flex-1 rounded border border-slate-300 bg-white px-1.5 text-[11px] font-semibold outline-none">
+            <option value="all">جميع المستودعات ({warehouses.length})</option>
+            {warehouses.map(w=><option key={w.id} value={w.id}>{w.code} - {w.name}</option>)}
+          </select>
+          <div className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded border border-slate-300 bg-white px-1.5">
+            <Coins className="h-3.5 w-3.5 text-emerald-600" />
+            <select id="inventory-list-currency" aria-label="عملة عرض المخزون" title="العملة"
+              value={selectedCurrencyCode} onChange={e=>setSelectedCurrencyCode(e.target.value)}
+              className="max-w-[105px] bg-white text-[11px] font-semibold outline-none">
+              {approvedCurrencies.length===0&&<option value="">لا عملات مفعلة</option>}
+              {approvedCurrencies.map(c=><option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>)}
+            </select>
+            {selectedCurrencyCode!=='ILS'&&
+              <input type="number" min="0.01" step="0.01" title="سعر الصرف" aria-label="سعر الصرف"
+                value={dailyExchangeRate} onChange={e=>setDailyExchangeRate(parseFloat(e.target.value)||1)}
+                className="w-12 border-r border-slate-200 pr-1 text-[11px]" />}
+          </div>
+          <button type="button" onClick={()=>setFilterOnlyFavorites(prev=>!prev)}
+            title="عرض الأصناف المفضلة" aria-pressed={filterOnlyFavorites}
+            className={`inline-flex h-8 shrink-0 items-center gap-1 rounded border px-1.5 text-[11px] font-semibold ${filterOnlyFavorites?'border-amber-400 bg-amber-100 text-amber-800':'border-slate-200 bg-white text-slate-600'}`}>
+            <Star className="h-3.5 w-3.5" /> المفضلة
+          </button>
+          <button type="button" onClick={()=>setFilterOnlyLowStock(prev=>!prev)}
+            title="عرض النواقص" aria-pressed={filterOnlyLowStock}
+            className={`inline-flex h-8 shrink-0 items-center gap-1 rounded border px-1.5 text-[11px] font-semibold ${filterOnlyLowStock?'border-rose-400 bg-rose-100 text-rose-800':'border-slate-200 bg-white text-slate-600'}`}>
+            <AlertTriangle className="h-3.5 w-3.5" /> النواقص
+          </button>
+          {(searchQuery||categoryFilter!=='all'||selectedWarehouseFilter!=='all'||filterOnlyFavorites||filterOnlyLowStock)&&
+            <button type="button" onClick={()=>{
+              setSearchQuery('');setCategoryFilter('all');setSelectedWarehouseFilter('all');
+              setFilterOnlyFavorites(false);setFilterOnlyLowStock(false);
+            }} title="مسح جميع عوامل التصفية" aria-label="مسح التصفية"
+            className="inline-flex h-8 w-7 shrink-0 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50">
+              <X className="h-3.5 w-3.5" />
+            </button>}
+          <div className="flex h-8 shrink-0 items-center gap-0.5 rounded border border-slate-200 p-0.5" aria-label="طريقة العرض">
+            <button type="button" onClick={()=>setViewMode('table')} aria-pressed={viewMode==='table'}
+              className={`rounded px-1.5 py-1 ${viewMode==='table'?'bg-blue-50 text-blue-700':'text-slate-500'}`} title="عرض الجدول">
+              <List className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" onClick={()=>setViewMode('cards')} aria-pressed={viewMode==='cards'}
+              className={`rounded px-1.5 py-1 ${viewMode==='cards'?'bg-blue-50 text-blue-700':'text-slate-500'}`} title="عرض البطاقات">
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
       </section>
@@ -910,14 +878,14 @@ export const InventoryView: React.FC = () => {
       {/* Inventory Items Display: Cards Grid or Table View */}
       {viewMode === 'cards' ? (
         filteredItems.length === 0 ? (
-          <div className="bg-white p-12 rounded-xl border border-slate-200 text-center text-slate-500 shadow-xs">
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-md border border-slate-200 bg-white p-6 text-center text-slate-500">
             <Boxes className="w-12 h-12 mx-auto text-slate-300 mb-3" />
             <h4 className="font-bold text-sm text-slate-800">لا توجد أصناف مطابقة للبحث أو التصفية الحالية</h4>
             <p className="text-[10px] text-slate-400 font-light mt-1">جرب تغيير كلمات البحث أو إلغاء تفعيل عوامل التصفية</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
-            {filteredItems.map((item, idx) => {
+          <div className="grid min-h-0 flex-1 grid-cols-1 content-start gap-2 overflow-hidden sm:grid-cols-2 lg:grid-cols-4">
+            {visibleItems.map((item, idx) => {
               const badge = getCategoryBadge(item.category);
               const isService = item.category === 'copy_scan';
               const isLow = !isService && item.stockQuantity <= item.minAlertQuantity;
@@ -1080,9 +1048,9 @@ export const InventoryView: React.FC = () => {
           </div>
         )
       ) : (
-        <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="inventory-one-row-table w-full min-w-[1420px] text-right text-xs">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
+          <div ref={tableViewportRef} className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+            <table className="inventory-one-row-table w-full min-w-[1340px] table-fixed text-right text-[11px] [&_td]:h-8 [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:h-8 [&_th]:px-1.5 [&_th]:py-1">
               <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
                 <tr>
                   <th className="p-2.5">الكود والباركود</th>
@@ -1106,229 +1074,78 @@ export const InventoryView: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  filteredItems.map((item, idx) => {
-                    const badge = getCategoryBadge(item.category);
-                    const isService = item.category === 'copy_scan';
-                    const isLow = !isService && item.stockQuantity <= item.minAlertQuantity;
-                    const lineTotalCost = item.stockQuantity * item.purchasePrice;
-
+                  visibleItems.map((item,idx)=>{
+                    const badge=getCategoryBadge(item.category);
+                    const isService=item.category==='copy_scan'||item.category==='services'||
+                      item.id==='srv-delivery'||item.id==='srv-delivery-mobile';
+                    const isLow=!isService && item.stockQuantity<=item.minAlertQuantity;
+                    const total=item.stockQuantity*item.purchasePrice;
+                    const barcodeCount=(item.barcodeEntries?.length||item.additionalBarcodes?.length||0);
+                    const warehouseDetail=warehouses.map(wh=>
+                      wh.name+': '+getWarehouseStock(wh.id,item.id)+' '+item.unit).join(' • ');
                     return (
-                      <tr key={`inv-row-${item.id || idx}-${idx}`} className={`hover:bg-slate-50 transition-colors whitespace-nowrap ${idx === 0 || item.category !== filteredItems[idx - 1]?.category ? "border-t-2 border-sky-200 bg-sky-50/30" : ""}`}>
-                        <td className="p-2 font-mono whitespace-nowrap">
-                          <div className="font-bold text-blue-600">{item.code}</div>
-                          <div className="text-[9px] text-slate-400 font-light">{item.barcode || '—'}</div>
-                          {((item.barcodeEntries && item.barcodeEntries.length > 0) || (item.additionalBarcodes && item.additionalBarcodes.length > 0)) && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenBarcodeBank(item)}
-                                className="inline-flex items-center gap-1 text-[9px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded border border-sky-200 cursor-pointer hover:bg-sky-100 font-sans font-medium"
-                                title={`باركودات بديلة مسجلة:\n${(item.barcodeEntries || []).map(b => `${b.label}: ${b.barcode}`).join('\n') || (item.additionalBarcodes || []).join(', ')}`}
-                              >
-                                <BarcodeIcon className="w-2.5 h-2.5 text-sky-600" />
-                                <span>+{(item.barcodeEntries?.length || item.additionalBarcodes?.length)} بديل</span>
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-2.5">
-                          <div className="flex items-center gap-2.5">
-                            {/* Item Image Thumbnail */}
-                            <div className="relative group/thumb shrink-0">
-                              {item.imageUrl ? (
-                                <img
-                                  src={item.imageUrl}
-                                  alt={item.name}
-                                  className="w-10 h-10 object-cover rounded-lg border border-slate-200 shadow-2xs group-hover/thumb:scale-105 transition-transform"
-                                />
-                              ) : (
-                                <div className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
-                                  <ImageIcon className="w-5 h-5 text-slate-300" />
-                                </div>
-                              )}
-                              {item.isFavorite && (
-                                <span
-                                  className="absolute -top-1 -right-1 bg-amber-400 text-amber-950 rounded-full p-0.5 shadow-xs"
-                                  title="صنف مفضل في الكاشير"
-                                >
-                                  <Star className="w-2.5 h-2.5 fill-amber-950" />
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Name, Favorite Toggle, and Description */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-slate-900 inline-block max-w-[240px] truncate" title={[item.name, item.description].filter(Boolean).join(" — ")}>{item.name}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => updateInventoryItem(item.id, { isFavorite: !item.isFavorite })}
-                                  title={item.isFavorite ? 'صنف مفضل في الكاشير (اضغط للإلغاء)' : 'تمييز كصنف مفضل في الكاشير'}
-                                  className={`p-0.5 rounded hover:bg-slate-100 transition-colors cursor-pointer ${
-                                    item.isFavorite ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400'
-                                  }`}
-                                >
-                                  <Star className={`w-3.5 h-3.5 ${item.isFavorite ? 'fill-amber-400' : ''}`} />
-                                </button>
-                              </div>
-
-                            </div>
+                      <tr key={item.id} className="h-8 whitespace-nowrap border-b border-slate-100 hover:bg-slate-50">
+                        <td className="font-mono">
+                          <div className="flex min-w-0 items-center gap-1">
+                            <span className="shrink-0 font-bold text-blue-700">{item.code}</span>
+                            <span title={item.barcode||'لا يوجد باركود'} className="min-w-0 truncate text-[10px] text-slate-500">{item.barcode||'—'}</span>
+                            {barcodeCount>0&&<button type="button" title="الباركودات الإضافية" onClick={()=>handleOpenBarcodeBank(item)}
+                              className="shrink-0 rounded bg-blue-50 px-1 text-[9px] text-blue-700">+{barcodeCount}</button>}
                           </div>
                         </td>
-                        <td className="p-2.5">
-                          <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${badge.class}`}>
-                            {badge.label}
-                          </span>
-                        </td>
-                        <td className="p-2.5 text-slate-600">{item.unit}</td>
-                        <td className="p-2.5 font-mono font-semibold text-slate-700">
-                          <div>{(Number(item.purchasePrice) || 0).toFixed(2)} ₪</div>
-                          {selectedCurrencyCode !== 'ILS' && (
-                            <div className="text-[10px] text-blue-600 font-bold">
-                              ≈ {((Number(item.purchasePrice) || 0) / (dailyExchangeRate || 1)).toFixed(2)} {activeCurrency.symbol}
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-2.5 font-mono text-slate-900">
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                            <span className="font-extrabold text-slate-950">{(Number(item.sellingPrice) || 0).toFixed(2)} ₪</span>
-                            
-                            {selectedCurrencyCode !== 'ILS' && (
-                              <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1 rounded">
-                                ≈ {((Number(item.sellingPrice) || 0) / (dailyExchangeRate || 1)).toFixed(2)} {activeCurrency.symbol}
-                              </span>
-                            )}
-
-                            {item.sellingPrice2 && (
-                              <span className="bg-purple-50 text-purple-700 text-[10px] px-1.5 py-0.5 rounded border border-purple-200 shrink-0 font-bold" title="سعر بيع 2">
-                                س2: {item.sellingPrice2} ₪
-                              </span>
-                            )}
-
-                            {item.sellingPrice3 && (
-                              <span className="bg-amber-50 text-amber-700 text-[10px] px-1.5 py-0.5 rounded border border-amber-200 shrink-0 font-bold" title="سعر بيع 3">
-                                س3: {item.sellingPrice3} ₪
-                              </span>
-                            )}
+                        <td>
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            {item.imageUrl?<img src={item.imageUrl} alt="" className="h-6 w-6 shrink-0 rounded border border-slate-200 object-cover"/>:
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-50"><ImageIcon className="h-3 w-3 text-slate-400"/></span>}
+                            <span className="min-w-0 flex-1 truncate font-semibold text-slate-800" title={[item.name,item.description].filter(Boolean).join(' — ')}>{item.name}</span>
+                            <button type="button" onClick={()=>updateInventoryItem(item.id,{isFavorite:!item.isFavorite})}
+                              title={item.isFavorite?'إزالة من المفضلة':'إضافة للمفضلة'}
+                              className="shrink-0 p-0.5 text-amber-500">
+                              <Star className={`h-3 w-3 ${item.isFavorite?'fill-amber-400':'text-slate-300'}`}/>
+                            </button>
                           </div>
-                          {item.customerSpecialPrices && item.customerSpecialPrices.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setViewingSpecialPricesItem(item)}
-                              className="mt-1 inline-flex items-center gap-1 text-[10px] font-sans font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-300 cursor-pointer transition-colors"
-                              title="عرض تفاصيل أسعار العملاء الخاصة"
-                            >
-                              <Star className="w-3 h-3 text-amber-600 fill-amber-500" />
-                              <span>{item.customerSpecialPrices.length} أسعار خاصة</span>
-                            </button>
-                          )}
                         </td>
-                        <td className="p-2.5">
-                          {isService ? (
-                            <span className="text-slate-400">غير محدود</span>
-                          ) : (
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <span
-                                  className={`font-mono font-bold px-1.5 py-0.5 rounded text-[11px] ${
-                                    isLow ? 'bg-rose-100 text-rose-700' : 'text-slate-800'
-                                  }`}
-                                >
-                                  {selectedWarehouseFilter !== 'all'
-                                    ? getWarehouseStock(selectedWarehouseFilter, item.id)
-                                    : item.stockQuantity}
-                                </span>
-                                {selectedWarehouseFilter !== 'all' && (
-                                  <span className="text-[10px] text-slate-400 font-mono" title="إجمالي الرصيد بكافة المستودعات">
-                                    (إجمالي: {item.stockQuantity})
-                                  </span>
-                                )}
-                              </div>
-
-                              {/* Warehouses stock breakdown chips */}
-                              {warehouses.length > 0 && selectedWarehouseFilter === 'all' && (
-                                <div className="flex flex-wrap gap-1 mt-1 max-w-[220px]">
-                                  {warehouses.map(wh => {
-                                    const whStock = getWarehouseStock(wh.id, item.id);
-                                    if (whStock <= 0) return null;
-                                    return (
-                                      <span
-                                        key={wh.id}
-                                        title={`${wh.name} (${wh.code}): ${whStock} ${item.unit}`}
-                                        className="inline-flex items-center text-[9px] font-mono bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 px-1 py-0.5 rounded border border-slate-200 cursor-default"
-                                      >
-                                        <span className="font-medium text-slate-500">{wh.code}:</span>
-                                        <span className="mr-0.5 font-bold text-slate-800">{whStock}</span>
-                                      </span>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          )}
+                        <td><span className={`rounded px-1.5 py-0.5 text-[10px] ${badge.class}`}>{badge.label}</span></td>
+                        <td className="text-slate-600">{item.unit}</td>
+                        <td className="font-mono tabular-nums text-slate-700" title={selectedCurrencyCode!=='ILS'?'≈ '+((Number(item.purchasePrice)||0)/(dailyExchangeRate||1)).toFixed(2)+' '+activeCurrency.symbol:undefined}>
+                          {(Number(item.purchasePrice)||0).toFixed(2)} ₪
                         </td>
-                        <td className="p-2.5 font-mono font-semibold text-slate-800">
-                          {isService ? '-' : (
-                            <div>
-                              <div>{lineTotalCost.toLocaleString('ar-SA')} ₪</div>
-                              {selectedCurrencyCode !== 'ILS' && (
-                                <div className="text-[9px] text-slate-400 font-light font-bold">
-                                  ≈ {(lineTotalCost / dailyExchangeRate).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {activeCurrency.symbol}
-                                </div>
-                              )}
-                            </div>
-                          )}
+                        <td className="font-mono tabular-nums text-slate-900">
+                          <div className="flex items-center gap-1 whitespace-nowrap">
+                            <strong title={selectedCurrencyCode!=='ILS'?'≈ '+((Number(item.sellingPrice)||0)/(dailyExchangeRate||1)).toFixed(2)+' '+activeCurrency.symbol:undefined}>
+                              {(Number(item.sellingPrice)||0).toFixed(2)} ₪
+                            </strong>
+                            {item.sellingPrice2!=null&&item.sellingPrice2!==0&&<span title="سعر بيع 2" className="rounded bg-purple-50 px-1 text-[9px] text-purple-700">س2:{item.sellingPrice2}</span>}
+                            {item.sellingPrice3!=null&&item.sellingPrice3!==0&&<span title="سعر بيع 3" className="rounded bg-amber-50 px-1 text-[9px] text-amber-700">س3:{item.sellingPrice3}</span>}
+                            {!!item.customerSpecialPrices?.length&&
+                              <button type="button" title="عرض أسعار العملاء الخاصة" onClick={()=>setViewingSpecialPricesItem(item)}
+                                className="rounded border border-amber-200 bg-amber-50 px-1 text-[9px] text-amber-800">
+                                ★ {item.customerSpecialPrices.length}
+                              </button>}
+                          </div>
                         </td>
-                        <td className="p-2.5 font-mono text-slate-500">
-                          {isService ? '-' : item.minAlertQuantity}
+                        <td title={warehouseDetail} className="font-mono tabular-nums">
+                          {isService?<span className="text-slate-400">خدمة</span>:
+                            <span className={`rounded px-1.5 py-0.5 font-bold ${isLow?'bg-rose-100 text-rose-700':'text-slate-800'}`}>
+                              {selectedWarehouseFilter==='all'?item.stockQuantity:getWarehouseStock(selectedWarehouseFilter,item.id)}
+                            </span>}
                         </td>
-                        <td className="p-2.5 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {/* Print Barcode & QR Label Button */}
-                            <button
-                              onClick={() => handleOpenBarcodeBank(item)}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 rounded hover:bg-indigo-50 cursor-pointer transition"
-                              title="طباعة وتوليد ملصقات باركود و QR (EAN-13 / CODE-128 / QR)"
-                            >
-                              <BarcodeIcon className="w-3.5 h-3.5 text-indigo-600" />
-                            </button>
-
-                            {/* Stock Movement Card Button */}
-                            <button
-                              onClick={() => handleOpenStockCard(item, 'card')}
-                              className="p-1.5 text-slate-500 hover:text-amber-600 rounded hover:bg-amber-50 cursor-pointer transition"
-                              title="كارتة حركة المخزون وسجل الوارد والمنصرف"
-                            >
-                              <ClipboardList className="w-3.5 h-3.5 text-amber-600" />
-                            </button>
-
-                            {/* Stock Adjustment Button */}
-                            {!isService && (
-                              <button
-                                onClick={() => handleOpenStockCard(item, 'adjust')}
-                                className="p-1.5 text-slate-500 hover:text-slate-900 rounded hover:bg-slate-100 cursor-pointer transition"
-                                title="تسوية وجرد المخزون (عجز وزيادة)"
-                              >
-                                <Sliders className="w-3.5 h-3.5 text-slate-600" />
-                              </button>
-                            )}
-
-                            {/* Edit Item Button */}
-                            <button
-                              onClick={() => handleOpenEdit(item)}
-                              className="p-1.5 text-slate-500 hover:text-blue-600 rounded hover:bg-blue-50 cursor-pointer transition"
-                              title="تعديل بيانات الصنف"
-                            >
-                              <Edit2 className="w-3.5 h-3.5 text-blue-600" />
-                            </button>
-                            {/* Delete Item Button */}
-                            <button
-                              onClick={() => handleDeleteItem(item)}
-                              className="p-1.5 text-slate-500 hover:text-red-600 rounded hover:bg-red-50 cursor-pointer transition"
-                              title="حذف الصنف"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                            </button>
+                        <td className="font-mono font-semibold tabular-nums text-slate-800" title={selectedCurrencyCode!=='ILS'?'≈ '+(total/(dailyExchangeRate||1)).toFixed(2)+' '+activeCurrency.symbol:undefined}>
+                          {isService?'—':total.toLocaleString('ar-SA')+' ₪'}
+                        </td>
+                        <td className="font-mono tabular-nums text-slate-600">{isService?'—':item.minAlertQuantity}</td>
+                        <td className="text-center">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <button type="button" title="طباعة باركود وQR" onClick={()=>handleOpenBarcodeBank(item)}
+                              className="rounded p-1 text-indigo-600 hover:bg-indigo-50"><BarcodeIcon className="h-3.5 w-3.5"/></button>
+                            <button type="button" title="بطاقة حركة المخزون" onClick={()=>handleOpenStockCard(item,'card')}
+                              className="rounded p-1 text-amber-700 hover:bg-amber-50"><ClipboardList className="h-3.5 w-3.5"/></button>
+                            {!isService&&<button type="button" title="تسوية وجرد المخزون" onClick={()=>handleOpenStockCard(item,'adjust')}
+                              className="rounded p-1 text-slate-600 hover:bg-slate-100"><Sliders className="h-3.5 w-3.5"/></button>}
+                            <button type="button" title="تعديل الصنف" onClick={()=>handleOpenEdit(item)}
+                              className="rounded p-1 text-blue-700 hover:bg-blue-50"><Edit2 className="h-3.5 w-3.5"/></button>
+                            <button type="button" title="حذف الصنف" onClick={()=>handleDeleteItem(item)}
+                              className="rounded p-1 text-rose-600 hover:bg-rose-50"><Trash2 className="h-3.5 w-3.5"/></button>
                           </div>
                         </td>
                       </tr>
@@ -1340,6 +1157,26 @@ export const InventoryView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* One permanent page navigator; only current-page rows enter the DOM. */}
+      <nav className="flex h-9 shrink-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 text-[11px]" dir="rtl"
+        aria-label="التنقل بين صفحات الأصناف" data-testid="inventory-pagination">
+        <span className="shrink-0 font-semibold tabular-nums text-slate-600">
+          {filteredItems.length? (activeInventoryPage-1)*inventoryPageSize+1:0}–{Math.min(activeInventoryPage*inventoryPageSize,filteredItems.length)}
+          {' '}من {filteredItems.length} صنف
+        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          <button type="button" onClick={()=>setInventoryPage(1)} disabled={activeInventoryPage<=1}
+            className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">الأولى</button>
+          <button type="button" onClick={()=>setInventoryPage(p=>Math.max(1,p-1))} disabled={activeInventoryPage<=1}
+            className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">السابق</button>
+          <span className="min-w-[46px] text-center font-bold tabular-nums text-blue-800">{activeInventoryPage} / {inventoryPageCount}</span>
+          <button type="button" onClick={()=>setInventoryPage(p=>Math.min(inventoryPageCount,p+1))} disabled={activeInventoryPage>=inventoryPageCount}
+            className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">التالي</button>
+          <button type="button" onClick={()=>setInventoryPage(inventoryPageCount)} disabled={activeInventoryPage>=inventoryPageCount}
+            className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">الأخيرة</button>
+        </div>
+      </nav>
 
       {showAddModal && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
