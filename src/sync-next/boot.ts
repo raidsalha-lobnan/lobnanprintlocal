@@ -95,7 +95,7 @@ export async function createUnifiedDataLayer(workspaceId:string){
       const directory=await remote.fetchAuthorizedDirectory();
       if(stopped||actorId!==getCurrentSessionActorId())
         throw new Error('SESSION_CHANGED_DURING_DIRECTORY_REFRESH');
-      await local.refreshAuthorizedDirectory(directory.records,actorId);
+      await local.refreshAuthorizedDirectory(directory.records,getCurrentSessionActorId());
       try{sessionStorage.setItem(directoryKey,actorId)}catch{ /* optional session hint */ }
     };
     // A valid PostgreSQL-cached, SAME-user IndexedDB is fully functional
