@@ -779,7 +779,7 @@ export const InventoryView: React.FC = () => {
             <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-slate-500">{filteredItems.length} من {inventory.length}</span>
           </div>
           <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap">
-            <button type="button" onClick={handleOpenAdd}
+            <button type="button" onClick={()=>handleOpenAdd()}
               className="inline-flex h-8 shrink-0 items-center gap-1 rounded bg-blue-600 px-2.5 text-[11px] font-bold text-white hover:bg-blue-700">
               <Plus className="h-3.5 w-3.5" /> إضافة صنف
             </button>
@@ -1050,7 +1050,19 @@ export const InventoryView: React.FC = () => {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
           <div ref={tableViewportRef} className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
-            <table className="inventory-one-row-table w-full min-w-[1340px] table-fixed text-right text-[11px] [&_td]:h-8 [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:h-8 [&_th]:px-1.5 [&_th]:py-1">
+            <table className="inventory-one-row-table w-full min-w-[1360px] table-fixed text-right text-[11px] [&_td]:h-8 [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:h-8 [&_th]:px-1.5 [&_th]:py-1">
+              <colgroup>
+                <col style={{width:'190px'}}/>
+                <col style={{width:'260px'}}/>
+                <col style={{width:'90px'}}/>
+                <col style={{width:'60px'}}/>
+                <col style={{width:'95px'}}/>
+                <col style={{width:'215px'}}/>
+                <col style={{width:'110px'}}/>
+                <col style={{width:'115px'}}/>
+                <col style={{width:'75px'}}/>
+                <col style={{width:'150px'}}/>
+              </colgroup>
               <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
                 <tr>
                   <th className="p-2.5">الكود والباركود</th>
