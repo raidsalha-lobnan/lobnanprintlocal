@@ -217,7 +217,7 @@ interface AccountingContextType {
   addStockMovement: (movement: Omit<StockMovement, 'id'>) => void;
   
   parties: Party[];
-  addParty: (party: Omit<Party, 'id' | 'balance' | 'code'> & { initialBalance?: number; code?: string }) => Party;
+  addParty: (party: Omit<Party, 'id' | 'balance' | 'code'> & { initialBalance?: number; code?: string }) => Promise<Party>;
   updateParty: (id: string, updated: Partial<Party>) => void;
   deleteParty: (id: string) => { success: boolean; message?: string };
   selectedPartyForStatement: Party | null;
@@ -5794,7 +5794,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
   };
 
-  const addParty = (partyData: Omit<Party, 'id' | 'balance' | 'code'> & { initialBalance?: number; code?: string }) => {
+  const addParty = async (partyData: Omit<Party, 'id' | 'balance' | 'code'> & { initialBalance?: number; code?: string }): Promise<Party> => {
     // Never show an optimistic new العملاء والموردين record as saved if the local
     // durable repository has not been opened and verified.
     if(!unifiedRepoRef.current)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED: لا يمكن حفظ العملاء والموردين قبل جاهزية قاعدة الجهاز المحلية.');
@@ -5836,22 +5836,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       openingBalanceDate: partyData.openingBalanceDate || new Date().toISOString().split('T')[0]
     };
     (newParty as any)._serverAutoCode = true;
+    // A visible customer is NOT a saved customer. First wait for the atomic
+    // IndexedDB outbox commit; PostgreSQL confirms the same stable ID later.
+    // Never close the editor / announce success before this promise resolves.
+    // If local storage fails, the form remains open with its original inputs.
+    const repository=unifiedRepoRef.current;
+    if(!repository)throw new Error('LOCAL_REPOSITORY_NOT_INITIALIZED');
+    await repository.put('parties',newParty.id,newParty as unknown as JsonObject);
     setParties(prev => {
-      const next = [...prev, newParty];
-      broadcastEntityChange('parties', next);
-      try {
-        localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(next));
-        localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
-      } catch (e) {}
+      if(prev.some(p=>p.id===newParty.id))return prev;
+      const next=[...prev,newParty];
+      broadcastEntityChange('parties',next);
+      try{
+        localStorage.setItem(`${STORAGE_KEY}_parties`,JSON.stringify(next));
+      }catch(error){
+        console.warn('Legacy party UI mirror unavailable; confirmed IndexedDB is preserved',error);
+      }
       return next;
     });
-
-    setHasUnsyncedChanges(true);
-    setPendingSyncCount(prev => prev + 1);
-
-    pushToServerSync('parties', newParty);
-    // Enqueue once outside the React state updater.
-
+    // The coordinator reports the actual outbox count; never fabricate one
+    // before confirming the durable IndexedDB write.
     return newParty;
   };
 
