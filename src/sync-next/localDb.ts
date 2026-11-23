@@ -679,6 +679,55 @@ export class LocalSyncDb {
    * A persisted identity check survives browser reload without keeping a
    * duplicate employee table or adding any financial outbox commands.
    */
+  /**
+   * Repair a historic metadata-only bootstrap flag omission. This does NOT
+   * import, delete, rebase or acknowledge a single accounting record/outbox
+   * command, and never uses a localStorage claim as PostgreSQL evidence.
+   *
+   * Both identities must independently agree: the actor stamped during the
+   * original authenticated SQL bootstrap (verifiedEmployeeRosterV1) and the
+   * actor stamped during an authenticated SQL directory refresh. A valid
+   * server event cursor and at least one persisted record are also required.
+   * If any proof is absent, another user is signed in, or the cache has no
+   * server cursor, leave the store unchanged and require normal online setup.
+   */
+  async repairVerifiedBootstrapMetadata(actorId:string):Promise<boolean>{
+    if(!actorId||actorId!==getCurrentSessionActorId())return false;
+    const db=await this.getDb();
+    const tx=db.transaction([META,RECORDS,OUTBOX],'readwrite');
+    const done=completed(tx);
+    try{
+      const meta=tx.objectStore(META);
+      const [bootstrap,cursor,verifiedActor,initialActor,recordCount]=await Promise.all([
+        request(meta.get('authoritativeBootstrap')) as Promise<{value?:boolean}|undefined>,
+        request(meta.get(CURSOR_KEY)) as Promise<{value?:ServerCursor}|undefined>,
+        request(meta.get(VERIFIED_OFFLINE_ACTOR_KEY)) as Promise<{value?:{actorId?:string}}|undefined>,
+        request(meta.get(VERIFIED_EMPLOYEE_ROSTER_KEY)) as Promise<{value?:{actorId?:string}}|undefined>,
+        request(tx.objectStore(RECORDS).count()) as Promise<number>
+      ]);
+      const validCursor=cursor?.value &&
+        Number.isSafeInteger(cursor.value.sequence) && cursor.value.sequence>=0;
+      const verified=validCursor && recordCount>0 &&
+        verifiedActor?.value?.actorId===actorId &&
+        initialActor?.value?.actorId===actorId;
+      if(!verified || bootstrap?.value){
+        await done;
+        return false;
+      }
+      meta.put({key:'authoritativeBootstrap',value:true});
+      meta.put({key:'verifiedOfflineBootstrapMetadataRepairV1',value:{
+        actorId,sequence:cursor!.value!.sequence,at:new Date().toISOString(),
+        method:'DUAL_SQL_ACTOR_PROOF_PLUS_SERVER_CURSOR'
+      }});
+      await done;
+      return true;
+    }catch(error){
+      try{tx.abort()}catch{}
+      await done.catch(()=>{});
+      throw error;
+    }
+  }
+
   /** A previously authenticated SQL bootstrap or directory refresh binds
    * this offline cache to one identity. Never authorize a different actor to
    * open another user's financial snapshot while PostgreSQL is unreachable.
@@ -690,16 +739,20 @@ export class LocalSyncDb {
     const db=await this.getDb();
     const tx=db.transaction(META,'readonly');
     const store=tx.objectStore(META);
-    const [identity,bootstrap,legacyIdentity]=await Promise.all([
+    const [identity,bootstrap,legacyIdentity,cursor]=await Promise.all([
       request(store.get(VERIFIED_OFFLINE_ACTOR_KEY)) as Promise<{value?:{actorId?:string}}|undefined>,
-      request(store.get('authoritativeBootstrap')) as Promise<unknown>,
-      request(store.get(VERIFIED_EMPLOYEE_ROSTER_KEY)) as Promise<{value?:{actorId?:string}}|undefined>
+      request(store.get('authoritativeBootstrap')) as Promise<{value?:boolean}|undefined>,
+      request(store.get(VERIFIED_EMPLOYEE_ROSTER_KEY)) as Promise<{value?:{actorId?:string}}|undefined>,
+      request(store.get(CURSOR_KEY)) as Promise<{value?:ServerCursor}|undefined>
     ]);
-    // Older initialized browsers already persisted the exact bootstrap actor
-    // in their verified employee roster. Reuse the ID only, never employee
-    // details. Once online, the new directory verification replaces this.
-    return !!bootstrap && (identity?.value?.actorId===actorId ||
-      legacyIdentity?.value?.actorId===actorId);
+    // Do not trust a stale sessionStorage flag or a single directory record:
+    // both independently SQL-verified actor identities and an authoritative
+    // cursor must match before permitting financial work offline.
+    return !!bootstrap?.value &&
+      Number.isSafeInteger(cursor?.value?.sequence) &&
+      (cursor!.value!.sequence>=0) &&
+      identity?.value?.actorId===actorId &&
+      legacyIdentity?.value?.actorId===actorId;
   }
 
   async verifiedEmployeeIds():Promise<string[]|null>{
