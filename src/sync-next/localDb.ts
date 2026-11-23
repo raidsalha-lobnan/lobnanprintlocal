@@ -17,6 +17,7 @@ const META = 'meta';
 const RECEIPTS = 'receipts';
 const CURSOR_KEY = 'serverCursor';
 const VERIFIED_EMPLOYEE_ROSTER_KEY = 'verifiedEmployeeRosterV1';
+const VERIFIED_OFFLINE_ACTOR_KEY = 'verifiedOfflineActorV1';
 
 /** Identifies one record whose local visible projection may have changed.
  * IDs only: never broadcast financial values or credentials between tabs.
@@ -678,6 +679,29 @@ export class LocalSyncDb {
    * A persisted identity check survives browser reload without keeping a
    * duplicate employee table or adding any financial outbox commands.
    */
+  /** A previously authenticated SQL bootstrap or directory refresh binds
+   * this offline cache to one identity. Never authorize a different actor to
+   * open another user's financial snapshot while PostgreSQL is unreachable.
+   * This is a device-cache identity check, not a substitute for a server JWT.
+   */
+  async canOpenVerifiedOfflineCache(actorId:string):Promise<boolean>{
+    if(!actorId || !secureLoginEnabled() || actorId!==getCurrentSessionActorId())
+      return false;
+    const db=await this.getDb();
+    const tx=db.transaction(META,'readonly');
+    const store=tx.objectStore(META);
+    const [identity,bootstrap,legacyIdentity]=await Promise.all([
+      request(store.get(VERIFIED_OFFLINE_ACTOR_KEY)) as Promise<{value?:{actorId?:string}}|undefined>,
+      request(store.get('authoritativeBootstrap')) as Promise<unknown>,
+      request(store.get(VERIFIED_EMPLOYEE_ROSTER_KEY)) as Promise<{value?:{actorId?:string}}|undefined>
+    ]);
+    // Older initialized browsers already persisted the exact bootstrap actor
+    // in their verified employee roster. Reuse the ID only, never employee
+    // details. Once online, the new directory verification replaces this.
+    return !!bootstrap && (identity?.value?.actorId===actorId ||
+      legacyIdentity?.value?.actorId===actorId);
+  }
+
   async verifiedEmployeeIds():Promise<string[]|null>{
     const db=await this.getDb();
     const tx=db.transaction(META,'readonly');
@@ -1279,6 +1303,12 @@ export class LocalSyncDb {
         store.put(row);
       }
       meta.put({ key: CURSOR_KEY, value: cursor });
+      if(secureLoginEnabled()&&getCurrentSessionActorId()){
+        meta.put({key:VERIFIED_OFFLINE_ACTOR_KEY,value:{
+          actorId:getCurrentSessionActorId(),checkedAt:new Date().toISOString(),
+          origin:'authenticated-postgres-bootstrap'
+        }});
+      }
       meta.put({key:VERIFIED_EMPLOYEE_ROSTER_KEY,value:{
         actorId:getCurrentSessionActorId()||'',
         ids:records.filter(row=>row.entity==='employees' && row.value!==null).map(row=>row.id),
@@ -1433,7 +1463,7 @@ export class LocalSyncDb {
        !incoming.some(row=>row.entity==='roles'))
       throw new Error('POSTGRES_DIRECTORY_MISSING_CURRENT_ACTOR');
     const db=await this.getDb();
-    const tx=db.transaction([RECORDS,OUTBOX],'readwrite');
+    const tx=db.transaction([RECORDS,OUTBOX,META],'readwrite');
     const done=completed(tx);
     try {
       const store=tx.objectStore(RECORDS);
@@ -1460,6 +1490,11 @@ export class LocalSyncDb {
           store.put(row);changed++;
         }
       }
+      // Record the actor in the SAME transaction as the authorized directory:
+      // a crash cannot mark an unverified roster as available offline.
+      tx.objectStore(META).put({key:VERIFIED_OFFLINE_ACTOR_KEY,value:{
+        actorId,checkedAt:new Date().toISOString(),origin:'authenticated-directory'
+      }});
       await done;
       if(changed)this.changed(true,[...all,...incoming]);
       return changed;
