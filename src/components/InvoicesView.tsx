@@ -75,17 +75,32 @@ export const InvoicesView: React.FC = () => {
   } = useAccounting();
 
   const [revisions, setRevisions] = useState<{cmd: SyncCommand; server?: StoredRecord}[]>([]);
+  // Read the actual durable outbox, not the official-invoice React projection:
+  // rejected/offline operations disappear from ordinary rows by design, but
+  // the operator must ALWAYS see their local existence after a refresh.
+  const [localInvoiceQueue, setLocalInvoiceQueue] = useState<SyncCommand[]>([]);
   React.useEffect(() => {
-    if (!unifiedRepository || !currentUser?.id) { setRevisions([]); return; }
+    if (!unifiedRepository || !currentUser?.id) {
+      setRevisions([]);
+      setLocalInvoiceQueue([]);
+      return;
+    }
     const db = unifiedRepository.getLocalDb();
     let generation = 0;
     const reload = async () => {
       const sequence = ++generation;
-      const pending = (await db.pending()).filter(cmd => (cmd.invoiceRevision || (cmd.atomicInvoiceId && cmd.status !== 'pending')) && cmd.actorId === currentUser.id);
-      const rows = await Promise.all(pending.map(async cmd => ({
-        cmd, server: cmd.invoiceRevision && cmd.status === 'conflict' ? await db.confirmedInvoice(cmd.changes[0].id) : undefined
+      const operations=(await db.pending()).filter(cmd =>
+        cmd.actorId===currentUser.id && cmd.changes.some(change=>change.entity==='invoices'));
+      const review=operations.filter(cmd=>
+        cmd.invoiceRevision || (cmd.atomicInvoiceId && cmd.status !== 'pending'));
+      const rows = await Promise.all(review.map(async cmd => ({
+        cmd, server: cmd.invoiceRevision && cmd.status === 'conflict'
+          ? await db.confirmedInvoice(cmd.changes[0].id) : undefined
       })));
-      if (sequence === generation) setRevisions(rows);
+      if (sequence === generation) {
+        setLocalInvoiceQueue(operations);
+        setRevisions(rows);
+      }
     };
     const refresh = () => { void reload().catch(console.error); };
     const stop = db.subscribe(refresh);
@@ -137,6 +152,8 @@ export const InvoicesView: React.FC = () => {
   // It remains visible below in a separate, non-printable recovery section.
   const {confirmed: confirmedInvoices, awaitingConfirmation} = React.useMemo(
     ()=>separateInvoiceConfirmation(invoices),[invoices]);
+  const localPendingInvoices=localInvoiceQueue.filter(cmd=>cmd.status==='pending'&&!cmd.invoiceRevision).length;
+  const localBlockedInvoices=localInvoiceQueue.filter(cmd=>cmd.status!=='pending').length;
   const filteredInvoices = React.useMemo(() => confirmedInvoices
     .filter(inv => {
       const matchType = filterType === 'all' || inv.type === filterType;
@@ -361,6 +378,14 @@ export const InvoicesView: React.FC = () => {
             title="إجمالي عدد فواتير المبيعات المعتمدة في قاعدة البيانات" data-testid="sales-invoices-total-count">
             إجمالي الفواتير: {confirmedInvoices.length}
           </span>
+          {(localPendingInvoices>0||localBlockedInvoices>0)&&
+            <button type="button" onClick={openConflictModal}
+              data-testid="sales-invoices-local-queue"
+              title="عمليات محفوظة في قاعدة الجهاز ولم تؤكدها PostgreSQL؛ لا تعِد إدخالها، افتح للمراجعة"
+              className="whitespace-nowrap rounded border border-amber-300 bg-amber-50 px-2 py-1 font-bold tabular-nums text-amber-900 hover:bg-amber-100">
+              محلي غير معتمد: {localPendingInvoices}
+              {localBlockedInvoices>0?' • مراجعة: '+localBlockedInvoices:''}
+            </button>}
           <button type="button" onClick={()=>setInvoicePage(1)}
             disabled={displayedInvoicePage<=1} title="الصفحة الأولى"
             className="rounded border border-slate-300 bg-white px-1.5 py-1 font-bold whitespace-nowrap disabled:opacity-40">الأولى</button>
