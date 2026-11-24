@@ -241,6 +241,15 @@ export const PartiesView: React.FC = () => {
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isPartySaving, setIsPartySaving] = useState(false);
   const partySaveInFlightRef = React.useRef(false);
+  useEffect(()=>{
+    const preventRefreshMidWrite=(event:BeforeUnloadEvent)=>{
+      if(!partySaveInFlightRef.current)return;
+      event.preventDefault();
+      event.returnValue='';
+    };
+    window.addEventListener('beforeunload',preventRefreshMidWrite);
+    return()=>window.removeEventListener('beforeunload',preventRefreshMidWrite);
+  },[]);
   // SQL-unconfirmed customer commands are still locally durable, including
   // when the server rejected them. Do not let the ordinary customer directory
   // appear empty while a protected record is waiting in the local outbox.
