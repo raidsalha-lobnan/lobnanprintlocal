@@ -451,6 +451,18 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   // A synchronous lock complements React state: rapid clicks/keyboard repeat
   // cannot send a second financial command before the busy state renders.
   const posSaveUiInFlightRef = useRef(false);
+  // F5/closing the tab during an IndexedDB invoice transaction can abort the
+  // write before it receives a durable receipt. The normal save button
+  // already waits for commit; also warn on a manual browser refresh mid-save.
+  useEffect(()=>{
+    const warn=(event:BeforeUnloadEvent)=>{
+      if(!posSaveUiInFlightRef.current)return;
+      event.preventDefault();
+      event.returnValue='';
+    };
+    window.addEventListener('beforeunload',warn);
+    return()=>window.removeEventListener('beforeunload',warn);
+  },[]);
   const [isNetworkOffline, setIsNetworkOffline] = useState<boolean>(() => typeof navigator !== 'undefined' ? !navigator.onLine : false);
   const [isOfflineFrozen, setIsOfflineFrozen] = useState<boolean>(false);
   const [offlinePendingPrintMode, setOfflinePendingPrintMode] = useState<'none' | 'prompt' | 'thermal-direct' | 'a4-direct' | 'a4-custom-direct'>('none');
