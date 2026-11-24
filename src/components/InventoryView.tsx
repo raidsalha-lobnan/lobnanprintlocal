@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { claimMasterForm, finishMasterForm } from '../utils/masterFormNavigation';
 import { InventoryItem, ItemCategory, AdditionalBarcode, BarcodeFormat, CustomerSpecialPrice } from '../types';
@@ -106,8 +107,18 @@ export const InventoryView: React.FC = () => {
   }, [activeCurrency.rateAgainstBase, selectedCurrencyCode]);
 
   const [inventoryPage,setInventoryPage] = useState(1);
-  const [fittingRows,setFittingRows] = useState(12);
-  const tableViewportRef = useRef<HTMLDivElement|null>(null);
+  const [hoveredItemImage,setHoveredItemImage] = useState<{
+    name:string;url:string;top:number;left:number;
+  }|null>(null);
+  const showItemImagePreview = (event:React.MouseEvent<HTMLElement>,item:InventoryItem) => {
+    if(!item.imageUrl)return;
+    const box=event.currentTarget.getBoundingClientRect();
+    const previewWidth=256,previewHeight=260;
+    const top=box.bottom+8+previewHeight<=window.innerHeight
+      ?box.bottom+8 : Math.max(8,box.top-previewHeight-8);
+    const left=Math.max(8,Math.min(box.left,window.innerWidth-previewWidth-8));
+    setHoveredItemImage({name:item.name,url:item.imageUrl,top,left});
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -383,9 +394,9 @@ export const InventoryView: React.FC = () => {
     }), allCategories);
   }, [inventory, allCategories, categoryFilter, searchQuery, filterOnlyLowStock, filterOnlyFavorites, selectedWarehouseFilter]);
 
-  // The viewport (not a fixed 20-row guess) decides how many compact rows
-  // fit without any vertical page scroll. Card mode uses one compact row.
-  const inventoryPageSize=viewMode==='table'?fittingRows:4;
+  // Render every filtered item in the compact table; scroll inside the list.
+  // Card view keeps pagination, with no extra data fetch or duplicated records.
+  const inventoryPageSize=viewMode==='table'?Math.max(1,filteredItems.length):4;
   const inventoryPageCount=Math.max(1,Math.ceil(filteredItems.length/inventoryPageSize));
   const activeInventoryPage=Math.min(inventoryPage,inventoryPageCount);
   const visibleItems=useMemo(()=>filteredItems.slice(
@@ -396,24 +407,7 @@ export const InventoryView: React.FC = () => {
     searchQuery,categoryFilter,selectedWarehouseFilter,
     filterOnlyLowStock,filterOnlyFavorites,viewMode
   ]);
-  useEffect(()=>{
-    if(viewMode!=='table')return;
-    const host=tableViewportRef.current;
-    if(!host)return;
-    const measure=()=>{
-      const height=host.clientHeight;
-      if(!height)return;
-      const header=host.querySelector('thead')?.getBoundingClientRect().height || 32;
-      // Row content stays within the 32px height; leave a little rounding margin.
-      const rows=Math.max(1,Math.floor((height-header-5)/33));
-      setFittingRows(before=>before===rows?before:rows);
-    };
-    measure();
-    const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(measure);
-    observer?.observe(host);
-    window.addEventListener('resize',measure);
-    return ()=>{observer?.disconnect();window.removeEventListener('resize',measure);};
-  },[viewMode]);
+
 
   // Inventory financial totals
   const totalCostValue = inventory.reduce((acc, it) => acc + (it.stockQuantity * it.purchasePrice), 0);
@@ -1049,8 +1043,9 @@ export const InventoryView: React.FC = () => {
         )
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
-          <div ref={tableViewportRef} className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
-            <table className="inventory-one-row-table w-full min-w-[1360px] table-fixed text-right text-[11px] [&_td]:h-8 [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:h-8 [&_th]:px-1.5 [&_th]:py-1">
+          <div className="min-h-0 flex-1 overflow-auto overscroll-contain" data-testid="inventory-all-rows-scroll"
+            onScroll={()=>setHoveredItemImage(null)}>
+            <table className="inventory-one-row-table w-full min-w-[1360px] table-fixed text-right text-[11px] [&_td]:h-6 [&_td]:px-1 [&_td]:py-0 [&_th]:h-7 [&_th]:px-1 [&_th]:py-0.5">
               <colgroup>
                 <col style={{width:'190px'}}/>
                 <col style={{width:'260px'}}/>
@@ -1063,7 +1058,7 @@ export const InventoryView: React.FC = () => {
                 <col style={{width:'75px'}}/>
                 <col style={{width:'150px'}}/>
               </colgroup>
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[10px]">
                 <tr>
                   <th className="p-2.5">الكود والباركود</th>
                   <th className="p-2.5">الصورة واسم الصنف / الخامة</th>
@@ -1096,7 +1091,7 @@ export const InventoryView: React.FC = () => {
                     const warehouseDetail=warehouses.map(wh=>
                       wh.name+': '+getWarehouseStock(wh.id,item.id)+' '+item.unit).join(' • ');
                     return (
-                      <tr key={item.id} className="h-8 whitespace-nowrap border-b border-slate-100 hover:bg-slate-50">
+                      <tr key={item.id} className="h-6 whitespace-nowrap border-b border-slate-100 hover:bg-slate-50">
                         <td className="font-mono">
                           <div className="flex min-w-0 items-center gap-1">
                             <span className="shrink-0 font-bold text-blue-700">{item.code}</span>
@@ -1105,10 +1100,11 @@ export const InventoryView: React.FC = () => {
                               className="shrink-0 rounded bg-blue-50 px-1 text-[9px] text-blue-700">+{barcodeCount}</button>}
                           </div>
                         </td>
-                        <td>
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            {item.imageUrl?<img src={item.imageUrl} alt="" className="h-6 w-6 shrink-0 rounded border border-slate-200 object-cover"/>:
-                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-50"><ImageIcon className="h-3 w-3 text-slate-400"/></span>}
+                        <td onMouseEnter={event=>showItemImagePreview(event,item)}
+                            onMouseLeave={()=>setHoveredItemImage(null)}>
+                          <div className="flex min-w-0 items-center gap-1">
+                            {item.imageUrl?<img src={item.imageUrl} alt="" className="h-[18px] w-[18px] shrink-0 rounded border border-slate-200 object-cover" loading="lazy"/>:
+                              <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-50"><ImageIcon className="h-3 w-3 text-slate-400"/></span>}
                             <span className="min-w-0 flex-1 truncate font-semibold text-slate-800" title={[item.name,item.description].filter(Boolean).join(' — ')}>{item.name}</span>
                             <button type="button" onClick={()=>updateInventoryItem(item.id,{isFavorite:!item.isFavorite})}
                               title={item.isFavorite?'إزالة من المفضلة':'إضافة للمفضلة'}
@@ -1117,7 +1113,7 @@ export const InventoryView: React.FC = () => {
                             </button>
                           </div>
                         </td>
-                        <td><span className={`rounded px-1.5 py-0.5 text-[10px] ${badge.class}`}>{badge.label}</span></td>
+                        <td><span className={`rounded px-1 py-0 text-[10px] ${badge.class}`}>{badge.label}</span></td>
                         <td className="text-slate-600">{item.unit}</td>
                         <td className="font-mono tabular-nums text-slate-700" title={selectedCurrencyCode!=='ILS'?'≈ '+((Number(item.purchasePrice)||0)/(dailyExchangeRate||1)).toFixed(2)+' '+activeCurrency.symbol:undefined}>
                           {(Number(item.purchasePrice)||0).toFixed(2)} ₪
@@ -1138,7 +1134,7 @@ export const InventoryView: React.FC = () => {
                         </td>
                         <td title={warehouseDetail} className="font-mono tabular-nums">
                           {isService?<span className="text-slate-400">خدمة</span>:
-                            <span className={`rounded px-1.5 py-0.5 font-bold ${isLow?'bg-rose-100 text-rose-700':'text-slate-800'}`}>
+                            <span className={`rounded px-1 py-0 font-bold ${isLow?'bg-rose-100 text-rose-700':'text-slate-800'}`}>
                               {selectedWarehouseFilter==='all'?item.stockQuantity:getWarehouseStock(selectedWarehouseFilter,item.id)}
                             </span>}
                         </td>
@@ -1149,15 +1145,15 @@ export const InventoryView: React.FC = () => {
                         <td className="text-center">
                           <div className="flex items-center justify-center gap-0.5">
                             <button type="button" title="طباعة باركود وQR" onClick={()=>handleOpenBarcodeBank(item)}
-                              className="rounded p-1 text-indigo-600 hover:bg-indigo-50"><BarcodeIcon className="h-3.5 w-3.5"/></button>
+                              className="rounded p-0.5 text-indigo-600 hover:bg-indigo-50"><BarcodeIcon className="h-3 w-3"/></button>
                             <button type="button" title="بطاقة حركة المخزون" onClick={()=>handleOpenStockCard(item,'card')}
-                              className="rounded p-1 text-amber-700 hover:bg-amber-50"><ClipboardList className="h-3.5 w-3.5"/></button>
+                              className="rounded p-0.5 text-amber-700 hover:bg-amber-50"><ClipboardList className="h-3 w-3"/></button>
                             {!isService&&<button type="button" title="تسوية وجرد المخزون" onClick={()=>handleOpenStockCard(item,'adjust')}
-                              className="rounded p-1 text-slate-600 hover:bg-slate-100"><Sliders className="h-3.5 w-3.5"/></button>}
+                              className="rounded p-0.5 text-slate-600 hover:bg-slate-100"><Sliders className="h-3 w-3"/></button>}
                             <button type="button" title="تعديل الصنف" onClick={()=>handleOpenEdit(item)}
-                              className="rounded p-1 text-blue-700 hover:bg-blue-50"><Edit2 className="h-3.5 w-3.5"/></button>
+                              className="rounded p-0.5 text-blue-700 hover:bg-blue-50"><Edit2 className="h-3 w-3"/></button>
                             <button type="button" title="حذف الصنف" onClick={()=>handleDeleteItem(item)}
-                              className="rounded p-1 text-rose-600 hover:bg-rose-50"><Trash2 className="h-3.5 w-3.5"/></button>
+                              className="rounded p-0.5 text-rose-600 hover:bg-rose-50"><Trash2 className="h-3 w-3"/></button>
                           </div>
                         </td>
                       </tr>
@@ -1170,8 +1166,8 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* One permanent page navigator; only current-page rows enter the DOM. */}
-      <nav className="flex h-9 shrink-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 text-[11px]" dir="rtl"
+      {/* Card view remains paginated; table view exposes the full filtered catalog. */}
+      {viewMode === 'cards' ? (<nav className="flex h-9 shrink-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 text-[11px]" dir="rtl"
         aria-label="التنقل بين صفحات الأصناف" data-testid="inventory-pagination">
         <span className="shrink-0 font-semibold tabular-nums text-slate-600">
           {filteredItems.length? (activeInventoryPage-1)*inventoryPageSize+1:0}–{Math.min(activeInventoryPage*inventoryPageSize,filteredItems.length)}
@@ -1188,7 +1184,22 @@ export const InventoryView: React.FC = () => {
           <button type="button" onClick={()=>setInventoryPage(inventoryPageCount)} disabled={activeInventoryPage>=inventoryPageCount}
             className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">الأخيرة</button>
         </div>
-      </nav>
+      </nav>) : (
+        <div className="flex h-6 shrink-0 items-center justify-between rounded border border-slate-200 bg-white px-2 text-[10px] text-slate-600" dir="rtl">
+          <span data-testid="inventory-all-items-count">عرض جميع الأصناف المطابقة: {filteredItems.length} من {inventory.length}</span>
+          <span>مرّر داخل الجدول لاستعراض بقية الأصناف — مرّر الماوس فوق اسم الصنف لعرض صورته</span>
+        </div>
+      )}
+
+      {hoveredItemImage && typeof document !== 'undefined' && createPortal(
+        <div role="tooltip" aria-label={`صورة الصنف: ${hoveredItemImage.name}`}
+          className="pointer-events-none fixed z-[400] w-64 rounded-lg border border-slate-300 bg-white p-2 shadow-2xl"
+          style={{top:hoveredItemImage.top,left:hoveredItemImage.left}} dir="rtl">
+          <img src={hoveredItemImage.url} alt={hoveredItemImage.name}
+            className="h-[218px] w-full rounded-md bg-slate-50 object-contain"/>
+          <div className="mt-1 truncate text-center text-xs font-bold text-slate-800">{hoveredItemImage.name}</div>
+        </div>, document.body
+      )}
 
       {showAddModal && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
