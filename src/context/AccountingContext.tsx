@@ -7504,7 +7504,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           inventory:stock,parties:partiesSnapshot
         });
         if(!pending)localStorage.setItem(pendingKey,JSON.stringify({invoiceId,commandId,createdAt,signature}));
-        await enqueueAtomicInvoicePosting(repo,posting);
+        const savedCommandId = await enqueueAtomicInvoicePosting(repo,posting);
+        // Verify the postcondition before claiming even a local save. The
+        // command must still exist in the durable outbox OR have received an
+        // acknowledged server record. If storage vanished during a refresh,
+        // keep the cashier form intact and surface an explicit failure.
+        const locallyQueued=(await repo.getLocalDb().pending())
+          .some(cmd => cmd.id===savedCommandId);
+        const confirmed=locallyQueued ? null : await repo.getLocalDb().confirmedInvoice(invoiceId);
+        if(!locallyQueued && !confirmed?.value)
+          throw new Error('LOCAL_INVOICE_SAVE_RECEIPT_MISSING');
         // This is LOCAL persistence. Cloud acceptance arrives by normal sync ACK.
         // The repository subscriber updates all visible accounting entities.
         if(!draftId)localStorage.removeItem(pendingKey);

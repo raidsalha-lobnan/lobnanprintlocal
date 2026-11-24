@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'; // Trigger Sync
 import { DateInput } from '../components/common/DateInput';
 import { posDraftStorageKey } from '../utils/posDraftStorageKey';
+import { findRecoverableCashierDrafts } from '../utils/posDraftRecovery';
 import { useAccounting } from '../context/AccountingContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { MobilePosView } from './pos/MobilePosView';
@@ -485,6 +486,10 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   const savedPosDraft = useMemo(() => getInitialPosDraft(currentUser?.id), [currentUser?.id]);
 
   const draftIdRef = useRef(savedPosDraft.draftId || crypto.randomUUID());
+  // A browser restart can create a new tab slot while older unsent drafts
+  // remain in localStorage. Offer read-only discovery, never auto-replay them.
+  const [recoverableDrafts] = useState(() =>
+    findRecoverableCashierDrafts(localStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current));
   const [draftStorageFailed, setDraftStorageFailed] = useState(false);
   const [saveNotice, setSaveNotice] = useState('');
   React.useEffect(() => {
@@ -3615,6 +3620,14 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
   // البدء بفاتورة جديدة فوراً وتفريغ الشاشة (جديد Ctrl+N)
   const handleStartNewInvoice = () => {
+    if (posSaveUiInFlightRef.current) {
+      alert('عملية حفظ الفاتورة لم تكتمل بعد. لا يمكن فتح فاتورة جديدة حتى يؤكد الجهاز حفظ العملية محلياً.');
+      return;
+    }
+    const hasUnsentInput = !!editingPosInvoiceId ||
+      tableLines.some(line => !!line.itemName?.trim() || Number(line.unitPrice || 0) > 0) ||
+      !!invoiceNotes.trim() || !!paymentNotes.trim() || !!subCustomerName.trim();
+    if (hasUnsentInput && !window.confirm('توجد بيانات فاتورة على الشاشة لم تؤكد عملية حفظها بعد. هل تريد تركها وفتح فاتورة جديدة؟')) return;
     handleClearInvoiceDirect(true);
     posSound.beep();
     try {
@@ -3750,6 +3763,40 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
   return (
     <div className="flex flex-col h-full w-full bg-[#dbe4ef] text-slate-800 text-xs font-sans select-none relative overflow-hidden" dir="rtl">
+      {recoverableDrafts.length > 0 && !savedPosDraft.tableLines?.some(line => !!line.itemName?.trim()) && (
+        <div role="alert" className="bg-amber-50 border-b border-amber-400 px-3 py-2 text-amber-950 text-xs flex flex-wrap items-center gap-2">
+          <strong>عُثر على مسودات كاشير من تبويبات سابقة. راجع سجل الفواتير قبل استعادتها أو إعادة حفظها.</strong>
+          {recoverableDrafts.slice(0, 3).map(candidate => (
+            <button key={candidate.key} type="button"
+              className="rounded border border-amber-600 bg-white px-2 py-1 font-bold hover:bg-amber-100"
+              onClick={() => {
+                if (posSaveUiInFlightRef.current) {
+                  alert('انتظر اكتمال الحفظ المحلي الحالي أولاً.');
+                  return;
+                }
+                if (!window.confirm('استعادة المسودة: ' + candidate.itemPreview +
+                  '؟ قد تكون المسودة مفتوحة في تبويب آخر. راجع سجل الفواتير قبل إعادة حفظها لتجنب التكرار.')) return;
+                try {
+                  const active = localStorage.getItem(POS_FULL_DRAFT_KEY);
+                  if (active && active !== candidate.raw) {
+                    const previous = JSON.parse(active);
+                    if (previous?.tableLines?.some((line: PosTableLine) =>
+                      !!line.itemName?.trim()) || previous?.invoiceNotes?.trim()) {
+                      localStorage.setItem(
+                        'pos_active_full_draft:' + ownerId + ':backup-' + crypto.randomUUID(), active);
+                    }
+                  }
+                  localStorage.setItem(POS_FULL_DRAFT_KEY, candidate.raw);
+                  window.location.reload();
+                } catch {
+                  alert('تعذرت استعادة المسودة. لم نغيّر الفاتورة المعتمدة؛ لا تمسح بيانات المتصفح.');
+                }
+              }}>
+              استعادة: {candidate.itemPreview} ({new Date(candidate.timestamp || Date.now()).toLocaleDateString('ar-EG')})
+            </button>
+          ))}
+        </div>
+      )}
       {draftStorageFailed && <div role="alert">تعذّر حفظ المسودة على الجهاز. أبقِ الشاشة مفتوحة حتى يكتمل حفظ الفاتورة.</div>}
       {saveNotice && <div role="status" className="absolute top-2 left-2 z-50 rounded bg-emerald-900 px-3 py-2 text-white">{saveNotice}</div>}
       {/* Mobile Switch Back Bar */}
