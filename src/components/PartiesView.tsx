@@ -236,9 +236,14 @@ export const PartiesView: React.FC = () => {
   }, []);
 
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [isPartySaving, setIsPartySaving] = useState(false);
+  const partySaveInFlightRef = React.useRef(false);
 
-  const handleSaveParty = (e: React.FormEvent) => {
+  const handleSaveParty = async (e: React.FormEvent) => {
     e.preventDefault();
+    // An async IndexedDB write must finish BEFORE announcing success,
+    // closing the form or allowing a second click that can duplicate a party.
+    if(partySaveInFlightRef.current)return;
     const trimmedName = name.trim();
     if (editingPartyId && isCashCustomerParty(parties.find(p => p.id === editingPartyId))) {
       setToastMsg({text:'العميل النقدي CUST-0001 لا يمكن تعديله.',type:'error'});
@@ -256,6 +261,8 @@ export const PartiesView: React.FC = () => {
     }
 
     let savedPartyId: string | null = editingPartyId;
+    partySaveInFlightRef.current=true;
+    setIsPartySaving(true);
     try {
       if (editingPartyId) {
         updateParty(editingPartyId, {
@@ -281,7 +288,7 @@ export const PartiesView: React.FC = () => {
           type: 'success'
         });
       } else {
-        const createdParty = addParty({
+        const createdParty = await addParty({
           type: partyType,
           name: trimmedName,
           contactPerson: (contactPerson || '').trim(),
@@ -304,7 +311,7 @@ export const PartiesView: React.FC = () => {
         savedPartyId = createdParty.id;
         posSound.playSuccessBeep();
         setToastMsg({
-          text: `تم تسجيل العميل الجديد "${trimmedName}" بنجاح في الدليل!`,
+          text: `تم حفظ العميل "${trimmedName}" في قاعدة الجهاز بنجاح؛ اعتماد PostgreSQL يتم بالمزامنة.`,
           type: 'success'
         });
       }
@@ -315,10 +322,15 @@ export const PartiesView: React.FC = () => {
         setToastMsg(null);
       }, 4500);
     } catch (err: any) {
+      // Keep the entire editor and all inputs. An IndexedDB error is NOT a
+      // confirmed save and must never be followed by a success sound.
       setToastMsg({
-        text: `حدث خطأ أثناء حفظ التعديلات: ${err?.message || 'يرجى المحاولة مجدداً'}`,
+        text: `لم يُحفظ العميل على هذا الجهاز: ${err?.message || 'تعذّر تأكيد الحفظ المحلي'}. احتفظ بالمدخلات ولا تحدّث الصفحة قبل حل مشكلة التخزين.`,
         type: 'error'
       });
+    } finally {
+      partySaveInFlightRef.current=false;
+      setIsPartySaving(false);
     }
   };
 
@@ -1140,16 +1152,19 @@ export const PartiesView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowPartyModal(false)}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md cursor-pointer text-xs font-semibold"
+                  disabled={isPartySaving}
+                  className="disabled:opacity-50 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md cursor-pointer text-xs font-semibold"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md shadow-xs cursor-pointer text-xs flex items-center gap-1.5"
+                  disabled={isPartySaving}
+                  aria-busy={isPartySaving}
+                  className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60 text-white font-bold rounded-md shadow-xs cursor-pointer text-xs flex items-center gap-1.5"
                 >
                   <Check className="w-4 h-4" />
-                  <span>{editingPartyId ? 'حفظ التعديلات والأسعار الخاصة' : 'تسجيل الحساب بالدليل'}</span>
+                  <span>{isPartySaving ? 'جارٍ تأكيد الحفظ المحلي…' : editingPartyId ? 'حفظ التعديلات والأسعار الخاصة' : 'تسجيل الحساب بالدليل'}</span>
                 </button>
               </div>
             </form>
