@@ -64,3 +64,23 @@ test('sales and customer headers disclose local/rejected outbox state instead of
   assert.match(partiesView,/customers-local-outbox/);
   assert.match(partiesView,/localPartyQueue\.blocked/);
 });
+
+const quickAdd=readFileSync(new URL('../src/components/pos/QuickAddPartyModal.tsx',import.meta.url),'utf8');
+const posView=readFileSync(new URL('../src/components/PosView.tsx',import.meta.url),'utf8');
+
+test('POS quick-add customer waits for the local write and keeps inputs on failure',()=>{
+ const start=quickAdd.indexOf('const handleSubmit = async');
+ const end=quickAdd.indexOf('\n  return (',start);
+ const section=quickAdd.slice(start,end);
+ assert.match(section,/const created = await addParty\(/);
+ assert.match(section,/onSuccess\(\{ id: created\.id/);
+ assert.ok(section.indexOf('const created = await addParty(')<section.indexOf('onSuccess({ id: created.id'));
+ assert.match(section,/setErrorMessage\('لم يتم حفظ الطرف على هذا الجهاز/);
+ assert.match(quickAdd,/disabled=\{savingEntry\}/);
+});
+
+test('cashier and customer editors warn on reload ONLY while a durable save is in progress',()=>{
+ assert.match(posView,/posSaveUiInFlightRef\.current\)return;[\s\S]*?event\.preventDefault\(\)/);
+ assert.match(partiesView,/partySaveInFlightRef\.current\)return;[\s\S]*?event\.preventDefault\(\)/);
+ assert.match(quickAdd,/saveInFlightRef\.current\)return;[\s\S]*?event\.preventDefault\(\)/);
+});
