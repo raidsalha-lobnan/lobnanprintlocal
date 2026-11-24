@@ -66,6 +66,15 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
   const employeeWriteRef = useRef(false);
   const [savingEmployee, setSavingEmployee] = useState(false);
   const saveInFlightRef = useRef(false);
+  useEffect(()=>{
+    const preventRefreshMidWrite=(event:BeforeUnloadEvent)=>{
+      if(!saveInFlightRef.current)return;
+      event.preventDefault();
+      event.returnValue='';
+    };
+    window.addEventListener('beforeunload',preventRefreshMidWrite);
+    return()=>window.removeEventListener('beforeunload',preventRefreshMidWrite);
+  },[]);
   const [savingEntry,setSavingEntry] = useState(false);
 
   useEffect(() => {
