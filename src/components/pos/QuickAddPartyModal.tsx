@@ -65,6 +65,8 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const employeeWriteRef = useRef(false);
   const [savingEmployee, setSavingEmployee] = useState(false);
+  const saveInFlightRef = useRef(false);
+  const [savingEntry,setSavingEntry] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -107,7 +109,7 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(targetType==='employee'&&employeeWriteRef.current)return;
+    if(saveInFlightRef.current || (targetType==='employee'&&employeeWriteRef.current))return;
     setErrorMessage(null);
 
     const trimmedName = name.trim();
@@ -176,9 +178,13 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
       }
     }
 
+    saveInFlightRef.current=true;
+    setSavingEntry(true);
     try {
       if (targetType === 'customer' || targetType === 'supplier') {
-        const created = addParty({
+        // The customer can be selected only AFTER a committed IndexedDB
+        // outbox write. Never close the POS editor on an unresolved Promise.
+        const created = await addParty({
           name: trimmedName,
           type: isSubCustomer ? 'customer' : targetType,
           isSubCustomer: isSubCustomer || undefined,
@@ -227,8 +233,12 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
         onClose();
       }
     } catch (err: any) {
-      setErrorMessage(err?.message || 'حدث خطأ أثناء إضافة العميل');
+      // Keep this form and its input values when IndexedDB or authentication
+      // is unavailable. A green server icon does not certify local storage.
+      setErrorMessage('لم يتم حفظ الطرف على هذا الجهاز: '+(err?.message||'تعذّر تأكيد الحفظ المحلي'));
     } finally {
+      saveInFlightRef.current=false;
+      setSavingEntry(false);
       if(targetType==='employee'){
         employeeWriteRef.current=false;
         setSavingEmployee(false);
@@ -267,7 +277,8 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 hover:bg-white/20 rounded-xl text-emerald-100 hover:text-white transition-colors cursor-pointer"
+            disabled={savingEntry}
+            className="p-1.5 disabled:opacity-40 hover:bg-white/20 rounded-xl text-emerald-100 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -543,17 +554,19 @@ export const QuickAddPartyModal: React.FC<QuickAddPartyModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-colors"
+              disabled={savingEntry}
+              className="px-4 py-2 disabled:opacity-40 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-colors"
             >
               إلغاء
             </button>
             <button
               type="submit"
-              disabled={targetType==='employee'&&(savingEmployee||!unifiedRepository)}
+              disabled={savingEntry || (targetType==='employee'&&(savingEmployee||!unifiedRepository))}
+              aria-busy={savingEntry}
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-md cursor-pointer transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Check className="w-4 h-4" />
-              <span>{partyToEdit ? 'حفظ تعديلات العميل والاعتماد' : 'حفظ وإدراج في الفاتورة فوراً'}</span>
+              <span>{savingEntry?'جارٍ تأكيد الحفظ المحلي…':partyToEdit ? 'حفظ تعديلات العميل والاعتماد' : 'حفظ وإدراج في الفاتورة فوراً'}</span>
             </button>
           </div>
         </form>
