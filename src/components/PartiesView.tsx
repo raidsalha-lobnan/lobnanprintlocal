@@ -66,7 +66,10 @@ export const PartiesView: React.FC = () => {
     createPaymentVoucher,
     createReceiptVoucherAtomic,
     treasuries,
-    settings
+    settings,
+    unifiedRepository,
+    currentUser,
+    openConflictModal
   } = useAccounting();
 
   // Balance Reconciliation Modal State
@@ -238,6 +241,33 @@ export const PartiesView: React.FC = () => {
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isPartySaving, setIsPartySaving] = useState(false);
   const partySaveInFlightRef = React.useRef(false);
+  // SQL-unconfirmed customer commands are still locally durable, including
+  // when the server rejected them. Do not let the ordinary customer directory
+  // appear empty while a protected record is waiting in the local outbox.
+  const [localPartyQueue,setLocalPartyQueue] = useState<{pending:number;blocked:number}>({pending:0,blocked:0});
+  useEffect(()=>{
+    if(!unifiedRepository||!currentUser?.id){
+      setLocalPartyQueue({pending:0,blocked:0});
+      return;
+    }
+    let generation=0;
+    const local=unifiedRepository.getLocalDb();
+    const refresh=()=>{
+      const id=++generation;
+      void local.pending().then(commands=>{
+        if(id!==generation)return;
+        const own=commands.filter(cmd=>cmd.actorId===currentUser.id &&
+          cmd.changes.some(change=>change.entity==='parties'));
+        setLocalPartyQueue({
+          pending:own.filter(cmd=>cmd.status==='pending').length,
+          blocked:own.filter(cmd=>cmd.status!=='pending').length
+        });
+      }).catch(error=>console.warn('Local customer queue status unavailable',error));
+    };
+    const off=local.subscribe(refresh);
+    refresh();
+    return()=>{generation++;off()};
+  },[unifiedRepository,currentUser?.id]);
 
   const handleSaveParty = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -511,6 +541,14 @@ export const PartiesView: React.FC = () => {
           <div className="min-w-0">
             <h2 className="text-[12px] font-black text-slate-900 whitespace-nowrap">دليل العملاء وكشوف الحساب</h2>
           </div>
+          {(localPartyQueue.pending>0||localPartyQueue.blocked>0)&&
+            <button type="button" onClick={openConflictModal}
+              title="عملاء محفوظون في قاعدة هذا الجهاز ولم تؤكدهم PostgreSQL؛ لا تُعِد إدخالهم"
+              data-testid="customers-local-outbox"
+              className="shrink-0 whitespace-nowrap rounded border border-amber-300 bg-amber-50 px-1.5 py-1 text-[10px] font-bold text-amber-900 hover:bg-amber-100">
+              عملاء محليون: {localPartyQueue.pending}
+              {localPartyQueue.blocked>0?' • مراجعة: '+localPartyQueue.blocked:''}
+            </button>}
         </div>
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap">
           <button type="button" onClick={() => setShowReconciliationModal(true)}
