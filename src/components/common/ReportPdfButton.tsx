@@ -24,7 +24,7 @@ export function ReportPdfButton({filename,selector,scope,paper='a4',compact,numb
   }finally{running.current=false;setBusy(false);}
  };
  return <button ref={button} type="button" disabled={busy} onClick={()=>void save()}
-  title="حفظ مباشر PDF باستخدام Typst دون نافذة الطباعة"
+  title="حفظ PDF مطابق لإعدادات الطباعة الحالية"
   className={className||'print:hidden inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg disabled:opacity-50'}>
   <FileDown className="w-4 h-4"/>{busy?'جارٍ إنشاء PDF…':'حفظ PDF'}
  </button>;
