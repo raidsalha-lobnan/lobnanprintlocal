@@ -56,6 +56,8 @@ function powershellInstallCommand({oldPid,installer,appExecutable}){
  const workdirLiteral=safelyQuotedPs(path.dirname(appExecutable));
  return [
   '$ErrorActionPreference = "Stop"',
+  '$log = '+safelyQuotedPs(path.join(path.dirname(installer),'install-helper.log')),
+  'try { Start-Transcript -Path $log -Append | Out-Null } catch {}',
   '$oldPid = '+Number(oldPid),
   'for ($i=0; $i -lt 180; $i++) {',
   '  if (-not (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) { break }',
@@ -65,6 +67,7 @@ function powershellInstallCommand({oldPid,installer,appExecutable}){
   '$installer = '+installerLiteral,
   'if (-not (Test-Path -LiteralPath $installer)) { exit 5 }',
   '$result = Start-Process -FilePath $installer -ArgumentList @("/S") -Wait -PassThru',
+  'Write-Output ("Installer exit code: " + $result.ExitCode)',
   'if ($result.ExitCode -ne 0) { exit 6 }',
   'Start-Process -FilePath '+appLiteral+' -WorkingDirectory '+workdirLiteral,
   'exit 0'
@@ -168,15 +171,15 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   task=(async()=>{
    try{
     const staged=await checkStaged();
-    if(staged){
-     const attempts=readJSON(attemptsPath);
-     if(attempts?.version===staged.version&&
-        Number(attempts.count)>=MAX_INSTALL_ATTEMPTS)
-      setStatus('install-error',{version:staged.version,percent:100});
-     else
-      setStatus('ready',{version:staged.version,percent:100});
+    const attempts=readJSON(attemptsPath);
+    const blocked=Boolean(staged&&attempts?.version===staged.version&&
+      Number(attempts.count)>=MAX_INSTALL_ATTEMPTS);
+    if(staged&&!blocked){
+     setStatus('ready',{version:staged.version,percent:100});
      return getStatus();
     }
+    // A failed staged release must not prevent future releases from being
+    // discovered. Keep the old file intact until a newer asset is verified.
     setStatus('checking',{percent:null,version:null});
     const res=await fetchImpl(RELEASES_API,{
      headers:{Accept:'application/vnd.github+json',
@@ -186,6 +189,10 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
     if(!res.ok)throw Error('DESKTOP_UPDATE_RELEASE_QUERY_'+res.status);
     const release=await res.json();
     const asset=officialAsset(release,app.getVersion());
+    if(blocked&&(!asset||compareVersions(asset.version,staged.version)<=0)){
+     setStatus('install-error',{version:staged.version,percent:100});
+     return getStatus();
+    }
     if(!asset){setStatus('current',{version:null,percent:null});return getStatus();}
     setStatus('downloading',{version:asset.version,percent:0});
     await stageRelease(asset);
