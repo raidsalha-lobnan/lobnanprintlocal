@@ -1,6 +1,6 @@
 # Restart only the verified private Lobnan API listener after a tested update.
 # PostgreSQL, zrok names, and financial database remain untouched.
-param([string]$FrontendOrigin='https://lobnanprintlocal.vercel.app')
+param([string]$FrontendOrigin='https://lobnanprintlocal.vercel.app,https://lobnanprintlocal-secure.vercel.app')
 $ErrorActionPreference='Stop'
 $listener=Get-NetTCPConnection -State Listen -LocalPort 4577 -ErrorAction SilentlyContinue |
  Where-Object {$_.LocalAddress -eq '127.0.0.1'} | Select-Object -First 1
