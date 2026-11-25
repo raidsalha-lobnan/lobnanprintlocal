@@ -39,3 +39,11 @@ test('installed desktop shows the SQLite file provided by native main process',(
   assert.match(main,/lobnan:storage-info/);
   assert.match(main,/databasePath:storage\.databaseFile/);
 });
+
+test('installer choices are available even before PostgreSQL login',()=>{
+  const login=read('src/components/LoginView.tsx');
+  assert.match(login,/خيارات تثبيت البرنامج/);
+  assert.match(login,/<DesktopDownloadButton \/>/);
+  assert.match(login,/<PWAInstallButton \/>/);
+  assert.match(login,/<DesktopStorageStatus \/>/);
+});
