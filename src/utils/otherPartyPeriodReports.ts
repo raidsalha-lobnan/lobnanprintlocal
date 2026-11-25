@@ -1,3 +1,4 @@
+import {openReportPrintWindow} from './openReportPrintWindow';
 import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 import type {Party, Employee, Invoice, PaymentVoucher, PurchaseInvoice, PurchaseReturn, SalesReturn, PrintJobOrder, JournalEntry, DebtClearingRecord, EmployeeAdvance, EmployeeDeduction, EmployeeIncentive, PayrollSheet} from '../types';
 import {generateAccountStatement, generateEmployeeStatement} from './statementGenerator';
@@ -98,7 +99,7 @@ const columnHTML=(value:unknown,index:number)=>'<td class="'+(index<2?'':'number
 /** Read-only A4 report; it does not post ledger entries or change balances. */
 export function printDirectoryPeriodReport(title:string,company:string,filter:DirectoryDateFilter,
  columns:string[],data:(string|number)[][],currency:string,explanation:string){
- const pop=window.open('','_blank');
+ const pop=openReportPrintWindow();
  if(!pop){window.alert('يرجى السماح بفتح نافذة الطباعة.');return;}
  const bounds=directoryBounds(filter);
  const markup='<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>'+
