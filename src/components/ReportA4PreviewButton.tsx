@@ -1,4 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
+import {createPortal} from 'react-dom';
 import {ChevronLeft,ChevronRight,FileText,X,Download} from 'lucide-react';
 import type {PDFDocumentProxy,RenderTask,PDFDocumentLoadingTask} from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
@@ -79,7 +80,7 @@ export const ReportA4PreviewButton:React.FC<{onBrowserPrint:()=>void;reportKey:s
    <FileText className="w-4 h-4"/>{busy?'جارٍ تجهيز A4...':'معاينة A4'}
   </button>
   {error&&!pdf&&<div className="text-xs text-red-700 print:hidden" role="alert">{error}</div>}
-  {pdf&&<div data-no-print="true" className="fixed inset-0 z-[200] bg-slate-900/75 flex flex-col items-center gap-2 p-3 print:hidden" dir="rtl" role="dialog" aria-label="معاينة صفحات A4">
+  {pdf&&createPortal(<div data-no-print="true" className="fixed inset-0 z-[200] bg-slate-900/75 flex flex-col items-center gap-2 p-3 print:hidden" dir="rtl" role="dialog" aria-label="معاينة صفحات A4">
    <div className="flex flex-wrap items-center gap-2 bg-white px-3 py-2 rounded text-slate-900 shadow">
     <button type="button" aria-label="الصفحة السابقة" disabled={page<=1} onClick={()=>setPage(p=>p-1)}><ChevronRight className="h-5 w-5"/></button>
     <strong>صفحة {page} من {pdf.numPages} — A4</strong>
@@ -89,6 +90,6 @@ export const ReportA4PreviewButton:React.FC<{onBrowserPrint:()=>void;reportKey:s
    </div>
    {error&&<p className="bg-white text-red-700 p-2">{error}</p>}
    <div className="flex-1 min-h-0 overflow-auto w-full flex justify-center items-start"><canvas ref={canvas} className="bg-white shadow-xl" aria-label={'صفحة التقرير '+page}/></div>
-  </div>}
+  </div>,document.body)}
  </>;
 };
