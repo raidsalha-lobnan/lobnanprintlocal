@@ -18,6 +18,19 @@ export type PosAttemptIdentity = {
   signature: string;
 };
 
+type NativeAttemptBridge={
+ sqliteLocalStorage?:boolean;
+ readPosAttempt:(key:string)=>Promise<PosAttemptIdentity|null>;
+ savePosAttempt:(key:string,value:PosAttemptIdentity)=>Promise<boolean>;
+ deletePosAttempt:(key:string)=>Promise<boolean>;
+};
+function nativeBridge():NativeAttemptBridge|null{
+ const api=(globalThis as unknown as {electronAPI?:NativeAttemptBridge}).electronAPI;
+ return api?.sqliteLocalStorage && typeof api.readPosAttempt==='function' &&
+  typeof api.savePosAttempt==='function' && typeof api.deletePosAttempt==='function'
+   ?api:null;
+}
+
 let databasePromise: Promise<IDBDatabase> | null = null;
 
 function database(): Promise<IDBDatabase> {
@@ -75,6 +88,8 @@ async function indexedAttempt(key:string): Promise<PosAttemptIdentity|null> {
 
 export async function readPosAttempt(key:string): Promise<PosAttemptIdentity|null> {
   checkKey(key);
+  const native=nativeBridge();
+  if(native)return native.readPosAttempt(key);
   const saved=await indexedAttempt(key);
   if(saved) return saved;
 
@@ -91,6 +106,11 @@ export async function readPosAttempt(key:string): Promise<PosAttemptIdentity|nul
 
 export async function writePosAttempt(key:string,value:PosAttemptIdentity):Promise<void> {
   checkKey(key);
+  const native=nativeBridge();
+  if(native){
+    if(await native.savePosAttempt(key,value)!==true)throw Error('DESKTOP_POS_ATTEMPT_NOT_DURABLE');
+    return;
+  }
   const db=await database();
   const tx=db.transaction(STORE,'readwrite');
   const done=committed(tx);
@@ -101,6 +121,11 @@ export async function writePosAttempt(key:string,value:PosAttemptIdentity):Promi
 
 export async function removePosAttempt(key:string):Promise<void> {
   checkKey(key);
+  const native=nativeBridge();
+  if(native){
+    if(await native.deletePosAttempt(key)!==true)throw Error('DESKTOP_POS_ATTEMPT_REMOVE_UNCONFIRMED');
+    return;
+  }
   const db=await database();
   const tx=db.transaction(STORE,'readwrite');
   const done=committed(tx);
