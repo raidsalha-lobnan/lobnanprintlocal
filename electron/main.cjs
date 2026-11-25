@@ -59,6 +59,7 @@ function trusted(event){
   !sender||!sender.url.startsWith('file://'))
   throw Error('DESKTOP_UNTRUSTED_RENDERER');
 }
+const reportPrintWindows=new Map();
 function registerIpc(){
  let generatingReportPdf=false;
  ipcMain.handle('lobnan:report-a4-preview',async event=>{
@@ -68,6 +69,21 @@ function registerIpc(){
   try{
    const data=await mainWindow.webContents.printToPDF({pageSize:'A4',preferCSSPageSize:true,printBackground:true,scale:1});
    if(!data.length||data.length>60_000_000)throw Error('REPORT_PREVIEW_SIZE_INVALID');
+   return new Uint8Array(data);
+  }finally{generatingReportPdf=false;}
+ });
+ ipcMain.handle('lobnan:render-print-pdf',async(event,request)=>{
+  trusted(event);
+  if(generatingReportPdf)throw Error('REPORT_PREVIEW_BUSY');
+  const name=request?.windowName;
+  if(name!==undefined&&(typeof name!=='string'||!/^lobnan-print-[a-z0-9]+-[a-z0-9]+$/.test(name)))throw Error('INVALID_PRINT_WINDOW');
+  const target=name?reportPrintWindows.get(name):mainWindow;
+  if(!target||target.isDestroyed()||target.webContents.isDestroyed())throw Error('PRINT_WINDOW_UNAVAILABLE');
+  generatingReportPdf=true;
+  try{
+   // Original DOM + @media print + named @page rules. No reconstruction.
+   const data=await target.webContents.printToPDF({pageSize:'A4',preferCSSPageSize:true,printBackground:true,displayHeaderFooter:false,scale:1});
+   if(data.length<100||data.length>150_000_000||data.subarray(0,5).toString()!=='%PDF-')throw Error('PRINT_PDF_INVALID');
    return new Uint8Array(data);
   }finally{generatingReportPdf=false;}
  });
@@ -371,7 +387,11 @@ function createWindow(){
   if(/^https:\/\//i.test(url))void shell.openExternal(url);
   return {action:'deny'};
  });
- mainWindow.webContents.on('did-create-window',(child)=>{
+ mainWindow.webContents.on('did-create-window',(child,details)=>{
+  if(details.url==='about:blank'&&/^lobnan-print-[a-z0-9]+-[a-z0-9]+$/.test(details.frameName||'')){
+   const name=details.frameName;reportPrintWindows.set(name,child);
+   child.once('closed',()=>{if(reportPrintWindows.get(name)===child)reportPrintWindows.delete(name);});
+  }
   // Keep locally generated print windows isolated from external navigation.
   // All privileged IPC still checks the original main window sender.
   child.webContents.setWindowOpenHandler(()=>({action:'deny'}));
