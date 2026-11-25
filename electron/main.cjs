@@ -39,6 +39,35 @@ function trusted(event){
   throw Error('DESKTOP_UNTRUSTED_RENDERER');
 }
 function registerIpc(){
+ // Opt-in credentials are protected by the Windows user account via DPAPI.
+ const credentialFile=path.join(storage.profileDir,'remembered-login.bin');
+ const safeStorage=require('electron').safeStorage;
+ ipcMain.handle('lobnan:remember-login', (event,credentials)=>{
+  trusted(event);
+  if(process.platform!=='win32'||!safeStorage.isEncryptionAvailable())throw Error('CREDENTIAL_ENCRYPTION_UNAVAILABLE');
+  if(!credentials||typeof credentials.identifier!=='string'||typeof credentials.password!=='string'||
+   !credentials.identifier.trim()||!credentials.password||credentials.identifier.length>512||credentials.password.length>4096)
+   throw Error('INVALID_REMEMBERED_LOGIN');
+  const encrypted=safeStorage.encryptString(JSON.stringify({identifier:credentials.identifier,password:credentials.password}));
+  fs.writeFileSync(credentialFile+'.tmp',encrypted);
+  fs.renameSync(credentialFile+'.tmp',credentialFile);
+  return true;
+ });
+ ipcMain.handle('lobnan:read-remembered-login',event=>{
+  trusted(event);
+  if(!fs.existsSync(credentialFile))return null;
+  if(process.platform!=='win32'||!safeStorage.isEncryptionAvailable())throw Error('CREDENTIAL_ENCRYPTION_UNAVAILABLE');
+  const value=JSON.parse(safeStorage.decryptString(fs.readFileSync(credentialFile)));
+  if(typeof value.identifier!=='string'||typeof value.password!=='string')throw Error('INVALID_REMEMBERED_LOGIN');
+  return value;
+ });
+ ipcMain.handle('lobnan:forget-login',event=>{
+  trusted(event);
+  fs.rmSync(credentialFile,{force:true});
+  fs.rmSync(credentialFile+'.tmp',{force:true});
+  return true;
+ });
+
  ipcMain.handle('lobnan:desktop-update-status',event=>{
   trusted(event);
   return desktopUpdater?.getStatus()||{phase:'disabled'};
