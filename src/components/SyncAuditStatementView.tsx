@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import {LegacyInvoiceAuditPanel} from './LegacyInvoiceAuditPanel';
@@ -449,7 +450,7 @@ export const SyncAuditStatementView: React.FC = () => {
   }, []);
 
   return (
-    <div className="space-y-1.5 p-0.5 sm:p-1 text-slate-800" dir="rtl">
+    <div data-pdf-document className="space-y-1.5 p-0.5 sm:p-1 text-slate-800" dir="rtl">
 
       {/* Condensed statement header and single-line indicators. */}
       <div className="bg-white rounded-lg border border-slate-300 shadow-xs px-2 py-1.5 print:border-none print:shadow-none">
@@ -476,6 +477,7 @@ export const SyncAuditStatementView: React.FC = () => {
               className="px-2 py-1.5 rounded-md border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 text-[11px] font-bold whitespace-nowrap">
               {showAdvancedTools ? 'إخفاء الفحص' : 'أدوات الفحص'}
             </button>
+            <ReportPdfButton filename={'كشف المزامنة - '+statementVoucherNumber} numberPages selector="[data-pdf-document]" scope="[data-pdf-document]" />
             <button type="button" onClick={() => window.print()}
               className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[11px] font-medium">
               <Printer className="w-3 h-3" /> طباعة
