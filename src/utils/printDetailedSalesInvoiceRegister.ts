@@ -1,3 +1,4 @@
+import {openReportPrintWindow} from './openReportPrintWindow';
 import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 import { renderBusinessReportHeader } from './reportBusinessHeader';
 import type { BusinessSettings, Invoice, Treasury } from '../types';
@@ -385,7 +386,7 @@ export function printDetailedSalesInvoiceRegister(
   // Printing must use official PostgreSQL-approved documents, never TEMP drafts.
   const confirmedInvoices=invoices.filter(isConfirmedSalesInvoice);
   if(!confirmedInvoices.length)return false;
-  const popup=window.open('','_blank');
+  const popup=openReportPrintWindow();
   if(!popup){
     window.alert('تعذّر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.');
     return false;
