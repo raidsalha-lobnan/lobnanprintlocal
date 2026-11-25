@@ -1367,10 +1367,11 @@ td.empty-row-shaded {
   vertical-align: middle !important;
 }
 .inventory-one-row-table tbody tr {
-  height: 48px;
+  /* Same visual row height as the sales invoices register. */
+  height: 30px;
 }
 .inventory-one-row-table tbody td {
-  padding: 6px 8px;
+  padding: 2px 8px;
 }
 .inventory-one-row-table tbody td > div {
   display: inline-flex !important;

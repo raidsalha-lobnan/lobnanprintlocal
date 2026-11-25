@@ -748,35 +748,40 @@ export const InventoryView: React.FC = () => {
 
       {/* Single-line accounting totals; no large display cards. */}
       <div className="grid shrink-0 grid-cols-4 gap-1.5" dir="rtl" aria-label="ملخص المخزون">
-        <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px]">
+        <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] shadow-xs">
           <span className="min-w-0 truncate font-semibold text-slate-600" title="إجمالي قيمة المخزون (بالتكلفة)">إجمالي قيمة المخزون</span>
           <strong className="shrink-0 whitespace-nowrap text-xs font-bold tabular-nums text-slate-900" title={selectedCurrencyCode!=='ILS'?('≈ '+(totalCostValue/dailyExchangeRate).toFixed(2)+' '+activeCurrency.symbol):undefined}>{totalCostValue.toLocaleString('ar-SA')} {settings.currency}</strong>
         </div>
-        <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px]">
+        <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] shadow-xs">
           <span className="min-w-0 truncate font-semibold text-slate-600">القيمة البيعية المتوقعة</span>
           <strong className="shrink-0 whitespace-nowrap text-xs font-bold tabular-nums text-emerald-700" title={selectedCurrencyCode!=='ILS'?('≈ '+(totalSaleValue/dailyExchangeRate).toFixed(2)+' '+activeCurrency.symbol):undefined}>{totalSaleValue.toLocaleString('ar-SA')} {settings.currency}</strong>
         </div>
-        <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px]">
+        <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] shadow-xs">
           <span className="min-w-0 truncate font-semibold text-slate-600">خامات وأوراق الطباعة</span>
           <strong className="shrink-0 whitespace-nowrap text-xs font-bold tabular-nums text-slate-900">{rawMaterialsValue.toLocaleString('ar-SA')} {settings.currency}</strong>
         </div>
         <button type="button" onClick={() => handleOpenStockCard(undefined,'alerts')}
-          title="عرض الأصناف تحت حد الطلب" className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-rose-200 bg-white px-2 py-1.5 text-right text-[11px] hover:bg-rose-50">
+          title="عرض الأصناف تحت حد الطلب" className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-right text-[11px] shadow-xs hover:bg-rose-50">
           <span className="min-w-0 truncate font-semibold text-slate-600">أصناف تحت حد الطلب</span>
           <strong className="shrink-0 whitespace-nowrap text-xs font-bold tabular-nums text-rose-700">{lowStockCount} صنف</strong>
         </button>
       </div>
 
       {/* Two compact tool rows; controls remain keyboard and barcode accessible. */}
-      <section className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5" dir="rtl" aria-label="أدوات إدارة الأصناف">
+      <section className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 shadow-xs" dir="rtl" aria-label="أدوات إدارة الأصناف">
         <div className="flex min-w-0 items-center justify-between gap-2">
-          <div className="flex min-w-0 shrink-0 items-center gap-2">
-            <h2 className="whitespace-nowrap text-sm font-bold text-slate-800">إدارة الأصناف</h2>
-            <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-slate-500">{filteredItems.length} من {inventory.length}</span>
+          <div className="flex min-w-0 shrink-0 items-center gap-2 border-l border-slate-200 pl-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700">
+              <Boxes className="h-4 w-4"/>
+            </span>
+            <h2 className="whitespace-nowrap text-sm font-bold text-slate-900">إدارة الأصناف</h2>
+            <span className="whitespace-nowrap rounded bg-slate-50 px-1.5 py-1 text-[11px] font-bold tabular-nums text-slate-700">
+              {filteredItems.length} من {inventory.length}
+            </span>
           </div>
           <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap">
             <button type="button" onClick={()=>handleOpenAdd()}
-              className="inline-flex h-8 shrink-0 items-center gap-1 rounded bg-blue-600 px-2.5 text-[11px] font-bold text-white hover:bg-blue-700">
+              className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-indigo-700 px-2.5 text-xs font-bold text-white hover:bg-indigo-800">
               <Plus className="h-3.5 w-3.5" /> إضافة صنف
             </button>
             <button type="button" onClick={()=>setShowCategoriesModal(true)}
@@ -792,12 +797,12 @@ export const InventoryView: React.FC = () => {
               <PackageCheck className="h-3.5 w-3.5" /> العمليات
             </button>
             <button type="button" onClick={()=>handleOpenBarcodeBank()}
-              className="inline-flex h-8 shrink-0 items-center gap-1 rounded border border-slate-200 px-2 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50">
+              className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50">
               <BarcodeIcon className="h-3.5 w-3.5" /> بنك الباركود وQR
             </button>
             <button type="button" title="كاميرا الباركود" aria-label="كاميرا الباركود"
               onClick={()=>{setScannerForSearch(true);setShowBarcodeScanner(prev=>!prev);}}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-200 text-blue-600 hover:bg-blue-50">
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-indigo-700 hover:bg-indigo-50">
               <Camera className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -808,7 +813,7 @@ export const InventoryView: React.FC = () => {
             <input id="inventory-list-search" type="search"
               aria-label="البحث عن صنف" placeholder="الاسم أو الكود أو الباركود..."
               value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
-              className="h-8 w-full rounded border border-slate-300 bg-white pr-7 pl-7 text-[11px] outline-none focus:border-blue-500" />
+              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pr-7 pl-7 text-xs outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
             <button type="button" title="بحث بكاميرا الباركود" aria-label="بحث بكاميرا الباركود"
               onClick={()=>{setScannerForSearch(true);setShowBarcodeScanner(true);}}
               className="absolute left-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-500 hover:text-blue-700">
@@ -817,21 +822,21 @@ export const InventoryView: React.FC = () => {
           </div>
           <select id="inventory-list-category" aria-label="المجموعة" title="المجموعة"
             value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)}
-            className="h-8 min-w-[165px] max-w-[220px] flex-1 rounded border border-slate-300 bg-white px-1.5 text-[11px] font-semibold outline-none">
+            className="h-9 min-w-[165px] max-w-[220px] flex-1 rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-semibold outline-none">
             <option value="all">كل المجموعات ({inventory.length})</option>
             {categoryFilterOptions.map(cat=><option key={cat.id} value={cat.id}>{cat.name} ({cat.count})</option>)}
           </select>
           <select id="inventory-list-warehouse" aria-label="المستودع" title="المستودع"
             value={selectedWarehouseFilter} onChange={e=>setSelectedWarehouseFilter(e.target.value)}
-            className="h-8 min-w-[160px] max-w-[225px] flex-1 rounded border border-slate-300 bg-white px-1.5 text-[11px] font-semibold outline-none">
+            className="h-9 min-w-[160px] max-w-[225px] flex-1 rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-semibold outline-none">
             <option value="all">جميع المستودعات ({warehouses.length})</option>
             {warehouses.map(w=><option key={w.id} value={w.id}>{w.code} - {w.name}</option>)}
           </select>
-          <div className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded border border-slate-300 bg-white px-1.5">
+          <div className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50 px-1.5">
             <Coins className="h-3.5 w-3.5 text-emerald-600" />
             <select id="inventory-list-currency" aria-label="عملة عرض المخزون" title="العملة"
               value={selectedCurrencyCode} onChange={e=>setSelectedCurrencyCode(e.target.value)}
-              className="max-w-[105px] bg-white text-[11px] font-semibold outline-none">
+              className="max-w-[105px] bg-transparent text-[11px] font-semibold outline-none">
               {approvedCurrencies.length===0&&<option value="">لا عملات مفعلة</option>}
               {approvedCurrencies.map(c=><option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>)}
             </select>
@@ -842,12 +847,12 @@ export const InventoryView: React.FC = () => {
           </div>
           <button type="button" onClick={()=>setFilterOnlyFavorites(prev=>!prev)}
             title="عرض الأصناف المفضلة" aria-pressed={filterOnlyFavorites}
-            className={`inline-flex h-8 shrink-0 items-center gap-1 rounded border px-1.5 text-[11px] font-semibold ${filterOnlyFavorites?'border-amber-400 bg-amber-100 text-amber-800':'border-slate-200 bg-white text-slate-600'}`}>
+            className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border px-1.5 text-[11px] font-semibold ${filterOnlyFavorites?'border-amber-400 bg-amber-100 text-amber-800':'border-slate-200 bg-white text-slate-600'}`}>
             <Star className="h-3.5 w-3.5" /> المفضلة
           </button>
           <button type="button" onClick={()=>setFilterOnlyLowStock(prev=>!prev)}
             title="عرض النواقص" aria-pressed={filterOnlyLowStock}
-            className={`inline-flex h-8 shrink-0 items-center gap-1 rounded border px-1.5 text-[11px] font-semibold ${filterOnlyLowStock?'border-rose-400 bg-rose-100 text-rose-800':'border-slate-200 bg-white text-slate-600'}`}>
+            className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border px-1.5 text-[11px] font-semibold ${filterOnlyLowStock?'border-rose-400 bg-rose-100 text-rose-800':'border-slate-200 bg-white text-slate-600'}`}>
             <AlertTriangle className="h-3.5 w-3.5" /> النواقص
           </button>
           {(searchQuery||categoryFilter!=='all'||selectedWarehouseFilter!=='all'||filterOnlyFavorites||filterOnlyLowStock)&&
@@ -855,10 +860,10 @@ export const InventoryView: React.FC = () => {
               setSearchQuery('');setCategoryFilter('all');setSelectedWarehouseFilter('all');
               setFilterOnlyFavorites(false);setFilterOnlyLowStock(false);
             }} title="مسح جميع عوامل التصفية" aria-label="مسح التصفية"
-            className="inline-flex h-8 w-7 shrink-0 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50">
+            className="inline-flex h-9 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50">
               <X className="h-3.5 w-3.5" />
             </button>}
-          <div className="flex h-8 shrink-0 items-center gap-0.5 rounded border border-slate-200 p-0.5" aria-label="طريقة العرض">
+          <div className="flex h-9 shrink-0 items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5" aria-label="طريقة العرض">
             <button type="button" onClick={()=>setViewMode('table')} aria-pressed={viewMode==='table'}
               className={`rounded px-1.5 py-1 ${viewMode==='table'?'bg-blue-50 text-blue-700':'text-slate-500'}`} title="عرض الجدول">
               <List className="h-3.5 w-3.5" />
@@ -1044,10 +1049,10 @@ export const InventoryView: React.FC = () => {
           </div>
         )
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs" data-testid="inventory-table-panel">
           <div className="min-h-0 flex-1 overflow-auto overscroll-contain" data-testid="inventory-all-rows-scroll"
             onScroll={()=>setHoveredItemImage(null)}>
-            <table className="inventory-one-row-table w-full min-w-[1360px] table-fixed text-right text-[11px] [&_td]:h-6 [&_td]:px-1 [&_td]:py-0 [&_th]:h-7 [&_th]:px-1 [&_th]:py-0.5">
+            <table className="inventory-one-row-table w-full min-w-[1360px] table-fixed text-right text-xs [&_td]:h-[30px] [&_td]:px-2 [&_td]:py-0.5 [&_td]:align-middle [&_th]:h-8 [&_th]:px-2 [&_th]:py-1">
               <colgroup>
                 <col style={{width:'190px'}}/>
                 <col style={{width:'260px'}}/>
@@ -1060,18 +1065,18 @@ export const InventoryView: React.FC = () => {
                 <col style={{width:'75px'}}/>
                 <col style={{width:'150px'}}/>
               </colgroup>
-              <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[10px]">
-                <tr>
-                  <th className="p-2.5">الكود والباركود</th>
-                  <th className="p-2.5">الصورة واسم الصنف / الخامة</th>
-                  <th className="p-2.5">التصنيف</th>
-                  <th className="p-2.5">الوحدة</th>
-                  <th className="p-2.5">سعر الشراء</th>
-                  <th className="p-2.5">سعر البيع</th>
-                  <th className="p-2.5">الرصيد المتاح</th>
-                  <th className="p-2.5">إجمالي القيمة</th>
-                  <th className="p-2.5">حد الأمان</th>
-                  <th className="p-2.5 text-center">الإجراءات</th>
+              <thead className="sticky top-0 z-10 bg-slate-50 text-slate-700 font-bold border-b border-slate-200 text-xs">
+                <tr className="whitespace-nowrap">
+                  <th className="py-1 px-2">الكود والباركود</th>
+                  <th className="py-1 px-2">اسم الصنف / الخامة</th>
+                  <th className="py-1 px-2">التصنيف</th>
+                  <th className="py-1 px-2">الوحدة</th>
+                  <th className="py-1 px-2">سعر الشراء</th>
+                  <th className="py-1 px-2">سعر البيع</th>
+                  <th className="py-1 px-2">الرصيد المتاح</th>
+                  <th className="py-1 px-2">إجمالي القيمة</th>
+                  <th className="py-1 px-2">حد الأمان</th>
+                  <th className="py-1 px-2 text-center">الإجراءات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1096,7 +1101,7 @@ export const InventoryView: React.FC = () => {
                       <tr key={item.id}
                         onMouseEnter={event=>showItemImagePreview(event,item)}
                         onMouseLeave={()=>setHoveredItemImage(null)}
-                        className="h-6 whitespace-nowrap border-b border-slate-100 hover:bg-slate-50">
+                        className="h-[30px] whitespace-nowrap border-b border-slate-100 transition-colors hover:bg-slate-50/80">
                         <td className="font-mono">
                           <div className="flex min-w-0 items-center gap-1">
                             <span className="shrink-0 font-bold text-blue-700">{item.code}</span>
@@ -1115,7 +1120,7 @@ export const InventoryView: React.FC = () => {
                             </button>
                           </div>
                         </td>
-                        <td><span className={`rounded px-1 py-0 text-[10px] ${badge.class}`}>{badge.label}</span></td>
+                        <td><span className={`inline-block rounded-md border border-slate-200 px-1.5 py-0.5 text-[11px] font-medium ${badge.class}`}>{badge.label}</span></td>
                         <td className="text-slate-600">{item.unit}</td>
                         <td className="font-mono tabular-nums text-slate-700" title={selectedCurrencyCode!=='ILS'?'≈ '+((Number(item.purchasePrice)||0)/(dailyExchangeRate||1)).toFixed(2)+' '+activeCurrency.symbol:undefined}>
                           {(Number(item.purchasePrice)||0).toFixed(2)} ₪
@@ -1136,7 +1141,7 @@ export const InventoryView: React.FC = () => {
                         </td>
                         <td title={warehouseDetail} className="font-mono tabular-nums">
                           {isService?<span className="text-slate-400">خدمة</span>:
-                            <span className={`rounded px-1 py-0 font-bold ${isLow?'bg-rose-100 text-rose-700':'text-slate-800'}`}>
+                            <span className={`rounded px-1.5 py-0.5 font-bold ${isLow?'bg-rose-100 text-rose-700':'text-slate-800'}`}>
                               {selectedWarehouseFilter==='all'?item.stockQuantity:getWarehouseStock(selectedWarehouseFilter,item.id)}
                             </span>}
                         </td>
@@ -1187,7 +1192,7 @@ export const InventoryView: React.FC = () => {
             className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">الأخيرة</button>
         </div>
       </nav>) : (
-        <div className="flex h-6 shrink-0 items-center justify-between rounded border border-slate-200 bg-white px-2 text-[10px] text-slate-600" dir="rtl">
+        <div className="flex h-8 shrink-0 items-center justify-between rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] text-slate-600 shadow-xs" dir="rtl">
           <span data-testid="inventory-all-items-count">عرض جميع الأصناف المطابقة: {filteredItems.length} من {inventory.length}</span>
           <span>مرّر داخل الجدول لاستعراض بقية الأصناف — مرّر الماوس فوق أي سطر له صورة لمعاينتها</span>
         </div>
