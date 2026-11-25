@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
@@ -794,7 +795,7 @@ export const SalesReturnsView: React.FC = () => {
 
       {/* MODAL: PRINT SALES RETURN / CREDIT NOTE */}
       {selectedSalesReturnForPrint && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto print:p-0 print:bg-white print:static print:h-auto">
+        <div data-pdf-document className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto print:p-0 print:bg-white print:static print:h-auto">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] print:max-h-none print:shadow-none print:border-none print:w-full">
             {/* Controls Bar (hidden during print) */}
             <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between print:hidden">
@@ -807,6 +808,7 @@ export const SalesReturnsView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
+                <ReportPdfButton filename={'مردودات مبيعات - '+selectedSalesReturnForPrint.returnNumber} selector="[data-pdf-document]" scope="[data-pdf-document]" />
                 <button
                   onClick={() => window.print()}
                   className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
