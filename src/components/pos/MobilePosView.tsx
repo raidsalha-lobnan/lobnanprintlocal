@@ -1,4 +1,6 @@
 import {posDraftStorageKey} from '../../utils/posDraftStorageKey';
+import {POS_LEAVE_INTENT_EVENT,type PosLeaveIntentDetail} from '../../utils/posLeaveNavigation';
+import {PosLeaveDialog} from './PosLeaveDialog';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { sortPartiesByCode } from '../../utils/partyUtils';
@@ -129,6 +131,10 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   }, []);
 
   const draftId = useRef(savedMobileDraft.draftId || crypto.randomUUID());
+  const [leaveTargetTab,setLeaveTargetTab] = useState<string|null>(null);
+  const [leaveBusy,setLeaveBusy] = useState(false);
+  const leaveApprovedRef=useRef(false);
+  const allowLocalHoldForLeaveRef=useRef(false);
 
   // 1. Customer / Supplier / Employee Mode & Inputs (زبون / مورد / موظف)
   const [partyTypeMode, setPartyTypeMode] = useState<'customer' | 'supplier' | 'employee'>(() => {
@@ -710,9 +716,20 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       posSound.success();
       setSuccessNotification({number:'معلقة',total:newHeld.totalAmount});
       setTimeout(()=>setSuccessNotification(null),3500);
+      return true;
     }catch(error){
       posSound.error();
       if(localBackupSaved)setHeldInvoices(prev=>[pendingHeld,...prev.filter(h=>h.id!==newHeld.id)]);
+      if(localBackupSaved && allowLocalHoldForLeaveRef.current){
+        resumedMobileHeldIdRef.current=null;
+        draftId.current=crypto.randomUUID();
+        setCart([]);setGlobalDiscount('');setPaidAmountInput('');setInvoiceNotes('');
+        setCustomSubCustomerName('');setSelectedSubCustomerId('');
+        setCustomerNameInput('زبون نقدي / عام');setSelectedCustomerId('');
+        setPartyTypeMode('customer');setIsPaymentModalOpen(false);
+        alert('تم تعليق الفاتورة محلياً على هذا الجهاز فقط؛ لم يؤكد PostgreSQL حفظها بعد. راجع المعلّقات بعد عودة الاتصال.');
+        return true;
+      }
       alert('لم يؤكد PostgreSQL حفظ المعلّق؛ بياناته بقيت في الكاشير.'+
         (localBackupSaved?' توجد نسخة محلية قابلة للاستعادة لحين عودة الاتصال.':' لم تُحفظ نسخة استرداد؛ لا تغلق الكاشير.')+'\n'+String(error));
     }finally{heldOperationRef.current=false;setHeldBusy(false);}
@@ -1105,6 +1122,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       setTimeout(() => {
         setSuccessNotification(null);
       }, 5000);
+      return true;
     } catch (e) {
       console.error('Error in mobile checkout:', e);
       alert('حدث خطأ أثناء حفظ الفاتورة');
@@ -1145,8 +1163,81 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     setCustomerNameInput(party.name);
   }, [parties, employees, inventory]);
 
+  // Register before paint so rapid navigation cannot race a recently edited cart.
+  React.useLayoutEffect(()=>{
+    const onLeaveIntent=(event:Event)=>{
+      if(leaveApprovedRef.current)return;
+      const intent=event as CustomEvent<PosLeaveIntentDetail>;
+      if(!intent.detail?.targetTab)return;
+      const hasDraft=cart.length>0 || !!invoiceNotes.trim() ||
+        !!customSubCustomerName.trim() || !!globalDiscount.trim() ||
+        !!paidAmountInput.trim() || !!selectedCustomerId || !!selectedSubCustomerId ||
+        (customerNameInput.trim()!=='' && customerNameInput.trim()!=='زبون نقدي / عام');
+      if(hasDraft || onlineInvoicePostingService.isPostingBusy() || heldOperationRef.current){
+        event.preventDefault();
+        setLeaveTargetTab(intent.detail.targetTab);
+      }else{
+        try{
+          localStorage.setItem(MOBILE_POS_DRAFT_KEY,'{}');
+          if(localStorage.getItem(MOBILE_POS_DRAFT_KEY)!=='{}')
+            throw new Error('POS_DRAFT_CLEAR_NOT_CONFIRMED');
+        }catch{
+          event.preventDefault();
+          alert('تعذّر تجهيز فاتورة فارغة عند العودة، لذلك بقيت شاشة الكاشير مفتوحة.');
+        }
+      }
+    };
+    window.addEventListener(POS_LEAVE_INTENT_EVENT,onLeaveIntent);
+    return()=>window.removeEventListener(POS_LEAVE_INTENT_EVENT,onLeaveIntent);
+  },[cart,invoiceNotes,customSubCustomerName,globalDiscount,paidAmountInput,
+    customerNameInput,selectedCustomerId,selectedSubCustomerId,MOBILE_POS_DRAFT_KEY]);
+
+  const completeMobileDeparture=(destination:string)=>{
+    try{
+      localStorage.setItem(MOBILE_POS_DRAFT_KEY,'{}');
+      if(localStorage.getItem(MOBILE_POS_DRAFT_KEY)!=='{}')throw new Error('POS_DRAFT_CLEAR_NOT_CONFIRMED');
+    }catch(error){
+      console.error('Unable to reset mobile cashier draft before navigation',error);
+      alert('تعذّر تأكيد فتح كاشير فارغ على هذا الجهاز. لن نغادر تلقائياً، ويرجى عدم مسح بيانات الموقع.');
+      return;
+    }
+    leaveApprovedRef.current=true;
+    try{setActiveTab(destination);}finally{leaveApprovedRef.current=false;}
+    setLeaveTargetTab(null);
+  };
+  const resolveMobileDeparture=async(action:'save'|'hold'|'discard')=>{
+    if(!leaveTargetTab||leaveBusy)return;
+    const destination=leaveTargetTab;
+    if(action==='discard'){
+      if(!window.confirm('تجاهل الفاتورة الحالية والانتقال؟ لن تُحذف الفواتير المعتمدة أو المعلّقة.'))return;
+      draftId.current=crypto.randomUUID();
+      resumedMobileHeldIdRef.current=null;
+      setCart([]);setGlobalDiscount('');setPaidAmountInput('');setInvoiceNotes('');
+      setCustomSubCustomerName('');setSelectedSubCustomerId('');
+      setCustomerNameInput('زبون نقدي / عام');setSelectedCustomerId('');
+      setPartyTypeMode('customer');setIsPaymentModalOpen(false);
+      completeMobileDeparture(destination);
+      return;
+    }
+    setLeaveBusy(true);
+    try{
+      allowLocalHoldForLeaveRef.current=action==='hold';
+      const saved=action==='save'?await handleCheckout(false):await handleHoldInvoice();
+      if(saved===true)completeMobileDeparture(destination);
+    }catch(error){
+      console.error('Cashier leave action failed',error);
+      alert('تعذّر إكمال العملية، بقيت الفاتورة في شاشة الكاشير. تحقق من حالة الحفظ قبل إعادة المحاولة.');
+    }finally{
+      allowLocalHoldForLeaveRef.current=false;
+      setLeaveBusy(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-[#f1f5f9] w-full overflow-hidden text-slate-800 selection:bg-blue-500 selection:text-white" dir="rtl">
+      {leaveTargetTab && <PosLeaveDialog busy={leaveBusy}
+        onCancel={()=>setLeaveTargetTab(null)}
+        onAction={action=>{void resolveMobileDeparture(action);}}/>}
       {/* ========================================================================= */}
       {/* TOP HEADER: Shortcuts Toolbar (تعليق، المعلقة، توصيل، تجميع، إلغاء، حذف، العملة) */}
       {/* ========================================================================= */}

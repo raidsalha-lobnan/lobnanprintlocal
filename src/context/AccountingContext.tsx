@@ -12,6 +12,7 @@ import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
 import {buildNewAtomicPosSale} from '../sync-next/atomicPosSaleBuilder';
 import {enqueueAtomicInvoicePosting} from '../sync-next/accountingBundle';
+import {mayNavigateAwayFromPos} from '../utils/posLeaveNavigation';
 import {selectWorkspaceSettings,applyWorkspaceSettings,mergeWorkspaceSettingsDraft} from '../utils/workspaceSettingsSync';
 import {createWorkspaceSettingsPatch} from '../sync-next/settingsPatch';
 import {MAIN_CASH_TREASURY_CODE,canonicalTreasuryCode,requiredTreasury,ledgerAccountForTreasury} from '../utils/treasuryCodes';
@@ -2125,6 +2126,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const setActiveTab = (tab: string) => {
     if (tab === activeTab) return;
+    if (!mayNavigateAwayFromPos(activeTab,tab)) return;
     setTabHistory(prev => {
       const next = [...prev.slice(-30), tab];
       try {
@@ -2143,6 +2145,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const nextHistory = [...tabHistory];
       nextHistory.pop(); // remove current
       const previous = nextHistory[nextHistory.length - 1];
+      if (!mayNavigateAwayFromPos(activeTab,previous)) return;
       setTabHistory(nextHistory);
       setActiveTabState(previous);
       try {
@@ -2150,6 +2153,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         localStorage.setItem(`${STORAGE_KEY}_active_tab`, previous);
       } catch (e) {}
     } else if (activeTab !== 'home') {
+      if (!mayNavigateAwayFromPos(activeTab,'home')) return;
       setActiveTabState('home');
       setTabHistory(['home']);
       try {

@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'; // Trigger Sync
 import { DateInput } from '../components/common/DateInput';
 import { posDraftStorageKey } from '../utils/posDraftStorageKey';
+import {POS_LEAVE_INTENT_EVENT,type PosLeaveIntentDetail} from '../utils/posLeaveNavigation';
+import {PosLeaveDialog} from './pos/PosLeaveDialog';
 import { findRecoverableCashierDrafts } from '../utils/posDraftRecovery';
 import { useAccounting } from '../context/AccountingContext';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -490,6 +492,10 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   // remain in localStorage. Offer read-only discovery, never auto-replay them.
   const [recoverableDrafts] = useState(() =>
     findRecoverableCashierDrafts(localStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current));
+  const [leaveTargetTab,setLeaveTargetTab] = useState<string|null>(null);
+  const [leaveBusy,setLeaveBusy] = useState(false);
+  const leaveApprovedRef = useRef(false);
+  const allowLocalHoldForLeaveRef = useRef(false);
   const [draftStorageFailed, setDraftStorageFailed] = useState(false);
   const [saveNotice, setSaveNotice] = useState('');
   React.useEffect(() => {
@@ -2964,7 +2970,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       setCustomerName('زبون نقدي');
       setCustomerCode('');
     }
-
+    return true;
   };
 
 
@@ -3175,9 +3181,17 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       setDiscountType('amount');setInvoiceWorkflowStatus('new');
       setCashTreasuryCode('CASH-1101');setBankTreasuryCode('');
       posSound.success();
+      return true;
     }catch(error){
       posSound.error();
       if(localBackupSaved)setHeldInvoices(prev=>[pendingHeld,...prev.filter(h=>h.id!==newHeld.id)]);
+      if(localBackupSaved && allowLocalHoldForLeaveRef.current){
+        resumedHeldInvoiceIdRef.current=null;
+        handleClearInvoiceDirect(true);
+        setPaymentNotes('');setPaymentMethod('cash');setTransactionType('cash');
+        alert('تم تعليق الفاتورة محلياً على هذا الجهاز، لكن PostgreSQL لم يؤكد حفظها بعد. راجع قائمة المعلّقات بعد عودة الاتصال.');
+        return true;
+      }
       alert('لم يؤكد PostgreSQL حفظ المعلّق. بقيت بيانات الفاتورة في الكاشير.'+
         (localBackupSaved?' توجد نسخة استرداد محلية لهذه الفاتورة وستُعاد محاولة رفعها عند الاتصال.':' فشل حفظ نسخة الاسترداد أيضًا؛ لا تغلق الشاشة.')+'\n'+String(error));
     }finally{heldOperationRef.current=false;setHeldBusy(false);}
@@ -3750,6 +3764,85 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     return typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pos_force_desktop') === 'true';
   });
 
+  // Register before paint so rapid navigation cannot race a recently edited form.
+  React.useLayoutEffect(()=>{
+    if(isPhone && !forceDesktopMode)return;
+    const onLeaveIntent=(event:Event)=>{
+      if(leaveApprovedRef.current)return;
+      const intent=event as CustomEvent<PosLeaveIntentDetail>;
+      if(!intent.detail?.targetTab)return;
+      const hasDraft=!!currentEditingInvoiceIdRef.current || !!editingPosInvoiceId ||
+        tableLines.some(line=>!!line.itemName?.trim() || Number(line.unitPrice||0)>0 ||
+          Number(line.total||0)>0) ||
+        !!invoiceNotes.trim() || !!paymentNotes.trim() ||
+        !!subCustomerName.trim() || !!subCustomerId ||
+        !!customCustomerText.trim() || !!cashAmountInput.trim() && cashAmountInput !== '0' ||
+        !!bankAmountInput.trim() && bankAmountInput !== '0' ||
+        (!!selectedCustomerId && !customers.some(c => c.id===selectedCustomerId &&
+          (c.code==='CUST-0001'||c.code==='1')));
+      if(hasDraft || posSaveUiInFlightRef.current || heldOperationRef.current){
+        event.preventDefault();
+        setLeaveTargetTab(intent.detail.targetTab);
+        return;
+      }
+      // Prevent a stale automatic form copy from appearing on the next visit.
+      try{
+        const blank=JSON.stringify({ownerId,tableLines:[]});
+        localStorage.setItem(POS_FULL_DRAFT_KEY,blank);
+        if(localStorage.getItem(POS_FULL_DRAFT_KEY)!==blank)
+          throw new Error('POS_DRAFT_CLEAR_NOT_CONFIRMED');
+      }catch{
+        event.preventDefault();
+        alert('تعذّر تجهيز فاتورة فارغة عند العودة، لذلك بقيت شاشة الكاشير مفتوحة.');
+      }
+    };
+    window.addEventListener(POS_LEAVE_INTENT_EVENT,onLeaveIntent);
+    return()=>window.removeEventListener(POS_LEAVE_INTENT_EVENT,onLeaveIntent);
+  },[isPhone,forceDesktopMode,editingPosInvoiceId,tableLines,invoiceNotes,paymentNotes,
+    subCustomerName,subCustomerId,customCustomerText,cashAmountInput,bankAmountInput,
+    selectedCustomerId,customers,ownerId,POS_FULL_DRAFT_KEY]);
+
+  const completeCashierDeparture=(target:string)=>{
+    // A confirmed blank checkpoint prevents the previous invoice from returning.
+    try{
+      const blank=JSON.stringify({ownerId,tableLines:[]});
+      localStorage.setItem(POS_FULL_DRAFT_KEY,blank);
+      if(localStorage.getItem(POS_FULL_DRAFT_KEY)!==blank)throw new Error('POS_DRAFT_CLEAR_NOT_CONFIRMED');
+    }catch(error){
+      console.error('Unable to reset cashier draft before navigation',error);
+      alert('تعذّر تأكيد فتح كاشير فارغ على هذا الجهاز. لن نغادر تلقائياً، ويرجى عدم مسح بيانات الموقع.');
+      return;
+    }
+    leaveApprovedRef.current=true;
+    try{setActiveTab(target);}finally{leaveApprovedRef.current=false;}
+    setLeaveTargetTab(null);
+  };
+  const resolveCashierDeparture=async(action:'save'|'hold'|'discard')=>{
+    if(!leaveTargetTab||leaveBusy)return;
+    const destination=leaveTargetTab;
+    if(action==='discard'){
+      if(!window.confirm('هل تريد تجاهل بيانات الفاتورة الحالية؟ لن تتأثر الفواتير المحفوظة أو المعلّقة.'))return;
+      handleClearInvoiceDirect(true);
+      setPaymentNotes('');setPaymentMethod('cash');setInvoiceWorkflowStatus('new');
+      completeCashierDeparture(destination);
+      return;
+    }
+    setLeaveBusy(true);
+    try{
+      allowLocalHoldForLeaveRef.current=action==='hold';
+      const saved=action==='save'
+        ? await handleSaveInvoice('none',true)
+        : await handleHoldInvoice();
+      if(saved===true)completeCashierDeparture(destination);
+    }catch(error){
+      console.error('Cashier leave action failed',error);
+      alert('تعذّر إكمال العملية، بقيت الفاتورة في شاشة الكاشير. تحقق من حالة الحفظ قبل إعادة المحاولة.');
+    }finally{
+      allowLocalHoldForLeaveRef.current=false;
+      setLeaveBusy(false);
+    }
+  };
+
   if (isPhone && !forceDesktopMode) {
     return (
       <MobilePosView
@@ -3763,6 +3856,9 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
   return (
     <div className="flex flex-col h-full w-full bg-[#dbe4ef] text-slate-800 text-xs font-sans select-none relative overflow-hidden" dir="rtl">
+      {leaveTargetTab && <PosLeaveDialog busy={leaveBusy}
+        onCancel={()=>setLeaveTargetTab(null)}
+        onAction={action=>{void resolveCashierDeparture(action);}}/>}
       {recoverableDrafts.length > 0 && !savedPosDraft.tableLines?.some(line => !!line.itemName?.trim()) && (
         <div role="alert" className="bg-amber-50 border-b border-amber-400 px-3 py-2 text-amber-950 text-xs flex flex-wrap items-center gap-2">
           <strong>عُثر على مسودات كاشير من تبويبات سابقة. راجع سجل الفواتير قبل استعادتها أو إعادة حفظها.</strong>
