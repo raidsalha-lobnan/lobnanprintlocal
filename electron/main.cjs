@@ -57,6 +57,17 @@ function trusted(event){
   throw Error('DESKTOP_UNTRUSTED_RENDERER');
 }
 function registerIpc(){
+ let generatingReportPdf=false;
+ ipcMain.handle('lobnan:report-a4-preview',async event=>{
+  trusted(event);
+  if(generatingReportPdf)throw Error('REPORT_PREVIEW_BUSY');
+  generatingReportPdf=true;
+  try{
+   const data=await mainWindow.webContents.printToPDF({pageSize:'A4',preferCSSPageSize:true,printBackground:true,scale:1});
+   if(!data.length||data.length>60_000_000)throw Error('REPORT_PREVIEW_SIZE_INVALID');
+   return new Uint8Array(data);
+  }finally{generatingReportPdf=false;}
+ });
  ipcMain.handle('lobnan:window-state',event=>{
   trusted(event);
   return {maximized:mainWindow.isMaximized()};
@@ -306,9 +317,25 @@ function createWindow(){
   console.error('DESKTOP_PAGE_LOAD_FAILED',String(error));
   dialog.showErrorBox('تعذر تشغيل واجهة البرنامج',String(error));
  });
- mainWindow.webContents.setWindowOpenHandler(({url})=>{
+ mainWindow.webContents.setWindowOpenHandler(({url,frameName})=>{
+  if(url==='about:blank'&&/^lobnan-print-[a-z0-9]+-[a-z0-9]+$/.test(frameName||'')){
+   return {action:'allow',overrideBrowserWindowOptions:{
+    width:1100,height:850,frame:true,autoHideMenuBar:true,
+    title:'معاينة الطباعة - برنامج الأيهم المحاسبي',
+    webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}
+   }};
+  }
   if(/^https:\/\//i.test(url))void shell.openExternal(url);
   return {action:'deny'};
+ });
+ mainWindow.webContents.on('did-create-window',(child)=>{
+  // Keep locally generated print windows isolated from external navigation.
+  // All privileged IPC still checks the original main window sender.
+  child.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+  child.webContents.on('will-navigate',(event,url)=>{
+   if(url!=='about:blank')event.preventDefault();
+  });
+  child.webContents.on('will-redirect',event=>event.preventDefault());
  });
  mainWindow.webContents.on('will-navigate',(event,url)=>{
   // Navigation away from the pinned application bundle is not allowed.
