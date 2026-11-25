@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import {
@@ -229,7 +230,7 @@ export const StockMovementModal: React.FC<StockMovementModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+    <div data-pdf-document className="fixed inset-0 z-[100] overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
       {/* Print only stock card A4 layout */}
       <div className="print-only hidden print:block">
         <style dangerouslySetInnerHTML={{
@@ -569,7 +570,8 @@ export const StockMovementModal: React.FC<StockMovementModalProps> = ({
                     <Download className="w-3.5 h-3.5" />
                     تصدير Excel/CSV
                   </button>
-                  <button
+                  <ReportPdfButton filename="كارتة الصنف" selector=".print-only" numberPages scope="[data-pdf-document]" />
+                <button
                     type="button"
                     onClick={handlePrintCard}
                     className="px-3 py-1.5 text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm flex items-center gap-1.5 transition"
