@@ -64,3 +64,16 @@ test('Windows uses one custom title bar with real native window controls and saf
  assert.match(navbar,/<DesktopWindowControls \/>/);
  assert.match(login,/<DesktopLoginTitleBar \/>/);
 });
+
+test('duplicate desktop launches do not open SQLite and startup reports progress',()=>{
+ const main=read('electron/main.cjs');
+ const updater=read('electron/update-manager.cjs');
+ assert.match(main,/if\(!ownsSingleInstance\)app\.quit\(\);/);
+ assert.match(main,/if\(ownsSingleInstance\)try\{/);
+ assert.match(main,/app\.on\('second-instance',focusStartupOrMain\)/);
+ assert.ok(main.indexOf('await showStartupWindow()')<main.indexOf('nativeDb=openPinnedSQLite(storage.root,storage.id)'));
+ assert.match(main,/startupMark\('sqlite-integrity-ready'\)/);
+ assert.match(main,/startupMark\('main-interface-loaded'\)/);
+ const startup=updater.split('async function applyOnNextLaunch()')[1].split('function start()')[0];
+ assert.ok(startup.indexOf('previous>=MAX_INSTALL_ATTEMPTS')<startup.indexOf('await checkStaged()'));
+});
