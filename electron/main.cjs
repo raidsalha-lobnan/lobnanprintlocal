@@ -81,6 +81,29 @@ function registerIpc(){
   trusted(event);
   return desktopUpdater?.checkNow()||{phase:'disabled'};
  });
+ let restartRequested=false;
+ ipcMain.handle('lobnan:desktop-update-restart',async event=>{
+  trusted(event);
+  if(restartRequested||desktopUpdater?.getStatus().phase!=='ready')return false;
+  const window=mainWindow;
+  restartRequested=true;
+  try{
+   const answer=await dialog.showMessageBox(window,{
+    type:'question',title:'تحديث وإعادة تشغيل',
+    message:'هل تريد إعادة تشغيل البرنامج لتثبيت التحديث؟',
+    detail:'احفظ الفاتورة أو السند الجاري وأغلق أي عمليات غير محفوظة قبل المتابعة. لن يتم حذف قاعدة البيانات أو العمليات المحفوظة محليًا.',
+    buttons:['إلغاء','حفظت عملي — تحديث وإعادة تشغيل'],defaultId:0,cancelId:0,noLink:true
+   });
+   if(answer.response!==1||!window||window.isDestroyed()||desktopUpdater?.getStatus().phase!=='ready'){
+    restartRequested=false;return false;
+   }
+   // Normal close honors renderer close/beforeunload handlers. Relaunch
+   // only after the actual window closes, never force-kill a POS session.
+   window.once('closed',()=>app.relaunch());
+   setImmediate(()=>{if(!window.isDestroyed())window.close();});
+   return true;
+  }catch(error){restartRequested=false;throw error;}
+ });
  ipcMain.handle('lobnan:storage-info',event=>{
   trusted(event);
   return {installed:true,pinned:true,persistent:true,root:storage.root,
