@@ -6,7 +6,6 @@ import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStateme
 import {publicSyncApiUrl} from '../services/secureAuth';
 import { DateInput } from '../components/common/DateInput';
 import { ReportsLivePreview } from './ReportsLivePreview';
-import {ReportA4PreviewButton} from './ReportA4PreviewButton';
 import { useReportsSidebarFit } from './useReportsSidebarFit';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -1134,7 +1133,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
             <Printer className="w-4 h-4" />
             <span>طباعة التقرير</span>
           </button>
-          <ReportA4PreviewButton onBrowserPrint={handlePrint} reportKey={activeReport} />
           </div>
 
           {/* اختيار التقرير في قائمة طولية */}
@@ -1411,7 +1409,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
 
         {/* معاينة المستند مع الاحتفاظ بمحتوى وطباعة التقرير */}
         <div className="reports-preview-area min-w-0 h-full min-h-0 overflow-hidden print:block">
-          <ReportsLivePreview reportKey={activeReport}>
+          <ReportsLivePreview reportKey={JSON.stringify([activeReport,fromDate,toDate,searchQuery,selectedCustomerId,selectedSubCustomerId,selectedSupplierId,selectedSubSupplierId,selectedEmpId,receiptTreasuryFilter,paymentTreasuryFilter,selectedTreasuryCode,showStatementItemDetails,showStatementImageThumbnails])}>
       {/* ========================================================================= */}
       {/* 1. كشف حساب تفصيلي عميل */}
       {/* ========================================================================= */}
