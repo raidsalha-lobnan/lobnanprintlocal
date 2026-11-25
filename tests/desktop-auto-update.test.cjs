@@ -6,7 +6,7 @@ const os=require('node:os');
 const path=require('node:path');
 const crypto=require('node:crypto');
 const {officialAsset,compareVersions,approvedStagedRecord}=require('../electron/update-policy.cjs');
-const {createDesktopUpdateService,verifiedFile,powershellInstallCommand}=
+const {createDesktopUpdateService,verifiedFile,powershellInstallCommand,startDetachedInstaller}=
  require('../electron/update-manager.cjs');
 
 function manifest(version='1.1.50',digest='a'.repeat(64)){
@@ -161,4 +161,42 @@ test('explicit recovery opens verified installer visibly without changing databa
  assert.match(script,/Start-Process -FilePath \$installer -Wait -PassThru/);
  assert.doesNotMatch(script,/ArgumentList @\("\/S"\)/);
  assert.match(script,/INSTALLED_VERSION_MISMATCH/);
+});
+
+test('installer handoff requires worker readiness and verifies the digest again',()=>{
+ const script=powershellInstallCommand({oldPid:5155,installer:'LobnanPrint-Setup-1.1.80.exe',
+  appExecutable:'LobnanPrint.exe',handshake:'handoff-probe',expectedDigest:'a'.repeat(64)});
+ assert.match(script,/Set-Content -LiteralPath \$ready -Value "HELPER_READY"/);
+ assert.match(script,/HELPER_HANDOFF_NOT_AUTHORIZED/);
+ assert.match(script,/Get-FileHash -LiteralPath \$installer -Algorithm SHA256/);
+ assert.match(script,/APP_PROCESS_STILL_RUNNING/);
+ assert.ok(script.indexOf('HELPER_HANDOFF_NOT_AUTHORIZED')<script.indexOf('Start-Process -FilePath $installer'));
+});
+test('Windows helper launcher waits for ready acknowledgement instead of spawn alone',async()=>{
+ if(process.platform!=='win32')return;
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lobnan-helper-handshake-'));
+ const {EventEmitter}=require('node:events');
+ try{
+  const launched=await startDetachedInstaller({
+   oldPid:process.pid,installer:path.join(dir,'LobnanPrint-Setup-1.1.80.exe'),
+   appExecutable:path.join(dir,'LobnanPrint.exe'),expectedVersion:'1.1.80'
+  },(exe,args,options)=>{
+   assert.match(exe,/WindowsPowerShell[\\/]v1\.0[\\/]powershell\.exe$/i);
+   assert.equal(options.detached,true);
+   const bootstrap=Buffer.from(args.at(-1),'base64').toString('utf16le');
+   assert.match(bootstrap,/Start-Process -FilePath/);
+   assert.match(bootstrap,/RedirectStandardError/);
+   const inner=bootstrap.match(/"-EncodedCommand",'([A-Za-z0-9+/=]+)'/)[1];
+   const worker=Buffer.from(inner,'base64').toString('utf16le');
+   const ready=worker.match(/\$ready = '([^']+)'/)[1];
+   assert.equal(fs.existsSync(ready.replace(/\.ready$/,'.go')),false);
+   const child=new EventEmitter();
+   child.unref=()=>{};
+   setTimeout(()=>{fs.writeFileSync(ready,'HELPER_READY');child.emit('exit',0);},100);
+   return child;
+  });
+  assert.equal(launched,true);
+  assert.ok(fs.readdirSync(dir).some(name=>name.endsWith('.go')));
+  assert.match(fs.readFileSync(path.join(dir,'install-launcher.log'),'utf8'),/HELPER_READY_HANDOFF_AUTHORIZED/);
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
