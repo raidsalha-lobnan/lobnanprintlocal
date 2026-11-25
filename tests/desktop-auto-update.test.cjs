@@ -37,6 +37,13 @@ test('installer helper waits for exit, uses /S only, and never modifies an accou
  assert.match(script,/Start-Process -FilePath \$installer -ArgumentList @\("\/S"\) -Wait/);
  assert.match(script,/Start-Process -FilePath 'C:\\Users\\test/);
  assert.doesNotMatch(script,/Remove-Item|accounting\.db|LobnanPrint\\Data/);
+ assert.match(script,/VersionInfo\.FileVersion/);
+ assert.match(script,/INSTALLED_VERSION_MISMATCH/);
+ assert.match(script,/VERIFIED_INSTALLED/);
+ assert.match(script,/install-result\.txt/);
+ assert.match(script,/OLD_PROCESS_STILL_RUNNING/);
+ assert.match(script,/INSTALLER_EXIT_/);
+ assert.throws(()=>powershellInstallCommand({oldPid:1,installer:'invalid.exe',appExecutable:'app.exe'}),/DESKTOP_UPDATE_INVALID_VERSION/);
 });
 test('SHA256 verification rejects a changed downloaded executable',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lobnan-update-policy-'));
@@ -54,9 +61,9 @@ test('background download never launches an installer; next safe app start does'
  const body=Buffer.alloc(20_000_001,65);
  const digest=crypto.createHash('sha256').update(body).digest('hex');
  let release=manifest('1.1.51',digest);
- let launches=0,downloadFetches=0;
+ let launches=0,downloadFetches=0,releaseChecks=0;
  const fetchImpl=async url=>{
-  if(url.endsWith('/releases/latest'))return {ok:true,json:async()=>release};
+  if(url.endsWith('/releases/latest')){releaseChecks++;return {ok:true,json:async()=>release};}
   downloadFetches++;
   return {ok:true,url:'https://release-assets.githubusercontent.com/temporary-asset',
    body:{async *[Symbol.asyncIterator](){
@@ -66,7 +73,7 @@ test('background download never launches an installer; next safe app start does'
  const app={isPackaged:true,getVersion:()=> '1.1.17'};
  const service=createDesktopUpdateService({
   app,storage:{root:dir},getWindow:()=>null,fetchImpl,
-  launchInstaller:async()=>{launches++;return true;}
+  launchInstaller:async options=>{assert.match(options.expectedVersion,/^\d+\.\d+\.\d+$/);launches++;return true;}
  });
  try{
   const finished=await service.checkNow();
@@ -75,6 +82,10 @@ test('background download never launches an installer; next safe app start does'
   assert.equal(launches,0,'never launch an installer while the app is open');
   assert.equal(downloadFetches,1);
   assert.equal(await service._test.checkStaged()!=null,true);
+  const rechecked=await service.checkNow();
+  assert.equal(rechecked.phase,'ready');
+  assert.equal(releaseChecks,2,'checks for new releases even when a download is staged');
+  assert.equal(downloadFetches,1,'does not download the same verified release again');
   assert.equal(await service.applyOnNextLaunch(),true);
   assert.equal(launches,1);
   assert.equal(await service.applyOnNextLaunch(),true);
@@ -83,6 +94,7 @@ test('background download never launches an installer; next safe app start does'
   assert.equal(launches,2);
   const blocked=await service.checkNow();
   assert.equal(blocked.phase,'install-error','same failed version remains blocked');
+  assert.equal(blocked.errorDetail,'INSTALL_ATTEMPTS_EXHAUSTED');
   assert.equal(downloadFetches,1);
   release=manifest('1.1.52',digest);
   const recovered=await service.checkNow();
@@ -92,6 +104,10 @@ test('background download never launches an installer; next safe app start does'
   assert.equal(launches,2,'checking must not launch installer');
   assert.equal(await service.applyOnNextLaunch(),true);
   assert.equal(launches,3,'new version receives its own attempt budget');
+  const restarted=createDesktopUpdateService({app:{isPackaged:true,getVersion:()=> '1.1.52'},storage:{root:dir},getWindow:()=>null,fetchImpl});
+  assert.equal(restarted.getStatus().installedVersion,'1.1.52','success is based on actual running version');
+  assert.equal(restarted.getStatus().currentVersion,'1.1.52');
+  restarted.stop();
   assert.equal(fs.existsSync(path.join(dir,'accounting.db')),false,
    'updater never creates/changes a financial database');
  }finally{service.stop();fs.rmSync(dir,{recursive:true,force:true});}
