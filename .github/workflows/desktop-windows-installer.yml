@@ -13,6 +13,7 @@ on:
       - 'src/components/DesktopStorageStatus.tsx'
       - 'src/components/PWAInstallButton.tsx'
       - 'src/components/Navbar.tsx'
+      - 'src/components/LoginView.tsx'
       - 'src/main.tsx'
       - 'src/sync-next/localDb.ts'
       - 'tests/desktop-storage.test.cjs'
