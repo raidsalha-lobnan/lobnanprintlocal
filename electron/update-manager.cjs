@@ -19,6 +19,7 @@ const {
 
 const RECHECK_MS=5*60*1000;
 const DOWNLOAD_TIMEOUT_MS=15*60*1000;
+const DOWNLOAD_IDLE_MS=45000;
 const META_FILE='verified-update.json';
 const ATTEMPT_FILE='install-attempt.json';
 const MAX_INSTALL_ATTEMPTS=2;
@@ -164,7 +165,7 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   try{return fs.readFileSync(path.join(cacheDir,'install-result.txt'),'utf8').replace(/^\uFEFF/,'').trim().slice(0,400);}
   catch{return '';}
  }
- let status={phase:'idle',currentVersion:app.getVersion(),version:null,percent:null,installedVersion,errorDetail:null,downloadMode:null};
+ let status={phase:'idle',currentVersion:app.getVersion(),version:null,percent:null,installedVersion,errorDetail:null,downloadMode:null,downloadStage:null,receivedBytes:0,totalBytes:null};
  let task=null,stopped=false,timer=null,failures=0;
  function setStatus(phase,extra={}){
   status={...status,errorDetail:null,...extra,phase};
@@ -209,12 +210,13 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   // Electron Updater only reconstructs the installer from unchanged blocks.
   if(differentialDownload&&!fs.existsSync(temp)){
    try{
-    setStatus('downloading',{version:asset.version,percent:0,downloadMode:'differential'});
+    setStatus('downloading',{version:asset.version,percent:null,downloadMode:'differential',downloadStage:'preparing',receivedBytes:0,totalBytes:null});
     const reconstructed=await differentialDownload({
      app,asset,cacheDir,fetchImpl,verifiedFile,
-     onProgress:percent=>setStatus('downloading',{version:asset.version,percent,downloadMode:'differential'}),
+     onProgress:percent=>setStatus('downloading',{version:asset.version,percent,downloadMode:'differential',downloadStage:'transferring'}),
      log:message=>{try{fs.appendFileSync(path.join(cacheDir,'differential-update.log'),new Date().toISOString()+' '+String(message).slice(0,1000)+'\n');}catch{}}
     });
+    setStatus('downloading',{percent:99,downloadStage:'verifying'});
     if(!await verifiedFile(reconstructed,asset.size,asset.digest))throw Error('DELTA_OFFICIAL_SHA256_MISMATCH');
     await fs.promises.copyFile(reconstructed,temp);
     if(!await verifiedFile(temp,asset.size,asset.digest))throw Error('DELTA_COPY_VERIFICATION_FAILED');
@@ -224,7 +226,7 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
     await fs.promises.rm(temp,{force:true});
    }
   }
-  setStatus('downloading',{version:asset.version,percent:0,downloadMode:'full'});
+  setStatus('downloading',{version:asset.version,percent:null,downloadMode:'full',downloadStage:'connecting',receivedBytes:0,totalBytes:asset.size});
   let bytes=0;
   try{bytes=(await fs.promises.stat(temp)).size;}catch(error){if(error.code!=='ENOENT')throw error;}
   if(bytes>asset.size){await fs.promises.rm(temp,{force:true});bytes=0;}
@@ -234,9 +236,16 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   }
   const headers={'User-Agent':'LobnanPrint-Windows-Updater','Accept-Encoding':'identity'};
   if(bytes)headers.Range='bytes='+bytes+'-';
-  setStatus('downloading',{version:asset.version,percent:Math.floor(bytes*100/asset.size)});
+  setStatus('downloading',{version:asset.version,percent:bytes?Math.floor(bytes*100/asset.size):null,downloadStage:'connecting',receivedBytes:bytes,totalBytes:asset.size});
+  const controller=new AbortController();
+  let idleTimer;
+  let idle=false;
+  const armIdle=()=>{clearTimeout(idleTimer);idleTimer=setTimeout(()=>{idle=true;controller.abort();},DOWNLOAD_IDLE_MS);};
+  const totalTimer=setTimeout(()=>controller.abort(),DOWNLOAD_TIMEOUT_MS);
+  armIdle();
+  try{
   const response=await fetchImpl(asset.url,{
-   headers,redirect:'follow',signal:AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)
+   headers,redirect:'follow',signal:controller.signal
   });
   if(response.status===416&&bytes){await fs.promises.rm(temp,{force:true});}
   if(!response.ok||!response.body||!ALLOWED_DOWNLOAD_HOSTS.has(new URL(response.url).hostname)){
@@ -254,10 +263,15 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
    }
   }else if(response.status===200||response.status===undefined)bytes=0;
   else throw Error('DESKTOP_UPDATE_DOWNLOAD_HTTP_'+response.status);
+  armIdle();
+  setStatus('downloading',{downloadStage:'waiting-data',receivedBytes:bytes,percent:bytes?Math.floor(bytes*100/asset.size):null});
   const handle=await fs.promises.open(temp,bytes?'a':'w',0o600);
+  let lastReport=0;
   try{
    for await(const piece of response.body){
     const chunk=Buffer.from(piece);
+    if(!chunk.length)continue;
+    armIdle();
     if(bytes+chunk.length>asset.size){
      await handle.truncate(0);throw Error('DESKTOP_UPDATE_SIZE_EXCEEDED');
     }
@@ -268,10 +282,13 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
      offset+=bytesWritten;bytes+=bytesWritten;
     }
     const percent=Math.floor(bytes*100/asset.size);
-    if(percent!==status.percent)setStatus('downloading',{version:asset.version,percent});
+    if(percent!==status.percent||Date.now()-lastReport>=1000){lastReport=Date.now();setStatus('downloading',{version:asset.version,percent:Math.min(99,percent),downloadStage:'transferring',receivedBytes:bytes,totalBytes:asset.size});}
    }
    await handle.sync();
   }finally{await handle.close();}
+  }catch(error){if(idle)throw Error('DESKTOP_UPDATE_NO_DATA_45S',{cause:error});throw error;}
+  finally{clearTimeout(idleTimer);clearTimeout(totalTimer);}
+  setStatus('downloading',{downloadStage:'verifying',percent:99,receivedBytes:bytes,totalBytes:asset.size});
   // Keep a partial download on transient interruption. Never execute it.
   if(bytes!==asset.size)throw Error('DESKTOP_UPDATE_DOWNLOAD_INCOMPLETE');
   if(!(await verifiedFile(temp,asset.size,asset.digest))){
@@ -292,7 +309,7 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
       Number(attempts.count)>=MAX_INSTALL_ATTEMPTS);
     // A failed staged release must not prevent future releases from being
     // discovered. Keep the old file intact until a newer asset is verified.
-    setStatus('checking',{percent:null,version:null,downloadMode:null});
+    setStatus('checking',{percent:null,version:null,downloadMode:null,downloadStage:null,receivedBytes:0,totalBytes:null});
     const res=await fetchImpl(RELEASES_API,{
      headers:{Accept:'application/vnd.github+json',
       'User-Agent':'LobnanPrint-Windows-Updater'},
@@ -309,7 +326,7 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
     }
     if(!asset){failures=0;setStatus('current',{version:null,percent:null});return getStatus();}
     requestedVersion=asset.version;
-    setStatus('downloading',{version:asset.version,percent:0});
+    setStatus('downloading',{version:asset.version,percent:null,downloadStage:'preparing'});
     await stageRelease(asset);
     setStatus('ready',{version:asset.version,percent:100});
    }catch(error){
