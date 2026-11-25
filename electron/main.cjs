@@ -9,6 +9,8 @@ const API_ORIGIN='https://lobnan-api.shares.zrok.io';
 const MAX_API_BYTES=48*1024*1024;
 let mainWindow=null,storage=null,nativeDb=null,startupError=null,desktopUpdater=null;
 let startupWindow=null, startupFinished=false;
+let updateHandoffActive=false;
+let updateHandoffQuitting=false;
 const startupBegin=Date.now();
 function startupMark(stage){
  const entry=new Date().toISOString()+' '+stage+' '+(Date.now()-startupBegin)+'ms\n';
@@ -147,33 +149,60 @@ function registerIpc(){
  ipcMain.handle('lobnan:desktop-update-restart',async event=>{
   trusted(event);
   const phase=desktopUpdater?.getStatus().phase;
-  if(restartRequested||!['ready','install-error'].includes(phase))return false;
+  const version=desktopUpdater?.getStatus().version;
+  if(restartRequested||!version||!['ready','install-error'].includes(phase))return false;
   const window=mainWindow;
   const recovery=phase==='install-error';
   restartRequested=true;
   try{
    const answer=await dialog.showMessageBox(window,{
     type:'question',title:recovery?'استرداد التحديث':'تحديث وإعادة تشغيل',
-    message:recovery?'فشل التثبيت الصامت. هل تريد فتح المثبّت الرسمي بعد إغلاق البرنامج؟':'هل تريد إعادة تشغيل البرنامج لتثبيت التحديث؟',
-    detail:'احفظ الفاتورة أو السند الجاري وأغلق أي عمليات غير محفوظة قبل المتابعة. لن يتم حذف قاعدة البيانات أو العمليات المحفوظة محليًا.',
+    message:recovery?'هل تريد تشغيل المثبّت الرسمي للإصدار '+version+'؟':'هل تريد تثبيت الإصدار '+version+' وإعادة فتح البرنامج تلقائيًا؟',
+    detail:'احفظ الفاتورة أو السند الجاري قبل المتابعة. انتظر انتهاء التثبيت؛ لا تحتاج إلى فتح البرنامج بنفسك.',
     buttons:['إلغاء',recovery?'حفظت عملي — استرداد التحديث':'حفظت عملي — تحديث وإعادة تشغيل'],defaultId:0,cancelId:0,noLink:true
    });
-   if(answer.response!==1||!window||window.isDestroyed()||desktopUpdater?.getStatus().phase!==phase){
+   const current=desktopUpdater?.getStatus();
+   if(answer.response!==1||!window||window.isDestroyed()||current?.phase!==phase||current.version!==version){
     restartRequested=false;return false;
    }
-   if(recovery&&!(await desktopUpdater.prepareInteractiveRetry())){
-    restartRequested=false;return false;
-   }
-   const relaunch=()=>app.relaunch();
+   // Do not use app.relaunch(): that starts the old binary and makes a
+   // second startup responsible for installing the update.
+   updateHandoffActive=true;
    const canceled=()=>{
-    restartRequested=false;
-    window.removeListener('closed',relaunch);
+    restartRequested=false;updateHandoffActive=false;
+    window.removeListener('closed',closed);
    };
-   window.once('closed',relaunch);
+   const closed=async()=>{
+    desktopUpdater.stop();
+    try{
+     startupMark('explicit-update-window-closed');
+     await showStartupWindow('جارٍ تثبيت التحديث '+version+'، سيُفتح البرنامج تلقائيًا...');
+     if(BrowserWindow.getAllWindows().some(w=>w!==startupWindow&&!w.isDestroyed()))
+      throw Error('UPDATE_OTHER_WINDOWS_OPEN');
+     const accepted=await desktopUpdater.applyOnNextLaunch({expectedVersion:version,interactive:recovery});
+     if(!accepted)throw Error(desktopUpdater.getStatus().errorDetail||'UPDATE_HANDOFF_FAILED');
+     startupMark('explicit-update-helper-ready');
+     updateHandoffQuitting=true;
+     dismissStartupWindow();
+     app.quit();
+    }catch(error){
+     // The old session is already closed, but the installer did not take
+     // ownership. Restore the working app instead of leaving no window.
+     startupMark('explicit-update-handoff-failed');
+     console.error('DESKTOP_UPDATE_HANDOFF_FAILED',String(error));
+     updateHandoffActive=false;updateHandoffQuitting=false;restartRequested=false;
+     dismissStartupWindow();
+     if(!mainWindow&&!nativeDb){dialog.showErrorBox('تعذر التحديث',String(error));app.quit();return;}
+     if(!mainWindow)createWindow();
+     dialog.showErrorBox('تعذر بدء التحديث','سيبقى الإصدار الحالي متاحًا.\n'+String(error));
+     desktopUpdater.start();
+    }
+   };
+   window.once('closed',closed);
    window.webContents.once('will-prevent-unload',canceled);
-   setImmediate(()=>{if(!window.isDestroyed())window.close();});
+   setImmediate(()=>{if(!window.isDestroyed())window.close();else canceled();});
    return true;
-  }catch(error){restartRequested=false;throw error;}
+  }catch(error){restartRequested=false;updateHandoffActive=false;throw error;}
  });
  ipcMain.handle('lobnan:storage-info',event=>{
   trusted(event);
@@ -273,7 +302,7 @@ function displayMenuItems(){
 function installDisplayMenu(){
  Menu.setApplicationMenu(null);
 }
-function showStartupWindow(){
+function showStartupWindow(message='جارٍ تجهيز البرنامج والتحقق من البيانات...'){
  if(process.platform!=='win32')return Promise.resolve();
  startupWindow=new BrowserWindow({
   width:420,height:176,center:true,frame:false,resizable:false,
@@ -281,7 +310,7 @@ function showStartupWindow(){
   webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}
  });
  const w=startupWindow;
- const html='<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><body style="background:#f0f5ff;color:#123985;font:16px Tahoma,Arial;display:grid;place-content:center;text-align:center;height:100vh;margin:0"><strong style="font-size:21px">برنامج الأيهم المحاسبي</strong><p>جارٍ تجهيز البرنامج والتحقق من البيانات...</p><small>مطبعة ومكتبة لبنان</small></body></html>';
+ const html='<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><body style="background:#f0f5ff;color:#123985;font:16px Tahoma,Arial;display:grid;place-content:center;text-align:center;height:100vh;margin:0"><strong style="font-size:21px">برنامج الأيهم المحاسبي</strong><p>'+message.replace(/[<>&]/g,'')+'</p><small>مطبعة ومكتبة لبنان</small></body></html>';
  w.webContents.setWindowOpenHandler(()=>({action:'deny'}));
  w.webContents.on('will-navigate',event=>event.preventDefault());
  return new Promise(resolve=>{
@@ -387,7 +416,7 @@ app.whenReady().then(async()=>{
   }
  });
  try{
-  if(await desktopUpdater.applyOnNextLaunch()){
+  if(!process.argv.includes('--lobnan-update-return')&&await desktopUpdater.applyOnNextLaunch()){
    startupMark('verified-update-install-start');
    dismissStartupWindow();
    app.quit(); // The installer helper waits until the app process exits.
@@ -411,9 +440,10 @@ app.whenReady().then(async()=>{
  window.once('closed',()=>dismissStartupWindow());
  desktopUpdater.start(); // Check and download only. NEVER install mid-session.
 });
-app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
-app.on('activate',()=>{if(startupFinished&&!mainWindow&&!startupError&&nativeDb)createWindow();});
-app.on('before-quit',()=>{
+app.on('window-all-closed',()=>{if(process.platform!=='darwin'&&!updateHandoffActive)app.quit();});
+app.on('activate',()=>{if(startupFinished&&!updateHandoffActive&&!mainWindow&&!startupError&&nativeDb)createWindow();});
+app.on('before-quit',event=>{
+ if(updateHandoffActive&&!updateHandoffQuitting){event.preventDefault();return;}
  desktopUpdater?.stop();
  if(nativeDb){nativeDb.close();nativeDb=null;}
 });
