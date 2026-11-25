@@ -59,7 +59,7 @@ import {
 import { CalculatorModal } from './pos/CalculatorModal';
 import { AboutAppModal } from './AboutAppModal';
 import { LocalDatabaseModal } from './LocalDatabaseModal';
-import { ServerOff } from 'lucide-react';
+import { ServerOff, Monitor } from 'lucide-react';
 import {authHeaders,clearSession,getCurrentSessionToken,publicSyncApiUrl,secureLoginEnabled} from '../services/secureAuth';
 
 interface SubMenuItem {
@@ -757,6 +757,25 @@ export const Navbar: React.FC = () => {
           <PWAInstallButton />
           <DesktopStorageStatus />
           <DesktopUpdateStatus />
+          {Boolean((globalThis as unknown as {electronAPI?: {isElectron?: boolean; openDisplaySettings?: () => Promise<boolean>}}).electronAPI?.isElectron) && (
+            <button type="button"
+              title="إعدادات الشاشة — مقاس النافذة وتكبير الواجهة"
+              aria-label="إعدادات الشاشة"
+              className="h-5 px-1.5 flex items-center gap-1 shrink-0 rounded-xs bg-white/15 hover:bg-white/30 text-white font-bold text-[10px]"
+              onClick={async () => {
+                const api = (globalThis as unknown as {electronAPI?: {openDisplaySettings?: () => Promise<boolean>}}).electronAPI;
+                try {
+                  if (!api?.openDisplaySettings) throw Error('DISPLAY_SETTINGS_UNAVAILABLE');
+                  if (document.fullscreenElement) await document.exitFullscreen();
+                  await api.openDisplaySettings();
+                } catch {
+                  window.alert('تعذر فتح إعدادات الشاشة. تحقق من تثبيت أحدث إصدار Windows.');
+                }
+              }}>
+              <Monitor className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">إعدادات الشاشة</span>
+            </button>
+          )}
           {/* Back Button */}
           <button
             type="button"
