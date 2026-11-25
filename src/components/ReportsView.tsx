@@ -314,7 +314,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
       const root=requirePdfRoot('.report-a4-container',reportsConsoleRef.current||document);
       await saveReportPdf(root,{filename,paper:'a4',numberPages:true});
     }catch(error){
-      console.error('Local Typst report PDF failed',error);
+      console.error('Original print PDF failed',error);
       alert('تعذّر إنشاء ملف PDF. لم تتغير البيانات المحاسبية. '+(error instanceof Error?error.message:''));
     }finally{serverPdfInFlight.current=false;setServerPdfDownloading(false);}
   };
@@ -1062,7 +1062,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
               onClick={() => {void handleDownloadDetailedStatementPdf();}}
               disabled={serverPdfDownloading}
               className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-bold px-3.5 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer"
-              title="إنشاء PDF مباشر محليًا باستخدام Typst مع الصور والتفاصيل"
+              title="حفظ PDF بنفس تنسيق الطباعة والصور والتفاصيل"
             >
               <Download className="w-4 h-4" />
               <span>{serverPdfDownloading?'جاري إنشاء PDF...':'حفظ PDF مباشر'}</span>
