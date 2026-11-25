@@ -1,5 +1,6 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import {DeferredStatementPhotos} from './StatementPrintPhoto';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface Props {
@@ -21,7 +22,6 @@ export const ReportsLivePreview: React.FC<Props> = ({ reportKey, children }) => 
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const latestRef = useRef({ page: 1, count: 1, step: 1 });
-  const lastWheelRef = useRef(0);
   const [page, setPage] = useState(1);
   const [count, setCount] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -45,7 +45,6 @@ export const ReportsLivePreview: React.FC<Props> = ({ reportKey, children }) => 
   useLayoutEffect(() => {
     // Switching report types must always start at the top of their own report.
     latestRef.current.page = 1;
-    lastWheelRef.current = 0;
     setPage(1);
     setCount(1);
     const viewport = viewportRef.current;
@@ -65,10 +64,9 @@ export const ReportsLivePreview: React.FC<Props> = ({ reportKey, children }) => 
       latestRef.current.step = step;
       latestRef.current.count = total;
       setCount(previous => previous === total ? previous : total);
-      const next = Math.min(latestRef.current.page, total);
-      latestRef.current.page = next;
-      setPage(previous => previous === next ? previous : next);
-      viewport.scrollTop = Math.min(maxScroll, (next - 1) * step);
+      const current = Math.min(total,Math.max(1,Math.round(viewport.scrollTop / step) + 1));
+      latestRef.current.page = current;
+      setPage(previous => previous === current ? previous : current);
     };
     const requestMeasure = () => {
       if (frame) cancelAnimationFrame(frame);
@@ -87,25 +85,22 @@ export const ReportsLivePreview: React.FC<Props> = ({ reportKey, children }) => 
     window.addEventListener('resize', requestMeasure);
     document.fonts?.ready?.then(requestMeasure).catch(() => undefined);
 
-    // Each wheel gesture is a single navigation step, not document scrolling.
-    const wheel = (event: WheelEvent) => {
-      if (event.ctrlKey) return;
-      event.preventDefault();
-      const delta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
-      if (Math.abs(delta) < 6) return;
-      const now = performance.now();
-      if (now - lastWheelRef.current < 220) return;
-      lastWheelRef.current = now;
-      setPageTo(latestRef.current.page + Math.sign(delta));
+    // Native scrolling is responsive: no wheel debounce or forced page jumps.
+    const scroll = () => {
+      const {step,count}=latestRef.current;
+      const next=Math.min(count,Math.max(1,Math.round(viewport.scrollTop/step)+1));
+      const maxScroll=viewport.scrollHeight-viewport.clientHeight;
+      const current=maxScroll>0&&viewport.scrollTop>=maxScroll-1?count:next;
+      if(latestRef.current.page!==current){latestRef.current.page=current;setPage(current);}
     };
-    viewport.addEventListener('wheel', wheel, { passive: false });
+    viewport.addEventListener('scroll',scroll,{passive:true});
     requestMeasure();
     return () => {
       if (frame) cancelAnimationFrame(frame);
       resize?.disconnect();
       mutation?.disconnect();
       content.removeEventListener('load', requestMeasure, true);
-      viewport.removeEventListener('wheel', wheel);
+      viewport.removeEventListener('scroll', scroll);
       window.removeEventListener('resize', requestMeasure);
     };
   }, [reportKey, zoom, setPageTo]);
@@ -126,7 +121,7 @@ export const ReportsLivePreview: React.FC<Props> = ({ reportKey, children }) => 
       )}
       <div className="reports-live-viewport" ref={viewportRef}>
         <div className="reports-live-content" ref={contentRef} style={{ zoom }} dir="rtl">
-          {children}
+          <DeferredStatementPhotos.Provider value={true}>{children}</DeferredStatementPhotos.Provider>
         </div>
       </div>
     </div>
