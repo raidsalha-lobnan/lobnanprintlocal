@@ -17,7 +17,7 @@ const {
  RELEASES_API,officialAsset,approvedStagedRecord,compareVersions
 }=require('./update-policy.cjs');
 
-const RECHECK_MS=6*60*60*1000;
+const RECHECK_MS=5*60*1000;
 const DOWNLOAD_TIMEOUT_MS=15*60*1000;
 const META_FILE='verified-update.json';
 const ATTEMPT_FILE='install-attempt.json';
@@ -48,34 +48,54 @@ async function verifiedFile(file,size,digest){
  }catch{return false;}
 }
 function safelyQuotedPs(value){return "'"+String(value).replace(/'/g,"''")+"'";}
-function powershellInstallCommand({oldPid,installer,appExecutable}){
- // Never use shell interpolation for downloaded data: paths are produced by
- // our strict filename generator and individually PowerShell-quoted.
+function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion}){
  const installerLiteral=safelyQuotedPs(installer);
  const appLiteral=safelyQuotedPs(appExecutable);
  const workdirLiteral=safelyQuotedPs(path.dirname(appExecutable));
+ const version=expectedVersion||/LobnanPrint-Setup-(\d+\.\d+\.\d+)\.exe$/i.exec(installer)?.[1];
+ if(!version||!/^\d+\.\d+\.\d+$/.test(version))throw Error('DESKTOP_UPDATE_INVALID_VERSION');
  return [
   '$ErrorActionPreference = "Stop"',
   '$log = '+safelyQuotedPs(path.join(path.dirname(installer),'install-helper.log')),
-  'try { Start-Transcript -Path $log -Append | Out-Null } catch {}',
   '$oldPid = '+Number(oldPid),
-  'for ($i=0; $i -lt 180; $i++) {',
-  '  if (-not (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) { break }',
-  '  Start-Sleep -Seconds 1',
-  '}',
-  'if (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) { exit 4 }',
   '$installer = '+installerLiteral,
-  'if (-not (Test-Path -LiteralPath $installer)) { exit 5 }',
-  '$result = Start-Process -FilePath $installer -ArgumentList @("/S") -Wait -PassThru',
-  'Write-Output ("Installer exit code: " + $result.ExitCode)',
-  'if ($result.ExitCode -ne 0) { exit 6 }',
-  'Start-Process -FilePath '+appLiteral+' -WorkingDirectory '+workdirLiteral,
-  'exit 0'
+  '$appExe = '+appLiteral,
+  '$expected = '+safelyQuotedPs(version),
+  '$outcome = "UNKNOWN"',
+  '$canReopen = $false',
+  'try {',
+  '  try { Start-Transcript -Path $log -Append | Out-Null } catch {}',
+  '  for ($i=0; $i -lt 180; $i++) {',
+  '    if (-not (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) { break }',
+  '    Start-Sleep -Seconds 1',
+  '  }',
+  '  if (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) { throw "OLD_PROCESS_STILL_RUNNING" }',
+  '  $canReopen = $true',
+  '  if (-not (Test-Path -LiteralPath $installer)) { throw "INSTALLER_NOT_FOUND" }',
+  '  $result = Start-Process -FilePath $installer -ArgumentList @("/S") -Wait -PassThru',
+  '  Write-Output ("Installer exit code: " + $result.ExitCode)',
+  '  if ($result.ExitCode -ne 0) { throw ("INSTALLER_EXIT_" + $result.ExitCode) }',
+  '  if (-not (Test-Path -LiteralPath $appExe)) { throw "APP_EXECUTABLE_NOT_FOUND" }',
+  '  $actual = (Get-Item -LiteralPath $appExe).VersionInfo.FileVersion',
+  '  Write-Output ("Installed file version: " + $actual + "; expected: " + $expected)',
+  '  if ([version]$actual -lt [version]$expected) { throw ("INSTALLED_VERSION_MISMATCH_" + $actual) }',
+  '  $outcome = "VERIFIED_INSTALLED"',
+  '} catch {',
+  '  $outcome = $_.Exception.Message',
+  '  Write-Output ("UPDATE_FAILED: " + $outcome)',
+  '} finally {',
+  '  try { $outcome | Set-Content -LiteralPath (Join-Path (Split-Path -Parent $installer) "install-result.txt") -Encoding UTF8 } catch {}',
+  '  try { Stop-Transcript | Out-Null } catch {}',
+  '  if ($canReopen -and (Test-Path -LiteralPath $appExe)) {',
+  '    try { Start-Process -FilePath '+appLiteral+' -WorkingDirectory '+workdirLiteral+' } catch {}',
+  '  }',
+  '}',
+  'if ($outcome -eq "VERIFIED_INSTALLED") { exit 0 } else { exit 6 }'
  ].join('\r\n');
 }
-function startDetachedInstaller({oldPid,installer,appExecutable},launch=spawn){
+function startDetachedInstaller({oldPid,installer,appExecutable,expectedVersion},launch=spawn){
  if(process.platform!=='win32')return Promise.resolve(false);
- const ps=powershellInstallCommand({oldPid,installer,appExecutable});
+ const ps=powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion});
  const encoded=Buffer.from(ps,'utf16le').toString('base64');
  return new Promise(resolve=>{
   let finished=false;
@@ -100,10 +120,20 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
  const cacheDir=path.join(storage.root,'UpdateCache');
  const metadataPath=path.join(cacheDir,META_FILE);
  const attemptsPath=path.join(cacheDir,ATTEMPT_FILE);
- let status={phase:'idle',currentVersion:app.getVersion(),version:null,percent:null};
+ const previousAttempt=readJSON(attemptsPath);
+ let installedVersion=null;
+ try{
+  if(previousAttempt?.version&&compareVersions(app.getVersion(),previousAttempt.version)>=0)
+   installedVersion=app.getVersion();
+ }catch{}
+ function installDiagnostic(){
+  try{return fs.readFileSync(path.join(cacheDir,'install-result.txt'),'utf8').replace(/^\uFEFF/,'').trim().slice(0,400);}
+  catch{return '';}
+ }
+ let status={phase:'idle',currentVersion:app.getVersion(),version:null,percent:null,installedVersion,errorDetail:null};
  let task=null,stopped=false,timer=null;
  function setStatus(phase,extra={}){
-  status={...status,...extra,phase};
+  status={...status,errorDetail:null,...extra,phase};
   const window=getWindow();
   if(window&&!window.isDestroyed()){
    try{window.webContents.send('lobnan:desktop-update-status',status);}catch{}
@@ -169,15 +199,12 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   if(stopped||!app.isPackaged||process.platform!=='win32')return getStatus();
   if(task)return task;
   task=(async()=>{
+   let staged=null,blocked=false;
    try{
-    const staged=await checkStaged();
+    staged=await checkStaged();
     const attempts=readJSON(attemptsPath);
-    const blocked=Boolean(staged&&attempts?.version===staged.version&&
+    blocked=Boolean(staged&&attempts?.version===staged.version&&
       Number(attempts.count)>=MAX_INSTALL_ATTEMPTS);
-    if(staged&&!blocked){
-     setStatus('ready',{version:staged.version,percent:100});
-     return getStatus();
-    }
     // A failed staged release must not prevent future releases from being
     // discovered. Keep the old file intact until a newer asset is verified.
     setStatus('checking',{percent:null,version:null});
@@ -189,8 +216,9 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
     if(!res.ok)throw Error('DESKTOP_UPDATE_RELEASE_QUERY_'+res.status);
     const release=await res.json();
     const asset=officialAsset(release,app.getVersion());
-    if(blocked&&(!asset||compareVersions(asset.version,staged.version)<=0)){
-     setStatus('install-error',{version:staged.version,percent:100});
+    if(staged&&(!asset||compareVersions(asset.version,staged.version)<=0)){
+     setStatus(blocked?'install-error':'ready',{version:staged.version,percent:100,
+      errorDetail:blocked?(installDiagnostic()||'INSTALL_ATTEMPTS_EXHAUSTED'):null});
      return getStatus();
     }
     if(!asset){setStatus('current',{version:null,percent:null});return getStatus();}
@@ -199,7 +227,13 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
     setStatus('ready',{version:asset.version,percent:100});
    }catch(error){
     console.warn('DESKTOP_UPDATE_CHECK_FAILED',String(error));
-    setStatus('error',{version:null,percent:null});
+    if(staged&&!blocked){
+     setStatus('ready',{version:staged.version,percent:100});
+    }else if(staged&&blocked){
+     setStatus('install-error',{version:staged.version,percent:100,errorDetail:installDiagnostic()||String(error).slice(0,400)});
+    }else{
+     setStatus('error',{version:null,percent:null,errorDetail:String(error).slice(0,400)});
+    }
    }
    return getStatus();
   })();
@@ -212,16 +246,17 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   const attempt=readJSON(attemptsPath);
   const previous=attempt?.version===record.version?Number(attempt.count)||0:0;
   if(previous>=MAX_INSTALL_ATTEMPTS){
-   setStatus('install-error',{version:record.version,percent:100});
+   setStatus('install-error',{version:record.version,percent:100,errorDetail:installDiagnostic()||'INSTALL_ATTEMPTS_EXHAUSTED'});
    return false; // Stop the retry loop, leave existing app fully usable.
   }
   atomicJSON(attemptsPath,{version:record.version,count:previous+1,
    lastAttempt:new Date().toISOString()});
+  try{fs.rmSync(path.join(cacheDir,'install-result.txt'),{force:true});}catch{}
   const started=await launchInstaller({
-   oldPid:process.pid,installer:record.file,appExecutable:process.execPath
+   oldPid:process.pid,installer:record.file,appExecutable:process.execPath,expectedVersion:record.version
   });
   if(!started){
-   setStatus('install-error',{version:record.version,percent:100});
+   setStatus('install-error',{version:record.version,percent:100,errorDetail:'INSTALL_HELPER_START_FAILED'});
    return false;
   }
   return true;
