@@ -47,3 +47,20 @@ test('installer choices are available even before PostgreSQL login',()=>{
   assert.match(login,/<PWAInstallButton \/>/);
   assert.match(login,/<DesktopStorageStatus \/>/);
 });
+
+test('Windows uses one custom title bar with real native window controls and safe close',()=>{
+ const main=read('electron/main.cjs');
+ const preload=read('electron/preload.cjs');
+ const controls=read('src/components/DesktopWindowControls.tsx');
+ const navbar=read('src/components/Navbar.tsx');
+ const login=read('src/components/LoginView.tsx');
+ assert.match(main,/frame:process\.platform!=='win32'/);
+ assert.match(main,/case 'minimize':window\.minimize\(\)/);
+ assert.match(main,/window\.unmaximize\(\);else window\.maximize\(\)/);
+ assert.match(main,/window\.close\(\)/);
+ assert.match(preload,/controlWindow:\(action\)=>ipcRenderer\.invoke\('lobnan:window-control',action\)/);
+ assert.match(controls,/WebkitAppRegion:'drag'/);
+ assert.match(controls,/action\('close'\)/);
+ assert.match(navbar,/<DesktopWindowControls \/>/);
+ assert.match(login,/<DesktopLoginTitleBar \/>/);
+});
