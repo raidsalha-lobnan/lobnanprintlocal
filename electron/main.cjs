@@ -101,16 +101,58 @@ function registerIpc(){
    headers:responseHeaders,body};
  });
 }
+// Display preferences are device-local and never touch accounting data.
+function readDisplaySettings(){
+ try{
+  const v=JSON.parse(fs.readFileSync(path.join(storage.profileDir,'display-settings.json'),'utf8'));
+  return {width:Math.max(800,Math.min(7680,Number(v.width)||1366)),
+   height:Math.max(480,Math.min(4320,Number(v.height)||768)),
+   zoom:[0.8,0.9,1,1.1,1.25,1.5].includes(v.zoom)?v.zoom:1,
+   maximized:v.maximized===true};
+ }catch{return {width:1366,height:768,zoom:1,maximized:false};}
+}
+function saveDisplaySettings(){
+ if(!mainWindow||mainWindow.isDestroyed())return;
+ const [width,height]=mainWindow.getNormalBounds ? [mainWindow.getNormalBounds().width,mainWindow.getNormalBounds().height] : mainWindow.getSize();
+ try{
+  const file=path.join(storage.profileDir,'display-settings.json');
+  fs.writeFileSync(file+'.tmp',JSON.stringify({width,height,zoom:mainWindow.webContents.getZoomFactor(),maximized:mainWindow.isMaximized()}));
+  fs.renameSync(file+'.tmp',file);
+ }catch(error){console.warn('DISPLAY_SETTINGS_SAVE_FAILED',String(error));}
+}
+function installDisplayMenu(){
+ const sizes=[[1024,600],[1280,720],[1366,768],[1600,900],[1920,1080]];
+ Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'إعدادات الشاشة',submenu:[
+  ...sizes.map(([width,height])=>({label:width+' × '+height,click:()=>{
+   if(!mainWindow)return;
+   if(mainWindow.isMaximized())mainWindow.unmaximize();
+   const {width:availableWidth,height:availableHeight}=require('electron').screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+   mainWindow.setSize(Math.min(width,availableWidth),Math.min(height,availableHeight));mainWindow.center();saveDisplaySettings();
+  }})),
+  {type:'separator'},
+  {label:'تكبير الواجهة',submenu:[0.8,0.9,1,1.1,1.25,1.5].map(zoom=>({label:Math.round(zoom*100)+'%',click:()=>{
+   if(mainWindow){mainWindow.webContents.setZoomFactor(zoom);saveDisplaySettings();}
+  }}))},
+  {label:'ملء مساحة الشاشة',click:()=>{if(mainWindow){mainWindow.maximize();saveDisplaySettings();}}},
+  {label:'حفظ المقاس الحالي',click:saveDisplaySettings},
+  {label:'استعادة الافتراضي',click:()=>{if(mainWindow){mainWindow.unmaximize();const a=require('electron').screen.getDisplayMatching(mainWindow.getBounds()).workArea;mainWindow.setSize(Math.min(1366,a.width),Math.min(768,a.height));mainWindow.center();mainWindow.webContents.setZoomFactor(1);saveDisplaySettings();}}}
+ ]}]));
+}
 function createWindow(){
+ const display=readDisplaySettings();
+ const workArea=require('electron').screen.getPrimaryDisplay().workArea;
  mainWindow=new BrowserWindow({
-  width:1366,height:768,minWidth:1024,minHeight:600,
+  width:Math.min(display.width,workArea.width),height:Math.min(display.height,workArea.height),minWidth:Math.min(800,workArea.width),minHeight:Math.min(480,workArea.height),
   title:'مطبعة ومكتبة لبنان',
   webPreferences:{
    preload:path.join(__dirname,'preload.cjs'),
    nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true
   }
  });
- Menu.setApplicationMenu(null);
+ installDisplayMenu();
+ mainWindow.webContents.on('did-finish-load',()=>mainWindow?.webContents.setZoomFactor(display.zoom));
+ if(display.maximized)mainWindow.maximize();
+ mainWindow.on('close',saveDisplaySettings);
  const file=path.join(__dirname,'../dist/index.html');
  void mainWindow.loadFile(file).catch(error=>{
   console.error('DESKTOP_PAGE_LOAD_FAILED',String(error));
