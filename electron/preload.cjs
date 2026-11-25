@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI',{
  isElectron:true,
  sqliteLocalStorage:true,
  platform:process.platform,
+ getReportA4Preview:()=>ipcRenderer.invoke('lobnan:report-a4-preview'),
  controlWindow:(action)=>ipcRenderer.invoke('lobnan:window-control',action),
  getWindowState:()=>ipcRenderer.invoke('lobnan:window-state'),
  onWindowState:(handler)=>{
