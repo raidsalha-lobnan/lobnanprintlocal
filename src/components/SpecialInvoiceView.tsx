@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useEffect, useRef } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { X, Maximize2, Printer, Save, Truck, Plus, Trash2 } from 'lucide-react';
@@ -412,7 +413,7 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
       </style>
       
       <div 
-        className="w-full h-full flex flex-col bg-slate-50 overflow-hidden special-invoice-print"
+        data-pdf-document className="w-full h-full flex flex-col bg-slate-50 overflow-hidden special-invoice-print"
         dir="rtl"
       >
         {/* Header - No Print */}
@@ -426,6 +427,7 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
               <Save className="w-4 h-4" />
               <span>حفظ بالسجل</span>
             </button>
+            <ReportPdfButton filename={('فاتورة مبيعات خاصة - ')+invoiceNumber} selector="[data-pdf-document]" scope="[data-pdf-document]" includeFormValues />
             <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm shadow-sm transition-colors">
               <Printer className="w-4 h-4" />
               <span>طباعة الفاتورة</span>
