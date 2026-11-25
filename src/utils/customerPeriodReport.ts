@@ -1,3 +1,4 @@
+import {openReportPrintWindow} from './openReportPrintWindow';
 import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 import { renderBusinessReportHeader } from './reportBusinessHeader';
 import type { BusinessSettings } from '../types';
@@ -152,7 +153,7 @@ export function printCustomerPeriodRegister(
   // included in the consolidated grand total.
   const mainRows = customerPeriodRows(source, {...filter, list:'main'});
   const subRows = customerPeriodRows(source, {...filter, list:'sub'});
-  const openingPopup = window.open('', '_blank');
+  const openingPopup = openReportPrintWindow();
   if (!openingPopup) {
     window.alert('يرجى السماح بفتح نافذة الطباعة.');
     return;
