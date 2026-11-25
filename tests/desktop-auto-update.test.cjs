@@ -183,16 +183,15 @@ test('Windows helper launcher waits for ready acknowledgement instead of spawn a
   },(exe,args,options)=>{
    assert.match(exe,/WindowsPowerShell[\\/]v1\.0[\\/]powershell\.exe$/i);
    assert.equal(options.detached,true);
-   const bootstrap=Buffer.from(args.at(-1),'base64').toString('utf16le');
-   assert.match(bootstrap,/Start-Process -FilePath/);
-   assert.match(bootstrap,/RedirectStandardError/);
-   const inner=bootstrap.match(/"-EncodedCommand",'([A-Za-z0-9+/=]+)'/)[1];
-   const worker=Buffer.from(inner,'base64').toString('utf16le');
+   const worker=Buffer.from(args.at(-1),'base64').toString('utf16le');
+   assert.match(worker,/Start-Process -FilePath \$installer/);
+   assert.doesNotMatch(worker,/-EncodedCommand/);
+   assert.equal(typeof options.stdio[1],'number');
    const ready=worker.match(/\$ready = '([^']+)'/)[1];
    assert.equal(fs.existsSync(ready.replace(/\.ready$/,'.go')),false);
    const child=new EventEmitter();
    child.unref=()=>{};
-   setTimeout(()=>{fs.writeFileSync(ready,'HELPER_READY');child.emit('exit',0);},100);
+   setTimeout(()=>{fs.writeFileSync(ready,'HELPER_READY');},100);
    return child;
   });
   assert.equal(launched,true);
