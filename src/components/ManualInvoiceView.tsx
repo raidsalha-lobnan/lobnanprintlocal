@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useRef, useEffect } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
@@ -260,7 +261,7 @@ export const ManualInvoiceView: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col print:p-0 print:m-0 print:w-full bg-slate-50 overflow-hidden">
+    <div data-pdf-document className="w-full h-full flex flex-col print:p-0 print:m-0 print:w-full bg-slate-50 overflow-hidden">
       {/* Top Controls (Hidden on Print) */}
       <div className="flex items-center justify-between bg-white p-4 shadow-sm border-b border-slate-200 print:hidden shrink-0 w-full">
         <div>
@@ -284,7 +285,8 @@ export const ManualInvoiceView: React.FC = () => {
             <Save className="w-4 h-4" />
             <span>حفظ بالسجل</span>
           </button>
-          <button
+          <ReportPdfButton filename={('فاتورة مبيعات - ')+invoiceNumber} selector="[data-pdf-document]" scope="[data-pdf-document]" includeFormValues />
+            <button
             onClick={handlePrint}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm shadow-sm transition-colors"
           >
