@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import {resolveAccess} from './access-policy.mjs';
 import {generateOfficialReportPdf} from './official-report-renderer.mjs';
+import {rankApproximateParties} from './telegram-party-matcher.mjs';
 
 const CATEGORIES={
  customer_statement:{name:'كشف حساب عميل',entity:'parties',render:'customer_statement',partyType:'customer'},
@@ -174,6 +175,8 @@ export class TelegramServerReportWorker {
    await this.send(token,chatId,'اكتب حرفين على الأقل من الاسم أو رمز السجل.');
    return;
   }
+  // Starting a new lookup invalidates any older party selection/confirmation.
+  await this.saveSelection(chatId,telegramId,category);
   const rows=await this.pool.query(
    `WITH candidates AS (
       SELECT record_id,value,
@@ -198,7 +201,7 @@ export class TelegramServerReportWorker {
     SELECT record_id,value FROM ranked WHERE match_rank IS NOT NULL
     ORDER BY match_rank,record_id`,
    [this.workspace,entity,q,normalized,compact]);
-  const permitted=rows.rows.filter(row=>{
+  let permitted=rows.rows.filter(row=>{
    const value=row.value;
    if(!access.canRead(entity,value,row.record_id))return false;
    if(entity==='employees')return true;
@@ -206,14 +209,26 @@ export class TelegramServerReportWorker {
     ?['supplier','both'].includes(value.type)
     :['customer','both'].includes(value.type);
   }).slice(0,7);
+  // If a user misspells one or two letters, suggest close authorized names.
+  // Do not expose inaccessible accounts or use unconfirmed candidates in PDFs.
   if(!permitted.length){
-   await this.send(token,chatId,'لم أجد اسمًا مطابقًا ضمن السجلات المسموح لك بعرضها. حاول بالاسم أو الرمز.');
+   const fallback=await this.pool.query(
+    'SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity=$2 ORDER BY record_id LIMIT 5000',
+    [this.workspace,entity]);
+   permitted=rankApproximateParties(fallback.rows,q,{
+    entity,partyType:c.partyType,canRead:(kind,value,id)=>access.canRead(kind,value,id)
+   });
+  }
+  if(!permitted.length){
+   await this.send(token,chatId,'لم أجد اسمًا قريبًا ضمن السجلات المسموح لك بعرضها. جرّب جزءًا آخر من الاسم أو رمز العميل.');
    return;
   }
-  const buttons=permitted.map(row=>[{text:String(row.value.name||row.value.code).slice(0,55),
-   callback_data:'confirm_party_'+row.record_id}]);
-  buttons.push([{text:'القائمة الرئيسية',callback_data:'menu_main'}]);
-  await this.send(token,chatId,'اختر السجل المطلوب:',buttons);
+  const buttons=permitted.filter(row=>String(row.record_id).length<=47)
+   .map(row=>[{text:('👤 '+String(row.value.name||'')+
+    (row.value.code?' — '+row.value.code:'')).slice(0,58),
+    callback_data:'candidate_party_'+row.record_id}]);
+  buttons.push([{text:'🔎 إعادة البحث',callback_data:'retry_party'}]);
+  await this.send(token,chatId,'هذه أقرب الأسماء. اختر العميل أولًا لتأكيده:',buttons);
  }
  async acknowledge(token,payload){
   if(!payload.callbackQueryId)return;
@@ -239,15 +254,58 @@ export class TelegramServerReportWorker {
   const categoryMatch=command.match(/^menu_(customer_statement|supplier_statement|customer_items|employee_statement|sales_report|purchases_report|treasury_report|inventory_report|expenses_report)$/);
   if(categoryMatch){await this.showCategory(token,chatId,telegramId,categoryMatch[1]);return;}
   const selected=await this.readSelection(chatId,telegramId);
-  const confirmed=command.match(/^confirm_party_(.+)$/);
-  if(confirmed){
-   const category=selected?.category||'customer_statement';
-   if(!isPartyKind(category)){await this.send(token,chatId,'اختر نوع الكشف من /menu أولًا.');return;}
-   const id=confirmed[1];
+  if(command==='retry_party'){
+   if(!selected||!isPartyKind(selected.category)){
+    await this.send(token,chatId,'اختر نوع الكشف من /menu أولًا.');return;
+   }
+   await this.showCategory(token,chatId,telegramId,selected.category);
+   return;
+  }
+  const candidate=command.match(/^candidate_party_(.+)$/);
+  if(candidate){
+   const category=selected?.category;
+   if(!category||!isPartyKind(category)){
+    await this.send(token,chatId,'اختر نوع الكشف من /menu أولًا.');return;
+   }
+   const id=candidate[1],kind=CATEGORIES[category];
    const check=await this.pool.query(
     'SELECT value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',
-    [this.workspace,CATEGORIES[category].entity,id]);
-   if(!check.rows.length||!auth.access.canRead(CATEGORIES[category].entity,check.rows[0].value,id))
+    [this.workspace,kind.entity,id]);
+   const value=check.rows[0]?.value;
+   const correctType=kind.entity==='employees'||(kind.partyType==='supplier'
+    ?['supplier','both'].includes(value?.type)
+    :['customer','both'].includes(value?.type));
+   if(!value||!correctType||!auth.access.canRead(kind.entity,value,id))
+    throw Error('REPORT_PARTY_NOT_AUTHORIZED');
+   // Persist a PENDING candidate, not a confirmed client, across bot restarts.
+   // Period callbacks must never use pending candidates as report recipients.
+   await this.saveSelection(chatId,telegramId,category,'pending:'+id);
+   await this.send(token,chatId,
+    'هل هذا '+(kind.entity==='employees'?'الموظف':kind.partyType==='supplier'?'المورد':'العميل')+
+    ' المقصود؟\\n👤 '+String(value.name||'بدون اسم')+
+    (value.code?'\\n🔖 الرمز: '+value.code:'')+
+    '\\nاضغط «نعم، هذا هو» للمتابعة إلى فترة الكشف.',[
+     [{text:'✅ نعم، هذا هو',callback_data:'confirm_party_'+id}],
+     [{text:'🔎 لا، البحث من جديد',callback_data:'retry_party'}]
+    ]);
+   return;
+  }
+  const confirmed=command.match(/^confirm_party_(.+)$/);
+  if(confirmed){
+   const category=selected?.category;
+   const id=confirmed[1];
+   if(!category||!isPartyKind(category)||selected?.party_id!=='pending:'+id){
+    await this.send(token,chatId,'الاختيار السابق لم يعد نشطًا. أعد البحث ثم أكد العميل المطلوب.');return;
+   }
+   const kind=CATEGORIES[category];
+   const check=await this.pool.query(
+    'SELECT value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',
+    [this.workspace,kind.entity,id]);
+   const value=check.rows[0]?.value;
+   const correctType=kind.entity==='employees'||(kind.partyType==='supplier'
+    ?['supplier','both'].includes(value?.type)
+    :['customer','both'].includes(value?.type));
+   if(!value||!correctType||!auth.access.canRead(kind.entity,value,id))
     throw Error('REPORT_PARTY_NOT_AUTHORIZED');
    await this.saveSelection(chatId,telegramId,category,id);
    await this.showPeriod(token,chatId,category,id);
@@ -260,7 +318,11 @@ export class TelegramServerReportWorker {
    const category=legacy?legacy[2]:selected?.category;
    const partyId=legacy?(legacy[3]==='all'?'':legacy[3]):selected?.party_id;
    if(!CATEGORIES[category])throw Error('REPORT_SELECTION_REQUIRED');
-   if(isPartyKind(category)&&!partyId)throw Error('REPORT_PARTY_REQUIRED');
+   if(isPartyKind(category)&&(!partyId||String(partyId).startsWith('pending:')||
+     (legacy&&selected?.party_id!==partyId))){
+    await this.send(token,chatId,'أكّد العميل من نتائج البحث أولًا قبل إصدار الكشف.');
+    return;
+   }
    const opts=reportPeriod(period);
    if(!item.progress_message_id&&!item.document_delivered_at){
     const progress=await this.send(token,chatId,
