@@ -16,15 +16,23 @@ test('table shows every filtered inventory item without pagination and scrolls i
 
 test('compact table keeps one horizontal line with smaller 24px rows and sticky headings',()=>{
   assert.match(source,/inventory-one-row-table[^"]*\[&_td\]:h-6/);
-  assert.match(source,/<tr key=\{item\.id\} className="h-6 whitespace-nowrap/);
+  assert.match(source,/<tr key=\{item\.id\}[\s\S]*?className="h-6 whitespace-nowrap/);
   assert.match(source,/sticky top-0 z-10 bg-slate-50/);
-  assert.match(source,/h-\[18px\] w-\[18px\]/);
+  const row=source.slice(source.indexOf('<tr key={item.id}'),source.indexOf('</tr>',source.indexOf('<tr key={item.id}')));
+  assert.doesNotMatch(row,/h-\[18px\] w-\[18px\]/);
+  assert.doesNotMatch(row,/<img\s/);
+  assert.doesNotMatch(row,/<ImageIcon\s/);
 });
 
 test('hover preview is restricted to items with images and displayed above scroll clipping',()=>{
   assert.match(source,/if\(!item\.imageUrl\)return;/);
-  assert.match(source,/onMouseEnter=\{event=>showItemImagePreview\(event,item\)\}/);
-  assert.match(source,/onMouseLeave=\{\(\)=>setHoveredItemImage\(null\)\}/);
+  const row=source.slice(source.indexOf('<tr key={item.id}'),source.indexOf('</tr>',source.indexOf('<tr key={item.id}')));
+  assert.match(row,/onMouseEnter=\{event=>showItemImagePreview\(event,item\)\}/);
+  assert.match(row,/onMouseLeave=\{\(\)=>setHoveredItemImage\(null\)\}/);
+  assert.doesNotMatch(row,/<td onMouseEnter/);
+  assert.doesNotMatch(row,/<img\s/);
+  assert.match(source,/event\.clientY/);
+  assert.match(source,/event\.clientX/);
   assert.match(source,/createPortal\(/);
   assert.match(source,/role="tooltip"/);
   assert.match(source,/pointer-events-none fixed z-\[400\]/);

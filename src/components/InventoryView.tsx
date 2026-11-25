@@ -112,11 +112,13 @@ export const InventoryView: React.FC = () => {
   }|null>(null);
   const showItemImagePreview = (event:React.MouseEvent<HTMLElement>,item:InventoryItem) => {
     if(!item.imageUrl)return;
-    const box=event.currentTarget.getBoundingClientRect();
-    const previewWidth=256,previewHeight=260;
-    const top=box.bottom+8+previewHeight<=window.innerHeight
-      ?box.bottom+8 : Math.max(8,box.top-previewHeight-8);
-    const left=Math.max(8,Math.min(box.left,window.innerWidth-previewWidth-8));
+    // The entire item row is the hover target; position the image near the
+    // pointer, and keep the floating preview inside the browser viewport.
+    const previewWidth=256,previewHeight=260,offset=12;
+    const top=event.clientY+offset+previewHeight<=window.innerHeight
+      ?event.clientY+offset : Math.max(8,event.clientY-previewHeight-offset);
+    const left=event.clientX+offset+previewWidth<=window.innerWidth
+      ?event.clientX+offset : Math.max(8,event.clientX-previewWidth-offset);
     setHoveredItemImage({name:item.name,url:item.imageUrl,top,left});
   };
 
@@ -1091,7 +1093,10 @@ export const InventoryView: React.FC = () => {
                     const warehouseDetail=warehouses.map(wh=>
                       wh.name+': '+getWarehouseStock(wh.id,item.id)+' '+item.unit).join(' • ');
                     return (
-                      <tr key={item.id} className="h-6 whitespace-nowrap border-b border-slate-100 hover:bg-slate-50">
+                      <tr key={item.id}
+                        onMouseEnter={event=>showItemImagePreview(event,item)}
+                        onMouseLeave={()=>setHoveredItemImage(null)}
+                        className="h-6 whitespace-nowrap border-b border-slate-100 hover:bg-slate-50">
                         <td className="font-mono">
                           <div className="flex min-w-0 items-center gap-1">
                             <span className="shrink-0 font-bold text-blue-700">{item.code}</span>
@@ -1100,11 +1105,8 @@ export const InventoryView: React.FC = () => {
                               className="shrink-0 rounded bg-blue-50 px-1 text-[9px] text-blue-700">+{barcodeCount}</button>}
                           </div>
                         </td>
-                        <td onMouseEnter={event=>showItemImagePreview(event,item)}
-                            onMouseLeave={()=>setHoveredItemImage(null)}>
+                        <td>
                           <div className="flex min-w-0 items-center gap-1">
-                            {item.imageUrl?<img src={item.imageUrl} alt="" className="h-[18px] w-[18px] shrink-0 rounded border border-slate-200 object-cover" loading="lazy"/>:
-                              <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-50"><ImageIcon className="h-3 w-3 text-slate-400"/></span>}
                             <span className="min-w-0 flex-1 truncate font-semibold text-slate-800" title={[item.name,item.description].filter(Boolean).join(' — ')}>{item.name}</span>
                             <button type="button" onClick={()=>updateInventoryItem(item.id,{isFavorite:!item.isFavorite})}
                               title={item.isFavorite?'إزالة من المفضلة':'إضافة للمفضلة'}
@@ -1187,7 +1189,7 @@ export const InventoryView: React.FC = () => {
       </nav>) : (
         <div className="flex h-6 shrink-0 items-center justify-between rounded border border-slate-200 bg-white px-2 text-[10px] text-slate-600" dir="rtl">
           <span data-testid="inventory-all-items-count">عرض جميع الأصناف المطابقة: {filteredItems.length} من {inventory.length}</span>
-          <span>مرّر داخل الجدول لاستعراض بقية الأصناف — مرّر الماوس فوق اسم الصنف لعرض صورته</span>
+          <span>مرّر داخل الجدول لاستعراض بقية الأصناف — مرّر الماوس فوق أي سطر له صورة لمعاينتها</span>
         </div>
       )}
 
