@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI',{
  isElectron:true,
  sqliteLocalStorage:true,
  platform:process.platform,
+ openDisplaySettings:()=>ipcRenderer.invoke('lobnan:display-menu'),
  rememberLogin:(credentials)=>ipcRenderer.invoke('lobnan:remember-login',credentials),
  readRememberedLogin:()=>ipcRenderer.invoke('lobnan:read-remembered-login'),
  forgetLogin:()=>ipcRenderer.invoke('lobnan:forget-login'),
