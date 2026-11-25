@@ -20,6 +20,7 @@ on:
       - 'tests/desktop-sqlite-mirror.test.ts'
       - 'tests/desktop-install-ui.test.mjs'
       - 'scripts/assert-desktop-build-env.cjs'
+      - 'scripts/check-packaged-sqlite.cjs'
       - 'package.json'
       - '.github/workflows/desktop-windows-installer.yml'
 
@@ -64,13 +65,20 @@ jobs:
           VITE_SYNC_LOGIN_MODE: 'users'
           VITE_SYNC_BACKEND: 'local-postgres'
           VITE_PUBLIC_SYNC_API_URL: 'https://lobnan-api.shares.zrok.io'
-      - name: Verify SQLite works in the packaged Electron 44 runtime
+      - name: Verify real SQLite read/write in packaged Electron
         shell: pwsh
         run: |
           $env:ELECTRON_RUN_AS_NODE = '1'
-          & 'dist-electron/win-unpacked/LobnanPrint.exe' --test tests/desktop-storage.test.cjs
-          if ($LASTEXITCODE -ne 0) { throw 'PACKAGED_ELECTRON_SQLITE_RUNTIME_FAILED' }
-          Remove-Item Env:ELECTRON_RUN_AS_NODE
+          try {
+            $result = & 'dist-electron/win-unpacked/LobnanPrint.exe' 'scripts/check-packaged-sqlite.cjs' 2>&1
+            $exit = $LASTEXITCODE
+            $result | Out-Host
+            if ($exit -ne 0 -or -not ($result -match 'PACKAGED_ELECTRON_SQLITE_OK')) {
+              throw 'PACKAGED_ELECTRON_SQLITE_RUNTIME_FAILED'
+            }
+          } finally {
+            Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+          }
       - name: Validate installer before publication
         shell: pwsh
         run: |
