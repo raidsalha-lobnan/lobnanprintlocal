@@ -1,3 +1,4 @@
+import {ReportPdfButton} from '../common/ReportPdfButton';
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../../components/common/DateInput';
 import { useAccounting } from '../../context/AccountingContext';
@@ -58,7 +59,7 @@ export const CustomerReceiptsLedgerModal: React.FC<CustomerReceiptsLedgerModalPr
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3 text-slate-800 text-xs print:p-0 print:bg-white" dir="rtl">
+    <div data-pdf-document className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3 text-slate-800 text-xs print:p-0 print:bg-white" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-4xl flex flex-col max-h-[92vh] overflow-hidden print:border-none print:shadow-none print:max-w-none">
         {/* Header Controls (Hidden during print) */}
         <div className="bg-[#1f4a7c] text-white px-5 py-3.5 flex items-center justify-between border-b border-[#143254] print:hidden">
@@ -93,7 +94,8 @@ export const CustomerReceiptsLedgerModal: React.FC<CustomerReceiptsLedgerModalPr
               </button>
             )}
 
-            <button
+            <ReportPdfButton filename={'كشف سندات قبض - '+party.name} numberPages selector="[data-pdf-document]" scope="[data-pdf-document]" />
+                <button
               type="button"
               onClick={handlePrint}
               className="px-3 py-1.5 bg-white hover:bg-slate-100 text-[#1f4a7c] rounded-lg font-bold flex items-center gap-1 cursor-pointer shadow-xs"
