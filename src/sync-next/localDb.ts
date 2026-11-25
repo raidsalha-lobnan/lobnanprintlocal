@@ -9,6 +9,7 @@ import {getCurrentSessionActorId,secureLoginEnabled} from '../services/secureAut
 import {isProtectedRejectedBulkPartySnapshot,isVerifiedRejectedBulkBystander,rejectedBulkBystanderKey} from './rejectedBulkBystanders';
 import {planBlockedCommandQuarantine} from './blockedQueueQuarantine';
 import {canIndependentSaleBypassKey,isNewAtomicPosSale} from './atomicRecoveryPolicy';
+import {hydrateFromPinnedSqlite,mirrorCompletedTransaction} from './desktopSqliteMirror';
 
 const DB_VERSION = 3;
 const RECORDS = 'records';
@@ -32,17 +33,21 @@ function request<T>(r: IDBRequest<T>): Promise<T> {
 }
 
 function completed(tx: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
+  const result=new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onabort = () =>
       reject(tx.error ?? new Error('Transaction aborted'));
     tx.onerror = () =>
       reject(tx.error ?? new Error('Transaction failed'));
   });
+  // Browser sessions remain IndexedDB-only. Installed Windows must confirm
+  // the pinned SQLite mirror before returning local-save success.
+  return result.then(()=>mirrorCompletedTransaction(tx));
 }
 
 export class LocalSyncDb {
   private dbPromise: Promise<IDBDatabase>;
+  private desktopHydration: Promise<void>|null=null;
   private disposed = false;
   private readonly databaseName: string;
   private listeners = new Set<(recordsChanged: boolean, keys?: readonly SyncRecordRef[]) => void>();
@@ -120,7 +125,10 @@ export class LocalSyncDb {
       r.onsuccess = () => {
         r.result.onversionchange = () => {
           r.result.close();
-          if (!this.disposed) this.dbPromise = this.openDatabase();
+          if (!this.disposed) {
+            this.desktopHydration=null;
+            this.dbPromise = this.openDatabase();
+          }
         };
         resolve(r.result);
       };
@@ -137,6 +145,10 @@ export class LocalSyncDb {
   private async getDb(): Promise<IDBDatabase> {
     if (this.disposed) throw new Error('LOCAL_STORAGE_SESSION_CLOSED');
     const db = await this.dbPromise;
+    if(!this.desktopHydration)
+      this.desktopHydration=hydrateFromPinnedSqlite(db);
+    // All desktop reads and writes wait for recovery/identity checks.
+    await this.desktopHydration;
     try {
       const probe = db.transaction(META, 'readonly');
       probe.abort();
@@ -145,8 +157,9 @@ export class LocalSyncDb {
       if (!(error instanceof DOMException) ||
           !['InvalidStateError', 'TransactionInactiveError'].includes(error.name)) throw error;
       db.close();
+      this.desktopHydration=null;
       this.dbPromise = this.openDatabase();
-      return this.dbPromise;
+      return this.getDb();
     }
   }
 
