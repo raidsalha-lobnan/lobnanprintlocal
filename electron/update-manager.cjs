@@ -150,7 +150,7 @@ async function startDetachedInstaller({oldPid,installer,appExecutable,expectedVe
  note('HELPER_NOT_READY — keeping current app open');
  return false;
 }
-function createDesktopUpdateService({app,storage,getWindow,launchInstaller=startDetachedInstaller,fetchImpl=fetch}){
+function createDesktopUpdateService({app,storage,getWindow,launchInstaller=startDetachedInstaller,fetchImpl=fetch,differentialDownload=null}){
  const cacheDir=path.join(storage.root,'UpdateCache');
  const metadataPath=path.join(cacheDir,META_FILE);
  const attemptsPath=path.join(cacheDir,ATTEMPT_FILE);
@@ -164,7 +164,7 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   try{return fs.readFileSync(path.join(cacheDir,'install-result.txt'),'utf8').replace(/^\uFEFF/,'').trim().slice(0,400);}
   catch{return '';}
  }
- let status={phase:'idle',currentVersion:app.getVersion(),version:null,percent:null,installedVersion,errorDetail:null};
+ let status={phase:'idle',currentVersion:app.getVersion(),version:null,percent:null,installedVersion,errorDetail:null,downloadMode:null};
  let task=null,stopped=false,timer=null,failures=0;
  function setStatus(phase,extra={}){
   status={...status,errorDetail:null,...extra,phase};
@@ -205,6 +205,26 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
    return true;
   };
   if(await verifiedFile(file,asset.size,asset.digest))return commit();
+  // Preserve the trusted installer staging and independent install handoff.
+  // Electron Updater only reconstructs the installer from unchanged blocks.
+  if(differentialDownload&&!fs.existsSync(temp)){
+   try{
+    setStatus('downloading',{version:asset.version,percent:0,downloadMode:'differential'});
+    const reconstructed=await differentialDownload({
+     app,asset,cacheDir,fetchImpl,verifiedFile,
+     onProgress:percent=>setStatus('downloading',{version:asset.version,percent,downloadMode:'differential'}),
+     log:message=>{try{fs.appendFileSync(path.join(cacheDir,'differential-update.log'),new Date().toISOString()+' '+String(message).slice(0,1000)+'\n');}catch{}}
+    });
+    if(!await verifiedFile(reconstructed,asset.size,asset.digest))throw Error('DELTA_OFFICIAL_SHA256_MISMATCH');
+    await fs.promises.copyFile(reconstructed,temp);
+    if(!await verifiedFile(temp,asset.size,asset.digest))throw Error('DELTA_COPY_VERIFICATION_FAILED');
+    return await commit();
+   }catch(error){
+    logFailure('differential',error,asset.version);
+    await fs.promises.rm(temp,{force:true});
+   }
+  }
+  setStatus('downloading',{version:asset.version,percent:0,downloadMode:'full'});
   let bytes=0;
   try{bytes=(await fs.promises.stat(temp)).size;}catch(error){if(error.code!=='ENOENT')throw error;}
   if(bytes>asset.size){await fs.promises.rm(temp,{force:true});bytes=0;}
@@ -272,7 +292,7 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
       Number(attempts.count)>=MAX_INSTALL_ATTEMPTS);
     // A failed staged release must not prevent future releases from being
     // discovered. Keep the old file intact until a newer asset is verified.
-    setStatus('checking',{percent:null,version:null});
+    setStatus('checking',{percent:null,version:null,downloadMode:null});
     const res=await fetchImpl(RELEASES_API,{
      headers:{Accept:'application/vnd.github+json',
       'User-Agent':'LobnanPrint-Windows-Updater'},
