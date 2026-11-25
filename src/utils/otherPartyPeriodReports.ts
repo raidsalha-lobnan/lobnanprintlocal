@@ -1,4 +1,4 @@
-import {openReportPrintWindow} from './openReportPrintWindow';
+import {openReportPrintWindow,writeAndPrintReport} from './openReportPrintWindow';
 import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 import type {Party, Employee, Invoice, PaymentVoucher, PurchaseInvoice, PurchaseReturn, SalesReturn, PrintJobOrder, JournalEntry, DebtClearingRecord, EmployeeAdvance, EmployeeDeduction, EmployeeIncentive, PayrollSheet} from '../types';
 import {generateAccountStatement, generateEmployeeStatement} from './statementGenerator';
@@ -125,8 +125,7 @@ export function printDirectoryPeriodReport(title:string,company:string,filter:Di
  data.map((row,index)=>'<tr class="'+(index===data.length-1?'total':'')+'">'+
  row.map(columnHTML).join('')+'</tr>').join('')+
  '</tbody></table><div class="note">'+esc(explanation)+'</div></body></html>';
- pop.document.open();pop.document.write(markup);pop.document.close();
- pop.onload=()=>{pop.focus();pop.print();};
+ writeAndPrintReport(pop,markup);
 }
 
 
