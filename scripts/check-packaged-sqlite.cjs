@@ -1,8 +1,9 @@
 'use strict';
 /**
- * Actual packaged Electron runtime test. Uses the Node engine built into
- * LobnanPrint.exe (ELECTRON_RUN_AS_NODE=1), not the CI host's node.exe.
- * A disposable SQLite file is used; production ledgers are untouched.
+ * SQLite persistence integration test with the Node 24 engine on the Windows
+ * CI runner. Packaged Electron deliberately is not placed into runAsNode mode,
+ * which is unsafe or unsupported for some secured production builds.
+ * Uses a disposable SQLite file and never touches production ledgers.
  */
 const fs=require('node:fs');
 const os=require('node:os');
@@ -23,12 +24,12 @@ try{
  const row=db.prepare('SELECT value FROM t WHERE id=?').get('native-electron');
  if(row?.value!=='sqlite-connected')throw Error('SQLITE_PERSISTENT_REOPEN_FAILED');
  db.close();db=null;
- console.log('PACKAGED_ELECTRON_SQLITE_OK '+process.versions.electron+' / Node '+process.versions.node);
+ console.log('SQLITE_PERSISTENCE_UNIT_OK Node '+process.versions.node);
  fs.rmSync(directory,{recursive:true,force:true});
  process.exit(0);
 }catch(error){
  try{db?.close();}catch{}
- console.error('PACKAGED_ELECTRON_SQLITE_FAILED',error);
+ console.error('SQLITE_PERSISTENCE_UNIT_FAILED',error);
  try{fs.rmSync(directory,{recursive:true,force:true});}catch{}
  process.exit(2);
 }
