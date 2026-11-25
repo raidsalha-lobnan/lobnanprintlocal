@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
@@ -319,7 +320,7 @@ export const AuditLogView: React.FC = () => {
   }
 
   return (
-    <div className="space-y-4" dir="rtl">
+    <div data-pdf-document className="space-y-4" dir="rtl">
       {/* Navigation Switcher Tabs */}
       <div className="bg-white p-1.5 rounded-xl border border-slate-300 shadow-xs flex items-center gap-1.5 print:hidden">
         <button
@@ -368,7 +369,8 @@ export const AuditLogView: React.FC = () => {
             <Download className="w-4 h-4" />
             <span>تصدير إكسل (CSV)</span>
           </button>
-          <button
+          <ReportPdfButton filename="سجل حركات النظام" numberPages selector="[data-pdf-document]" scope="[data-pdf-document]" />
+            <button
             onClick={() => window.print()}
             className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
           >
