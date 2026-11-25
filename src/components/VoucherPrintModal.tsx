@@ -1,3 +1,4 @@
+import {printReportSurface,requirePdfRoot} from '../utils/reportPdfEngine';
 import {ReportPdfButton} from './common/ReportPdfButton';
 import React from 'react';
 import { useAccounting } from '../context/AccountingContext';
@@ -53,7 +54,9 @@ export const VoucherPrintModal: React.FC = () => {
   const amountWords = tafqeet(voucher.amount, currName, fracName);
 
   const handlePrint = () => {
-    window.print();
+    void (async()=>{
+      await printReportSurface(requirePdfRoot('.voucher-print-sheets',document));
+    })().catch(error=>alert('تعذّرت الطباعة: '+(error instanceof Error?error.message:String(error))));
   };
 
   const getPaymentMethodLabel = (method: string) => {
