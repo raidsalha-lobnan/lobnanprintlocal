@@ -100,7 +100,7 @@ function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersio
   '  try { $outcome | Set-Content -LiteralPath (Join-Path (Split-Path -Parent $installer) "install-result.txt") -Encoding UTF8 } catch {}',
   '  try { Stop-Transcript | Out-Null } catch {}',
   '  if ($canReopen -and (Test-Path -LiteralPath $appExe)) {',
-  '    try { Start-Process -FilePath '+appLiteral+' -WorkingDirectory '+workdirLiteral+' } catch {}',
+  '    try { Start-Process -FilePath '+appLiteral+' -WorkingDirectory '+workdirLiteral+' -ArgumentList @("--lobnan-update-return") } catch { Write-Output ("REOPEN_FAILED: " + $_.Exception.Message) }',
   '  }',
   '}',
   'if ($outcome -eq "VERIFIED_INSTALLED") { exit 0 } else { exit 6 }'
@@ -317,20 +317,26 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
    interactiveRequested:true,lastAttempt:new Date().toISOString()});
   return true;
  }
- async function applyOnNextLaunch(){
+ async function applyOnNextLaunch(options={}){
   if(!app.isPackaged||process.platform!=='win32')return false;
   // Do not hash a large installer at startup when it cannot be installed.
   const candidate=approvedStagedRecord(readJSON(metadataPath),app.getVersion());
-  if(!candidate)return false;
+  if(!candidate||(options.expectedVersion&&candidate.version!==options.expectedVersion)){
+   if(options.expectedVersion)setStatus('install-error',{version:options.expectedVersion,errorDetail:'UPDATE_VERSION_CHANGED_OR_NOT_STAGED'});
+   return false;
+  }
   const attempt=readJSON(attemptsPath);
   const previous=attempt?.version===candidate.version?Number(attempt.count)||0:0;
-  const interactive=attempt?.version===candidate.version&&attempt.interactiveRequested===true;
+  const interactive=options.interactive===true||(attempt?.version===candidate.version&&attempt.interactiveRequested===true);
   if(previous>=MAX_INSTALL_ATTEMPTS&&!interactive){
    setStatus('install-error',{version:candidate.version,percent:100,errorDetail:installDiagnostic()||'INSTALL_ATTEMPTS_EXHAUSTED'});
    return false;
   }
   const record=await checkStaged(); // SHA-256 verification still mandatory before installation.
-  if(!record||record.version!==candidate.version)return false;
+  if(!record||record.version!==candidate.version){
+   setStatus('install-error',{version:candidate.version,errorDetail:'UPDATE_FILE_VERIFICATION_FAILED'});
+   return false;
+  }
   atomicJSON(attemptsPath,{version:record.version,count:interactive?MAX_INSTALL_ATTEMPTS:previous+1,
    lastAttempt:new Date().toISOString()});
   try{fs.rmSync(path.join(cacheDir,'install-result.txt'),{force:true});}catch{}
