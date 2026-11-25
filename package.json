@@ -73,7 +73,11 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^6.2.3",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "@myriaddreamin/typst.ts": "0.7.0",
+    "@myriaddreamin/typst-ts-web-compiler": "0.7.0",
+    "@expo-google-fonts/noto-sans-arabic": "0.4.2",
+    "@expo-google-fonts/noto-sans": "0.4.2"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
