@@ -433,6 +433,9 @@ app.whenReady().then(async()=>{
   // Chromium's networking uses Windows system proxy settings. If it cannot
   // establish the request, try Node's separate transport without weakening TLS.
   fetchImpl:async(url,options)=>{
+   // Node fetch implements manual redirects with readable Location headers.
+   // Do not route validated installer redirects through Chromium's opaque responses.
+   if(options?.redirect==='manual')return fetch(url,options);
    const headerDeadline=new AbortController();
    const timeout=setTimeout(()=>headerDeadline.abort(),20000);
    try{
