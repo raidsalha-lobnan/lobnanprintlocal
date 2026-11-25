@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { DesktopDownloadButton } from './DesktopDownloadButton';
+import { DesktopStorageStatus } from './DesktopStorageStatus';
 import { MobileNavigationModal } from './MobileNavigationModal';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -748,7 +749,12 @@ export const Navbar: React.FC = () => {
            {(syncCoordinatorState?.archived||0)>0 && <span className="rounded bg-amber-700 px-1 text-white">{syncCoordinatorState.archived} مؤرشف</span>}
         </div>
         {/* Left (in RTL): Classic Windows Window Controls (─, ▢, ✕) */}
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Always-visible install choices; never hide them in the horizontally
+              clipped third toolbar. Native installs show verified SQLite. */}
+          <DesktopDownloadButton />
+          <PWAInstallButton />
+          <DesktopStorageStatus />
           {/* Back Button */}
           <button
             type="button"
@@ -1158,8 +1164,6 @@ export const Navbar: React.FC = () => {
             </button>
           )}
 
-          <DesktopDownloadButton />
-          <PWAInstallButton />
         </div>
       </div>
 
