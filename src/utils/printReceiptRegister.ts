@@ -1,4 +1,4 @@
-import {openReportPrintWindow} from './openReportPrintWindow';
+import {openReportPrintWindow,writeAndPrintReport} from './openReportPrintWindow';
 import type {BusinessSettings,PaymentVoucher,Treasury} from '../types';
 import {renderBusinessReportHeader} from './reportBusinessHeader';
 import {REPORT_TYPOGRAPHY_CSS} from './reportTypography';
@@ -52,6 +52,5 @@ export function printReceiptRegister(rows:PaymentVoucher[], options:ReceiptRegis
  '<tbody>'+(tr||'<tr><td colspan="10">لا توجد سندات قبض ضمن معايير التقرير</td></tr>')+'</tbody></table>'+
  '<div class="footnote">ملاحظة: الإجماليات بالعملة الأساسية من القيم المسجلة بالسندات، والمبالغ الأصلية تعرض عملة كل سند. التقرير للقراءة والطباعة ولا ينشئ أي قيد محاسبي.</div>'+
  '</body></html>';
- win.document.open();win.document.write(doc);win.document.close();
- win.addEventListener('load',()=>{win.focus();win.print()},{once:true});
+ writeAndPrintReport(win,doc);
 }
