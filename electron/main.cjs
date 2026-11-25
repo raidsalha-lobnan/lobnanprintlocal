@@ -136,12 +136,13 @@ function registerIpc(){
  });
 }
 // Display preferences are device-local and never touch accounting data.
+const DISPLAY_ZOOM_PERCENTAGES=[75,80,85,90,95,100,105,110,115,120,125,130,135,140,145,150];
 function readDisplaySettings(){
  try{
   const v=JSON.parse(fs.readFileSync(path.join(storage.profileDir,'display-settings.json'),'utf8'));
   return {width:Math.max(800,Math.min(7680,Number(v.width)||1366)),
    height:Math.max(480,Math.min(4320,Number(v.height)||768)),
-   zoom:[0.8,0.9,1,1.1,1.25,1.5].includes(v.zoom)?v.zoom:1,
+   zoom:DISPLAY_ZOOM_PERCENTAGES.some(percent=>Math.abs(percent/100-Number(v.zoom))<0.0001)?Number(v.zoom):1,
    maximized:v.maximized===true};
  }catch{return {width:1366,height:768,zoom:1,maximized:false};}
 }
@@ -155,22 +156,24 @@ function saveDisplaySettings(){
  }catch(error){console.warn('DISPLAY_SETTINGS_SAVE_FAILED',String(error));}
 }
 function displayMenuItems(){
- const sizes=[[1024,600],[1280,720],[1366,768],[1600,900],[1920,1080]];
+ const current=Math.round(mainWindow.webContents.getZoomFactor()*100);
  return [
-  ...sizes.map(([width,height])=>({label:width+' × '+height,click:()=>{
-   if(!mainWindow)return;
-   if(mainWindow.isFullScreen())mainWindow.setFullScreen(false);
-   if(mainWindow.isMaximized())mainWindow.unmaximize();
-   const {width:availableWidth,height:availableHeight}=require('electron').screen.getDisplayMatching(mainWindow.getBounds()).workArea;
-   mainWindow.setSize(Math.min(width,availableWidth),Math.min(height,availableHeight));mainWindow.center();saveDisplaySettings();
-  }})),
+  {label:'مقياس عرض عناصر البرنامج: '+current+'%',enabled:false},
   {type:'separator'},
-  {label:'تكبير الواجهة',submenu:[0.8,0.9,1,1.1,1.25,1.5].map(zoom=>({label:Math.round(zoom*100)+'%',click:()=>{
-   if(mainWindow){mainWindow.webContents.setZoomFactor(zoom);saveDisplaySettings();}
-  }}))},
-  {label:'ملء مساحة الشاشة',click:()=>{if(mainWindow){mainWindow.maximize();saveDisplaySettings();}}},
-  {label:'حفظ المقاس الحالي',click:saveDisplaySettings},
-  {label:'استعادة الافتراضي',click:()=>{if(mainWindow){if(mainWindow.isFullScreen())mainWindow.setFullScreen(false);mainWindow.unmaximize();const a=require('electron').screen.getDisplayMatching(mainWindow.getBounds()).workArea;mainWindow.setSize(Math.min(1366,a.width),Math.min(768,a.height));mainWindow.center();mainWindow.webContents.setZoomFactor(1);saveDisplaySettings();}}}
+  ...DISPLAY_ZOOM_PERCENTAGES.map(percent=>({
+   label:percent+'%'+(percent===100?' — الحجم الطبيعي':''),
+   type:'radio',checked:current===percent,click:()=>{
+    if(!mainWindow||mainWindow.isDestroyed())return;
+    mainWindow.webContents.setZoomFactor(percent/100);
+    saveDisplaySettings();
+   }
+  })),
+  {type:'separator'},
+  {label:'استعادة العرض الافتراضي (100%)',click:()=>{
+   if(!mainWindow||mainWindow.isDestroyed())return;
+   mainWindow.webContents.setZoomFactor(1);
+   saveDisplaySettings();
+  }}
  ];
 }
 function installDisplayMenu(){
