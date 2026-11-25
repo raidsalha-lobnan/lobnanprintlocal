@@ -172,7 +172,6 @@ export const DesktopStatusBar: React.FC = () => {
               )}
             </div>
           ) : (
-        {/* Panel 3: Current User & Role */}
         <div 
           onClick={() => setActiveTab('users_permissions')}
           className="flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-300 rounded-xs shadow-inner cursor-pointer hover:bg-blue-50 transition shrink-0"
@@ -239,7 +238,7 @@ export const DesktopStatusBar: React.FC = () => {
         {/* Panel 5: Cash Balance */}
         <div 
           onClick={() => setActiveTab('treasuries')}
-          className="hidden md:flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-300 rounded-xs shadow-inner cursor-pointer hover:bg-emerald-50 transition shrink-0"
+          className="flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-300 rounded-xs shadow-inner cursor-pointer hover:bg-emerald-50 transition shrink-0"
           title="رصيد الخزينة النقدية - انقر لعرض حركة الصناديق"
         >
           <Wallet className="w-3 h-3 text-emerald-600 shrink-0" />
