@@ -51,12 +51,13 @@ export const DesktopUpdateStatus:React.FC=()=>{
    :phase==='downloading'
    ?'تنزيل التحديث '+(Number.isFinite(percent)?percent+'%':'')
    :phase==='checking'?'فحص التحديثات'
-   :error?'فشل التحديث'
+   :phase==='install-error'?'استرداد التحديث'
+   :error?'إعادة محاولة التحديث'
    :phase==='current'?(installedVersion?'تم تثبيت التحديث':'التطبيق محدّث'):'تحديثات Windows';
  const title=complete
    ?'تم تنزيل التحديث والتحقق منه. اضغط لإعادة التشغيل بعد حفظ العمل، أو أغلق البرنامج وشغّله لاحقًا.'
    :error
-   ?'تعذر فحص أو تثبيت تحديث. '+(errorDetail||'اضغط لعرض الخطأ وإعادة الفحص.')
+   ?(phase==='install-error'?'اضغط لتشغيل المثبّت الرسمي بعد حفظ عملك. ':'سيُعاد الفحص تلقائيًا ويمكنك إعادة المحاولة الآن. ')+(errorDetail||'')
    :'يفحص التطبيق تحديثات Windows وينزّلها تلقائيًا؛ لا يُثبَّت أي تحديث أثناء وجود جلسة عمل مفتوحة.';
  return (
   <span className="inline-flex items-center gap-1 shrink-0" dir="rtl">
@@ -64,7 +65,7 @@ export const DesktopUpdateStatus:React.FC=()=>{
   <button type="button" title={title} disabled={busy}
    onClick={async()=>{
     try{
-     if(complete&&api.restartForDesktopUpdate){
+     if((complete||phase==='install-error')&&api.restartForDesktopUpdate){
       await api.restartForDesktopUpdate();return;
      }
      if(error){
