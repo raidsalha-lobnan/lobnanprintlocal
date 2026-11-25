@@ -433,11 +433,16 @@ app.whenReady().then(async()=>{
   // Chromium's networking uses Windows system proxy settings. If it cannot
   // establish the request, try Node's separate transport without weakening TLS.
   fetchImpl:async(url,options)=>{
-   try{return await require('electron').net.fetch(url,options);}
-   catch(error){
+   const headerDeadline=new AbortController();
+   const timeout=setTimeout(()=>headerDeadline.abort(),20000);
+   try{
+    const signal=options?.signal?AbortSignal.any([options.signal,headerDeadline.signal]):headerDeadline.signal;
+    return await require('electron').net.fetch(url,{...options,signal});
+   }catch(error){
     if(options?.signal?.aborted)throw error;
+    console.warn('DESKTOP_UPDATE_SWITCHING_TRANSPORT',String(error));
     return fetch(url,options);
-   }
+   }finally{clearTimeout(timeout);}
   }
  });
  try{
