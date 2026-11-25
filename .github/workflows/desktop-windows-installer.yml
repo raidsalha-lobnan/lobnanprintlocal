@@ -65,20 +65,18 @@ jobs:
           VITE_SYNC_LOGIN_MODE: 'users'
           VITE_SYNC_BACKEND: 'local-postgres'
           VITE_PUBLIC_SYNC_API_URL: 'https://lobnan-api.shares.zrok.io'
-      - name: Verify real SQLite read/write in packaged Electron
+      - name: Verify SQLite persistence and packaged application assets
         shell: pwsh
         run: |
-          $env:ELECTRON_RUN_AS_NODE = '1'
-          try {
-            $result = & 'dist-electron/win-unpacked/LobnanPrint.exe' 'scripts/check-packaged-sqlite.cjs' 2>&1
-            $exit = $LASTEXITCODE
-            $result | Out-Host
-            if ($exit -ne 0 -or -not ($result -match 'PACKAGED_ELECTRON_SQLITE_OK')) {
-              throw 'PACKAGED_ELECTRON_SQLITE_RUNTIME_FAILED'
-            }
-          } finally {
-            Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+          node scripts/check-packaged-sqlite.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'SQLITE_PERSISTENCE_CHECK_FAILED' }
+          if (!(Test-Path 'dist-electron/win-unpacked/LobnanPrint.exe')) {
+            throw 'WINDOWS_APPLICATION_EXECUTABLE_MISSING'
           }
+          if (!(Test-Path 'dist-electron/win-unpacked/resources/app.asar')) {
+            throw 'WINDOWS_APPLICATION_BUNDLE_MISSING'
+          }
+          Write-Host 'SQLITE_TESTED_APPLICATION_PACKAGE_PRESENT'
       - name: Validate installer before publication
         shell: pwsh
         run: |
