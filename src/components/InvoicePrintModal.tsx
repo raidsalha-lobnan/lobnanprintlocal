@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 ﻿import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { Printer, X, FileText, QrCode, Download, FileDown, Settings2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -99,7 +100,7 @@ export const InvoicePrintModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:m-0 print:bg-white print:static print:overflow-visible print-modal-container">
+    <div data-pdf-document className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:m-0 print:bg-white print:static print:overflow-visible print-modal-container">
       <div className={`bg-white rounded-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto transition-all duration-300 print:border-none print:shadow-none print:max-w-none print:w-full print:rounded-none print:overflow-visible ${
         printFormat === 'thermal' ? 'max-w-[400px]' : printFormat === 'sales' ? 'max-w-[1160px]' : 'max-w-[950px]'
       }`}>
@@ -149,6 +150,7 @@ export const InvoicePrintModal: React.FC = () => {
           )}
 
           <div className="flex items-center gap-2">
+            {printFormat!=='sales' && <ReportPdfButton filename={'فاتورة مبيعات - '+inv.invoiceNumber} selector="[data-pdf-document]" scope="[data-pdf-document]" paper={printFormat==='thermal'?'thermal':printFormat==='sales'&&salesOrientation==='landscape'?'a4-landscape':'a4'} compact={salesMargins==='compact'} />}
             <button
               onClick={handlePrint}
               className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs transition-colors cursor-pointer"
@@ -176,9 +178,7 @@ export const InvoicePrintModal: React.FC = () => {
               <button type="button" onClick={handlePrint} className="sales-tool-primary" title="طباعة جميع الصفحات">
                 <Printer size={15} /> طباعة الآن
               </button>
-              <button type="button" onClick={handlePrint} title="اختر Save as PDF من نافذة الطباعة للحفاظ على الجودة">
-                <FileDown size={15} /> حفظ PDF
-              </button>
+              <ReportPdfButton filename={'فاتورة مبيعات - '+inv.invoiceNumber} selector="[data-pdf-document]" scope="[data-pdf-document]" paper={printFormat==='thermal'?'thermal':printFormat==='sales'&&salesOrientation==='landscape'?'a4-landscape':'a4'} compact={salesMargins==='compact'} />
               <button type="button" onClick={exportSalesCsv} title="تصدير البنود بحسب ترتيب الكاشير">
                 <Download size={15} /> تصدير CSV
               </button>
@@ -217,7 +217,7 @@ export const InvoicePrintModal: React.FC = () => {
                     <option value="compact">ضيقة</option>
                   </select>
                 </label>
-                <span>لحفظ PDF اختر «Save as PDF» من نافذة الطباعة للحصول على النصوص والصور بأعلى جودة.</span>
+                <span>يحفظ زر PDF المستند مباشرة باستخدام محرك Typst.</span>
               </div>
             )}
           </div>
