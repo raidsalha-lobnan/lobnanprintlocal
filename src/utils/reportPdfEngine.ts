@@ -4,17 +4,17 @@
  * the document, browser print dialog or second set of accounting calculations.
  */
 export type PdfPaper='a4'|'a4-landscape'|'a5-landscape'|'thermal';
-export type ReportPdfOptions={filename:string;paper?:PdfPaper;compact?:boolean;numberPages?:boolean};
+export type ReportPdfOptions={filename:string;paper?:PdfPaper;compact?:boolean;numberPages?:boolean;includeFormValues?:boolean};
 export type PdfAsset={path:string;bytes:Uint8Array};
 export type PdfDocument={source:string;assets:PdfAsset[]};
 const quote=(value:string)=>JSON.stringify(value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,''));
 const text=(value:string)=>'#text('+quote(value)+')';
-const skip='script,style,template,button,input,select,textarea,.print\\:hidden,.no-print,.books-no-print,.print-controls,.actions,.toolbar,[data-pdf-ignore],[aria-hidden="true"]';
+const skip='script,style,template,button,.print\\:hidden,.no-print,.books-no-print,.books-screen-only,.print-controls,.actions,.toolbar,[data-pdf-ignore],[aria-hidden="true"]';
 const blockTags=new Set(['DIV','SECTION','ARTICLE','HEADER','FOOTER','P','H1','H2','H3','H4','H5','H6','MAIN','LI','UL','OL','FIGURE','FIGCAPTION','ADDRESS']);
 function css(el:Element){return el.ownerDocument.defaultView?.getComputedStyle(el);}
 function excluded(el:Element){
  if(el.matches(skip))return true;
- if(el.matches('.sales-preview-page-hidden,[data-receipt-print-copy],.print-only,.print\\:block'))return false;
+ if(el.matches('.sales-preview-page-hidden,[data-receipt-print-copy],.print-only,.books-print-only,.print\\:block'))return false;
  // Ignore explicitly hidden elements, not descendants of a print-only page.
  return el.hasAttribute('hidden')||css(el)?.display==='none';
 }
@@ -100,7 +100,7 @@ export async function buildReportPdfDocument(root:HTMLElement,options:ReportPdfO
    const isHeader=row.parentElement?.tagName==='THEAD';
    const dest=isHeader?head:body;
    for(const cell of cells){
-    const value=await children(cell,true);
+    const value=(await children(cell,true)).trim();
     const align=css(cell)?.textAlign;
     const a=align==='center'?'center':align==='left'?'left':'right';
     const hasDetails=!!cell.querySelector('table,img');
@@ -108,14 +108,15 @@ export async function buildReportPdfDocument(root:HTMLElement,options:ReportPdfO
     dest.push('table.cell('+opts+(isHeader?', fill: rgb("#e7edf4")':'')+')['+(isHeader?'#text(weight: "bold")['+value+']':value)+']');
    }
   }
-  const args=[...head.length?['table.header('+head.join(',')+')']:[],...body];
+  const args=[...(head.length?['table.header('+head.join(',')+')']:[]),...body];
   return '\n\n#table(columns: ('+weights.map(w=>w.toFixed(3)+'fr').join(',')+',), inset: 2.4pt, stroke: 0.35pt + rgb("#bac6d3"), '+args.join(',\n')+')\n\n';
  };
  async function render(node:Node,insideCell=false):Promise<string>{
   active();
   if(node.nodeType===3){
    const raw=node.nodeValue||'';
-   const value=raw.replace(/[ \t\r\n]+/g,' ');
+   const preserve=node.parentElement&&['pre','pre-wrap','break-spaces','pre-line'].includes(css(node.parentElement)?.whiteSpace||'');
+   const value=preserve?raw:raw.replace(/[ \t\r\n]+/g,' ');
    if(value.trim())semanticCount++;
    return value?text(value):'';
   }
@@ -123,6 +124,21 @@ export async function buildReportPdfDocument(root:HTMLElement,options:ReportPdfO
   const el=node as HTMLElement;
   if(excluded(el))return '';
   const tag=el.tagName.toUpperCase();
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'){
+   if(!options.includeFormValues)return '';
+   if(tag==='SELECT'){
+    const control=el as HTMLSelectElement;
+    const value=Array.from(control.selectedOptions).map(o=>o.textContent||'').join(' / ');
+    if(value.trim())semanticCount++;
+    return text(value);
+   }
+   const control=el as HTMLInputElement|HTMLTextAreaElement;
+   if(tag==='INPUT'&&['hidden','password','file','button','submit','reset'].includes((control as HTMLInputElement).type))return '';
+   const input=control as HTMLInputElement;
+   const value=tag==='INPUT'&&['checkbox','radio'].includes(input.type)?(input.checked?'✓':''):control.value;
+   if(value.trim())semanticCount++;
+   return text(value);
+  }
   if(tag==='BR')return '#linebreak()';
   if(tag==='TABLE')return renderTable(el as HTMLTableElement);
   if(tag==='IMG'){
@@ -150,7 +166,26 @@ export async function buildReportPdfDocument(root:HTMLElement,options:ReportPdfO
    const file=asset(new Uint8Array(await blob.arrayBuffer()),'png');
    return '#image('+quote(file.path)+', width: 30mm)';
   }
-  let value=await children(el,insideCell);
+  let value='';
+  const computed=css(el);
+  const elems=Array.from(el.children).filter(child=>!excluded(child));
+  const onlyElements=Array.from(el.childNodes).every(child=>child.nodeType!==3||!child.nodeValue?.trim());
+  // Preserve compact horizontal metadata/total bands and the title/date/number
+  // row, rather than placing every label on its own line. Large tables stay in
+  // the normal paginated flow.
+  const grid=onlyElements&&elems.length>=2&&elems.length<=6&&!elems.some(c=>c.matches('table')||c.querySelector('table'))&&
+    (computed?.display==='grid'||(computed?.display==='flex'&&computed.flexDirection==='row'&&computed.flexWrap!=='wrap'));
+  if(grid){
+   const parts:string[]=[];const widths:number[]=[];
+   for(const child of elems){
+    const part=(await render(child,insideCell)).trim();
+    if(part){parts.push(part);widths.push(Math.max(1,(child as HTMLElement).offsetWidth||1));}
+   }
+   if(parts.length>=2){
+    const total=widths.reduce((n,w)=>n+w,0);
+    value='#grid(columns: ('+widths.map(w=>Math.max(.5,w/total*parts.length).toFixed(3)+'fr').join(',')+',), gutter: 3pt, '+parts.map(part=>'['+part+']').join(',')+')';
+   }else value=parts.join(' ');
+  }else value=await children(el,insideCell);
   if(!value.trim())return '';
   value=styleText(value,el);
   if(el.classList.contains('sales-invoice-print-wrap')||el.classList.contains('break-after-page')){
