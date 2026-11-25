@@ -74,7 +74,7 @@ test('duplicate desktop launches do not open SQLite and startup reports progress
  assert.ok(main.indexOf('await showStartupWindow()')<main.indexOf('nativeDb=openPinnedSQLite(storage.root,storage.id)'));
  assert.match(main,/startupMark\('sqlite-integrity-ready'\)/);
  assert.match(main,/startupMark\('main-interface-loaded'\)/);
- const startup=updater.split('async function applyOnNextLaunch()')[1].split('function start()')[0];
+ const startup=updater.split('async function applyOnNextLaunch(')[1].split('function start()')[0];
  assert.ok(startup.indexOf('previous>=MAX_INSTALL_ATTEMPTS')<startup.indexOf('await checkStaged()'));
 });
 
@@ -131,4 +131,20 @@ test('report viewing is live A4 pagination without PDF generation',()=>{
  assert.match(css,/tr\.print-allow-break/);
  assert.match(view,/<ReportsLivePreview reportKey=\{JSON\.stringify/);
  assert.doesNotMatch(view,/<ReportA4PreviewButton /);
+});
+
+test('explicit desktop restart installs after safe close and never relaunches the old version first',()=>{
+ const main=read('electron/main.cjs');
+ const manager=read('electron/update-manager.cjs');
+ const restart=main.split("ipcMain.handle('lobnan:desktop-update-restart'")[1].split("ipcMain.handle('lobnan:storage-info'")[0];
+ assert.doesNotMatch(restart,/\bapp\.relaunch\(\);/);
+ assert.match(restart,/window\.once\('closed',closed\)/);
+ assert.match(restart,/window\.webContents\.once\('will-prevent-unload',canceled\)/);
+ assert.match(restart,/applyOnNextLaunch\(\{expectedVersion:version,interactive:recovery\}\)/);
+ assert.ok(restart.indexOf('updateHandoffActive=true')<restart.indexOf('window.close()'));
+ assert.ok(restart.indexOf('if(!accepted)throw')<restart.indexOf('updateHandoffQuitting=true'));
+ assert.match(main,/window-all-closed',\(\)=>\{if\(process\.platform!=='darwin'&&!updateHandoffActive\)app\.quit\(\)/);
+ assert.match(main,/!process\.argv\.includes\('--lobnan-update-return'\)/);
+ assert.match(manager,/options\.expectedVersion&&candidate\.version!==options\.expectedVersion/);
+ assert.match(manager,/-ArgumentList @\("--lobnan-update-return"\)/);
 });
