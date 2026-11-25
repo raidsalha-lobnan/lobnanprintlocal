@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { Party } from '../types';
@@ -183,7 +184,7 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-fade-in">
+    <div data-pdf-document className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-fade-in">
       <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden text-right font-sans">
         
         {/* Header Bar */}
@@ -342,7 +343,8 @@ export const BalanceReconciliationModal: React.FC<BalanceReconciliationModalProp
                 <Download className="w-4 h-4" />
               </button>
 
-              <button
+              <ReportPdfButton filename="تقرير مطابقة الأرصدة" numberPages selector="[data-pdf-document]" scope="[data-pdf-document]" />
+                <button
                 onClick={handlePrintReport}
                 className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition-colors cursor-pointer border border-slate-200"
                 title="طباعة التقرير"
