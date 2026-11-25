@@ -1,3 +1,4 @@
+import './sync-next/installDesktopNetworkBridge';
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
@@ -6,7 +7,7 @@ import { enforceArabicNumeralsGlobally } from './utils/numberFormat';
 import './index.css';
 
 // Register Service Worker for full Offline PWA capability in production builds
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+if (location.protocol!=='file:' && 'serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(err => {
       console.warn('SW registration failed:', err);
