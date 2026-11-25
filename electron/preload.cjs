@@ -12,5 +12,13 @@ contextBridge.exposeInMainWorld('electronAPI',{
  readPosAttempt:(key)=>ipcRenderer.invoke('lobnan:read-pos-attempt',key),
  savePosAttempt:(key,value)=>ipcRenderer.invoke('lobnan:save-pos-attempt',key,value),
  deletePosAttempt:(key)=>ipcRenderer.invoke('lobnan:delete-pos-attempt',key),
- syncApiFetch:(request)=>ipcRenderer.invoke('lobnan:sync-api-fetch',request)
+ syncApiFetch:(request)=>ipcRenderer.invoke('lobnan:sync-api-fetch',request),
+ getDesktopUpdateStatus:()=>ipcRenderer.invoke('lobnan:desktop-update-status'),
+ checkDesktopUpdate:()=>ipcRenderer.invoke('lobnan:desktop-update-check'),
+ onDesktopUpdateStatus:(handler)=>{
+  if(typeof handler!=='function')throw Error('DESKTOP_UPDATE_INVALID_LISTENER');
+  const listener=(_event,status)=>handler(status);
+  ipcRenderer.on('lobnan:desktop-update-status',listener);
+  return ()=>ipcRenderer.removeListener('lobnan:desktop-update-status',listener);
+ }
 });
