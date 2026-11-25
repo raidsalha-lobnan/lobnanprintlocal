@@ -190,10 +190,14 @@ function registerIpc(){
      // ownership. Restore the working app instead of leaving no window.
      startupMark('explicit-update-handoff-failed');
      console.error('DESKTOP_UPDATE_HANDOFF_FAILED',String(error));
-     updateHandoffActive=false;updateHandoffQuitting=false;restartRequested=false;
-     dismissStartupWindow();
-     if(!mainWindow&&!nativeDb){dialog.showErrorBox('تعذر التحديث',String(error));app.quit();return;}
+     updateHandoffQuitting=false;restartRequested=false;
+     if(!mainWindow&&!nativeDb){
+      updateHandoffActive=false;dismissStartupWindow();
+      dialog.showErrorBox('تعذر التحديث',String(error));app.quit();return;
+     }
      if(!mainWindow)createWindow();
+     dismissStartupWindow();
+     updateHandoffActive=false;
      dialog.showErrorBox('تعذر بدء التحديث','سيبقى الإصدار الحالي متاحًا.\n'+String(error));
      desktopUpdater.start();
     }
