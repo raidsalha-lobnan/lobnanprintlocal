@@ -8,16 +8,30 @@ const {createDesktopUpdateService}=require('./update-manager.cjs');
 const API_ORIGIN='https://lobnan-api.shares.zrok.io';
 const MAX_API_BYTES=48*1024*1024;
 let mainWindow=null,storage=null,nativeDb=null,startupError=null,desktopUpdater=null;
+let startupWindow=null, startupFinished=false;
+const startupBegin=Date.now();
+function startupMark(stage){
+ const entry=new Date().toISOString()+' '+stage+' '+(Date.now()-startupBegin)+'ms\n';
+ console.info('DESKTOP_STARTUP',entry.trim());
+ try{
+  if(storage?.profileDir)fs.appendFileSync(path.join(storage.profileDir,'startup-timing.log'),entry);
+ }catch{}
+}
+function focusStartupOrMain(){
+ const window=mainWindow&&!mainWindow.isDestroyed()?mainWindow:startupWindow;
+ if(window&&!window.isDestroyed()){
+  if(window.isMinimized())window.restore();
+  window.show();window.focus();
+ }
+}
+
 // Never run two desktop sessions on the same pinned SQLite profile. In
 // particular, an update cannot begin while a second POS window stays open.
 const ownsSingleInstance=app.requestSingleInstanceLock();
-app.on('second-instance',()=>{
- if(mainWindow&&!mainWindow.isDestroyed()){
-  if(mainWindow.isMinimized())mainWindow.restore();
-  mainWindow.show();mainWindow.focus();
- }
-});
-try{
+app.on('second-instance',focusStartupOrMain);
+// A duplicate click never opens or checks the shared database.
+if(!ownsSingleInstance)app.quit();
+if(ownsSingleInstance)try{
  storage=selectPinnedStorage();
  fs.mkdirSync(storage.profileDir,{recursive:true});
  // Chromium's IndexedDB, drafts, cache and service-worker state all reside
@@ -26,7 +40,7 @@ try{
  const sessionDir=path.join(storage.root,'ChromiumSession');
  fs.mkdirSync(sessionDir,{recursive:true});
  app.setPath('sessionData',sessionDir);
- nativeDb=openPinnedSQLite(storage.root,storage.id);
+ startupMark('storage-binding-ready');
 }catch(error){
  startupError=error;
  console.error('DESKTOP_STORAGE_STARTUP_BLOCKED',String(error));
@@ -235,6 +249,33 @@ function displayMenuItems(){
 function installDisplayMenu(){
  Menu.setApplicationMenu(null);
 }
+function showStartupWindow(){
+ if(process.platform!=='win32')return Promise.resolve();
+ startupWindow=new BrowserWindow({
+  width:420,height:176,center:true,frame:false,resizable:false,
+  show:false,backgroundColor:'#f0f5ff',
+  webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}
+ });
+ const w=startupWindow;
+ const html='<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><body style="background:#f0f5ff;color:#123985;font:16px Tahoma,Arial;display:grid;place-content:center;text-align:center;height:100vh;margin:0"><strong style="font-size:21px">برنامج الأيهم المحاسبي</strong><p>جارٍ تجهيز البرنامج والتحقق من البيانات...</p><small>مطبعة ومكتبة لبنان</small></body></html>';
+ w.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+ w.webContents.on('will-navigate',event=>event.preventDefault());
+ return new Promise(resolve=>{
+  let done=false;
+  const finish=()=>{
+   if(done)return;done=true;
+   if(!w.isDestroyed())w.show();
+   setTimeout(resolve,60);
+  };
+  w.once('ready-to-show',finish);
+  void w.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html)).catch(finish);
+  setTimeout(finish,1000);
+ });
+}
+function dismissStartupWindow(){
+ const w=startupWindow;startupWindow=null;
+ if(w&&!w.isDestroyed())w.close();
+}
 function createWindow(){
  const display=readDisplaySettings();
  const workArea=require('electron').screen.getPrimaryDisplay().workArea;
@@ -276,10 +317,17 @@ function createWindow(){
 }
 app.whenReady().then(async()=>{
  if(!ownsSingleInstance){app.quit();return;}
+ await showStartupWindow();
+ startupMark('startup-window-ready');
+ if(!startupError&&storage){
+  try{nativeDb=openPinnedSQLite(storage.root,storage.id);startupMark('sqlite-integrity-ready');}
+  catch(error){startupError=error;console.error('DESKTOP_STORAGE_STARTUP_BLOCKED',String(error));}
+ }
  if(startupError||!nativeDb||!storage){
   dialog.showErrorBox('قاعدة البيانات المحلية غير متاحة',
    'توقف البرنامج لحماية بياناتك. لم يتم إنشاء قاعدة بديلة أو تغيير القرص تلقائيًا.\n\n'+
    String(startupError));
+  dismissStartupWindow();
   app.quit();
   return;
  }
@@ -291,6 +339,8 @@ app.whenReady().then(async()=>{
  });
  try{
   if(await desktopUpdater.applyOnNextLaunch()){
+   startupMark('verified-update-install-start');
+   dismissStartupWindow();
    app.quit(); // The installer helper waits until the app process exits.
    return;
   }
@@ -298,12 +348,22 @@ app.whenReady().then(async()=>{
   console.warn('DESKTOP_UPDATE_STARTUP_NONFATAL',String(error));
   // The installed accounting app always remains usable if updates fail.
  }
+ startupMark('startup-update-check-complete');
  registerIpc();
  createWindow();
+ startupFinished=true;
+ const window=mainWindow;
+ window.webContents.once('did-finish-load',()=>{
+  startupMark('main-interface-loaded');
+  dismissStartupWindow();
+  if(!window.isDestroyed()){window.show();window.focus();}
+ });
+ window.webContents.once('did-fail-load',()=>dismissStartupWindow());
+ window.once('closed',()=>dismissStartupWindow());
  desktopUpdater.start(); // Check and download only. NEVER install mid-session.
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
-app.on('activate',()=>{if(!mainWindow&&!startupError)createWindow();});
+app.on('activate',()=>{if(startupFinished&&!mainWindow&&!startupError&&nativeDb)createWindow();});
 app.on('before-quit',()=>{
  desktopUpdater?.stop();
  if(nativeDb){nativeDb.close();nativeDb=null;}
