@@ -2940,3 +2940,68 @@ td.empty-row-shaded {
   .reports-dashboard img { max-width: 100% !important; }
   .reports-dashboard [data-no-print="true"] { display: none !important; }
 }
+
+/* A4 live pagination: physical sheet and margin dimensions are independent
+   of the screen size and zoom. Native CSS fragments the original report. */
+@media screen {
+ .reports-live-a4-stage {
+  display:flex !important; flex-direction:column; align-items:safe center;
+  justify-content:safe center; overflow:auto !important;
+  background:#e4eaf1 !important; padding:8px; box-sizing:border-box;
+ }
+ .reports-live-paper-frame {
+  flex:none; position:relative; background:white;
+  box-shadow:0 2px 12px rgba(15,23,42,.18); overflow:hidden;
+ }
+ .reports-live-a4-viewport {
+  position:absolute; top:0; left:0; width:210mm !important;
+  height:297mm !important; min-width:0 !important;
+  direction:ltr !important; transform-origin:top left;
+  overflow-x:auto !important; scrollbar-width:none;
+  background:white;
+ }
+ .reports-live-a4-flow {
+  position:relative; box-sizing:border-box; width:210mm !important;
+  height:297mm !important; padding:8mm 6mm !important;
+  column-width:198mm; column-count:1; column-gap:12mm;
+  column-fill:auto; direction:ltr !important;
+  background:transparent;
+ }
+ .reports-live-a4-flow > .report-a4-container {
+  display:block !important; width:198mm !important; max-width:198mm !important;
+  height:auto !important; min-height:0 !important; margin:0 !important;
+  padding:0 !important; direction:rtl; overflow:visible !important;
+  break-inside:auto !important;
+ }
+ .reports-live-a4-flow .overflow-x-auto,
+ .reports-live-a4-flow .overflow-y-auto,
+ .reports-live-a4-flow .overflow-hidden:not(.aspect-square) {
+  overflow:visible !important;
+ }
+ .reports-live-a4-flow table, .reports-live-a4-flow tbody {
+  break-inside:auto !important;
+ }
+ .reports-live-a4-flow tr, .reports-live-a4-flow .print-header,
+ .reports-live-a4-flow img {break-inside:avoid-column;}
+ .reports-live-a4-flow tr.print-allow-break,
+ .reports-live-a4-flow td.print-allow-break,
+ .reports-live-a4-flow .report-subtable-cell {break-inside:auto !important;}
+ .reports-live-a4-flow .report-subtable-cell > div {display:block !important;}
+ .reports-live-page-spacer {position:absolute;top:0;width:1px;height:1px;pointer-events:none;}
+ .reports-a4-overflow-notice {
+  flex:none;max-width:100%;font-size:11px;color:#92400e;
+  background:#fffbeb;padding:3px 8px;
+ }
+}
+@media print {
+ .reports-live-paper-frame, .reports-live-a4-viewport, .reports-live-a4-flow {
+  display:block !important;position:static !important;
+  width:100% !important;height:auto !important;max-height:none !important;
+  padding:0 !important;margin:0 !important;overflow:visible !important;
+  transform:none !important;columns:auto !important;column-gap:normal !important;
+  box-shadow:none !important;direction:rtl !important;zoom:1 !important;
+ }
+ .reports-live-page-spacer,.reports-a4-overflow-notice {display:none !important;}
+ .reports-dashboard tr.print-allow-break,
+ .reports-dashboard td.print-allow-break {break-inside:auto !important;page-break-inside:auto !important;}
+}
