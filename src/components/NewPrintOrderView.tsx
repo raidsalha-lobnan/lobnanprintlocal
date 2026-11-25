@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   X,
@@ -1712,6 +1713,7 @@ export const NewPrintOrderView: React.FC<NewPrintOrderViewProps> = ({
 
             {/* Print & Close Buttons */}
             <div className="flex items-center justify-end gap-2 pt-2">
+              <ReportPdfButton filename={'كارت تشغيل - '+savedOrderData.orderNumber} selector="#print-order-ticket" />
               <button
                 type="button"
                 onClick={() => {
