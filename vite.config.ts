@@ -631,7 +631,8 @@ export default defineConfig(() => {
           skipWaiting: false,
           clientsClaim: false,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-          maximumFileSizeToCacheInBytes: 15 * 1024 * 1024, // 15MB
+          // Lazy Typst compiler is bundled locally so PDF saving works offline.
+          maximumFileSizeToCacheInBytes: 64 * 1024 * 1024,
         },
         devOptions: {
           enabled: false,
