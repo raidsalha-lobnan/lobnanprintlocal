@@ -6,6 +6,14 @@ contextBridge.exposeInMainWorld('electronAPI',{
  isElectron:true,
  sqliteLocalStorage:true,
  platform:process.platform,
+ controlWindow:(action)=>ipcRenderer.invoke('lobnan:window-control',action),
+ getWindowState:()=>ipcRenderer.invoke('lobnan:window-state'),
+ onWindowState:(handler)=>{
+  if(typeof handler!=='function')throw Error('INVALID_WINDOW_LISTENER');
+  const listener=(_event,state)=>handler(state);
+  ipcRenderer.on('lobnan:window-state',listener);
+  return ()=>ipcRenderer.removeListener('lobnan:window-state',listener);
+ },
  openDisplaySettings:()=>ipcRenderer.invoke('lobnan:display-menu'),
  rememberLogin:(credentials)=>ipcRenderer.invoke('lobnan:remember-login',credentials),
  readRememberedLogin:()=>ipcRenderer.invoke('lobnan:read-remembered-login'),
