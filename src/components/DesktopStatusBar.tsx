@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../context/AccountingContext';
+import {secureLoginEnabled} from '../services/secureAuth';
 import { 
   Building2, 
   User, 
@@ -21,8 +22,13 @@ export const DesktopStatusBar: React.FC = () => {
   const {
     settings,
     currentUser,
-    getActiveBranch,
     branches,
+    activeBranchId,
+    setActiveBranchId,
+    users,
+    currentUserId,
+    setCurrentUserId,
+    hasPermission,
     stats,
     isOnline,
     isLocalOnlyMode,
@@ -67,7 +73,23 @@ export const DesktopStatusBar: React.FC = () => {
     };
   }, []);
 
-  const activeBranch = getActiveBranch() || branches[0];
+  const isSessionAdmin = Boolean(
+    localStorage.getItem('alnoor_press_accounting_v1_session_admin') === 'true' ||
+    localStorage.getItem('alnoor_press_accounting_v1_logged_in_user_id') === 'usr-1' ||
+    false
+  );
+
+  const isAdmin = Boolean(
+    currentUser?.roleId === 'role-admin' ||
+    currentUser?.id === 'usr-1' ||
+    currentUser?.id === 'user-1789170883526' ||
+    currentUser?.email === 'admin@example.invalid' ||
+    currentUser?.email === 'press@example.invalid' ||
+    currentUser?.username?.toLowerCase().includes('lobnan') ||
+    currentUser?.username?.toLowerCase().includes('raid') ||
+    currentUser?.roleName === 'مدير النظام' ||
+    isSessionAdmin
+  );
   const todayDate = new Date().toLocaleDateString('ar-SA', {
     weekday: 'short',
     year: 'numeric',
@@ -91,19 +113,65 @@ export const DesktopStatusBar: React.FC = () => {
           <span className="font-bold text-slate-800 text-[11px]">جاهز</span>
         </div>
 
-        {/* Panel 2: Current Branch */}
-        <div 
-          onClick={() => setActiveTab('branches')}
-          className="flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-300 rounded-xs shadow-inner cursor-pointer hover:bg-blue-50 transition shrink-0"
-          title="الفرع الحالي - انقر لإدارة الفروع"
-        >
-          <Building2 className="w-3 h-3 text-blue-600 shrink-0" />
-          <span className="text-slate-500 text-[10px]">الفرع:</span>
-          <span className="font-bold text-slate-800 text-[11px] max-w-[120px] truncate">
-            {activeBranch?.name || 'الرئيسي'}
-          </span>
-        </div>
+          {/* Active Branch Selector - متاح للتنقل بين الفروع */}
+          <div className="flex items-center gap-1 bg-white border border-[#7f9db9] rounded-xs px-1.5 py-0.5 text-xs shadow-inner shrink-0">
+            <Building2 className="w-3 h-3 text-blue-700 shrink-0" />
+            <span className="text-[10px] text-slate-500">الفرع:</span>
+            <select
+              value={activeBranchId}
+              onChange={(e) => setActiveBranchId(e.target.value)}
+              className="bg-transparent text-slate-900 text-[11px] font-bold focus:outline-hidden cursor-pointer max-w-[115px] truncate"
+              title="الفرع النشط الحالي"
+            >
+              {branches.map(b => (
+                <option key={b.id} value={b.id} className="bg-white text-slate-900 font-sans">
+                  {b.name} ({b.branchCode})
+                </option>
+              ))}
+            </select>
+          </div>
 
+          {/* PostgreSQL logins are never impersonated by a UI dropdown. The
+              legacy user switcher is retained only outside secure-login mode. */}
+          {!secureLoginEnabled() && isAdmin ? (
+            <div className="flex items-center gap-1 bg-white border border-[#7f9db9] rounded-xs px-1.5 py-0.5 text-xs shadow-inner shrink-0">
+              <User className="w-3 h-3 text-emerald-600 shrink-0" />
+              <span className="text-[10px] text-slate-500 hidden xl:inline">المستخدم:</span>
+              <select
+                value={currentUserId}
+                onChange={(e) => {
+                  const targetUid = e.target.value;
+                  setCurrentUserId(targetUid);
+                  try {
+                    localStorage.setItem('alnoor_press_accounting_v1_current_user_id', targetUid);
+                  } catch {}
+                }}
+                className="bg-transparent text-slate-900 text-[11px] font-bold focus:outline-hidden cursor-pointer max-w-[140px] truncate"
+                title="المستخدم الحالي والصلاحيات (صلاحية مدير النظام للتنقل بين المستخدمين)"
+              >
+                {users.map(u => (
+                  <option key={u.id} value={u.id} className="bg-white text-slate-900 font-sans">
+                    {u.fullName || u.username} ({u.roleName || 'مستخدم'})
+                  </option>
+                ))}
+              </select>
+              {currentUserId !== 'usr-1' && isSessionAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentUserId('usr-1');
+                    try {
+                      localStorage.setItem('alnoor_press_accounting_v1_current_user_id', 'usr-1');
+                    } catch {}
+                  }}
+                  className="px-1.5 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xs text-[10px] font-bold shadow-2xs cursor-pointer ml-1"
+                  title="العودة لشاشة وصلاحيات مدير النظام"
+                >
+                  عودة للمدير ↺
+                </button>
+              )}
+            </div>
+          ) : (
         {/* Panel 3: Current User & Role */}
         <div 
           onClick={() => setActiveTab('users_permissions')}
@@ -119,6 +187,8 @@ export const DesktopStatusBar: React.FC = () => {
             {currentUser?.roleName || 'مدير'}
           </span>
         </div>
+
+          )}
 
         {/* Panel 4: Database & Cloud Sync Status */}
         <div 
@@ -165,6 +235,7 @@ export const DesktopStatusBar: React.FC = () => {
           </span>
         </div>
 
+        {hasPermission('view_accounting') && <>
         {/* Panel 5: Cash Balance */}
         <div 
           onClick={() => setActiveTab('treasuries')}
@@ -192,6 +263,19 @@ export const DesktopStatusBar: React.FC = () => {
           </span>
           <span className="text-[9px] text-slate-400">{settings.currency}</span>
         </div>
+        </>}
+
+          {/* Low Stock Alert - ONLY for users with inventory permission */}
+          {hasPermission('view_inventory') && stats.lowStockCount > 0 && (
+            <button
+              onClick={() => setActiveTab('inventory')}
+              className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-xs bg-rose-100 border border-rose-400 text-rose-900 font-bold text-[10px] hover:bg-rose-200 transition cursor-pointer"
+              title="أصناف وصلت لحد الأمان بالمخزون"
+            >
+              <AlertTriangle className="w-3 h-3 text-rose-700" />
+              <span>نواقص: {stats.lowStockCount}</span>
+            </button>
+          )}
       </div>
 
       {/* Right Panels (Left in RTL): Date, Time, Locks */}
