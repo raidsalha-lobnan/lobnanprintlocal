@@ -140,7 +140,12 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
     if(bytes>asset.size||bytes>450_000_000)
      throw Error('DESKTOP_UPDATE_SIZE_EXCEEDED');
     hash.update(chunk);
-    await handle.write(chunk);
+    let offset=0;
+    while(offset<chunk.length){
+     const {bytesWritten}=await handle.write(chunk,offset,chunk.length-offset);
+     if(bytesWritten<=0)throw Error('DESKTOP_UPDATE_INCOMPLETE_FILE_WRITE');
+     offset+=bytesWritten;
+    }
     const percent=Math.floor(bytes*100/asset.size);
     if(percent!==status.percent)
      setStatus('downloading',{version:asset.version,percent});
@@ -163,7 +168,15 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   task=(async()=>{
    try{
     const staged=await checkStaged();
-    if(staged){setStatus('ready',{version:staged.version,percent:100});return getStatus();}
+    if(staged){
+     const attempts=readJSON(attemptsPath);
+     if(attempts?.version===staged.version&&
+        Number(attempts.count)>=MAX_INSTALL_ATTEMPTS)
+      setStatus('install-error',{version:staged.version,percent:100});
+     else
+      setStatus('ready',{version:staged.version,percent:100});
+     return getStatus();
+    }
     setStatus('checking',{percent:null,version:null});
     const res=await fetchImpl(RELEASES_API,{
      headers:{Accept:'application/vnd.github+json',
