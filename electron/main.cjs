@@ -8,6 +8,15 @@ const {createDesktopUpdateService}=require('./update-manager.cjs');
 const API_ORIGIN='https://lobnan-api.shares.zrok.io';
 const MAX_API_BYTES=48*1024*1024;
 let mainWindow=null,storage=null,nativeDb=null,startupError=null,desktopUpdater=null;
+// Never run two desktop sessions on the same pinned SQLite profile. In
+// particular, an update cannot begin while a second POS window stays open.
+const ownsSingleInstance=app.requestSingleInstanceLock();
+app.on('second-instance',()=>{
+ if(mainWindow&&!mainWindow.isDestroyed()){
+  if(mainWindow.isMinimized())mainWindow.restore();
+  mainWindow.show();mainWindow.focus();
+ }
+});
 try{
  storage=selectPinnedStorage();
  fs.mkdirSync(storage.profileDir,{recursive:true});
@@ -121,6 +130,7 @@ function createWindow(){
  mainWindow.on('closed',()=>{mainWindow=null;});
 }
 app.whenReady().then(async()=>{
+ if(!ownsSingleInstance){app.quit();return;}
  if(startupError||!nativeDb||!storage){
   dialog.showErrorBox('قاعدة البيانات المحلية غير متاحة',
    'توقف البرنامج لحماية بياناتك. لم يتم إنشاء قاعدة بديلة أو تغيير القرص تلقائيًا.\n\n'+
