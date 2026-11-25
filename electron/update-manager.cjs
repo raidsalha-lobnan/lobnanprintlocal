@@ -102,7 +102,7 @@ function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersio
    '  $ready = '+safelyQuotedPs(handshake+'.ready'),
    '  $go = '+safelyQuotedPs(handshake+'.go'),
    '  Set-Content -LiteralPath $ready -Value "HELPER_READY" -ErrorAction Stop',
-   '  for ($j=0; $j -lt 100; $j++) { if (Test-Path -LiteralPath $go) { break }; Start-Sleep -Milliseconds 200 }',
+   '  for ($j=0; $j -lt 200; $j++) { if (Test-Path -LiteralPath $go) { break }; Start-Sleep -Milliseconds 200 }',
    '  if (-not (Test-Path -LiteralPath $go)) { throw "HELPER_HANDOFF_NOT_AUTHORIZED" }'
   ]:[]),
   '  for ($i=0; $i -lt 180; $i++) {',
@@ -147,39 +147,35 @@ async function startDetachedInstaller({oldPid,installer,appExecutable,expectedVe
  const executable=path.join(systemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
  const ps=powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion,interactive,expectedDigest,handshake});
  const encoded=Buffer.from(ps,'utf16le').toString('base64');
- // Use the Windows Start-Process path that works in the operator's test.
- // The bootstrap exits independently; the worker has its own stdout/stderr.
- const bootstrap=[
-  '$ErrorActionPreference = "Stop"',
-  '$p = Start-Process -FilePath '+safelyQuotedPs(executable)+' -ArgumentList @("-NoLogo","-NoProfile","-NonInteractive","-EncodedCommand",'+safelyQuotedPs(encoded)+') -WindowStyle Hidden -RedirectStandardOutput '+safelyQuotedPs(path.join(dir,'install-worker.stdout.log'))+' -RedirectStandardError '+safelyQuotedPs(path.join(dir,'install-worker.stderr.log'))+' -PassThru',
-  'Write-Output ("WORKER_PID=" + $p.Id)'
- ].join('\r\n');
+ // One PowerShell worker, not an encoded PowerShell command nested inside
+ // another encoded command. Avoid bootstrap quoting and command-length failures.
  const launcherLog=path.join(dir,'install-launcher.log');
- let fd,child;
- let launchError=null,exitCode=null;
+ let fd,child,launchError=null,exited=false;
  const note=message=>{try{fs.appendFileSync(launcherLog,new Date().toISOString()+' '+message+'\n');}catch{}};
  try{
   fd=fs.openSync(launcherLog,'a');
-  child=launch(executable,['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(bootstrap,'utf16le').toString('base64')],{
+  note('WORKER_START '+expectedVersion);
+  child=launch(executable,['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',encoded],{
    detached:true,stdio:['ignore',fd,fd],windowsHide:true,cwd:dir
   });
-  child.once('error',error=>{launchError=error;note('BOOTSTRAP_ERROR '+String(error));});
-  child.once('exit',code=>{exitCode=code;note('BOOTSTRAP_EXIT '+code);});
-  child.unref();
+  child.once('error',error=>{launchError=error;note('WORKER_ERROR '+String(error));});
+  child.once('exit',(code,signal)=>{exited=true;note('WORKER_EXIT '+code+' '+(signal||''));});
  }catch(error){note('SPAWN_FAILED '+String(error));return false;}
  finally{if(fd!==undefined)fs.closeSync(fd);}
- const deadline=Date.now()+10000;
+ const deadline=Date.now()+30000;
  while(Date.now()<deadline){
-  if(launchError||(exitCode!==null&&exitCode!==0))break;
+  if(launchError||exited)break;
   if(fs.existsSync(handshake+'.ready')){
    try{
     fs.writeFileSync(handshake+'.go','AUTHORIZED',{flag:'wx'});
     note('HELPER_READY_HANDOFF_AUTHORIZED '+expectedVersion);
+    child.unref();
     return true;
    }catch(error){note('HANDOFF_FAILED '+String(error));break;}
   }
   await new Promise(resolve=>setTimeout(resolve,100));
  }
+ try{child?.unref();}catch{}
  note('HELPER_NOT_READY — keeping current app open');
  return false;
 }
