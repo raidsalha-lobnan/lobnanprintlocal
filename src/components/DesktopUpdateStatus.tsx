@@ -27,6 +27,7 @@ const api=(globalThis as unknown as {electronAPI?:UpdateApi}).electronAPI;
  */
 export const DesktopUpdateStatus:React.FC=()=>{
  const [status,setStatus]=useState<UpdateStatus>({phase:'idle'});
+ const [restartPending,setRestartPending]=useState(false);
  useEffect(()=>{
   if(!api?.isElectron)return;
   let mounted=true;
@@ -44,9 +45,9 @@ export const DesktopUpdateStatus:React.FC=()=>{
  if(!api?.isElectron)return null;
  const {phase,version,percent,currentVersion,installedVersion,errorDetail}=status;
  const complete=phase==='ready';
- const busy=phase==='checking'||phase==='downloading';
+ const busy=restartPending||phase==='checking'||phase==='downloading';
  const error=phase==='error'||phase==='install-error';
- const label=complete
+ const label=restartPending?'جارٍ تجهيز التثبيت…':complete
    ?'تحديث وإعادة تشغيل '+version
    :phase==='downloading'
    ?'تنزيل التحديث '+(Number.isFinite(percent)?percent+'%':'')
@@ -66,7 +67,9 @@ export const DesktopUpdateStatus:React.FC=()=>{
    onClick={async()=>{
     try{
      if((complete||phase==='install-error')&&api.restartForDesktopUpdate){
-      await api.restartForDesktopUpdate();return;
+      setRestartPending(true);
+      try{await api.restartForDesktopUpdate();}finally{setRestartPending(false);}
+      return;
      }
      if(error){
       window.alert('الإصدار الحالي: '+(currentVersion||'—')+'\nالإصدار المطلوب: '+(version||'—')+'\nسبب الخطأ: '+(errorDetail||'غير متاح')+'\nسيُعاد فحص التحديثات.');
