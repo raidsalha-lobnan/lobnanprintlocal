@@ -77,3 +77,13 @@ test('duplicate desktop launches do not open SQLite and startup reports progress
  const startup=updater.split('async function applyOnNextLaunch()')[1].split('function start()')[0];
  assert.ok(startup.indexOf('previous>=MAX_INSTALL_ATTEMPTS')<startup.indexOf('await checkStaged()'));
 });
+
+test('visible application branding changes without moving existing installation or storage',()=>{
+ const main=read('electron/main.cjs');
+ const pkg=JSON.parse(read('package.json'));
+ assert.match(main,/app\.setName\('برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان'\)/);
+ assert.match(main,/app\.setPath\('userData',storage\.profileDir\)/);
+ assert.equal(pkg.name,'alnoor-accounting-desktop');
+ assert.equal(pkg.build.appId,'com.lobnanprint.accounting.desktop');
+ assert.equal(pkg.build.productName,'LobnanPrint');
+});
