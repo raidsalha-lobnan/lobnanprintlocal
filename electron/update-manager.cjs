@@ -48,7 +48,7 @@ async function verifiedFile(file,size,digest){
  }catch{return false;}
 }
 function safelyQuotedPs(value){return "'"+String(value).replace(/'/g,"''")+"'";}
-function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion}){
+function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion,interactive=false}){
  const installerLiteral=safelyQuotedPs(installer);
  const appLiteral=safelyQuotedPs(appExecutable);
  const workdirLiteral=safelyQuotedPs(path.dirname(appExecutable));
@@ -72,7 +72,7 @@ function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersio
   '  if (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) { throw "OLD_PROCESS_STILL_RUNNING" }',
   '  $canReopen = $true',
   '  if (-not (Test-Path -LiteralPath $installer)) { throw "INSTALLER_NOT_FOUND" }',
-  '  $result = Start-Process -FilePath $installer -ArgumentList @("/S") -Wait -PassThru',
+  interactive?'  $result = Start-Process -FilePath $installer -Wait -PassThru':'  $result = Start-Process -FilePath $installer -ArgumentList @("/S") -Wait -PassThru',
   '  Write-Output ("Installer exit code: " + $result.ExitCode)',
   '  if ($result.ExitCode -ne 0) { throw ("INSTALLER_EXIT_" + $result.ExitCode) }',
   '  if (-not (Test-Path -LiteralPath $appExe)) { throw "APP_EXECUTABLE_NOT_FOUND" }',
@@ -93,9 +93,9 @@ function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersio
   'if ($outcome -eq "VERIFIED_INSTALLED") { exit 0 } else { exit 6 }'
  ].join('\r\n');
 }
-function startDetachedInstaller({oldPid,installer,appExecutable,expectedVersion},launch=spawn){
+function startDetachedInstaller({oldPid,installer,appExecutable,expectedVersion,interactive=false},launch=spawn){
  if(process.platform!=='win32')return Promise.resolve(false);
- const ps=powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion});
+ const ps=powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion,interactive});
  const encoded=Buffer.from(ps,'utf16le').toString('base64');
  return new Promise(resolve=>{
   let finished=false;
@@ -184,6 +184,7 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   const response=await fetchImpl(asset.url,{
    headers,redirect:'follow',signal:AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)
   });
+  if(response.status===416&&bytes){await fs.promises.rm(temp,{force:true});}
   if(!response.ok||!response.body||!ALLOWED_DOWNLOAD_HOSTS.has(new URL(response.url).hostname)){
    await response.body?.cancel?.().catch(()=>{});
    throw Error('DESKTOP_UPDATE_DOWNLOAD_HTTP_'+(response.status||'UNKNOWN'));
@@ -247,11 +248,12 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
     const release=await res.json();
     const asset=officialAsset(release,app.getVersion());
     if(staged&&(!asset||compareVersions(asset.version,staged.version)<=0)){
+     failures=0;
      setStatus(blocked?'install-error':'ready',{version:staged.version,percent:100,
       errorDetail:blocked?(installDiagnostic()||'INSTALL_ATTEMPTS_EXHAUSTED'):null});
      return getStatus();
     }
-    if(!asset){setStatus('current',{version:null,percent:null});return getStatus();}
+    if(!asset){failures=0;setStatus('current',{version:null,percent:null});return getStatus();}
     requestedVersion=asset.version;
     setStatus('downloading',{version:asset.version,percent:0});
     await stageRelease(asset);
@@ -273,6 +275,14 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   })();
   try{return await task;}finally{task=null;}
  }
+ async function prepareInteractiveRetry(){
+  if(task)await task;
+  const record=await checkStaged();
+  if(!record||status.phase!=='install-error'||status.version!==record.version)return false;
+  atomicJSON(attemptsPath,{version:record.version,count:MAX_INSTALL_ATTEMPTS,
+   interactiveRequested:true,lastAttempt:new Date().toISOString()});
+  return true;
+ }
  async function applyOnNextLaunch(){
   if(!app.isPackaged||process.platform!=='win32')return false;
   // Do not hash a large installer at startup when it cannot be installed.
@@ -280,17 +290,18 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   if(!candidate)return false;
   const attempt=readJSON(attemptsPath);
   const previous=attempt?.version===candidate.version?Number(attempt.count)||0:0;
-  if(previous>=MAX_INSTALL_ATTEMPTS){
+  const interactive=attempt?.version===candidate.version&&attempt.interactiveRequested===true;
+  if(previous>=MAX_INSTALL_ATTEMPTS&&!interactive){
    setStatus('install-error',{version:candidate.version,percent:100,errorDetail:installDiagnostic()||'INSTALL_ATTEMPTS_EXHAUSTED'});
    return false;
   }
   const record=await checkStaged(); // SHA-256 verification still mandatory before installation.
   if(!record||record.version!==candidate.version)return false;
-  atomicJSON(attemptsPath,{version:record.version,count:previous+1,
+  atomicJSON(attemptsPath,{version:record.version,count:interactive?MAX_INSTALL_ATTEMPTS:previous+1,
    lastAttempt:new Date().toISOString()});
   try{fs.rmSync(path.join(cacheDir,'install-result.txt'),{force:true});}catch{}
   const started=await launchInstaller({
-   oldPid:process.pid,installer:record.file,appExecutable:process.execPath,expectedVersion:record.version
+   oldPid:process.pid,installer:record.file,appExecutable:process.execPath,expectedVersion:record.version,interactive
   });
   if(!started){
    setStatus('install-error',{version:record.version,percent:100,errorDetail:'INSTALL_HELPER_START_FAILED'});
@@ -312,7 +323,7 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   stopped=true;
   if(timer){clearTimeout(timer);timer=null;}
  }
- return {getStatus,checkNow,applyOnNextLaunch,start,stop,
+ return {getStatus,checkNow,prepareInteractiveRetry,applyOnNextLaunch,start,stop,
   _test:{cacheDir,metadataPath,attemptsPath,checkStaged}};
 }
 module.exports={createDesktopUpdateService,verifiedFile,powershellInstallCommand,
