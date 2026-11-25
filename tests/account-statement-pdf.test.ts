@@ -56,15 +56,17 @@ test('ISO date formatting and same-name redundancy are safe',()=>{
    'كشف حساب تفصيلي - سليم - من بداية التعامل إلى 17-11-2026.pdf');
 });
 
-test('Modal Save PDF directly downloads via the authorized Chrome report endpoint without print preview',()=>{
+test('Modal Save PDF uses local Typst with current live statement values without print preview',()=>{
  const component=readFileSync(
    new URL('../src/components/AccountStatementModal.tsx',import.meta.url),'utf8');
  const helper=readFileSync(
    new URL('../src/utils/serverOfficialStatementPdf.ts',import.meta.url),'utf8');
  assert.ok(component.includes('حفظ PDF مباشر'));
  assert.ok(component.includes('accountStatementPdfFilename({'));
- assert.ok(component.includes('await downloadServerOfficialStatementPdf({'));
- assert.ok(component.includes('showImages:showImageThumbnailsInStatement'));
+ assert.ok(component.includes('await saveReportPdf(root,{filename,paper:'));
+ assert.ok(component.includes("requirePdfRoot('.print-area .report-a4-container')"));
+ assert.ok(component.includes('await waitForStatementPrintPhotos()'));
+ assert.ok(!component.includes('downloadServerOfficialStatementPdf('));
  assert.ok(component.includes('const handlePrint = () => {'));
  assert.ok(component.includes('window.print()'),'Normal A4 printing must remain available');
  assert.ok(!component.includes('downloadAccountStatementPdf('));
