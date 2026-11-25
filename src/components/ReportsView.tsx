@@ -6,6 +6,7 @@ import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStateme
 import {publicSyncApiUrl} from '../services/secureAuth';
 import { DateInput } from '../components/common/DateInput';
 import { ReportsLivePreview } from './ReportsLivePreview';
+import {ReportA4PreviewButton} from './ReportA4PreviewButton';
 import { useReportsSidebarFit } from './useReportsSidebarFit';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -1133,6 +1134,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
             <Printer className="w-4 h-4" />
             <span>طباعة التقرير</span>
           </button>
+          <ReportA4PreviewButton onBrowserPrint={handlePrint} reportKey={activeReport} />
           </div>
 
           {/* اختيار التقرير في قائمة طولية */}
