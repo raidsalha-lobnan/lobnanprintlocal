@@ -1,4 +1,4 @@
-import {openReportPrintWindow} from './openReportPrintWindow';
+import {openReportPrintWindow,writeAndPrintReport} from './openReportPrintWindow';
 import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 import { renderBusinessReportHeader } from './reportBusinessHeader';
 import type { BusinessSettings } from '../types';
@@ -238,10 +238,7 @@ export function printCustomerPeriodRegister(
       'الأرصدة محسوبة من كشف الحساب، ولا تُعد هذه الطباعة قيدًا محاسبيًا جديدًا.</div>',
     '</body></html>'
   ].join('');
-  openingPopup.document.open();
-  openingPopup.document.write(markup);
-  openingPopup.document.close();
-  openingPopup.onload = () => { openingPopup.focus(); openingPopup.print(); };
+  writeAndPrintReport(openingPopup,markup);
 }
 
 
