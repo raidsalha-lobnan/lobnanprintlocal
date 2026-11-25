@@ -217,7 +217,7 @@ export const InvoicePrintModal: React.FC = () => {
                     <option value="compact">ضيقة</option>
                   </select>
                 </label>
-                <span>يحفظ زر PDF المستند مباشرة باستخدام محرك Typst.</span>
+                <span>يحفظ زر PDF نسخة من المستند بنفس تنسيق الطباعة والهوامش والاتجاه.</span>
               </div>
             )}
           </div>
