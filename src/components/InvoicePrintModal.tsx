@@ -1,3 +1,4 @@
+import {printReportSurface,requirePdfRoot} from '../utils/reportPdfEngine';
 import {ReportPdfButton} from './common/ReportPdfButton';
 ﻿import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../context/AccountingContext';
@@ -51,7 +52,9 @@ export const InvoicePrintModal: React.FC = () => {
   const isDraftPreview = inv.id === 'draft-pos-preview' || inv.invoiceNumber?.includes('مسودة');
 
   const handlePrint = () => {
-    window.print();
+    void (async()=>{
+      await printReportSurface(requirePdfRoot('[data-pdf-document]',document));
+    })().catch(error=>alert('تعذّرت الطباعة: '+(error instanceof Error?error.message:String(error))));
   };
 
   // القاعدة النظامية: "زبون رئيسي / زبون فرعي"
