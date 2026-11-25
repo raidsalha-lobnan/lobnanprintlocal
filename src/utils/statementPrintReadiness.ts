@@ -3,7 +3,9 @@
  * high-resolution item photos can still be loading from Drive/IndexedDB
  * after their 120px placeholder has appeared. Wait for them before printing.
  */
+export const STATEMENT_PRINT_PREPARE_EVENT='lobnan:prepare-statement-originals';
 export async function waitForStatementPrintPhotos(timeoutMs=18000):Promise<boolean>{
+  if(typeof window!=='undefined')window.dispatchEvent(new Event(STATEMENT_PRINT_PREPARE_EVENT));
   const started=Date.now();
   while(document.querySelector('[data-statement-photo-status="loading"]')){
     if(Date.now()-started>timeoutMs)return false;
