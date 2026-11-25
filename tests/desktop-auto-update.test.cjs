@@ -260,3 +260,19 @@ test('verified differential result stages without full HTTP download and without
   assert.ok(await service._test.checkStaged());
  }finally{service.stop();fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test('official asset download accepts missing response URL only after explicit allowed redirects',async()=>{
+ const {fetchOfficialDownload}=require('../electron/update-manager.cjs');
+ const original='https://github.com/raidsalha-lobnan/lobnanprintlocal/releases/download/desktop-v1.1.106/LobnanPrint-Setup-1.1.106.exe';
+ const destination='https://release-assets.githubusercontent.com/test-file';
+ const visited=[];
+ const response=await fetchOfficialDownload(async(url,options)=>{
+  visited.push(url);assert.equal(options.redirect,'manual');
+  if(url===original)return {status:302,url:'',headers:{get:()=>destination}};
+  return {status:206,ok:true,url:'',body:{}};
+ },original);
+ assert.equal(response.status,206);assert.deepEqual(visited,[original,destination]);
+ await assert.rejects(fetchOfficialDownload(async()=>({status:302,headers:{get:()=> 'https://evil.example/download'}}),original),/UNTRUSTED_DOWNLOAD_HOST/);
+ await assert.rejects(fetchOfficialDownload(async()=>({status:200,url:'http://github.com/file'}),original),/UNTRUSTED_DOWNLOAD_HOST/);
+ await assert.rejects(fetchOfficialDownload(async()=>({status:302,headers:{get:()=>null}}),original),/REDIRECT_LOCATION_MISSING/);
+});
