@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI',{
  syncApiFetch:(request)=>ipcRenderer.invoke('lobnan:sync-api-fetch',request),
  getDesktopUpdateStatus:()=>ipcRenderer.invoke('lobnan:desktop-update-status'),
  checkDesktopUpdate:()=>ipcRenderer.invoke('lobnan:desktop-update-check'),
+ restartForDesktopUpdate:()=>ipcRenderer.invoke('lobnan:desktop-update-restart'),
  onDesktopUpdateStatus:(handler)=>{
   if(typeof handler!=='function')throw Error('DESKTOP_UPDATE_INVALID_LISTENER');
   const listener=(_event,status)=>handler(status);
