@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PWAInstallButton } from './PWAInstallButton';
+import { DesktopDownloadButton } from './DesktopDownloadButton';
 import { MobileNavigationModal } from './MobileNavigationModal';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -1157,6 +1158,7 @@ export const Navbar: React.FC = () => {
             </button>
           )}
 
+          <DesktopDownloadButton />
           <PWAInstallButton />
         </div>
       </div>
