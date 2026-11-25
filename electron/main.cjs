@@ -40,6 +40,10 @@ if(ownsSingleInstance)try{
  const sessionDir=path.join(storage.root,'ChromiumSession');
  fs.mkdirSync(sessionDir,{recursive:true});
  app.setPath('sessionData',sessionDir);
+ // Only the user-visible name changes. Keep package identity, installation
+ // directory, AppUserModelID and pinned data/profile paths compatible.
+ app.setName('برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان');
+ if(process.platform==='win32')app.setAppUserModelId('com.lobnanprint.accounting.desktop');
  startupMark('storage-binding-ready');
 }catch(error){
  startupError=error;
