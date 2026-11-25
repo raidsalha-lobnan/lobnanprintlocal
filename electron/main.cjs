@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {selectPinnedStorage,openPinnedSQLite}=require('./storage.cjs');
 const {createDesktopUpdateService}=require('./update-manager.cjs');
+const {downloadDifferential}=require('./differential-update.cjs');
 
 const API_ORIGIN='https://lobnan-api.shares.zrok.io';
 const MAX_API_BYTES=48*1024*1024;
@@ -408,7 +409,7 @@ app.whenReady().then(async()=>{
  // any invoice view, IndexedDB transaction or POS draft screen is opened.
  // Never force-close an active browser or desktop cashier session.
  desktopUpdater=createDesktopUpdateService({
-  app,storage,getWindow:()=>mainWindow,
+  app,storage,getWindow:()=>mainWindow,differentialDownload:downloadDifferential,
   // Chromium's networking uses Windows system proxy settings. If it cannot
   // establish the request, try Node's separate transport without weakening TLS.
   fetchImpl:async(url,options)=>{
