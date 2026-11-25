@@ -1,8 +1,9 @@
+import {saveReportPdf,requirePdfRoot} from '../utils/reportPdfEngine';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {accountStatementPdfFilename} from '../utils/accountStatementPdf';
 import {waitForStatementPrintPhotos} from '../utils/statementPrintReadiness';
-import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
-import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStatementPdf';
+
+
 import {publicSyncApiUrl} from '../services/secureAuth';
 import { DateInput } from '../components/common/DateInput';
 import { ReportsLivePreview } from './ReportsLivePreview';
@@ -284,15 +285,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   // 9: Treasuries selection
   const [selectedTreasuryCode, setSelectedTreasuryCode] = useState<string>('all');
 
-  // The direct-canvas PDF engine corrupts bidi Arabic and deferred images
-  // in large reports. Use exactly the existing Chrome print path instead.
-  // The browser manages Save as PDF; a web page cannot choose a printer silently.
-  const supportsDetailedStatementPdf=
-    activeReport==='customer_statement'||
-    activeReport==='supplier_statement'||
-    activeReport==='employee_statement';
-
-  // Print helper shared by both buttons so their content and pagination match.
   const handlePrint = () => {
     void (async()=>{
       const ready=await waitForStatementPrintPhotos();
@@ -302,78 +294,29 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   };
 
   const [serverPdfDownloading,setServerPdfDownloading]=useState(false);
-  // A running API process may predate the PDF options fix. Do not expose
-  // direct saving until that process explicitly advertises support.
-  const [directPdfOptionsReady,setDirectPdfOptionsReady]=useState(false);
-  useEffect(()=>{
-    const controller=new AbortController();
-    let mounted=true;
-    try{
-      fetch(publicSyncApiUrl()+'/api/v1/health', {cache:'no-store',signal:controller.signal})
-        .then(response=>response.ok?response.json():null)
-        .then(data=>{if(mounted)setDirectPdfOptionsReady(data?.features?.pdfDisplayOptionsV1===true);})
-        .catch(()=>{if(mounted)setDirectPdfOptionsReady(false);});
-    }catch{setDirectPdfOptionsReady(false);}
-    return ()=>{mounted=false;controller.abort();};
-  },[]);
   const serverPdfInFlight=useRef(false);
   const handleDownloadDetailedStatementPdf = async () => {
-    if(!supportsDetailedStatementPdf || serverPdfInFlight.current)return;
-    let filename:string;
-    let partyId='';
-    let employeeId='';
-    let subPartyId='all';
-    if(activeReport==='customer_statement'){
-      if(!customerStatementData.statement || !customerStatementData.party) return;
-      partyId=customerStatementData.party.id;
-      subPartyId=selectedSubCustomerId;
-      filename=accountStatementPdfFilename({
-        primaryName:customerStatementData.party.name,
-        secondaryName:selectedSubCustObj?.name,fromDate,toDate
-      });
-    }else if(activeReport==='supplier_statement'){
-      if(!supplierStatementData.statement || !supplierStatementData.party) return;
-      partyId=supplierStatementData.party.id;
-      subPartyId=selectedSubSupplierId;
-      filename=accountStatementPdfFilename({
-        primaryName:supplierStatementData.party.name,
-        secondaryName:selectedSubSuppObj?.name,fromDate,toDate
-      });
-    }else{
+    if(serverPdfInFlight.current)return;
+    let filename='تقرير محاسبي - '+activeReport+' - '+fromDate+' - '+toDate+'.pdf';
+    if(activeReport==='customer_statement'&&customerStatementData.party){
+      filename=accountStatementPdfFilename({primaryName:customerStatementData.party.name,secondaryName:selectedSubCustObj?.name,fromDate,toDate});
+    }else if(activeReport==='supplier_statement'&&supplierStatementData.party){
+      filename=accountStatementPdfFilename({primaryName:supplierStatementData.party.name,secondaryName:selectedSubSuppObj?.name,fromDate,toDate});
+    }else if(activeReport==='employee_statement'){
       const employee=employees.find(e=>e.id===selectedEmpId);
-      if(!employee || !employeeStatementData.statement) return;
-      employeeId=employee.id;
-      filename=accountStatementPdfFilename({
-        primaryName:employee.name,fromDate,toDate,kind:'employee'
-      });
-    }
-    if(!directPdfOptionsReady){
-      // The same live React report obeys the images/details toggles.
-      // Until the server is safely restarted, use native Save as PDF
-      // rather than showing a failed direct-download alert.
-      printStatementWithNativeBrowser(filename,handlePrint);
-      return;
+      if(employee)filename=accountStatementPdfFilename({primaryName:employee.name,fromDate,toDate,kind:'employee'});
     }
     serverPdfInFlight.current=true;
     setServerPdfDownloading(true);
     try{
-      await downloadServerOfficialStatementPdf({
-        type:activeReport,partyId,subPartyId,employeeId,
-        fromDate,toDate,showItemDetails:showStatementItemDetails,
-        showImages:showStatementImageThumbnails
-      },filename);
+      const ready=await waitForStatementPrintPhotos();
+      if(!ready&&!window.confirm('لم تكتمل بعض الصور الأصلية. هل تريد الحفظ بالصور المتاحة؟'))return;
+      const root=requirePdfRoot('.report-a4-container',reportsConsoleRef.current||document);
+      await saveReportPdf(root,{filename,paper:'a4',numberPages:true});
     }catch(error){
-      if(error instanceof Error && error.message==='PDF_DISPLAY_OPTIONS_NOT_CONFIRMED'){
-        setDirectPdfOptionsReady(false);
-        printStatementWithNativeBrowser(filename,handlePrint);
-        return;
-      }
-      console.error('Server Chrome statement PDF generation failed',error);
-      alert('تعذّر إنشاء ملف PDF مباشرة من الخادم. لم تتغير البيانات المحاسبية. يمكن استخدام «طباعة التقرير» ثم Save as PDF عند الحاجة. '+(error instanceof Error?error.message:''));
-    }finally{
-      serverPdfInFlight.current=false;
-      setServerPdfDownloading(false);
-    }
+      console.error('Local Typst report PDF failed',error);
+      alert('تعذّر إنشاء ملف PDF. لم تتغير البيانات المحاسبية. '+(error instanceof Error?error.message:''));
+    }finally{serverPdfInFlight.current=false;setServerPdfDownloading(false);}
   };
 
   // Export CSV helper
@@ -1114,18 +1057,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
       </header>
           <div ref={sidebarContentRef} className="reports-sidebar-content">
           <div className="reports-action-row grid grid-cols-2 gap-2">
-          {supportsDetailedStatementPdf && (
             <button
               type="button"
               onClick={() => {void handleDownloadDetailedStatementPdf();}}
               disabled={serverPdfDownloading}
               className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-bold px-3.5 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer"
-              title={directPdfOptionsReady ? "حفظ PDF مباشرة من الخادم مع تطبيق الصور والتفاصيل" : "حفظ باستخدام نافذة الطباعة ثم Save as PDF حتى يتم تحديث خدمة الخادم"}
+              title="إنشاء PDF مباشر محليًا باستخدام Typst مع الصور والتفاصيل"
             >
               <Download className="w-4 h-4" />
-              <span>{serverPdfDownloading?'جاري إنشاء PDF...':(directPdfOptionsReady?'حفظ PDF مباشر':'حفظ PDF (طباعة)')}</span>
+              <span>{serverPdfDownloading?'جاري إنشاء PDF...':'حفظ PDF مباشر'}</span>
             </button>
-          )}
           <button
             onClick={handlePrint}
             className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer"
