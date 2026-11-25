@@ -1,3 +1,4 @@
+import {openReportPrintWindow} from './openReportPrintWindow';
 import type {BusinessSettings,PaymentVoucher,Treasury} from '../types';
 import {renderBusinessReportHeader} from './reportBusinessHeader';
 import {REPORT_TYPOGRAPHY_CSS} from './reportTypography';
@@ -14,7 +15,7 @@ export interface ReceiptRegisterOptions {
  query:string;
 }
 export function printReceiptRegister(rows:PaymentVoucher[], options:ReceiptRegisterOptions):void {
- const win=window.open('','_blank');
+ const win=openReportPrintWindow();
  if(!win)throw new Error('تعذر فتح نافذة التقرير. اسمح بالنوافذ المنبثقة ثم أعد المحاولة.');
  const totals=sumReceiptRoutes(rows,options.treasuries);
  const currency=String(options.settings.currency||'₪');
