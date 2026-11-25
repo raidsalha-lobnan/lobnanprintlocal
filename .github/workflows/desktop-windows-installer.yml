@@ -27,6 +27,7 @@ on:
       - 'tests/desktop-install-ui.test.mjs'
       - 'scripts/assert-desktop-build-env.cjs'
       - 'scripts/check-packaged-sqlite.cjs'
+      - 'scripts/smoke-typst-pdf.mjs'
       - 'package.json'
       - '.github/workflows/desktop-windows-installer.yml'
 
@@ -61,6 +62,8 @@ jobs:
         run: node --test tests/desktop-auto-update.test.cjs
       - name: Test native and browser install actions and SQLite status control
         run: node --test tests/desktop-install-ui.test.mjs
+      - name: Verify real local Arabic PDF compilation before publication
+        run: node scripts/smoke-typst-pdf.mjs
       - name: Stamp unique desktop version for this successful build
         shell: pwsh
         run: |
