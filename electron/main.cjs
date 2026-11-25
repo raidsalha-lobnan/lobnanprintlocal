@@ -39,6 +39,39 @@ function trusted(event){
   throw Error('DESKTOP_UNTRUSTED_RENDERER');
 }
 function registerIpc(){
+ ipcMain.handle('lobnan:window-state',event=>{
+  trusted(event);
+  return {maximized:mainWindow.isMaximized()};
+ });
+ let closePromptOpen=false;
+ ipcMain.handle('lobnan:window-control',async(event,action)=>{
+  trusted(event);
+  const window=mainWindow;
+  if(process.platform!=='win32')return false;
+  switch(action){
+   case 'minimize':window.minimize();return true;
+   case 'toggle-maximize':
+    if(window.isFullScreen())window.setFullScreen(false);
+    if(window.isMaximized())window.unmaximize();else window.maximize();
+    return true;
+   case 'close':
+    if(closePromptOpen)return false;
+    closePromptOpen=true;
+    try{
+     const answer=await dialog.showMessageBox(window,{
+      type:'question',title:'إغلاق البرنامج',message:'هل تريد إغلاق برنامج الأيهم المحاسبي؟',
+      detail:'احفظ أي فاتورة أو سند مفتوح قبل الإغلاق. العمليات المحفوظة محليًا تبقى على الجهاز.',
+      buttons:['إلغاء','إغلاق البرنامج'],defaultId:0,cancelId:0,noLink:true
+     });
+     if(answer.response!==1||window.isDestroyed())return false;
+     // Respect existing renderer beforeunload guards; never destroy or force-kill.
+     setImmediate(()=>{if(!window.isDestroyed())window.close();});
+     return true;
+    }finally{closePromptOpen=false;}
+   default:throw Error('INVALID_WINDOW_ACTION');
+  }
+ });
+
  ipcMain.handle('lobnan:display-menu',event=>{
   trusted(event);
   Menu.buildFromTemplate(displayMenuItems()).popup({window:mainWindow});
@@ -207,13 +240,19 @@ function createWindow(){
  const workArea=require('electron').screen.getPrimaryDisplay().workArea;
  mainWindow=new BrowserWindow({
   width:Math.min(display.width,workArea.width),height:Math.min(display.height,workArea.height),minWidth:Math.min(800,workArea.width),minHeight:Math.min(480,workArea.height),
-  title:'مطبعة ومكتبة لبنان',
+  frame:process.platform!=='win32',
+  title:'برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان',
   webPreferences:{
    preload:path.join(__dirname,'preload.cjs'),
    nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true
   }
  });
  installDisplayMenu();
+ const publishWindowState=()=>{
+  if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('lobnan:window-state',{maximized:mainWindow.isMaximized()});
+ };
+ mainWindow.on('maximize',publishWindowState);
+ mainWindow.on('unmaximize',publishWindowState);
  mainWindow.webContents.on('did-finish-load',()=>mainWindow?.webContents.setZoomFactor(display.zoom));
  if(display.maximized)mainWindow.maximize();
  mainWindow.on('close',saveDisplaySettings);
