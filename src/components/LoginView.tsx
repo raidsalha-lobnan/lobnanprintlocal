@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { DesktopDownloadButton } from './DesktopDownloadButton';
+import { PWAInstallButton } from './PWAInstallButton';
+import { DesktopStorageStatus } from './DesktopStorageStatus';
 import { AlertCircle, KeyRound, Lock, LogIn, Mail, RefreshCw, WifiOff } from 'lucide-react';
 import type { SystemUser } from '../types';
 import {loginOnline,loginOffline,secureLoginEnabled} from '../services/secureAuth';
@@ -128,7 +131,12 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
           </div>
         </div>
         <h2 className="text-2xl font-bold text-center text-slate-800 mb-1">تسجيل الدخول للنظام</h2>
-        <p className="text-center text-slate-500 mb-5 text-xs">برنامج مطبعة ومكتبة لبنان — PostgreSQL</p>
+        <p className="text-center text-slate-500 mb-3 text-xs">برنامج مطبعة ومكتبة لبنان — PostgreSQL</p>
+        <div className="mb-5 flex flex-wrap items-center justify-center gap-2" aria-label="خيارات تثبيت البرنامج">
+          <DesktopDownloadButton />
+          <PWAInstallButton />
+          <DesktopStorageStatus />
+        </div>
         {directoryNotice && (
           <div role="status" className="mb-4 p-3 bg-amber-50 text-amber-900 text-xs rounded-xl border border-amber-200">
             {directoryNotice}
