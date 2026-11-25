@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { DesktopDownloadButton } from './DesktopDownloadButton';
 import { PWAInstallButton } from './PWAInstallButton';
 import { DesktopStorageStatus } from './DesktopStorageStatus';
+import { DesktopUpdateStatus } from './DesktopUpdateStatus';
 import { AlertCircle, KeyRound, Lock, LogIn, Mail, RefreshCw, WifiOff } from 'lucide-react';
 import type { SystemUser } from '../types';
 import {loginOnline,loginOffline,secureLoginEnabled} from '../services/secureAuth';
@@ -136,6 +137,7 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
           <DesktopDownloadButton />
           <PWAInstallButton />
           <DesktopStorageStatus />
+          <DesktopUpdateStatus />
         </div>
         {directoryNotice && (
           <div role="status" className="mb-4 p-3 bg-amber-50 text-amber-900 text-xs rounded-xl border border-amber-200">
