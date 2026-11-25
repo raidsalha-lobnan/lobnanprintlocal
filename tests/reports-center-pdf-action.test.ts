@@ -16,12 +16,13 @@ test('Reports Center itself has a visible PDF button next to the report print bu
   assert.ok(reports.includes("activeReport==='employee_statement'"));
 });
 
-test('Reports Center Save PDF downloads via authorized headless Chrome without opening print preview',()=>{
-  assert.ok(reports.includes('await downloadServerOfficialStatementPdf({'));
-  assert.ok(reports.includes('subPartyId=selectedSubCustomerId;'));
-  assert.ok(reports.includes('subPartyId=selectedSubSupplierId;'));
-  assert.ok(reports.includes('showImages:showStatementImageThumbnails'));
-  assert.ok(reports.includes('showItemDetails:showStatementItemDetails'));
+test('Reports Center Save PDF uses local Typst and active live filtered report',()=>{
+  assert.ok(reports.includes('await saveReportPdf(root,{filename,paper:'));
+  assert.ok(reports.includes("requirePdfRoot('.report-a4-container',reportsConsoleRef.current||document)"));
+  assert.ok(reports.includes('await waitForStatementPrintPhotos()'));
+  assert.ok(!reports.includes('downloadServerOfficialStatementPdf('));
+  assert.ok(!reports.includes('directPdfOptionsReady'));
+  assert.ok(!reports.includes('supportsDetailedStatementPdf'));
   assert.ok(!reports.includes('downloadAccountStatementPdf('),
     'Canvas snapshots cause Arabic corruption and missing images in long reports');
   assert.ok(reports.includes('const handlePrint = () => {'));
