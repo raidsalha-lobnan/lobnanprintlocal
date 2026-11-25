@@ -200,3 +200,63 @@ test('Windows helper launcher waits for ready acknowledgement instead of spawn a
   assert.match(fs.readFileSync(path.join(dir,'install-launcher.log'),'utf8'),/HELPER_READY_HANDOFF_AUTHORIZED/);
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test('differential adapter uses exact versioned feed and never auto-installs',async()=>{
+ const {downloadDifferential}=require('../electron/differential-update.cjs');
+ const {EventEmitter}=require('node:events');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lobnan-delta-'));
+ const data=Buffer.from('verified reconstructed payload');
+ const fileName='LobnanPrint-Setup-1.1.82.exe',file=path.join(dir,fileName);
+ fs.writeFileSync(file,data);
+ const digest=crypto.createHash('sha256').update(data).digest('hex');
+ let updater,downloads=0;
+ const options={
+  app:{getVersion:()=> '1.1.81'},asset:{version:'1.1.82',fileName,size:data.length,digest},
+  cacheDir:dir,verifiedFile,fetchImpl:async()=>{throw Error('unexpected baseline fetch');},
+  onProgress:()=>{},log:()=>{},
+  createUpdater:feed=>{
+   assert.match(feed.url,/\/desktop-v1\.1\.82\/$/);
+   assert.equal(feed.useMultipleRangeRequest,false);
+   updater=new EventEmitter();
+   updater.checkForUpdates=async()=>({updateInfo:{version:'1.1.82'}});
+   updater.downloadUpdate=async()=>{downloads++;return [file];};
+   return updater;
+  }
+ };
+ try{
+  assert.equal(await downloadDifferential(options),file);
+  assert.equal(updater.autoDownload,false);
+  assert.equal(updater.autoInstallOnAppQuit,false);
+  assert.equal(updater.disableDifferentialDownload,false);
+  assert.equal(updater.disableWebInstaller,true);
+  assert.match(updater.previousBlockmapBaseUrlOverride,/\/desktop-v1\.1\.81\/$/);
+  assert.equal(downloads,1);
+  await assert.rejects(downloadDifferential({...options,asset:{...options.asset,digest:'0'.repeat(64)}}),/DELTA_OFFICIAL_SHA256_MISMATCH/);
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+test('verified differential result stages without full HTTP download and without install',async()=>{
+ if(process.platform!=='win32')return;
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lobnan-delta-stage-'));
+ const body=Buffer.alloc(20_000_001,70);
+ const digest=crypto.createHash('sha256').update(body).digest('hex');
+ const reconstructed=path.join(dir,'reconstructed.exe');
+ fs.writeFileSync(reconstructed,body);
+ let deltaCalls=0,fullCalls=0,launches=0;
+ const service=createDesktopUpdateService({
+  app:{isPackaged:true,getVersion:()=> '1.1.81'},storage:{root:dir},getWindow:()=>null,
+  launchInstaller:async()=>{launches++;return true;},
+  fetchImpl:async url=>{
+   if(url.endsWith('/releases/latest'))return {ok:true,json:async()=>manifest('1.1.82',digest)};
+   fullCalls++;throw Error('full download not expected');
+  },
+  differentialDownload:async({onProgress})=>{deltaCalls++;onProgress(50);return reconstructed;}
+ });
+ try{
+  const state=await service.checkNow();
+  assert.equal(state.phase,'ready');
+  assert.equal(deltaCalls,1);
+  assert.equal(fullCalls,0);
+  assert.equal(launches,0);
+  assert.ok(await service._test.checkStaged());
+ }finally{service.stop();fs.rmSync(dir,{recursive:true,force:true});}
+});
