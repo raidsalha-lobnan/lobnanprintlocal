@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
@@ -640,11 +641,12 @@ export const DebtClearingView: React.FC = () => {
 
       {/* Official Print Modal for Settlement Document */}
       {selectedClearingForPrint && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white">
+        <div data-pdf-document className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden print:border-none print:shadow-none">
             <div className="p-3 bg-slate-900 text-white flex items-center justify-between print:hidden">
               <span className="font-bold text-xs">معاينة وطباعة سند مقاصة رسمي</span>
               <div className="flex items-center gap-2">
+                <ReportPdfButton filename={'سند مقاصة - '+selectedClearingForPrint.clearingNumber} selector="[data-pdf-document]" scope="[data-pdf-document]" />
                 <button
                   onClick={() => window.print()}
                   className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-xs font-bold flex items-center gap-1 cursor-pointer"
