@@ -375,7 +375,16 @@ app.whenReady().then(async()=>{
  // any invoice view, IndexedDB transaction or POS draft screen is opened.
  // Never force-close an active browser or desktop cashier session.
  desktopUpdater=createDesktopUpdateService({
-  app,storage,getWindow:()=>mainWindow
+  app,storage,getWindow:()=>mainWindow,
+  // Chromium's networking uses Windows system proxy settings. If it cannot
+  // establish the request, try Node's separate transport without weakening TLS.
+  fetchImpl:async(url,options)=>{
+   try{return await require('electron').net.fetch(url,options);}
+   catch(error){
+    if(options?.signal?.aborted)throw error;
+    return fetch(url,options);
+   }
+  }
  });
  try{
   if(await desktopUpdater.applyOnNextLaunch()){
