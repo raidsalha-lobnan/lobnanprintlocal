@@ -268,7 +268,7 @@ export const AccountStatementModal: React.FC = () => {
       const root=requirePdfRoot('.print-area .report-a4-container');
       await saveReportPdf(root,{filename,paper:'a4',numberPages:true});
     }catch(error){
-      console.error('Local Typst statement PDF export failed',error);
+      console.error('Original print PDF export failed',error);
       alert('تعذّر إنشاء PDF. لم تتغير البيانات المحاسبية. '+(error instanceof Error?error.message:''));
     }finally{
       pdfInFlight.current=false;
@@ -379,7 +379,7 @@ export const AccountStatementModal: React.FC = () => {
               onClick={() => {void handleSavePdf();}}
               disabled={serverPdfDownloading || (!partyStatement && !employeeStatement)}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer"
-              title="حفظ مباشر باستخدام Typst دون نافذة الطباعة"
+              title="حفظ PDF مطابق للمستند المطبوع"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{serverPdfDownloading?'جاري إنشاء PDF...':'حفظ PDF مباشر'}</span>
