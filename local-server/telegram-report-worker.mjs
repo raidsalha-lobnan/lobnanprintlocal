@@ -155,7 +155,7 @@ export class TelegramServerReportWorker {
   const c=CATEGORIES[category];
   await this.saveSelection(chatId,telegramId,category);
   if(c.entity){
-   await this.send(token,chatId,'أرسل اسم أو رمز '+(c.entity==='employees'?'الموظف':c.partyType==='supplier'?'المورد':'العميل')+' المطلوب لإعداد '+c.name+'.',[[{text:'القائمة الرئيسية',callback_data:'menu_main'}]]);
+   await this.send(token,chatId,'أرسل جزءًا من اسم أو رمز '+(c.entity==='employees'?'الموظف':c.partyType==='supplier'?'المورد':'العميل')+' المطلوب لإعداد '+c.name+'.',[[{text:'القائمة الرئيسية',callback_data:'menu_main'}]]);
   }else await this.showPeriod(token,chatId,category);
  }
  async searchEntity(token,chatId,telegramId,category,query,access){
@@ -165,11 +165,39 @@ export class TelegramServerReportWorker {
    await this.send(token,chatId,'اكتب حرفين على الأقل من الاسم أو رمز السجل.');
    return;
   }
+  // Normalize Arabic spelling variants without modifying stored names.
+  const normalized=q.toLowerCase().replace(/[ً-ٰٟـ]/g,'')
+   .replace(/[أإآٱىة]/g,ch=>({'أ':'ا','إ':'ا','آ':'ا','ٱ':'ا','ى':'ي','ة':'ه'})[ch])
+   .trim().replace(/\s+/g,' ');
+  const compact=normalized.replace(/\s+/g,'');
+  if(compact.length<2){
+   await this.send(token,chatId,'اكتب حرفين على الأقل من الاسم أو رمز السجل.');
+   return;
+  }
   const rows=await this.pool.query(
-   `SELECT record_id,value FROM sync_records WHERE workspace=$1 AND entity=$2
-    AND (value->>'name' ILIKE $3 OR value->>'code' ILIKE $3 OR value->>'phone' ILIKE $3)
-    ORDER BY CASE WHEN value->>'code' ILIKE $4 THEN 0 ELSE 1 END,record_id LIMIT 35`,
-   [this.workspace,entity,'%'+q+'%',q+'%']);
+   `WITH candidates AS (
+      SELECT record_id,value,
+       regexp_replace(btrim(translate(regexp_replace(lower(coalesce(value->>'name','')),'[ً-ٰٟـ]','','g'),
+        'أإآٱىة','اااايه')), '[[:space:]]+', ' ', 'g') AS name_key,
+       lower(coalesce(value->>'code','')) AS code_key,
+       lower(coalesce(value->>'phone','')) AS phone_key
+      FROM sync_records WHERE workspace=$1 AND entity=$2
+    ), ranked AS (
+      SELECT record_id,value,CASE
+       WHEN code_key=lower($3) THEN 0
+       WHEN name_key=$4 THEN 1
+       WHEN strpos(name_key,$4)=1 THEN 2
+       WHEN strpos(name_key,$4)>0 THEN 3
+       WHEN strpos(replace(name_key,' ',''),$5)>0 THEN 4
+       WHEN strpos(code_key,lower($3))>0 OR strpos(phone_key,lower($3))>0 THEN 5
+       WHEN NOT EXISTS (SELECT 1 FROM unnest(string_to_array($4,' ')) AS t(term)
+        WHERE strpos(name_key,t.term)=0) THEN 6
+       ELSE NULL END AS match_rank
+      FROM candidates
+    )
+    SELECT record_id,value FROM ranked WHERE match_rank IS NOT NULL
+    ORDER BY match_rank,record_id`,
+   [this.workspace,entity,q,normalized,compact]);
   const permitted=rows.rows.filter(row=>{
    const value=row.value;
    if(!access.canRead(entity,value,row.record_id))return false;
