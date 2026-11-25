@@ -1,0 +1,79 @@
+name: Windows installer - verify and publish
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'electron/**'
+      - 'src/sync-next/desktopSqliteMirror.ts'
+      - 'src/sync-next/installDesktopNetworkBridge.ts'
+      - 'src/sync-next/posAttemptStore.ts'
+      - 'src/components/DesktopDownloadButton.tsx'
+      - 'src/components/Navbar.tsx'
+      - 'src/main.tsx'
+      - 'src/sync-next/localDb.ts'
+      - 'tests/desktop-storage.test.cjs'
+      - 'tests/desktop-sqlite-mirror.test.ts'
+      - 'scripts/assert-desktop-build-env.cjs'
+      - 'package.json'
+      - '.github/workflows/desktop-windows-installer.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lobnanprint-windows-desktop-v1.1.0
+  cancel-in-progress: false
+
+jobs:
+  verify-and-release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out approved main revision
+        uses: actions/checkout@v4
+      - name: Install Node.js 24 for native SQLite
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install application build dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript safety check
+        run: npm run lint
+      - name: Test pinned database identity and Windows local storage
+        run: node --test tests/desktop-storage.test.cjs
+      - name: Test desktop mirror and existing browser financial storage
+        run: node --import tsx --test tests/desktop-sqlite-mirror.test.ts tests/pos-attempt-indexeddb.test.ts
+      - name: Build verified Windows installer
+        run: npm run build:exe
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          VITE_SYNC_LOGIN_MODE: 'users'
+          VITE_SYNC_BACKEND: 'local-postgres'
+          VITE_PUBLIC_SYNC_API_URL: 'https://lobnan-api.shares.zrok.io'
+      - name: Validate installer before publication
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem 'dist-electron' -Filter 'LobnanPrint-Setup-1.1.0.exe' -File)
+          if ($files.Count -ne 1) { throw "Expected one verified installer, found $($files.Count)" }
+          if ($files[0].Length -lt 50000000) { throw 'Windows installer size too small' }
+          Get-FileHash -Path $files[0].FullName -Algorithm SHA256 | Format-List
+      - name: Preserve build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LobnanPrint-Setup-1.1.0-Windows
+          path: dist-electron/LobnanPrint-Setup-1.1.0.exe
+          if-no-files-found: error
+      - name: Publish official download only after every successful check
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = 'desktop-v1.1.0'
+          if (gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null) {
+            Write-Host 'An official release already exists. Leaving the immutable installer unchanged.'
+            exit 0
+          }
+          gh release create $tag 'dist-electron/LobnanPrint-Setup-1.1.0.exe' --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'مطبعة ومكتبة لبنان - Windows v1.1.0' --notes 'Standalone Windows installer. Pinned SQLite database, non-C fixed disk preference, failure-safe identity, unchanged Chrome IndexedDB.'
+          if ($LASTEXITCODE -ne 0) { throw 'OFFICIAL_DESKTOP_RELEASE_FAILED' }
