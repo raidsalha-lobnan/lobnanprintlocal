@@ -282,9 +282,9 @@ export class TelegramServerReportWorker {
    await this.saveSelection(chatId,telegramId,category,'pending:'+id);
    await this.send(token,chatId,
     'هل هذا '+(kind.entity==='employees'?'الموظف':kind.partyType==='supplier'?'المورد':'العميل')+
-    ' المقصود؟\\n👤 '+String(value.name||'بدون اسم')+
-    (value.code?'\\n🔖 الرمز: '+value.code:'')+
-    '\\nاضغط «نعم، هذا هو» للمتابعة إلى فترة الكشف.',[
+    ' المقصود؟\n👤 '+String(value.name||'بدون اسم')+
+    (value.code?'\n🔖 الرمز: '+value.code:'')+
+    '\nاضغط «نعم، هذا هو» للمتابعة إلى فترة الكشف.',[
      [{text:'✅ نعم، هذا هو',callback_data:'confirm_party_'+id}],
      [{text:'🔎 لا، البحث من جديد',callback_data:'retry_party'}]
     ]);
