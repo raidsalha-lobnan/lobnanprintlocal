@@ -12,6 +12,7 @@ import { prepareSecureInvoiceDescriptionEdit } from '../sync-next/invoiceEdits';
 import { UnifiedRepository } from '../sync-next/repository';
 import {buildNewAtomicPosSale} from '../sync-next/atomicPosSaleBuilder';
 import {enqueueAtomicInvoicePosting} from '../sync-next/accountingBundle';
+import {readPosAttempt,writePosAttempt,removePosAttempt} from '../sync-next/posAttemptStore';
 import {mayNavigateAwayFromPos} from '../utils/posLeaveNavigation';
 import {selectWorkspaceSettings,applyWorkspaceSettings,mergeWorkspaceSettingsDraft} from '../utils/workspaceSettingsSync';
 import {createWorkspaceSettingsPatch} from '../sync-next/settingsPatch';
@@ -7473,20 +7474,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const signature=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)))
           .map(x=>x.toString(16).padStart(2,'0')).join('');
         let pending:{invoiceId:string;commandId:string;createdAt:string;signature:string}|null=null;
-        try {pending=JSON.parse(localStorage.getItem(pendingKey)||'null');}catch{}
+        pending=await readPosAttempt(pendingKey);
         if(pending&&pending.signature!==signature){
           const queued=await repo.getLocalDb().pending();
           if(queued.some(x=>x.id===pending?.commandId) || (draftId && await repo.getLocalDb().confirmedInvoice(pending.invoiceId)))
             throw new Error('POS_PREVIOUS_SALE_STILL_PENDING_CONFIRM_BEFORE_NEW_ATTEMPT');
           pending=null;
-          localStorage.removeItem(pendingKey);
+          await removePosAttempt(pendingKey);
         }
         // If a prior attempt was already queued or acknowledged, reuse its
         // locally visible result. Never rebuild mutable party balances twice.
         if(pending?.signature===signature && pending.invoiceId){
           const existing=(await repo.all('invoices')).find(x=>x.id===pending?.invoiceId);
           if(existing?.value){
-            if(!draftId)localStorage.removeItem(pendingKey);
+            if(!draftId)void removePosAttempt(pendingKey).catch(error=>console.warn('POS_ATTEMPT_CLEANUP_DEFERRED',error));
             return {success:true,invoice:existing.value as unknown as Invoice,
               isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
           }
@@ -7507,7 +7508,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           options:extraOptions,vatRate:Number(settings.vatRate||0),
           inventory:stock,parties:partiesSnapshot
         });
-        if(!pending)localStorage.setItem(pendingKey,JSON.stringify({invoiceId,commandId,createdAt,signature}));
+        if(!pending)await writePosAttempt(pendingKey,{invoiceId,commandId,createdAt,signature});
         const savedCommandId = await enqueueAtomicInvoicePosting(repo,posting);
         // Verify the postcondition before claiming even a local save. The
         // command must still exist in the durable outbox OR have received an
@@ -7520,7 +7521,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           throw new Error('LOCAL_INVOICE_SAVE_RECEIPT_MISSING');
         // This is LOCAL persistence. Cloud acceptance arrives by normal sync ACK.
         // The repository subscriber updates all visible accounting entities.
-        if(!draftId)localStorage.removeItem(pendingKey);
+        if(!draftId)void removePosAttempt(pendingKey).catch(error=>console.warn('POS_ATTEMPT_CLEANUP_DEFERRED',error));
         return {success:true,invoice,isOffline:typeof navigator!=='undefined'&&!navigator.onLine};
       }catch(error){
         return {success:false,error:String(error),
