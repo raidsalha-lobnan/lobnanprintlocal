@@ -5,6 +5,9 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { enforceArabicNumeralsGlobally } from './utils/numberFormat';
 import './index.css';
+import {applyWebDisplayScale,readWebDisplayScale} from './utils/webDisplayScale';
+
+applyWebDisplayScale(readWebDisplayScale());
 
 // Register Service Worker for full Offline PWA capability in production builds
 if (location.protocol!=='file:' && 'serviceWorker' in navigator && import.meta.env.PROD) {
