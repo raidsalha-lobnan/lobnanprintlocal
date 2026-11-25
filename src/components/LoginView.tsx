@@ -3,6 +3,7 @@ import { DesktopDownloadButton } from './DesktopDownloadButton';
 import { PWAInstallButton } from './PWAInstallButton';
 import { DesktopStorageStatus } from './DesktopStorageStatus';
 import { DesktopUpdateStatus } from './DesktopUpdateStatus';
+import { DesktopLoginTitleBar, isNativeWindow } from './DesktopWindowControls';
 import { AlertCircle, KeyRound, Lock, LogIn, Mail, RefreshCw, WifiOff } from 'lucide-react';
 import type { SystemUser } from '../types';
 import {loginOnline,loginOffline,secureLoginEnabled} from '../services/secureAuth';
@@ -201,7 +202,8 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
   };
 
   return (
-    <div dir="rtl" className="relative isolate min-h-screen overflow-x-hidden flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-100 to-indigo-200 px-4 py-8 sm:px-8 font-sans text-right">
+    <div dir="rtl" className={"relative isolate min-h-screen overflow-x-hidden flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-100 to-indigo-200 px-4 py-8 sm:px-8 font-sans text-right"+(isNativeWindow()?" pt-12":"")}>
+      <DesktopLoginTitleBar />
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden -z-10">
         <div className="absolute -top-32 -right-24 w-[420px] h-[420px] rounded-full bg-sky-300/50 blur-3xl" />
         <div className="absolute -bottom-32 -left-20 w-[500px] h-[500px] rounded-full bg-indigo-400/30 blur-3xl" />
