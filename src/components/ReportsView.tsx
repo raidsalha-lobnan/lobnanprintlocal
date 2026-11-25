@@ -1,4 +1,4 @@
-import {saveReportPdf,requirePdfRoot} from '../utils/reportPdfEngine';
+import {saveReportPdf,requirePdfRoot,printReportSurface} from '../utils/reportPdfEngine';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {accountStatementPdfFilename} from '../utils/accountStatementPdf';
 import {waitForStatementPrintPhotos} from '../utils/statementPrintReadiness';
@@ -288,9 +288,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport, exportS
   const handlePrint = () => {
     void (async()=>{
       const ready=await waitForStatementPrintPhotos();
-      if(!ready&&!window.confirm('لم تكتمل بعض الصور الأصلية عالية الدقة. هل ترغب بالطباعة باستخدام الصور المصغّرة المتاحة؟'))return;
-      window.print();
-    })();
+      if(!ready&&!window.confirm('لم تكتمل بعض الصور الأصلية. هل تريد الطباعة بالصور المتاحة؟'))return;
+      await printReportSurface(requirePdfRoot('.report-a4-container',reportsConsoleRef.current||document));
+    })().catch(error=>alert('تعذّرت الطباعة: '+(error instanceof Error?error.message:String(error))));
   };
 
   const [serverPdfDownloading,setServerPdfDownloading]=useState(false);
