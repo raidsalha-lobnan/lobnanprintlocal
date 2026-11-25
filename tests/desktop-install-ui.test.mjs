@@ -98,7 +98,8 @@ test('only explicitly marked local print windows are allowed and report preview 
  for(const file of ['customerPeriodReport','otherPartyPeriodReports','printReceiptRegister','printDetailedSalesInvoiceRegister']){
   assert.match(read('src/utils/'+file+'.ts'),/openReportPrintWindow\(\)/);
  }
- assert.match(read('src/components/ReportsView.tsx'),/<ReportA4PreviewButton /);
+ assert.match(read('src/components/ReportsView.tsx'),/<ReportsLivePreview /);
+ assert.doesNotMatch(read('src/components/ReportsView.tsx'),/<ReportA4PreviewButton /);
  assert.match(read('src/index.css'),/@page lobnanReportA4 \{ size: A4 portrait;/);
 });
 
@@ -113,4 +114,21 @@ test('live report display defers original photos but print explicitly requests t
  assert.match(photo,/addEventListener\(STATEMENT_PRINT_PREPARE_EVENT,start\)/);
  assert.match(readiness,/dispatchEvent\(new Event\(STATEMENT_PRINT_PREPARE_EVENT\)\)/);
  assert.match(read('src/components/ReportA4PreviewButton.tsx'),/await waitForStatementPrintPhotos\(\)/);
+});
+
+test('report viewing is live A4 pagination without PDF generation',()=>{
+ const preview=read('src/components/ReportsLivePreview.tsx');
+ const css=read('src/index.css');
+ const view=read('src/components/ReportsView.tsx');
+ assert.match(preview,/PAGE_WIDTH=210\*96\/25\.4/);
+ assert.match(preview,/PAGE_HEIGHT=297\*96\/25\.4/);
+ assert.match(preview,/content\.scrollWidth/);
+ assert.match(preview,/reports-live-a4-flow/);
+ assert.doesNotMatch(preview,/printToPDF|fetch\(|pdfjs|canvas/);
+ assert.match(css,/column-width:198mm; column-count:1; column-gap:12mm/);
+ assert.match(css,/column-fill:auto/);
+ assert.match(css,/padding:8mm 6mm !important/);
+ assert.match(css,/tr\.print-allow-break/);
+ assert.match(view,/<ReportsLivePreview reportKey=\{JSON\.stringify/);
+ assert.doesNotMatch(view,/<ReportA4PreviewButton /);
 });
