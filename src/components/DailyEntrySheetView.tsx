@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   CalendarCheck,
@@ -1082,7 +1083,7 @@ export const DailyEntrySheetView: React.FC = () => {
   }, [filteredRows]);
 
   return (
-    <div className="flex-1 min-h-0 h-full flex flex-col overflow-hidden font-sans gap-1.5 p-0.5 print:h-auto print:overflow-visible print:p-0" dir="rtl">
+    <div data-pdf-document className="flex-1 min-h-0 h-full flex flex-col overflow-hidden font-sans gap-1.5 p-0.5 print:h-auto print:overflow-visible print:p-0" dir="rtl">
       {/* 1. UNIFIED COMPACT HEADER BAR (دمج كافة الأسطر بسطر واحد وحذف الكلام الزائد) */}
       <div className="bg-white border border-slate-300 rounded-2xl p-2.5 sm:px-4 shadow-sm print:hidden">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1237,6 +1238,7 @@ export const DailyEntrySheetView: React.FC = () => {
               <Trash2 className="w-3.5 h-3.5 text-rose-600" />
             </button>
 
+            <ReportPdfButton filename={'كشف الإدخال اليومي - '+selectedDate} paper="a4-landscape" numberPages includeFormValues selector="[data-pdf-document]" scope="[data-pdf-document]" />
             <button
               type="button"
               onClick={() => window.print()}
