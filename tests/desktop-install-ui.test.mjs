@@ -101,3 +101,16 @@ test('only explicitly marked local print windows are allowed and report preview 
  assert.match(read('src/components/ReportsView.tsx'),/<ReportA4PreviewButton /);
  assert.match(read('src/index.css'),/@page lobnanReportA4 \{ size: A4 portrait;/);
 });
+
+test('live report display defers original photos but print explicitly requests them',()=>{
+ const preview=read('src/components/ReportsLivePreview.tsx');
+ const photo=read('src/components/StatementPrintPhoto.tsx');
+ const readiness=read('src/utils/statementPrintReadiness.ts');
+ assert.match(preview,/DeferredStatementPhotos\.Provider value=\{true\}/);
+ assert.match(preview,/addEventListener\('scroll',scroll,\{passive:true\}\)/);
+ assert.doesNotMatch(preview,/addEventListener\('wheel'/);
+ assert.match(photo,/new IntersectionObserver/);
+ assert.match(photo,/addEventListener\(STATEMENT_PRINT_PREPARE_EVENT,start\)/);
+ assert.match(readiness,/dispatchEvent\(new Event\(STATEMENT_PRINT_PREPARE_EVENT\)\)/);
+ assert.match(read('src/components/ReportA4PreviewButton.tsx'),/await waitForStatementPrintPhotos\(\)/);
+});
