@@ -53,7 +53,7 @@ test('background download never launches an installer; next safe app start does'
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lobnan-update-service-'));
  const body=Buffer.alloc(20_000_001,65);
  const digest=crypto.createHash('sha256').update(body).digest('hex');
- const release=manifest('1.1.51',digest);
+ let release=manifest('1.1.51',digest);
  let launches=0,downloadFetches=0;
  const fetchImpl=async url=>{
   if(url.endsWith('/releases/latest'))return {ok:true,json:async()=>release};
@@ -81,6 +81,17 @@ test('background download never launches an installer; next safe app start does'
   assert.equal(launches,2);
   assert.equal(await service.applyOnNextLaunch(),false,'prevents infinite install loop');
   assert.equal(launches,2);
+  const blocked=await service.checkNow();
+  assert.equal(blocked.phase,'install-error','same failed version remains blocked');
+  assert.equal(downloadFetches,1);
+  release=manifest('1.1.52',digest);
+  const recovered=await service.checkNow();
+  assert.equal(recovered.phase,'ready','newer release supersedes blocked update');
+  assert.equal(recovered.version,'1.1.52');
+  assert.equal(downloadFetches,2);
+  assert.equal(launches,2,'checking must not launch installer');
+  assert.equal(await service.applyOnNextLaunch(),true);
+  assert.equal(launches,3,'new version receives its own attempt budget');
   assert.equal(fs.existsSync(path.join(dir,'accounting.db')),false,
    'updater never creates/changes a financial database');
  }finally{service.stop();fs.rmSync(dir,{recursive:true,force:true});}
