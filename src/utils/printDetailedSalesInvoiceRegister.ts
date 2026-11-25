@@ -1,4 +1,4 @@
-import {openReportPrintWindow} from './openReportPrintWindow';
+import {openReportPrintWindow,attachReportPdfAction} from './openReportPrintWindow';
 import { REPORT_TYPOGRAPHY_CSS } from './reportTypography';
 import { renderBusinessReportHeader } from './reportBusinessHeader';
 import type { BusinessSettings, Invoice, Treasury } from '../types';
@@ -394,5 +394,6 @@ export function printDetailedSalesInvoiceRegister(
   popup.document.open();
   popup.document.write(buildDetailedSalesReportHtml(confirmedInvoices,options));
   popup.document.close();
+  attachReportPdfAction(popup,'#pages');
   return true;
 }
