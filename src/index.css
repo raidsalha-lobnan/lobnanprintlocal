@@ -2916,3 +2916,27 @@ td.empty-row-shaded {
 @media print {
   html[data-lobnan-web-display-scale] { zoom: 1 !important; }
 }
+
+/* Reports only: the real print engine determines physical A4 page breaks.
+   Named pages avoid changing the separate invoice and thermal print formats. */
+@page lobnanReportA4 { size: A4 portrait; margin: 8mm 6mm; }
+@media print {
+  .reports-dashboard { page: lobnanReportA4; }
+  .reports-dashboard, .reports-dashboard-grid, .reports-preview-area,
+  .reports-live-stage, .reports-live-viewport, .reports-live-content {
+    display: block !important; height: auto !important; min-height: 0 !important;
+    max-height: none !important; overflow: visible !important; transform: none !important;
+    zoom: 1 !important;
+  }
+  .reports-dashboard .report-a4-container {
+    width: 100% !important; max-width: 100% !important;
+    min-height: 0 !important; height: auto !important;
+    overflow: visible !important; break-inside: auto !important;
+    padding: 0 !important; margin: 0 !important;
+  }
+  .reports-dashboard table { break-inside: auto !important; page-break-inside: auto !important; }
+  .reports-dashboard thead { display: table-header-group !important; }
+  .reports-dashboard tr { break-inside: avoid !important; page-break-inside: avoid !important; }
+  .reports-dashboard img { max-width: 100% !important; }
+  .reports-dashboard [data-no-print="true"] { display: none !important; }
+}
