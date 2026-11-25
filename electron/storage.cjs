@@ -39,16 +39,18 @@ function fixedDrives(){
   .map(x=>({root:x.DeviceID.toUpperCase()+'\\',freeBytes:Number(x.FreeSpace)||0}));
 }
 function selectInitialRoot(settingsDir,drives,minFree=MIN_FREE_BYTES){
- const candidates=drives.filter(x=>x.freeBytes>=minFree&&
-  /^[A-Z]:\\$/i.test(x.root)&&!/^C:\\$/i.test(x.root))
-  .sort((a,b)=>b.freeBytes-a.freeBytes)
-  .map(x=>path.join(x.root,'LobnanPrint','Data'));
- // An existing identity on a non-C: drive must never be silently bypassed.
- const existing=candidates.filter(x=>fs.existsSync(path.join(x,MARKER))||
-  fs.existsSync(path.join(x,DB_FILE)));
+ // Existing databases must be detected on ALL fixed non-C disks, even if
+ // available space falls below the first-install minimum after prior use.
+ // Otherwise a missing binding pointer could create a false empty database.
+ const fixed=drives.filter(x=>/^[A-Z]:\\$/i.test(x.root)&&!/^C:\\$/i.test(x.root))
+  .sort((a,b)=>b.freeBytes-a.freeBytes);
+ const existing=fixed.map(x=>path.join(x.root,'LobnanPrint','Data'))
+  .filter(x=>fs.existsSync(path.join(x,MARKER))||
+   fs.existsSync(path.join(x,DB_FILE)));
  if(existing.length>1)throw Error('DESKTOP_MULTIPLE_EXISTING_DATABASES_REVIEW_REQUIRED');
  if(existing.length)throw Error('DESKTOP_EXISTING_DATABASE_REQUIRES_RECOVERY:'+existing[0]);
- for(const root of candidates){
+ for(const disk of fixed.filter(x=>x.freeBytes>=minFree)){
+  const root=path.join(disk.root,'LobnanPrint','Data');
   try{writable(root);return root;}catch(error){console.warn('DESKTOP_DISK_NOT_WRITABLE',root,String(error));}
  }
  const fallback=path.join(settingsDir,'Data');
