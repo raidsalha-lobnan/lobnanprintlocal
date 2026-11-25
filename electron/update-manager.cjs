@@ -241,14 +241,17 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
  }
  async function applyOnNextLaunch(){
   if(!app.isPackaged||process.platform!=='win32')return false;
-  const record=await checkStaged(); // SHA-256 verified a SECOND time.
-  if(!record)return false;
+  // Do not hash a large installer at startup when it cannot be installed.
+  const candidate=approvedStagedRecord(readJSON(metadataPath),app.getVersion());
+  if(!candidate)return false;
   const attempt=readJSON(attemptsPath);
-  const previous=attempt?.version===record.version?Number(attempt.count)||0:0;
+  const previous=attempt?.version===candidate.version?Number(attempt.count)||0:0;
   if(previous>=MAX_INSTALL_ATTEMPTS){
-   setStatus('install-error',{version:record.version,percent:100,errorDetail:installDiagnostic()||'INSTALL_ATTEMPTS_EXHAUSTED'});
-   return false; // Stop the retry loop, leave existing app fully usable.
+   setStatus('install-error',{version:candidate.version,percent:100,errorDetail:installDiagnostic()||'INSTALL_ATTEMPTS_EXHAUSTED'});
+   return false;
   }
+  const record=await checkStaged(); // SHA-256 verification still mandatory before installation.
+  if(!record||record.version!==candidate.version)return false;
   atomicJSON(attemptsPath,{version:record.version,count:previous+1,
    lastAttempt:new Date().toISOString()});
   try{fs.rmSync(path.join(cacheDir,'install-result.txt'),{force:true});}catch{}
