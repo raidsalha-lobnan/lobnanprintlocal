@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
@@ -1817,7 +1818,7 @@ export const WarehouseOperationsView: React.FC = () => {
       {/* MODAL: VIEW & PRINT OPERATION VOUCHER */}
       {/* ========================================================= */}
       {viewingOperation && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div data-pdf-document className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-8 animate-in zoom-in-95 duration-150">
             {/* Action Bar (Not printed) */}
             <div className="bg-slate-900 text-white px-6 py-3 flex items-center justify-between print:hidden">
@@ -1826,6 +1827,7 @@ export const WarehouseOperationsView: React.FC = () => {
                 <span className="font-bold text-sm">معاينة وطباعة المستند المخزني</span>
               </div>
               <div className="flex items-center gap-2">
+                <ReportPdfButton filename={'مستند مخزني - '+viewingOperation.documentNumber} selector="[data-pdf-document]" scope="[data-pdf-document]" />
                 <button
                   onClick={() => window.print()}
                   className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
