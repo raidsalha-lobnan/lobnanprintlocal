@@ -11,6 +11,7 @@ on:
       - 'vite.config.ts'
       - 'package-lock.json'
       - 'electron/**'
+      - 'tests/desktop-auto-update.test.cjs'
       - 'src/sync-next/desktopSqliteMirror.ts'
       - 'src/sync-next/installDesktopNetworkBridge.ts'
       - 'src/sync-next/posAttemptStore.ts'
@@ -56,6 +57,8 @@ jobs:
         run: node --test tests/desktop-storage.test.cjs
       - name: Test desktop mirror and existing browser financial storage
         run: node --import tsx --test tests/desktop-sqlite-mirror.test.ts tests/pos-attempt-indexeddb.test.ts
+      - name: Test SHA256-verified unattended updates and strict next-start install guard
+        run: node --test tests/desktop-auto-update.test.cjs
       - name: Test native and browser install actions and SQLite status control
         run: node --test tests/desktop-install-ui.test.mjs
       - name: Stamp unique desktop version for this successful build
