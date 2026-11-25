@@ -3,10 +3,11 @@ const {app,BrowserWindow,Menu,shell,ipcMain,dialog}=require('electron');
 const fs=require('node:fs');
 const path=require('node:path');
 const {selectPinnedStorage,openPinnedSQLite}=require('./storage.cjs');
+const {createDesktopUpdateService}=require('./update-manager.cjs');
 
 const API_ORIGIN='https://lobnan-api.shares.zrok.io';
 const MAX_API_BYTES=48*1024*1024;
-let mainWindow=null,storage=null,nativeDb=null,startupError=null;
+let mainWindow=null,storage=null,nativeDb=null,startupError=null,desktopUpdater=null;
 try{
  storage=selectPinnedStorage();
  fs.mkdirSync(storage.profileDir,{recursive:true});
@@ -29,6 +30,14 @@ function trusted(event){
   throw Error('DESKTOP_UNTRUSTED_RENDERER');
 }
 function registerIpc(){
+ ipcMain.handle('lobnan:desktop-update-status',event=>{
+  trusted(event);
+  return desktopUpdater?.getStatus()||{phase:'disabled'};
+ });
+ ipcMain.handle('lobnan:desktop-update-check',event=>{
+  trusted(event);
+  return desktopUpdater?.checkNow()||{phase:'disabled'};
+ });
  ipcMain.handle('lobnan:storage-info',event=>{
   trusted(event);
   return {installed:true,pinned:true,persistent:true,root:storage.root,
@@ -111,7 +120,7 @@ function createWindow(){
  });
  mainWindow.on('closed',()=>{mainWindow=null;});
 }
-app.whenReady().then(()=>{
+app.whenReady().then(async()=>{
  if(startupError||!nativeDb||!storage){
   dialog.showErrorBox('قاعدة البيانات المحلية غير متاحة',
    'توقف البرنامج لحماية بياناتك. لم يتم إنشاء قاعدة بديلة أو تغيير القرص تلقائيًا.\n\n'+
@@ -119,9 +128,28 @@ app.whenReady().then(()=>{
   app.quit();
   return;
  }
+ // The verified update can be installed ONLY here, on a fresh launch BEFORE
+ // any invoice view, IndexedDB transaction or POS draft screen is opened.
+ // Never force-close an active browser or desktop cashier session.
+ desktopUpdater=createDesktopUpdateService({
+  app,storage,getWindow:()=>mainWindow
+ });
+ try{
+  if(await desktopUpdater.applyOnNextLaunch()){
+   app.quit(); // The installer helper waits until the app process exits.
+   return;
+  }
+ }catch(error){
+  console.warn('DESKTOP_UPDATE_STARTUP_NONFATAL',String(error));
+  // The installed accounting app always remains usable if updates fail.
+ }
  registerIpc();
  createWindow();
+ desktopUpdater.start(); // Check and download only. NEVER install mid-session.
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
 app.on('activate',()=>{if(!mainWindow&&!startupError)createWindow();});
-app.on('before-quit',()=>{if(nativeDb){nativeDb.close();nativeDb=null;}});
+app.on('before-quit',()=>{
+ desktopUpdater?.stop();
+ if(nativeDb){nativeDb.close();nativeDb=null;}
+});
