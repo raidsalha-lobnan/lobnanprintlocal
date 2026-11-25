@@ -96,14 +96,18 @@ test('background download never launches an installer; next safe app start does'
   assert.equal(blocked.phase,'install-error','same failed version remains blocked');
   assert.equal(blocked.errorDetail,'INSTALL_ATTEMPTS_EXHAUSTED');
   assert.equal(downloadFetches,1);
+  assert.equal(await service.prepareInteractiveRetry(),true);
+  assert.equal(await service.applyOnNextLaunch(),true);
+  assert.equal(await service.applyOnNextLaunch(),false,'interactive retry is consumed once');
+  assert.equal(launches,3);
   release=manifest('1.1.52',digest);
   const recovered=await service.checkNow();
   assert.equal(recovered.phase,'ready','newer release supersedes blocked update');
   assert.equal(recovered.version,'1.1.52');
   assert.equal(downloadFetches,2);
-  assert.equal(launches,2,'checking must not launch installer');
+  assert.equal(launches,3,'checking must not launch installer');
   assert.equal(await service.applyOnNextLaunch(),true);
-  assert.equal(launches,3,'new version receives its own attempt budget');
+  assert.equal(launches,4,'new version receives its own attempt budget');
   const restarted=createDesktopUpdateService({app:{isPackaged:true,getVersion:()=> '1.1.52'},storage:{root:dir},getWindow:()=>null,fetchImpl});
   assert.equal(restarted.getStatus().installedVersion,'1.1.52','success is based on actual running version');
   assert.equal(restarted.getStatus().currentVersion,'1.1.52');
@@ -111,4 +115,50 @@ test('background download never launches an installer; next safe app start does'
   assert.equal(fs.existsSync(path.join(dir,'accounting.db')),false,
    'updater never creates/changes a financial database');
  }finally{service.stop();fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('interrupted update resumes from saved bytes and verifies full SHA256 before staging',async()=>{
+ if(process.platform!=='win32')return;
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lobnan-update-resume-'));
+ const data=Buffer.alloc(20_000_001,66);
+ const digest=crypto.createHash('sha256').update(data).digest('hex');
+ const release=manifest('1.1.80',digest);
+ const cut=1_048_576;
+ let attempts=0,launches=0;
+ const service=createDesktopUpdateService({
+  app:{isPackaged:true,getVersion:()=> '1.1.60'},storage:{root:dir},getWindow:()=>null,
+  launchInstaller:async()=>{launches++;return true;},
+  fetchImpl:async(url,options)=>{
+   if(url.endsWith('/releases/latest'))return {ok:true,json:async()=>release};
+   attempts++;
+   if(attempts===1)return {ok:true,status:200,url:'https://release-assets.githubusercontent.com/asset',
+    body:{async *[Symbol.asyncIterator](){yield data.subarray(0,cut);throw Error('TEST_CONNECTION_LOST');}}};
+   assert.equal(options.headers.Range,'bytes='+cut+'-');
+   return {ok:true,status:206,url:'https://release-assets.githubusercontent.com/asset',
+    headers:{get:key=>key==='content-range'?'bytes '+cut+'-'+(data.length-1)+'/'+data.length:null},
+    body:{async *[Symbol.asyncIterator](){yield data.subarray(cut);}}};
+  }
+ });
+ try{
+  const failed=await service.checkNow();
+  assert.equal(failed.phase,'error');
+  assert.equal(failed.version,'1.1.80');
+  assert.match(failed.errorDetail,/TEST_CONNECTION_LOST/);
+  assert.equal(await service._test.checkStaged(),null);
+  const resumed=await service.checkNow();
+  assert.equal(resumed.phase,'ready');
+  assert.equal(attempts,2);
+  assert.equal(launches,0);
+  assert.ok(await service._test.checkStaged());
+  assert.equal(fs.readdirSync(service._test.cacheDir).some(x=>x.endsWith('.part')),false);
+  assert.match(fs.readFileSync(path.join(service._test.cacheDir,'update-errors.log'),'utf8'),/TEST_CONNECTION_LOST/);
+ }finally{service.stop();fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('explicit recovery opens verified installer visibly without changing database',()=>{
+ const script=powershellInstallCommand({oldPid:1,installer:'LobnanPrint-Setup-1.1.80.exe',
+  appExecutable:'LobnanPrint.exe',interactive:true});
+ assert.match(script,/Start-Process -FilePath \$installer -Wait -PassThru/);
+ assert.doesNotMatch(script,/ArgumentList @\("\/S"\)/);
+ assert.match(script,/INSTALLED_VERSION_MISMATCH/);
 });
