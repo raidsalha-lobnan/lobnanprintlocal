@@ -8,11 +8,14 @@ type UpdateStatus={
  version?:string|null;
  currentVersion?:string;
  percent?:number|null;
+ installedVersion?:string|null;
+ errorDetail?:string|null;
 };
 type UpdateApi={
  isElectron?:boolean;
  getDesktopUpdateStatus?:()=>Promise<UpdateStatus>;
  checkDesktopUpdate?:()=>Promise<UpdateStatus>;
+ restartForDesktopUpdate?:()=>Promise<boolean>;
  onDesktopUpdateStatus?:(listener:(status:UpdateStatus)=>void)=>()=>void;
 };
 const api=(globalThis as unknown as {electronAPI?:UpdateApi}).electronAPI;
@@ -39,27 +42,40 @@ export const DesktopUpdateStatus:React.FC=()=>{
   return()=>{mounted=false;unsubscribe?.();};
  },[]);
  if(!api?.isElectron)return null;
- const {phase,version,percent}=status;
+ const {phase,version,percent,currentVersion,installedVersion,errorDetail}=status;
  const complete=phase==='ready';
  const busy=phase==='checking'||phase==='downloading';
  const error=phase==='error'||phase==='install-error';
  const label=complete
-   ?'تحديث '+version+' جاهز'
+   ?'تحديث وإعادة تشغيل '+version
    :phase==='downloading'
    ?'تنزيل التحديث '+(Number.isFinite(percent)?percent+'%':'')
    :phase==='checking'?'فحص التحديثات'
-   :error?'تحقق من التحديث'
-   :phase==='current'?'التطبيق محدّث':'تحديثات Windows';
+   :error?'فشل التحديث'
+   :phase==='current'?(installedVersion?'تم تثبيت التحديث':'التطبيق محدّث'):'تحديثات Windows';
  const title=complete
-   ?'تم تنزيل التحديث والتحقق منه. سيُثبَّت تلقائيًا قبل فتح البرنامج في التشغيل القادم، دون إغلاق الفواتير الحالية.'
+   ?'تم تنزيل التحديث والتحقق منه. اضغط لإعادة التشغيل بعد حفظ العمل، أو أغلق البرنامج وشغّله لاحقًا.'
    :error
-   ?'تعذر فحص أو تثبيت تحديث. برنامج المحاسبة يعمل بصورة طبيعية ولن تتغير قاعدة SQLite.'
+   ?'تعذر فحص أو تثبيت تحديث. '+(errorDetail||'اضغط لعرض الخطأ وإعادة الفحص.')
    :'يفحص التطبيق تحديثات Windows وينزّلها تلقائيًا؛ لا يُثبَّت أي تحديث أثناء وجود جلسة عمل مفتوحة.';
  return (
-  <button type="button" title={title}
-   onClick={()=>{void api.checkDesktopUpdate?.().then(setStatus).catch(()=>{
-    setStatus({phase:'error'});
-   });}}
+  <span className="inline-flex items-center gap-1 shrink-0" dir="rtl">
+  <span className="inline-flex h-5 items-center rounded border border-slate-400 bg-slate-800 text-white px-1.5 text-[10px] font-bold" title="الإصدار المثبت فعليًا" dir="ltr">v{currentVersion||'—'}</span>
+  <button type="button" title={title} disabled={busy}
+   onClick={async()=>{
+    try{
+     if(complete&&api.restartForDesktopUpdate){
+      await api.restartForDesktopUpdate();return;
+     }
+     if(error){
+      window.alert('الإصدار الحالي: '+(currentVersion||'—')+'\nالإصدار المطلوب: '+(version||'—')+'\nسبب الخطأ: '+(errorDetail||'غير متاح')+'\nسيُعاد فحص التحديثات.');
+     }
+     const next=await api.checkDesktopUpdate?.();
+     if(next)setStatus(next);
+    }catch(err){
+     setStatus(previous=>({...previous,phase:'error',errorDetail:String(err)}));
+    }
+   }}
    className={'inline-flex h-5 shrink-0 items-center gap-1 rounded border px-2 text-[10px] font-bold '+
     (complete?'border-emerald-300 bg-emerald-800 text-white':
      error?'border-amber-300 bg-amber-800 text-white':
@@ -70,5 +86,6 @@ export const DesktopUpdateStatus:React.FC=()=>{
     <ShieldCheck className="h-3 w-3"/>}
    {label}
   </button>
+  </span>
  );
 };
