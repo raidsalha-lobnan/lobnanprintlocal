@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
@@ -359,7 +360,7 @@ export const ExpensesView: React.FC = () => {
                           </button>
                         )}
                         <button
-                          onClick={() => window.print()}
+                          onClick={() => setSelectedInvoiceId(exp.id)}
                           className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
                           title="طباعة إشعار المصروف"
                         >
@@ -384,25 +385,27 @@ export const ExpensesView: React.FC = () => {
       </div>
 
       {/* Official itemized expense-purchase invoice, as posted from Telegram. */}
-      {selectedInvoice?.documentType==='purchase_invoice'&&(
+      {selectedInvoice&&(
         <div className="fixed inset-0 z-[110] bg-slate-900/60 flex items-center justify-center p-3"
              role="dialog" aria-modal="true" aria-label="تفاصيل فاتورة المصروف">
-          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[88vh] overflow-y-auto p-4 space-y-3" dir="rtl">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[88vh] overflow-y-auto p-4 space-y-3" dir="rtl" data-pdf-document>
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="font-black text-lg text-slate-900">فاتورة مصروف {selectedInvoice.invoiceNumber}</h3>
+                <h3 className="font-black text-lg text-slate-900">{selectedInvoice.documentType==='purchase_invoice'?'فاتورة مصروف':'إشعار مصروف'} {selectedInvoice.invoiceNumber||selectedInvoice.taxInvoiceNumber||''}</h3>
                 <p className="text-xs text-slate-600">{selectedInvoice.date} — {selectedInvoice.beneficiary}</p>
               </div>
+              <ReportPdfButton filename={`مصروف-${selectedInvoice.invoiceNumber||selectedInvoice.taxInvoiceNumber||selectedInvoice.date}`} selector="[data-pdf-document]" scope="[data-pdf-document]" numberPages />
               <button type="button" onClick={()=>setSelectedInvoiceId(null)}
                 className="rounded-lg bg-slate-100 px-3 py-1 text-sm font-bold">إغلاق</button>
             </div>
+            <div className="grid grid-cols-2 gap-2 text-sm"><div>الحساب: {selectedInvoice.expenseAccountName}</div><div>التصنيف: {selectedInvoice.categoryName}</div><div>الصندوق: {selectedInvoice.treasuryName}</div><div>طريقة الدفع: {selectedInvoice.paymentMethod==='credit'?'آجل':selectedInvoice.paymentMethod==='cash'?'نقدي':'بنكي'}</div></div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-lg bg-blue-50 p-3 text-xs">
               <div>الإجمالي<strong className="block">{selectedInvoice.amount.toFixed(2)} {settings.currency}</strong></div>
               <div>الخصم<strong className="block">{(selectedInvoice.overallDiscountAmount||0).toFixed(2)}</strong></div>
               <div>المدفوع<strong className="block">{(selectedInvoice.paidAmount||0).toFixed(2)}</strong></div>
               <div>المتبقي<strong className="block">{(selectedInvoice.remainingAmount||0).toFixed(2)}</strong></div>
             </div>
-            <div className="overflow-x-auto">
+            {!!selectedInvoice.items?.length&&<div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-xs text-right border-collapse">
                 <thead className="bg-slate-100"><tr>
                   <th className="p-2">الصنف</th><th className="p-2">ملاحظة البند</th>
@@ -416,7 +419,7 @@ export const ExpensesView: React.FC = () => {
                   </tr>
                 ))}</tbody>
               </table>
-            </div>
+            </div>}
             {selectedInvoice.notes&&<p className="text-xs"><strong>ملاحظات الفاتورة:</strong> {selectedInvoice.notes}</p>}
             {selectedInvoice.paymentReceiptNote&&<p className="text-xs"><strong>ملاحظات السداد:</strong> {selectedInvoice.paymentReceiptNote}</p>}
             <p className="text-[11px] text-slate-500">مستند مالي معتمد. التصحيح يجب أن يكون بإجراء محاسبي، وليس بالحذف.</p>
