@@ -87,3 +87,17 @@ test('visible application branding changes without moving existing installation 
  assert.equal(pkg.build.appId,'com.lobnanprint.accounting.desktop');
  assert.equal(pkg.build.productName,'LobnanPrint');
 });
+
+test('only explicitly marked local print windows are allowed and report preview uses actual A4 PDF pages',()=>{
+ const main=read('electron/main.cjs');
+ const preload=read('electron/preload.cjs');
+ assert.match(main,/url==='about:blank'&&\/\^lobnan-print-/);
+ assert.match(main,/child\.webContents\.setWindowOpenHandler\(\(\)=>\(\{action:'deny'\}\)\)/);
+ assert.match(main,/printToPDF\(\{pageSize:'A4',preferCSSPageSize:true,printBackground:true,scale:1\}\)/);
+ assert.match(preload,/getReportA4Preview:\(\)=>ipcRenderer\.invoke\('lobnan:report-a4-preview'\)/);
+ for(const file of ['customerPeriodReport','otherPartyPeriodReports','printReceiptRegister','printDetailedSalesInvoiceRegister']){
+  assert.match(read('src/utils/'+file+'.ts'),/openReportPrintWindow\(\)/);
+ }
+ assert.match(read('src/components/ReportsView.tsx'),/<ReportA4PreviewButton /);
+ assert.match(read('src/index.css'),/@page lobnanReportA4 \{ size: A4 portrait;/);
+});
