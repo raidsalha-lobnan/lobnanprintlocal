@@ -201,15 +201,25 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4 font-sans text-right" dir="rtl">
-      <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-200">
-        <div className="flex justify-center mb-6 text-blue-600">
-          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center shadow-inner">
-            <Lock className="w-8 h-8" />
-          </div>
-        </div>
-        <h2 className="text-2xl font-bold text-center text-slate-800 mb-1">تسجيل الدخول للنظام</h2>
-        <p className="text-center text-slate-500 mb-3 text-xs">برنامج مطبعة ومكتبة لبنان — PostgreSQL</p>
+    <div dir="rtl" className="relative isolate min-h-screen overflow-x-hidden flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-100 to-indigo-200 px-4 py-8 sm:px-8 font-sans text-right">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden -z-10">
+        <div className="absolute -top-32 -right-24 w-[420px] h-[420px] rounded-full bg-sky-300/50 blur-3xl" />
+        <div className="absolute -bottom-32 -left-20 w-[500px] h-[500px] rounded-full bg-indigo-400/30 blur-3xl" />
+        <div className="absolute top-[18%] left-[12%] w-48 h-48 rounded-[2rem] rotate-12 border border-white/70 bg-white/20" />
+        <div className="absolute bottom-[16%] right-[10%] w-56 h-56 rounded-full border border-white/70 bg-white/20" />
+      </div>
+      <main className="relative w-full max-w-5xl grid grid-cols-1 lg:grid-cols-[1fr_440px] gap-7 lg:gap-12 items-center">
+        <header className="text-center lg:text-right px-2 lg:px-8">
+          <div className="mx-auto lg:mx-0 mb-5 w-16 h-16 rounded-[1.5rem] bg-gradient-to-br from-blue-600 to-indigo-800 shadow-xl shadow-indigo-700/20 flex items-center justify-center text-white"><Lock className="w-8 h-8" /></div>
+          <p className="text-sm font-bold text-indigo-700 mb-2">النظام المحاسبي والإداري المتكامل</p>
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl leading-[1.45] font-black text-slate-900">برنامج الأيهم المحاسبي</h1>
+          <p className="mt-2 text-xl sm:text-2xl font-bold text-indigo-800">مطبعة ومكتبة لبنان</p>
+          <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/55 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm"><span className="h-2 w-2 rounded-full bg-indigo-500" /> إدارة وتشغيل: م. رائد صالحة</div>
+        </header>
+        <section aria-label="تسجيل الدخول" className="w-full max-w-md mx-auto lg:max-w-none rounded-[2rem] border border-white/90 bg-white/65 p-5 sm:p-8 backdrop-blur-xl shadow-[0_24px_80px_rgba(30,64,175,0.14)]">
+        <div className="flex justify-center mb-3 text-indigo-700"><div className="w-12 h-12 bg-white/80 rounded-2xl flex items-center justify-center shadow-sm border border-white"><KeyRound className="w-6 h-6" /></div></div>
+        <h2 className="text-2xl font-bold text-center text-slate-900 mb-1">مرحبًا بك</h2>
+        <p className="text-center text-slate-600 mb-4 text-sm">سجّل الدخول إلى حسابك للمتابعة</p>
         <div className="mb-5 flex flex-wrap items-center justify-center gap-2" aria-label="خيارات تثبيت البرنامج">
           <DesktopDownloadButton />
           <PWAInstallButton />
@@ -230,17 +240,17 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">اسم المستخدم أو البريد الإلكتروني</label>
             <div className="relative">
-              <Mail className="absolute right-3 top-2.5 h-4 w-4 text-slate-400" />
+              <Mail className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input type="text" name="username" required dir="ltr" value={identifier} onChange={event => setIdentifier(event.target.value)}
-                autoComplete="username" placeholder="اسم المستخدم أو البريد" className="w-full pl-3 pr-9 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+                autoComplete="username" placeholder="اسم المستخدم أو البريد" className="w-full pl-3 pr-9 py-3 text-sm bg-white/80 border border-white rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
             </div>
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور</label>
             <div className="relative">
-              <KeyRound className="absolute right-3 top-2.5 h-4 w-4 text-slate-400" />
+              <KeyRound className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input type="password" name="password" required dir="ltr" value={password} onChange={event => setPassword(event.target.value)}
-                autoComplete="current-password" className="w-full pl-3 pr-9 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+                autoComplete="current-password" className="w-full pl-3 pr-9 py-3 text-sm bg-white/80 border border-white rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
             </div>
           </div>
           <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
@@ -248,12 +258,12 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
             حفظ اسم المستخدم وكلمة المرور على هذا الجهاز
           </label>
           <button type="submit" disabled={loading || readingSaved}
-            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 disabled:opacity-70 text-sm">
+            className="w-full py-3 bg-gradient-to-l from-indigo-700 to-blue-600 hover:from-indigo-800 hover:to-blue-700 text-white font-bold rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 disabled:opacity-70 text-sm">
             {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
             {loading ? 'جارٍ التحقق من الحساب...' : 'تسجيل الدخول'}
           </button>
         </form>
-        <button type="button" disabled={loading || readingSaved} onClick={() => void useSavedLogin()} className="mt-3 w-full py-2.5 border border-indigo-300 text-indigo-700 hover:bg-indigo-50 rounded-xl font-bold text-sm disabled:opacity-50">
+        <button type="button" disabled={loading || readingSaved} onClick={() => void useSavedLogin()} className="mt-3 w-full py-2.5 bg-white/55 border border-indigo-200 text-indigo-700 hover:bg-white rounded-xl font-bold text-sm disabled:opacity-50">
           {readingSaved ? 'جارٍ استرجاع بيانات الدخول...' : 'الدخول بالبيانات المحفوظة'}
         </button>
         {isDesktop ? <button type="button" disabled={loading || readingSaved} onClick={() => void forgetSavedLogin()} className="mt-2 w-full text-xs text-slate-500 underline">حذف بيانات الدخول المحفوظة</button> : <p className="mt-2 text-xs text-slate-500 text-center">يتم الحفظ في مدير كلمات المرور في Chrome حسب إعدادات المتصفح. استخدمه لحذف البيانات المحفوظة.</p>}
@@ -268,7 +278,9 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
             localStorage.removeItem('lobnan_local_sync_device_token');
             window.location.reload();
           }}>إعادة إعداد الاتصال بالخادم</button>}
-      </div>
+        </section>
+        <footer className="lg:col-span-2 text-center text-xs text-slate-600">برنامج الأيهم المحاسبي · مطبعة ومكتبة لبنان</footer>
+      </main>
     </div>
   );
 };
