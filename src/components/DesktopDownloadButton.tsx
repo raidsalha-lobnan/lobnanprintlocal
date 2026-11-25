@@ -4,7 +4,7 @@ import {Download,Loader2} from 'lucide-react';
 type ReleaseAsset={
  name:string;state?:string;size?:number;browser_download_url:string
 };
-const RELEASE_API='https://api.github.com/repos/raidsalha-lobnan/lobnanprintlocal/releases/tags/desktop-v1.1.0';
+const RELEASE_API='https://api.github.com/repos/raidsalha-lobnan/lobnanprintlocal/releases/latest';
 
 /**
  * This is a real Windows (.exe) download, NOT the Chrome PWA shortcut.
@@ -26,10 +26,12 @@ export const DesktopDownloadButton:React.FC=()=>{
   }).then(async response=>response.ok?await response.json():null)
    .then(data=>{
     const assets=Array.isArray(data?.assets)?data.assets as ReleaseAsset[]:[];
-    const asset=assets.find(x=>
-     x.name==='LobnanPrint-Setup-1.1.0.exe'&&x.state==='uploaded'&&
+    const version=/^desktop-v(\d+\.\d+\.\d+)$/.exec(String(data?.tag_name||''))?.[1];
+    const name=version?'LobnanPrint-Setup-'+version+'.exe':'';
+    const asset=assets.find(x=>version&&
+     x.name===name&&x.state==='uploaded'&&
      Number(x.size)>20_000_000&&
-     /^https:\/\/github\.com\/raidsalha-lobnan\/lobnanprintlocal\/releases\/download\/desktop-v1\.1\.0\//i.test(x.browser_download_url)
+     x.browser_download_url==='https://github.com/raidsalha-lobnan/lobnanprintlocal/releases/download/desktop-v'+version+'/'+name
     );
     if(asset){setLink(asset.browser_download_url);setStatus('ready');}
     else setStatus('unavailable');
