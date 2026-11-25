@@ -16,6 +16,30 @@ import {
 
 type Props = { onLocalLogin?: (id: string) => void };
 
+type RememberedLogin = { identifier: string; password: string };
+type DesktopCredentialBridge = {
+  isElectron?: boolean;
+  rememberLogin?: (value: RememberedLogin) => Promise<boolean>;
+  readRememberedLogin?: () => Promise<RememberedLogin | null>;
+  forgetLogin?: () => Promise<boolean>;
+};
+const desktopCredentials = () => (globalThis as unknown as {electronAPI?: DesktopCredentialBridge}).electronAPI;
+const passwordCredentialConstructor = () => (globalThis as unknown as {
+  PasswordCredential?: new (data: {id: string; password: string}) => Credential
+}).PasswordCredential;
+async function rememberCredentials(identifier: string, password: string) {
+  const desktop = desktopCredentials();
+  if (desktop?.isElectron) {
+    if (!desktop.rememberLogin) throw Error('DESKTOP_CREDENTIAL_BRIDGE_UNAVAILABLE');
+    await desktop.rememberLogin({identifier,password});
+    return;
+  }
+  const Constructor = passwordCredentialConstructor();
+  if (!Constructor || !navigator.credentials) throw Error('BROWSER_CREDENTIAL_MANAGER_UNAVAILABLE');
+  await navigator.credentials.store(new Constructor({id:identifier,password}));
+}
+
+
 // PostgreSQL-only login entry point; no secondary cloud authentication.
 export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
   const [identifier, setIdentifier] = useState('');
@@ -23,6 +47,9 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
   const [error, setError] = useState('');
   const [directoryNotice, setDirectoryNotice] = useState('');
   const [loading, setLoading] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const [readingSaved, setReadingSaved] = useState(false);
+  const isDesktop = Boolean(desktopCredentials()?.isElectron);
   const [users, setUsers] = useState<SystemUser[]>(() => secureLoginEnabled()?[]:readCachedUsers());
 
   useEffect(() => {
@@ -43,11 +70,15 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
     return () => { active = false; };
   }, []);
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const authenticate = async (identifier: string, password: string, shouldRemember: boolean) => {
     if (loading) return;
     setError('');
     setLoading(true);
+    const saveIfRequested = async () => {
+      if (!shouldRemember) return;
+      try { await rememberCredentials(identifier.trim(), password); }
+      catch { window.alert(isDesktop ? 'تم التحقق من الحساب، لكن تعذر حفظ بيانات الدخول المشفرة على هذا الجهاز.' : 'تم التحقق من الحساب، لكن تعذر الحفظ تلقائيًا. يمكنك حفظ كلمة المرور من مدير كلمات المرور في Chrome.'); }
+    };
     try {
       if(secureLoginEnabled()){
         let matched:SystemUser;
@@ -71,6 +102,7 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
         localStorage.setItem('alnoor_press_accounting_v1_logged_in_user_id',matched.id);
         localStorage.setItem('alnoor_press_accounting_v1_current_user',JSON.stringify(safeUser));
         localStorage.setItem('alnoor_press_accounting_v1_session_admin','false');
+        await saveIfRequested();
         if(onLocalLogin)onLocalLogin(matched.id);else window.location.reload();
         return;
       }
@@ -96,6 +128,7 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
       localStorage.setItem('alnoor_press_accounting_v1_logged_in_user_id', matched.id);
       localStorage.setItem('alnoor_press_accounting_v1_current_user', JSON.stringify(safeUser));
       localStorage.setItem('alnoor_press_accounting_v1_session_admin', matched.roleId === 'role-admin' ? 'true' : 'false');
+      await saveIfRequested();
       if (onLocalLogin) onLocalLogin(matched.id);
       else window.location.reload();
     } catch (err) {
@@ -121,6 +154,50 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    // Read native form values so browser password-manager autofill is honored.
+    const values = new FormData(event.currentTarget);
+    await authenticate(String(values.get('username') || identifier), String(values.get('password') || password), remember);
+  };
+  const useSavedLogin = async () => {
+    if (loading || readingSaved) return;
+    setError('');
+    setReadingSaved(true);
+    try {
+      let saved: RememberedLogin | null = null;
+      if (isDesktop) {
+        const bridge = desktopCredentials();
+        if (!bridge?.readRememberedLogin) throw Error('DESKTOP_CREDENTIAL_BRIDGE_UNAVAILABLE');
+        saved = await bridge.readRememberedLogin();
+      } else if (passwordCredentialConstructor() && navigator.credentials) {
+        const credential = await navigator.credentials.get({password:true,mediation:'required'} as CredentialRequestOptions & {password:boolean}) as (Credential & {password?:string}) | null;
+        if (credential?.type === 'password' && credential.password) saved = {identifier:credential.id,password:credential.password};
+      }
+      if (!saved) {
+        setError('لا توجد بيانات دخول محفوظة أو لم يتم اختيار حساب. سجّل الدخول أولًا وحدد خيار حفظ بيانات الدخول.');
+        return;
+      }
+      setIdentifier(saved.identifier);
+      setPassword(saved.password);
+      await authenticate(saved.identifier,saved.password,false);
+    } catch {
+      setError(isDesktop ? 'تعذر استرجاع بيانات الدخول المحفوظة. أدخل بياناتك يدويًا.' : 'تعذر استرجاع بيانات الدخول. اختر الحساب من مدير كلمات المرور في Chrome أو أدخل بياناتك يدويًا.');
+    } finally { setReadingSaved(false); }
+  };
+  const forgetSavedLogin = async () => {
+    try {
+      const bridge = desktopCredentials();
+      if (!bridge?.forgetLogin) throw Error('DESKTOP_CREDENTIAL_BRIDGE_UNAVAILABLE');
+      await bridge.forgetLogin();
+      setRemember(false);
+      setPassword('');
+      setIdentifier('');
+      setError('');
+      setDirectoryNotice('تم حذف بيانات الدخول المحفوظة من هذا الجهاز.');
+    } catch { setError('تعذر حذف بيانات الدخول المحفوظة.'); }
   };
 
   return (
@@ -154,7 +231,7 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
             <label className="block text-xs font-bold text-slate-700 mb-1">اسم المستخدم أو البريد الإلكتروني</label>
             <div className="relative">
               <Mail className="absolute right-3 top-2.5 h-4 w-4 text-slate-400" />
-              <input type="text" required dir="ltr" value={identifier} onChange={event => setIdentifier(event.target.value)}
+              <input type="text" name="username" required dir="ltr" value={identifier} onChange={event => setIdentifier(event.target.value)}
                 autoComplete="username" placeholder="اسم المستخدم أو البريد" className="w-full pl-3 pr-9 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
             </div>
           </div>
@@ -162,16 +239,25 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
             <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور</label>
             <div className="relative">
               <KeyRound className="absolute right-3 top-2.5 h-4 w-4 text-slate-400" />
-              <input type="password" required dir="ltr" value={password} onChange={event => setPassword(event.target.value)}
+              <input type="password" name="password" required dir="ltr" value={password} onChange={event => setPassword(event.target.value)}
                 autoComplete="current-password" className="w-full pl-3 pr-9 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
             </div>
           </div>
-          <button type="submit" disabled={loading}
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+            <input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} className="accent-indigo-600" disabled={loading || readingSaved} />
+            حفظ اسم المستخدم وكلمة المرور على هذا الجهاز
+          </label>
+          <button type="submit" disabled={loading || readingSaved}
             className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 disabled:opacity-70 text-sm">
             {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
             {loading ? 'جارٍ التحقق من الحساب...' : 'تسجيل الدخول'}
           </button>
         </form>
+        <button type="button" disabled={loading || readingSaved} onClick={() => void useSavedLogin()} className="mt-3 w-full py-2.5 border border-indigo-300 text-indigo-700 hover:bg-indigo-50 rounded-xl font-bold text-sm disabled:opacity-50">
+          {readingSaved ? 'جارٍ استرجاع بيانات الدخول...' : 'الدخول بالبيانات المحفوظة'}
+        </button>
+        {isDesktop ? <button type="button" disabled={loading || readingSaved} onClick={() => void forgetSavedLogin()} className="mt-2 w-full text-xs text-slate-500 underline">حذف بيانات الدخول المحفوظة</button> : <p className="mt-2 text-xs text-slate-500 text-center">يتم الحفظ في مدير كلمات المرور في Chrome حسب إعدادات المتصفح. استخدمه لحذف البيانات المحفوظة.</p>}
+        <p className="mt-2 text-xs text-slate-500 text-center">استخدم الحفظ على جهازك الشخصي فقط.</p>
         <div className="mt-5 flex items-center justify-center gap-2 text-xs text-slate-500">
           <WifiOff className="w-4 h-4" /><span>{secureLoginEnabled() ? 'دخول PostgreSQL آمن — يدعم فتح الحساب دون اتصال بعد التفعيل الأول' : 'يتم تسجيل الدخول من خلال نظام المستخدمين الخاص بالبرنامج'}</span>
         </div>
