@@ -401,9 +401,9 @@ export const ExpensesView: React.FC = () => {
             <div className="grid grid-cols-2 gap-2 text-sm"><div>الحساب: {selectedInvoice.expenseAccountName}</div><div>التصنيف: {selectedInvoice.categoryName}</div><div>الصندوق: {selectedInvoice.treasuryName}</div><div>طريقة الدفع: {selectedInvoice.paymentMethod==='credit'?'آجل':selectedInvoice.paymentMethod==='cash'?'نقدي':'بنكي'}</div></div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-lg bg-blue-50 p-3 text-xs">
               <div>الإجمالي<strong className="block">{selectedInvoice.amount.toFixed(2)} {settings.currency}</strong></div>
-              <div>الخصم<strong className="block">{(selectedInvoice.overallDiscountAmount||0).toFixed(2)}</strong></div>
+              {selectedInvoice.documentType==='purchase_invoice'&&<><div>الخصم<strong className="block">{(selectedInvoice.overallDiscountAmount||0).toFixed(2)}</strong></div>
               <div>المدفوع<strong className="block">{(selectedInvoice.paidAmount||0).toFixed(2)}</strong></div>
-              <div>المتبقي<strong className="block">{(selectedInvoice.remainingAmount||0).toFixed(2)}</strong></div>
+              <div>المتبقي<strong className="block">{(selectedInvoice.remainingAmount||0).toFixed(2)}</strong></div></>}
             </div>
             {!!selectedInvoice.items?.length&&<div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-xs text-right border-collapse">
@@ -422,7 +422,7 @@ export const ExpensesView: React.FC = () => {
             </div>}
             {selectedInvoice.notes&&<p className="text-xs"><strong>ملاحظات الفاتورة:</strong> {selectedInvoice.notes}</p>}
             {selectedInvoice.paymentReceiptNote&&<p className="text-xs"><strong>ملاحظات السداد:</strong> {selectedInvoice.paymentReceiptNote}</p>}
-            <p className="text-[11px] text-slate-500">مستند مالي معتمد. التصحيح يجب أن يكون بإجراء محاسبي، وليس بالحذف.</p>
+            {selectedInvoice.documentType==='purchase_invoice'&&<p className="text-[11px] text-slate-500">مستند مالي معتمد. التصحيح يجب أن يكون بإجراء محاسبي، وليس بالحذف.</p>}
           </div>
         </div>
       )}
