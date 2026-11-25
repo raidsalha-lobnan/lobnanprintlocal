@@ -146,22 +146,31 @@ function registerIpc(){
  let restartRequested=false;
  ipcMain.handle('lobnan:desktop-update-restart',async event=>{
   trusted(event);
-  if(restartRequested||desktopUpdater?.getStatus().phase!=='ready')return false;
+  const phase=desktopUpdater?.getStatus().phase;
+  if(restartRequested||!['ready','install-error'].includes(phase))return false;
   const window=mainWindow;
+  const recovery=phase==='install-error';
   restartRequested=true;
   try{
    const answer=await dialog.showMessageBox(window,{
-    type:'question',title:'تحديث وإعادة تشغيل',
-    message:'هل تريد إعادة تشغيل البرنامج لتثبيت التحديث؟',
+    type:'question',title:recovery?'استرداد التحديث':'تحديث وإعادة تشغيل',
+    message:recovery?'فشل التثبيت الصامت. هل تريد فتح المثبّت الرسمي بعد إغلاق البرنامج؟':'هل تريد إعادة تشغيل البرنامج لتثبيت التحديث؟',
     detail:'احفظ الفاتورة أو السند الجاري وأغلق أي عمليات غير محفوظة قبل المتابعة. لن يتم حذف قاعدة البيانات أو العمليات المحفوظة محليًا.',
-    buttons:['إلغاء','حفظت عملي — تحديث وإعادة تشغيل'],defaultId:0,cancelId:0,noLink:true
+    buttons:['إلغاء',recovery?'حفظت عملي — استرداد التحديث':'حفظت عملي — تحديث وإعادة تشغيل'],defaultId:0,cancelId:0,noLink:true
    });
-   if(answer.response!==1||!window||window.isDestroyed()||desktopUpdater?.getStatus().phase!=='ready'){
+   if(answer.response!==1||!window||window.isDestroyed()||desktopUpdater?.getStatus().phase!==phase){
     restartRequested=false;return false;
    }
-   // Normal close honors renderer close/beforeunload handlers. Relaunch
-   // only after the actual window closes, never force-kill a POS session.
-   window.once('closed',()=>app.relaunch());
+   if(recovery&&!(await desktopUpdater.prepareInteractiveRetry())){
+    restartRequested=false;return false;
+   }
+   const relaunch=()=>app.relaunch();
+   const canceled=()=>{
+    restartRequested=false;
+    window.removeListener('closed',relaunch);
+   };
+   window.once('closed',relaunch);
+   window.webContents.once('will-prevent-unload',canceled);
    setImmediate(()=>{if(!window.isDestroyed())window.close();});
    return true;
   }catch(error){restartRequested=false;throw error;}
