@@ -131,7 +131,7 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   catch{return '';}
  }
  let status={phase:'idle',currentVersion:app.getVersion(),version:null,percent:null,installedVersion,errorDetail:null};
- let task=null,stopped=false,timer=null;
+ let task=null,stopped=false,timer=null,failures=0;
  function setStatus(phase,extra={}){
   status={...status,errorDetail:null,...extra,phase};
   const window=getWindow();
@@ -147,59 +147,89 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   return await verifiedFile(file,record.size,record.digest)
    ?{...record,file}:null;
  }
+ function logFailure(stage,error,version){
+  const detail=String(error?.message||error)+(error?.cause?.code?' ['+error.cause.code+']':'');
+  try{
+   fs.mkdirSync(cacheDir,{recursive:true});
+   const file=path.join(cacheDir,'update-errors.log');
+   if(fs.existsSync(file)&&fs.statSync(file).size>128000)fs.renameSync(file,file+'.previous');
+   fs.appendFileSync(file,new Date().toISOString()+' '+stage+' '+(version||'-')+' '+detail.slice(0,500)+'\n');
+  }catch{}
+  return detail.slice(0,400);
+ }
  async function stageRelease(asset){
   fs.mkdirSync(cacheDir,{recursive:true});
   const file=path.join(cacheDir,asset.fileName);
-  if(await verifiedFile(file,asset.size,asset.digest)){
-   atomicJSON(metadataPath,{version:asset.version,
-    fileName:asset.fileName,size:asset.size,digest:asset.digest});
+  const temp=path.join(cacheDir,asset.fileName+'.'+asset.digest+'.part');
+  const commit=async()=>{
+   // Only this versioned installer is replaced; accounting storage is untouched.
+   if(!(await verifiedFile(file,asset.size,asset.digest))){
+    await fs.promises.rm(file,{force:true});
+    await fs.promises.rename(temp,file);
+   }else await fs.promises.rm(temp,{force:true});
+   atomicJSON(metadataPath,{version:asset.version,fileName:asset.fileName,size:asset.size,digest:asset.digest});
    return true;
+  };
+  if(await verifiedFile(file,asset.size,asset.digest))return commit();
+  let bytes=0;
+  try{bytes=(await fs.promises.stat(temp)).size;}catch(error){if(error.code!=='ENOENT')throw error;}
+  if(bytes>asset.size){await fs.promises.rm(temp,{force:true});bytes=0;}
+  if(bytes===asset.size){
+   if(await verifiedFile(temp,asset.size,asset.digest))return commit();
+   await fs.promises.rm(temp,{force:true});bytes=0;
   }
-  const temp=path.join(cacheDir,'.download-'+crypto.randomBytes(9).toString('hex')+'.tmp');
-  let handle=null,bytes=0;
-  const hash=crypto.createHash('sha256');
+  const headers={'User-Agent':'LobnanPrint-Windows-Updater','Accept-Encoding':'identity'};
+  if(bytes)headers.Range='bytes='+bytes+'-';
+  setStatus('downloading',{version:asset.version,percent:Math.floor(bytes*100/asset.size)});
+  const response=await fetchImpl(asset.url,{
+   headers,redirect:'follow',signal:AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)
+  });
+  if(!response.ok||!response.body||!ALLOWED_DOWNLOAD_HOSTS.has(new URL(response.url).hostname)){
+   await response.body?.cancel?.().catch(()=>{});
+   throw Error('DESKTOP_UPDATE_DOWNLOAD_HTTP_'+(response.status||'UNKNOWN'));
+  }
+  // A server that ignores Range sends a complete 200; safely restart.
+  if(response.status===206){
+   const range=response.headers?.get('content-range');
+   const match=/^bytes (\d+)-(\d+)\/(\d+)$/.exec(range||'');
+   if(!match||Number(match[1])!==bytes||Number(match[2])!==asset.size-1||Number(match[3])!==asset.size){
+    await response.body?.cancel?.().catch(()=>{});
+    await fs.promises.rm(temp,{force:true});
+    throw Error('DESKTOP_UPDATE_RANGE_INVALID');
+   }
+  }else if(response.status===200||response.status===undefined)bytes=0;
+  else throw Error('DESKTOP_UPDATE_DOWNLOAD_HTTP_'+response.status);
+  const handle=await fs.promises.open(temp,bytes?'a':'w',0o600);
   try{
-   const response=await fetchImpl(asset.url,{
-    headers:{'User-Agent':'LobnanPrint-Windows-Updater'},
-    redirect:'follow',signal:AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)
-   });
-   if(!response.ok||!response.body||!
-     ALLOWED_DOWNLOAD_HOSTS.has(new URL(response.url).hostname))
-    throw Error('DESKTOP_UPDATE_DOWNLOAD_UNTRUSTED_RESPONSE');
-   handle=await fs.promises.open(temp,'wx',0o600);
-   for await (const piece of response.body){
+   for await(const piece of response.body){
     const chunk=Buffer.from(piece);
-    bytes+=chunk.length;
-    if(bytes>asset.size||bytes>450_000_000)
-     throw Error('DESKTOP_UPDATE_SIZE_EXCEEDED');
-    hash.update(chunk);
+    if(bytes+chunk.length>asset.size){
+     await handle.truncate(0);throw Error('DESKTOP_UPDATE_SIZE_EXCEEDED');
+    }
     let offset=0;
     while(offset<chunk.length){
      const {bytesWritten}=await handle.write(chunk,offset,chunk.length-offset);
      if(bytesWritten<=0)throw Error('DESKTOP_UPDATE_INCOMPLETE_FILE_WRITE');
-     offset+=bytesWritten;
+     offset+=bytesWritten;bytes+=bytesWritten;
     }
     const percent=Math.floor(bytes*100/asset.size);
-    if(percent!==status.percent)
-     setStatus('downloading',{version:asset.version,percent});
+    if(percent!==status.percent)setStatus('downloading',{version:asset.version,percent});
    }
-   if(bytes!==asset.size||hash.digest('hex')!==asset.digest)
-    throw Error('DESKTOP_UPDATE_CHECKSUM_INVALID');
-   await handle.sync();await handle.close();handle=null;
-   await fs.promises.rename(temp,file);
-   atomicJSON(metadataPath,{version:asset.version,
-    fileName:asset.fileName,size:asset.size,digest:asset.digest});
-   return true;
-  }finally{
-   if(handle)await handle.close().catch(()=>{});
-   await fs.promises.rm(temp,{force:true}).catch(()=>{});
+   await handle.sync();
+  }finally{await handle.close();}
+  // Keep a partial download on transient interruption. Never execute it.
+  if(bytes!==asset.size)throw Error('DESKTOP_UPDATE_DOWNLOAD_INCOMPLETE');
+  if(!(await verifiedFile(temp,asset.size,asset.digest))){
+   await fs.promises.rm(temp,{force:true});
+   throw Error('DESKTOP_UPDATE_CHECKSUM_INVALID');
   }
+  return commit();
  }
  async function checkNow(){
   if(stopped||!app.isPackaged||process.platform!=='win32')return getStatus();
   if(task)return task;
   task=(async()=>{
-   let staged=null,blocked=false;
+   let staged=null,blocked=false,requestedVersion=null;
    try{
     staged=await checkStaged();
     const attempts=readJSON(attemptsPath);
@@ -222,19 +252,23 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
      return getStatus();
     }
     if(!asset){setStatus('current',{version:null,percent:null});return getStatus();}
+    requestedVersion=asset.version;
     setStatus('downloading',{version:asset.version,percent:0});
     await stageRelease(asset);
     setStatus('ready',{version:asset.version,percent:100});
    }catch(error){
-    console.warn('DESKTOP_UPDATE_CHECK_FAILED',String(error));
+    const detail=logFailure(requestedVersion?'download':'check',error,requestedVersion);
+    failures++;
+    console.warn('DESKTOP_UPDATE_CHECK_FAILED',detail);
     if(staged&&!blocked){
      setStatus('ready',{version:staged.version,percent:100});
     }else if(staged&&blocked){
      setStatus('install-error',{version:staged.version,percent:100,errorDetail:installDiagnostic()||String(error).slice(0,400)});
     }else{
-     setStatus('error',{version:null,percent:null,errorDetail:String(error).slice(0,400)});
+     setStatus('error',{version:requestedVersion,percent:null,errorDetail:detail});
     }
    }
+   if(status.phase==='ready'||status.phase==='current')failures=0;
    return getStatus();
   })();
   try{return await task;}finally{task=null;}
@@ -267,13 +301,16 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
  function start(){
   if(!app.isPackaged||process.platform!=='win32'){setStatus('disabled');return;}
   stopped=false;
-  void checkNow();
-  timer=setInterval(()=>{void checkNow();},RECHECK_MS);
-  timer.unref?.();
+  const schedule=()=>{
+   if(stopped)return;
+   timer=setTimeout(async()=>{await checkNow();schedule();},Math.min(RECHECK_MS,failures?30000*2**Math.min(failures-1,4):RECHECK_MS));
+   timer.unref?.();
+  };
+  void checkNow().finally(schedule);
  }
  function stop(){
   stopped=true;
-  if(timer){clearInterval(timer);timer=null;}
+  if(timer){clearTimeout(timer);timer=null;}
  }
  return {getStatus,checkNow,applyOnNextLaunch,start,stop,
   _test:{cacheDir,metadataPath,attemptsPath,checkStaged}};
