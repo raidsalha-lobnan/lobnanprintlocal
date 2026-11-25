@@ -16,8 +16,10 @@ test('login entrypoint never imports legacy Firebase or Google credentials', () 
 test('app requires PostgreSQL pairing and never authorizes from localStorage ID', () => {
   const app = source('src/App.tsx');
   assert.match(app, /!localStorage\.getItem\('lobnan_local_sync_server_url'\)/);
-  assert.doesNotMatch(app, /useState<string\s*\|\s*null>\(\(\)\s*=>/);
-  assert.match(app, /React\.useState<string\s*\|\s*null>\(null\)/);
+  // Restoring an unexpired, server-issued session is safe. An arbitrary
+  // localStorage user ID must never be accepted as authentication.
+  assert.match(app, /secureLoginEnabled\(\)\s*\?\s*getCurrentSessionProfile\(\)\?\.id/);
+  assert.doesNotMatch(app, /localStorage\.getItem\(['"]alnoor_press_accounting_v1_current_user/);
   assert.doesNotMatch(app, /<GoogleDriveAutoBackupWorker\s*\/>/);
 });
 
