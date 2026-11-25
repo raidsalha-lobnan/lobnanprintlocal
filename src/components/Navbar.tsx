@@ -29,7 +29,6 @@ import {
   AlertTriangle,
   Building2,
   ShieldCheck,
-  Store,
   ChevronDown,
   PackageCheck,
   Layers,
@@ -94,14 +93,10 @@ export const Navbar: React.FC = () => {
     exportDataJSON,
     resetAllData,
     branches,
-    activeBranchId,
-    setActiveBranchId,
     getActiveBranch,
     warehouses,
     warehouseOperations,
     users,
-    currentUserId,
-    setCurrentUserId,
     currentUser,
     getAllowedBranchesForUser,
     isOnline,
@@ -122,24 +117,6 @@ export const Navbar: React.FC = () => {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isLocalDbModalOpen, setIsLocalDbModalOpen] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; success: boolean } | null>(null);
-
-  const isSessionAdmin = Boolean(
-    localStorage.getItem('alnoor_press_accounting_v1_session_admin') === 'true' ||
-    localStorage.getItem('alnoor_press_accounting_v1_logged_in_user_id') === 'usr-1' ||
-    false
-  );
-
-  const isAdmin = Boolean(
-    currentUser?.roleId === 'role-admin' ||
-    currentUser?.id === 'usr-1' ||
-    currentUser?.id === 'user-1789170883526' ||
-    currentUser?.email === 'admin@example.invalid' ||
-    currentUser?.email === 'press@example.invalid' ||
-    currentUser?.username?.toLowerCase().includes('lobnan') ||
-    currentUser?.username?.toLowerCase().includes('raid') ||
-    currentUser?.roleName === 'مدير النظام' ||
-    isSessionAdmin
-  );
 
   const handleManualSync = async () => {
     const res = await forceSyncNow();
@@ -1100,91 +1077,8 @@ export const Navbar: React.FC = () => {
           </button>
         </div>
 
-        {/* Left: Branch selector & Liquidity Indicators (تنقل المستخدمين والفروع حصري لمدير النظام) */}
+        {/* Workshop alert (remaining quick-toolbar notification) */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Active Branch Selector - متاح للتنقل بين الفروع */}
-          <div className="flex items-center gap-1 bg-white border border-[#7f9db9] rounded-xs px-1.5 py-0.5 text-xs shadow-inner">
-            <Store className="w-3 h-3 text-blue-700 shrink-0" />
-            <span className="text-[10px] text-slate-500 hidden xl:inline">الفرع:</span>
-            <select
-              value={activeBranchId}
-              onChange={(e) => setActiveBranchId(e.target.value)}
-              className="bg-transparent text-slate-900 text-[11px] font-bold focus:outline-hidden cursor-pointer max-w-[125px] truncate"
-              title="الفرع النشط الحالي"
-            >
-              {branches.map(b => (
-                <option key={b.id} value={b.id} className="bg-white text-slate-900 font-sans">
-                  {b.name} ({b.branchCode})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* PostgreSQL logins are never impersonated by a UI dropdown. The
-              legacy user switcher is retained only outside secure-login mode. */}
-          {!secureLoginEnabled() && isAdmin ? (
-            <div className="flex items-center gap-1 bg-white border border-[#7f9db9] rounded-xs px-1.5 py-0.5 text-xs shadow-inner">
-              <UserCheck className="w-3 h-3 text-emerald-600 shrink-0" />
-              <span className="text-[10px] text-slate-500 hidden xl:inline">المستخدم:</span>
-              <select
-                value={currentUserId}
-                onChange={(e) => {
-                  const targetUid = e.target.value;
-                  setCurrentUserId(targetUid);
-                  try {
-                    localStorage.setItem('alnoor_press_accounting_v1_current_user_id', targetUid);
-                  } catch {}
-                }}
-                className="bg-transparent text-slate-900 text-[11px] font-bold focus:outline-hidden cursor-pointer max-w-[140px] truncate"
-                title="المستخدم الحالي والصلاحيات (صلاحية مدير النظام للتنقل بين المستخدمين)"
-              >
-                {users.map(u => (
-                  <option key={u.id} value={u.id} className="bg-white text-slate-900 font-sans">
-                    {u.fullName || u.username} ({u.roleName || 'مستخدم'})
-                  </option>
-                ))}
-              </select>
-              {currentUserId !== 'usr-1' && isSessionAdmin && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCurrentUserId('usr-1');
-                    try {
-                      localStorage.setItem('alnoor_press_accounting_v1_current_user_id', 'usr-1');
-                    } catch {}
-                  }}
-                  className="px-1.5 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xs text-[10px] font-bold shadow-2xs cursor-pointer ml-1"
-                  title="العودة لشاشة وصلاحيات مدير النظام"
-                >
-                  عودة للمدير ↺
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center gap-1 bg-slate-100/90 border border-slate-300 rounded-xs px-2 py-0.5 text-xs shadow-inner select-none" title={`المستخدم المسجل: ${currentUser?.fullName || currentUser?.username} (${currentUser?.roleName || 'مستخدم'})`}>
-              <UserCheck className="w-3 h-3 text-emerald-600 shrink-0" />
-              <span className="text-[10px] text-slate-500">المستخدم:</span>
-              <span className="text-slate-900 text-[11px] font-bold max-w-[140px] truncate">
-                {currentUser?.fullName || currentUser?.username}
-              </span>
-            </div>
-          )}
-
-          {/* Cash Liquidity Pill - ONLY for users with accounting permission */}
-          {hasPermission('view_accounting') && (
-            <div
-              onClick={() => setActiveTab('treasuries')}
-              className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-xs bg-white border border-slate-300 text-slate-700 shadow-inner cursor-pointer hover:bg-emerald-50 transition"
-              title="الصندوق النقدي - اضغط للتفاصيل"
-            >
-              <Wallet className="w-3 h-3 text-emerald-600" />
-              <span className="text-slate-500 text-[10px]">الصندوق:</span>
-              <strong className="font-mono font-bold text-emerald-700 text-[11px]">
-                {(stats?.cashBalance ?? 0).toLocaleString('ar-SA')}
-              </strong>
-            </div>
-          )}
-
           {/* Workshop Alert - ONLY for users with print orders permission */}
           {hasPermission('view_print_orders') && stats.pendingPrintJobs > 0 && (
             <button
@@ -1197,17 +1091,7 @@ export const Navbar: React.FC = () => {
             </button>
           )}
 
-          {/* Low Stock Alert - ONLY for users with inventory permission */}
-          {hasPermission('view_inventory') && stats.lowStockCount > 0 && (
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-xs bg-rose-100 border border-rose-400 text-rose-900 font-bold text-[10.5px] hover:bg-rose-200 transition cursor-pointer"
-              title="أصناف وصلت لحد الأمان بالمخزون"
-            >
-              <AlertTriangle className="w-3 h-3 text-rose-700" />
-              <span>نواقص: {stats.lowStockCount}</span>
-            </button>
-          )}
+
 
         </div>
       </div>
