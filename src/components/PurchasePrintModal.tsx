@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { tafqeet } from '../utils/tafqeet';
@@ -35,7 +36,7 @@ export const PurchasePrintModal: React.FC = () => {
   const totalInWords = tafqeet(data.totalAmount, 'شيكل', 'أغورة');
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-900/65 backdrop-blur-xs overflow-y-auto print:p-0 print:m-0 print:bg-white print:static print:overflow-visible print-modal-container">
+    <div data-pdf-document className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-900/65 backdrop-blur-xs overflow-y-auto print:p-0 print:m-0 print:bg-white print:static print:overflow-visible print-modal-container">
       <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden my-auto print:shadow-none print:border-none print:max-w-none print:w-full print:rounded-none print:overflow-visible">
         
         {/* Top Control Bar (Hidden when printing) */}
@@ -52,6 +53,7 @@ export const PurchasePrintModal: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <ReportPdfButton filename={(isReturn?'مردودات مشتريات - ':'فاتورة مشتريات - ')+((data as any).returnNumber||(data as any).invoiceNumber)} selector="[data-pdf-document]" scope="[data-pdf-document]" />
             <button
               onClick={handlePrint}
               className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
