@@ -16,7 +16,7 @@ test('Reports Center itself has a visible PDF button next to the report print bu
   assert.ok(reports.includes("activeReport==='employee_statement'"));
 });
 
-test('Reports Center Save PDF uses local Typst and active live filtered report',()=>{
+test('Reports Center Save PDF uses original print PDF and active live filtered report',()=>{
   assert.ok(reports.includes('await saveReportPdf(root,{filename,paper:'));
   assert.ok(reports.includes("requirePdfRoot('.report-a4-container',reportsConsoleRef.current||document)"));
   assert.ok(reports.includes('await waitForStatementPrintPhotos()'));
@@ -26,7 +26,7 @@ test('Reports Center Save PDF uses local Typst and active live filtered report',
   assert.ok(!reports.includes('downloadAccountStatementPdf('),
     'Canvas snapshots cause Arabic corruption and missing images in long reports');
   assert.ok(reports.includes('const handlePrint = () => {'));
-  assert.ok(reports.includes('window.print();'),'Original Print remains an independent fallback');
+  assert.ok(reports.includes('await printReportSurface('),'Original Print remains an independent fallback');
 });
 
 test('Customer PDF includes main then selected child customer name without adding فرعي',()=>{
