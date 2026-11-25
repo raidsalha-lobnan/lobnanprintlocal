@@ -39,6 +39,11 @@ function trusted(event){
   throw Error('DESKTOP_UNTRUSTED_RENDERER');
 }
 function registerIpc(){
+ ipcMain.handle('lobnan:display-menu',event=>{
+  trusted(event);
+  Menu.buildFromTemplate(displayMenuItems()).popup({window:mainWindow});
+  return true;
+ });
  // Opt-in credentials are protected by the Windows user account via DPAPI.
  const credentialFile=path.join(storage.profileDir,'remembered-login.bin');
  const safeStorage=require('electron').safeStorage;
@@ -149,11 +154,12 @@ function saveDisplaySettings(){
   fs.renameSync(file+'.tmp',file);
  }catch(error){console.warn('DISPLAY_SETTINGS_SAVE_FAILED',String(error));}
 }
-function installDisplayMenu(){
+function displayMenuItems(){
  const sizes=[[1024,600],[1280,720],[1366,768],[1600,900],[1920,1080]];
- Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'إعدادات الشاشة',submenu:[
+ return [
   ...sizes.map(([width,height])=>({label:width+' × '+height,click:()=>{
    if(!mainWindow)return;
+   if(mainWindow.isFullScreen())mainWindow.setFullScreen(false);
    if(mainWindow.isMaximized())mainWindow.unmaximize();
    const {width:availableWidth,height:availableHeight}=require('electron').screen.getDisplayMatching(mainWindow.getBounds()).workArea;
    mainWindow.setSize(Math.min(width,availableWidth),Math.min(height,availableHeight));mainWindow.center();saveDisplaySettings();
@@ -164,8 +170,11 @@ function installDisplayMenu(){
   }}))},
   {label:'ملء مساحة الشاشة',click:()=>{if(mainWindow){mainWindow.maximize();saveDisplaySettings();}}},
   {label:'حفظ المقاس الحالي',click:saveDisplaySettings},
-  {label:'استعادة الافتراضي',click:()=>{if(mainWindow){mainWindow.unmaximize();const a=require('electron').screen.getDisplayMatching(mainWindow.getBounds()).workArea;mainWindow.setSize(Math.min(1366,a.width),Math.min(768,a.height));mainWindow.center();mainWindow.webContents.setZoomFactor(1);saveDisplaySettings();}}}
- ]}]));
+  {label:'استعادة الافتراضي',click:()=>{if(mainWindow){if(mainWindow.isFullScreen())mainWindow.setFullScreen(false);mainWindow.unmaximize();const a=require('electron').screen.getDisplayMatching(mainWindow.getBounds()).workArea;mainWindow.setSize(Math.min(1366,a.width),Math.min(768,a.height));mainWindow.center();mainWindow.webContents.setZoomFactor(1);saveDisplaySettings();}}}
+ ];
+}
+function installDisplayMenu(){
+ Menu.setApplicationMenu(null);
 }
 function createWindow(){
  const display=readDisplaySettings();
