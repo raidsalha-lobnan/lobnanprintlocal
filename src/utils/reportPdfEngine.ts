@@ -280,6 +280,18 @@ function openOriginalBrowserPrint(doc:Document):Promise<void>{
   catch(error){clearTimeout(timer);view.removeEventListener('afterprint',finish);reject(error);}
  });
 }
+/** Physical printing uses the same scoped DOM and original print stylesheet. */
+export async function printReportSurface(root:HTMLElement):Promise<void>{
+ if(savingPrintDocument)throw Error('هناك مستند قيد الحفظ أو الطباعة حاليًا.');
+ if(!root.isConnected)throw Error('لا يوجد مستند مفتوح للطباعة.');
+ savingPrintDocument=true;
+ let scoped:ReturnType<typeof scopeOriginalPrint>|undefined;
+ try{
+  scoped=scopeOriginalPrint(root);
+  await waitOriginalPrintResources(scoped.surface);
+  await openOriginalBrowserPrint(scoped.doc);
+ }finally{scoped?.restore();savingPrintDocument=false;}
+}
 export async function saveReportPdf(root:HTMLElement,options:ReportPdfOptions):Promise<void>{
  if(savingPrintDocument)throw Error('هناك مستند قيد الحفظ حاليًا.');
  if(!root.isConnected)throw Error('لا يوجد مستند مفتوح للحفظ.');
