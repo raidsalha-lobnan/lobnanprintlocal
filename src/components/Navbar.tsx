@@ -3,6 +3,7 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { DesktopDownloadButton } from './DesktopDownloadButton';
 import { DesktopStorageStatus } from './DesktopStorageStatus';
 import { DesktopUpdateStatus } from './DesktopUpdateStatus';
+import { DesktopWindowControls, isNativeWindow, windowDragStyle } from './DesktopWindowControls';
 import { MobileNavigationModal } from './MobileNavigationModal';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -727,7 +728,7 @@ export const Navbar: React.FC = () => {
             P
           </div>
           <div className="flex items-center gap-1.5 min-w-0">
-            <span className="font-extrabold text-white text-[11.5px] tracking-tight truncate">
+            <span style={isNativeWindow()?windowDragStyle:undefined} className="font-extrabold text-white text-[11.5px] tracking-tight truncate select-none">
               {settings.appTitle || (settings.businessName ? `برنامج الأيهم المحاسبي - ${settings.businessName} - م.رائد صالحة` : 'برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان - م.رائد صالحة')}
             </span>
             <span className="hidden xl:inline text-blue-200 text-[10.5px] border-r border-blue-400/40 pr-2 mr-1">
@@ -801,6 +802,12 @@ export const Navbar: React.FC = () => {
             <LayoutDashboard className="w-3.5 h-3.5" />
           </button>
 
+          {isNativeWindow() ? <>
+            <button type="button" onClick={handleExitApp}
+              className="h-5 px-1.5 rounded-xs text-[10px] font-bold bg-white/10 hover:bg-white/25 text-white shrink-0"
+              title="تسجيل الخروج دون إغلاق البرنامج">خروج</button>
+            <DesktopWindowControls />
+          </> : <>
           {/* Maximize / Restore Button */}
           <button
             type="button"
@@ -820,6 +827,7 @@ export const Navbar: React.FC = () => {
           >
             <X className="w-3.5 h-3.5 font-bold" />
           </button>
+          </>}
         </div>
       </div>
 
