@@ -26,6 +26,38 @@ const MAX_INSTALL_ATTEMPTS=2;
 const ALLOWED_DOWNLOAD_HOSTS=new Set([
  'github.com','release-assets.githubusercontent.com','objects.githubusercontent.com'
 ]);
+function approvedDownloadUrl(value){
+ let url;
+ try{url=new URL(value);}catch{throw Error('DESKTOP_UPDATE_INVALID_DOWNLOAD_URL');}
+ if(url.protocol!=='https:'||url.username||url.password||url.port||!ALLOWED_DOWNLOAD_HOSTS.has(url.hostname))
+  throw Error('DESKTOP_UPDATE_UNTRUSTED_DOWNLOAD_HOST');
+ return url;
+}
+// Follow the official GitHub redirect chain explicitly. Electron net.fetch
+// can omit Response.url; a validated requested URL is sufficient when
+// redirect:'manual' is used and the transport does not auto-follow.
+async function fetchOfficialDownload(fetchImpl,url,options={}){
+ let current=approvedDownloadUrl(url);
+ for(let hops=0;hops<=8;hops++){
+  const response=await fetchImpl(current.href,{...options,redirect:'manual'});
+  try{
+   if(response.url){
+    approvedDownloadUrl(response.url);
+    if(response.redirected===true)throw Error('DESKTOP_UPDATE_UNEXPECTED_AUTOMATIC_REDIRECT');
+   }
+   if([301,302,303,307,308].includes(response.status)){
+    const location=response.headers?.get('location');
+    if(!location)throw Error('DESKTOP_UPDATE_REDIRECT_LOCATION_MISSING');
+    current=approvedDownloadUrl(new URL(location,current).href);
+    await response.body?.cancel?.().catch(()=>{});
+    continue;
+   }
+   if(response.type==='opaqueredirect')throw Error('DESKTOP_UPDATE_OPAQUE_REDIRECT');
+   return response;
+  }catch(error){await response.body?.cancel?.().catch(()=>{});throw error;}
+ }
+ throw Error('DESKTOP_UPDATE_REDIRECT_LIMIT');
+}
 function atomicJSON(file,value){
  fs.mkdirSync(path.dirname(file),{recursive:true});
  const tmp=file+'.'+crypto.randomBytes(6).toString('hex')+'.tmp';
@@ -244,11 +276,11 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   const totalTimer=setTimeout(()=>controller.abort(),DOWNLOAD_TIMEOUT_MS);
   armIdle();
   try{
-  const response=await fetchImpl(asset.url,{
-   headers,redirect:'follow',signal:controller.signal
+  const response=await fetchOfficialDownload(fetchImpl,asset.url,{
+   headers,signal:controller.signal
   });
   if(response.status===416&&bytes){await fs.promises.rm(temp,{force:true});}
-  if(!response.ok||!response.body||!ALLOWED_DOWNLOAD_HOSTS.has(new URL(response.url).hostname)){
+  if(!response.ok||!response.body){
    await response.body?.cancel?.().catch(()=>{});
    throw Error('DESKTOP_UPDATE_DOWNLOAD_HTTP_'+(response.status||'UNKNOWN'));
   }
@@ -404,4 +436,4 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
   _test:{cacheDir,metadataPath,attemptsPath,checkStaged}};
 }
 module.exports={createDesktopUpdateService,verifiedFile,powershellInstallCommand,
- startDetachedInstaller};
+ startDetachedInstaller,fetchOfficialDownload};
