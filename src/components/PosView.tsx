@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'; // Trigger Sync
 import { DateInput } from '../components/common/DateInput';
 import { posDraftStorageKey } from '../utils/posDraftStorageKey';
+import {removePosAttempt} from '../sync-next/posAttemptStore';
 import {POS_LEAVE_INTENT_EVENT,type PosLeaveIntentDetail} from '../utils/posLeaveNavigation';
 import {PosLeaveDialog} from './pos/PosLeaveDialog';
 import { findRecoverableCashierDrafts } from '../utils/posDraftRecovery';
@@ -2950,7 +2951,10 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
     try {
       localStorage.removeItem(POS_FULL_DRAFT_KEY);
-      localStorage.removeItem('lobnan_pending_atomic_pos_attempt:' + completedDraftId);
+      // The new committed identity lives in IndexedDB; keep legacy cleanup
+      // best-effort so a successful invoice cannot be reported as failed here.
+      void removePosAttempt('lobnan_pending_atomic_pos_attempt:' + completedDraftId)
+        .catch(error=>console.warn('POS_ATTEMPT_CLEANUP_DEFERRED',error));
     } catch {}
 
     // Reset customer and sub-customer strictly to default cash customer ("زبون نقدي") for the next sale
