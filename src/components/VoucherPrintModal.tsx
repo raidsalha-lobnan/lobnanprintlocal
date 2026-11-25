@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { tafqeet } from '../utils/tafqeet';
@@ -154,6 +155,7 @@ export const VoucherPrintModal: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <ReportPdfButton filename={(isPayment?'سند صرف - ':'سند قبض - ')+voucher.voucherNumber} selector=".voucher-print-sheets" scope=".print-modal-container" compact />
             <button
               onClick={handlePrint}
               className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
