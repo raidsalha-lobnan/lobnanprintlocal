@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
@@ -396,7 +397,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
   }, [employees]);
 
   return (
-    <div className={activeSubTab==='employees'
+    <div data-pdf-document className={activeSubTab==='employees'
       ? 'flex h-full min-h-0 flex-1 flex-col overflow-hidden'
       : 'h-full overflow-y-auto space-y-4'}>
       {activeSubTab !== 'employees' && (<>
@@ -421,6 +422,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
+            <ReportPdfButton filename="كشف الموظفين" selector="[data-pdf-document]" scope="[data-pdf-document]" numberPages />
             <button
               onClick={() => window.print()}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-200"
@@ -1139,7 +1141,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
       {/* EMPLOYEE DETAIL & PAYMENT HISTORY MODAL */}
       {/* ========================================================================= */}
       {showDetailModal && selectedEmployeeForDetail && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+        <div data-pdf-document className="fixed inset-0 z-[100] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <div className="bg-white rounded-xl max-w-2xl w-full overflow-hidden shadow-2xl border border-slate-200 my-6">
             <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1156,6 +1158,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <ReportPdfButton filename={'بطاقة موظف - '+selectedEmployeeForDetail.name} selector="[data-pdf-document]" scope="[data-pdf-document]" numberPages />
                 <button
                   onClick={() => window.print()}
                   className="p-1 text-slate-400 hover:text-white rounded transition-colors cursor-pointer"
