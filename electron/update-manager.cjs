@@ -48,7 +48,7 @@ async function verifiedFile(file,size,digest){
  }catch{return false;}
 }
 function safelyQuotedPs(value){return "'"+String(value).replace(/'/g,"''")+"'";}
-function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion,interactive=false}){
+function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion,interactive=false,handshake,expectedDigest}){
  const installerLiteral=safelyQuotedPs(installer);
  const appLiteral=safelyQuotedPs(appExecutable);
  const workdirLiteral=safelyQuotedPs(path.dirname(appExecutable));
@@ -65,13 +65,26 @@ function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersio
   '$canReopen = $false',
   'try {',
   '  try { Start-Transcript -Path $log -Append | Out-Null } catch {}',
+  ...(handshake?[
+   '  $ready = '+safelyQuotedPs(handshake+'.ready'),
+   '  $go = '+safelyQuotedPs(handshake+'.go'),
+   '  Set-Content -LiteralPath $ready -Value "HELPER_READY" -ErrorAction Stop',
+   '  for ($j=0; $j -lt 100; $j++) { if (Test-Path -LiteralPath $go) { break }; Start-Sleep -Milliseconds 200 }',
+   '  if (-not (Test-Path -LiteralPath $go)) { throw "HELPER_HANDOFF_NOT_AUTHORIZED" }'
+  ]:[]),
   '  for ($i=0; $i -lt 180; $i++) {',
   '    if (-not (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) { break }',
   '    Start-Sleep -Seconds 1',
   '  }',
   '  if (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) { throw "OLD_PROCESS_STILL_RUNNING" }',
   '  $canReopen = $true',
+  '  for ($i=0; $i -lt 30; $i++) { if (-not (Get-Process LobnanPrint -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Seconds 1 }',
+  '  if (Get-Process LobnanPrint -ErrorAction SilentlyContinue) { $canReopen = $false; throw "APP_PROCESS_STILL_RUNNING" }',
   '  if (-not (Test-Path -LiteralPath $installer)) { throw "INSTALLER_NOT_FOUND" }',
+  ...(expectedDigest?[
+   '  $digest = '+safelyQuotedPs(expectedDigest),
+   '  if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $digest) { throw "INSTALLER_CHECKSUM_CHANGED" }'
+  ]:[]),
   interactive?'  $result = Start-Process -FilePath $installer -Wait -PassThru':'  $result = Start-Process -FilePath $installer -ArgumentList @("/S") -Wait -PassThru',
   '  Write-Output ("Installer exit code: " + $result.ExitCode)',
   '  if ($result.ExitCode -ne 0) { throw ("INSTALLER_EXIT_" + $result.ExitCode) }',
@@ -93,28 +106,49 @@ function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersio
   'if ($outcome -eq "VERIFIED_INSTALLED") { exit 0 } else { exit 6 }'
  ].join('\r\n');
 }
-function startDetachedInstaller({oldPid,installer,appExecutable,expectedVersion,interactive=false},launch=spawn){
- if(process.platform!=='win32')return Promise.resolve(false);
- const ps=powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion,interactive});
+async function startDetachedInstaller({oldPid,installer,appExecutable,expectedVersion,interactive=false,expectedDigest},launch=spawn){
+ if(process.platform!=='win32')return false;
+ const dir=path.dirname(installer);
+ const handshake=path.join(dir,'helper-'+crypto.randomBytes(12).toString('hex'));
+ const systemRoot=process.env.SystemRoot||process.env.WINDIR||'C:\\Windows';
+ const executable=path.join(systemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
+ const ps=powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion,interactive,expectedDigest,handshake});
  const encoded=Buffer.from(ps,'utf16le').toString('base64');
- return new Promise(resolve=>{
-  let finished=false;
-  let child;
-  try{
-   child=launch('powershell.exe',
-    ['-NoLogo','-NoProfile','-NonInteractive','-WindowStyle','Hidden',
-     '-EncodedCommand',encoded],
-    {detached:true,stdio:'ignore',windowsHide:true});
-  }catch{return resolve(false);}
-  const finish=success=>{
-   if(finished)return;
-   finished=true;
-   if(success)child.unref();
-   resolve(success);
-  };
-  child.once('spawn',()=>finish(true));
-  child.once('error',()=>finish(false));
- });
+ // Use the Windows Start-Process path that works in the operator's test.
+ // The bootstrap exits independently; the worker has its own stdout/stderr.
+ const bootstrap=[
+  '$ErrorActionPreference = "Stop"',
+  '$p = Start-Process -FilePath '+safelyQuotedPs(executable)+' -ArgumentList @("-NoLogo","-NoProfile","-NonInteractive","-EncodedCommand",'+safelyQuotedPs(encoded)+') -WindowStyle Hidden -RedirectStandardOutput '+safelyQuotedPs(path.join(dir,'install-worker.stdout.log'))+' -RedirectStandardError '+safelyQuotedPs(path.join(dir,'install-worker.stderr.log'))+' -PassThru',
+  'Write-Output ("WORKER_PID=" + $p.Id)'
+ ].join('\r\n');
+ const launcherLog=path.join(dir,'install-launcher.log');
+ let fd,child;
+ let launchError=null,exitCode=null;
+ const note=message=>{try{fs.appendFileSync(launcherLog,new Date().toISOString()+' '+message+'\n');}catch{}};
+ try{
+  fd=fs.openSync(launcherLog,'a');
+  child=launch(executable,['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(bootstrap,'utf16le').toString('base64')],{
+   detached:true,stdio:['ignore',fd,fd],windowsHide:true,cwd:dir
+  });
+  child.once('error',error=>{launchError=error;note('BOOTSTRAP_ERROR '+String(error));});
+  child.once('exit',code=>{exitCode=code;note('BOOTSTRAP_EXIT '+code);});
+  child.unref();
+ }catch(error){note('SPAWN_FAILED '+String(error));return false;}
+ finally{if(fd!==undefined)fs.closeSync(fd);}
+ const deadline=Date.now()+10000;
+ while(Date.now()<deadline){
+  if(launchError||(exitCode!==null&&exitCode!==0))break;
+  if(fs.existsSync(handshake+'.ready')){
+   try{
+    fs.writeFileSync(handshake+'.go','AUTHORIZED',{flag:'wx'});
+    note('HELPER_READY_HANDOFF_AUTHORIZED '+expectedVersion);
+    return true;
+   }catch(error){note('HANDOFF_FAILED '+String(error));break;}
+  }
+  await new Promise(resolve=>setTimeout(resolve,100));
+ }
+ note('HELPER_NOT_READY — keeping current app open');
+ return false;
 }
 function createDesktopUpdateService({app,storage,getWindow,launchInstaller=startDetachedInstaller,fetchImpl=fetch}){
  const cacheDir=path.join(storage.root,'UpdateCache');
@@ -301,7 +335,7 @@ function createDesktopUpdateService({app,storage,getWindow,launchInstaller=start
    lastAttempt:new Date().toISOString()});
   try{fs.rmSync(path.join(cacheDir,'install-result.txt'),{force:true});}catch{}
   const started=await launchInstaller({
-   oldPid:process.pid,installer:record.file,appExecutable:process.execPath,expectedVersion:record.version,interactive
+   oldPid:process.pid,installer:record.file,appExecutable:process.execPath,expectedVersion:record.version,interactive,expectedDigest:record.digest
   });
   if(!started){
    setStatus('install-error',{version:record.version,percent:100,errorDetail:'INSTALL_HELPER_START_FAILED'});
