@@ -285,7 +285,7 @@ CREATE TABLE journal_entries (
   return lines.join('\n');
 }
 
-export function downloadSqlFile(sqlContent: string, filename: string = 'database_backup_alnoor.sql'): void {
+export function downloadSqlFile(sqlContent: string, filename: string = 'database_backup_lobnan.sql'): void {
   const blob = new Blob([sqlContent], { type: 'application/sql;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -297,7 +297,7 @@ export function downloadSqlFile(sqlContent: string, filename: string = 'database
   URL.revokeObjectURL(url);
 }
 
-export function downloadJsonBackup(data: any, filename: string = 'alnoor_full_database_backup.json'): void {
+export function downloadJsonBackup(data: any, filename: string = 'lobnan_full_database_backup.json'): void {
   const jsonStr = JSON.stringify(data, null, 2);
   const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
