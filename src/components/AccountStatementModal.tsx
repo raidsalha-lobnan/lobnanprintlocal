@@ -1,8 +1,9 @@
+import {saveReportPdf,requirePdfRoot} from '../utils/reportPdfEngine';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {accountStatementPdfFilename} from '../utils/accountStatementPdf';
 import {waitForStatementPrintPhotos} from '../utils/statementPrintReadiness';
 import {printStatementWithNativeBrowser} from '../utils/nativeStatementPrint';
-import {downloadServerOfficialStatementPdf} from '../utils/serverOfficialStatementPdf';
+
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -262,16 +263,13 @@ export const AccountStatementModal: React.FC = () => {
     pdfInFlight.current=true;
     setServerPdfDownloading(true);
     try{
-      const type=statementMode==='employee'?'employee_statement'
-        :(currentParty?.type==='supplier'?'supplier_statement':'customer_statement');
-      await downloadServerOfficialStatementPdf({
-        type,partyId:currentParty?.id,employeeId:currentEmployee?.id,
-        fromDate,toDate,showItemDetails:showItemDetails,
-        showImages:showImageThumbnailsInStatement
-      },filename);
+      const ready=await waitForStatementPrintPhotos();
+      if(!ready&&!window.confirm('لم تكتمل بعض الصور الأصلية. هل تريد الحفظ بالصور المتاحة؟'))return;
+      const root=requirePdfRoot('.print-area .report-a4-container');
+      await saveReportPdf(root,{filename,paper:'a4',numberPages:true});
     }catch(error){
-      console.error('Server Chrome modal statement PDF export failed',error);
-      alert('تعذّر إعداد PDF مباشرة من الخادم. يمكن استخدام «طباعة A4» ثم Save as PDF. '+(error instanceof Error?error.message:''));
+      console.error('Local Typst statement PDF export failed',error);
+      alert('تعذّر إنشاء PDF. لم تتغير البيانات المحاسبية. '+(error instanceof Error?error.message:''));
     }finally{
       pdfInFlight.current=false;
       setServerPdfDownloading(false);
@@ -381,7 +379,7 @@ export const AccountStatementModal: React.FC = () => {
               onClick={() => {void handleSavePdf();}}
               disabled={serverPdfDownloading || (!partyStatement && !employeeStatement)}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer"
-              title="حفظ مباشر باستخدام محرك Chrome على الخادم دون نافذة الطباعة"
+              title="حفظ مباشر باستخدام Typst دون نافذة الطباعة"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{serverPdfDownloading?'جاري إنشاء PDF...':'حفظ PDF مباشر'}</span>
