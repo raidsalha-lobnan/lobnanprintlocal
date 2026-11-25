@@ -4,6 +4,7 @@ import { DesktopDownloadButton } from './DesktopDownloadButton';
 import { DesktopStorageStatus } from './DesktopStorageStatus';
 import { DesktopUpdateStatus } from './DesktopUpdateStatus';
 import { DesktopWindowControls, isNativeWindow, windowDragStyle } from './DesktopWindowControls';
+import {WEB_DISPLAY_SCALES,readWebDisplayScale,setWebDisplayScale} from '../utils/webDisplayScale';
 import { MobileNavigationModal } from './MobileNavigationModal';
 import { useAccounting } from '../context/AccountingContext';
 import {
@@ -157,6 +158,7 @@ export const Navbar: React.FC = () => {
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [webDisplayScale,setWebDisplayScaleState] = useState(readWebDisplayScale);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -775,6 +777,21 @@ export const Navbar: React.FC = () => {
               <Monitor className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">إعدادات العرض</span>
             </button>
+          )}
+          {!Boolean((globalThis as unknown as {electronAPI?: {isElectron?: boolean}}).electronAPI?.isElectron) && (
+            <label className="h-5 px-1 flex items-center gap-1 shrink-0 rounded-xs bg-white/15 text-white font-bold text-[10px]" title="إعدادات العرض — تكبير وتصغير عناصر البرنامج فقط">
+              <Monitor className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">إعدادات العرض</span>
+              <select aria-label="إعدادات العرض" className="h-5 max-w-[65px] text-slate-900 text-[10px] font-bold"
+                value={webDisplayScale} onChange={event=>{
+                  const percent=Number(event.target.value);
+                  if(!WEB_DISPLAY_SCALES.includes(percent))return;
+                  setWebDisplayScale(percent);
+                  setWebDisplayScaleState(percent);
+                }}>
+                {WEB_DISPLAY_SCALES.map(percent=><option key={percent} value={percent}>{percent}%</option>)}
+              </select>
+            </label>
           )}
           {/* Back Button */}
           <button
