@@ -10,11 +10,14 @@ on:
       - 'src/sync-next/installDesktopNetworkBridge.ts'
       - 'src/sync-next/posAttemptStore.ts'
       - 'src/components/DesktopDownloadButton.tsx'
+      - 'src/components/DesktopStorageStatus.tsx'
+      - 'src/components/PWAInstallButton.tsx'
       - 'src/components/Navbar.tsx'
       - 'src/main.tsx'
       - 'src/sync-next/localDb.ts'
       - 'tests/desktop-storage.test.cjs'
       - 'tests/desktop-sqlite-mirror.test.ts'
+      - 'tests/desktop-install-ui.test.mjs'
       - 'scripts/assert-desktop-build-env.cjs'
       - 'package.json'
       - '.github/workflows/desktop-windows-installer.yml'
@@ -46,6 +49,8 @@ jobs:
         run: node --test tests/desktop-storage.test.cjs
       - name: Test desktop mirror and existing browser financial storage
         run: node --import tsx --test tests/desktop-sqlite-mirror.test.ts tests/pos-attempt-indexeddb.test.ts
+      - name: Test native and browser install actions and SQLite status control
+        run: node --test tests/desktop-install-ui.test.mjs
       - name: Stamp unique desktop version for this successful build
         shell: pwsh
         run: |
@@ -58,6 +63,13 @@ jobs:
           VITE_SYNC_LOGIN_MODE: 'users'
           VITE_SYNC_BACKEND: 'local-postgres'
           VITE_PUBLIC_SYNC_API_URL: 'https://lobnan-api.shares.zrok.io'
+      - name: Verify SQLite works in the packaged Electron 44 runtime
+        shell: pwsh
+        run: |
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          & 'dist-electron/win-unpacked/LobnanPrint.exe' --test tests/desktop-storage.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'PACKAGED_ELECTRON_SQLITE_RUNTIME_FAILED' }
+          Remove-Item Env:ELECTRON_RUN_AS_NODE
       - name: Validate installer before publication
         shell: pwsh
         run: |
