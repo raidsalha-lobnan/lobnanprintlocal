@@ -2908,3 +2908,11 @@ td.empty-row-shaded {
   }
   .sales-invoice-page.sales-invoice-compact { padding:6mm 8mm !important; }
 }
+
+/* User-selected web UI scale; never affects print/PDF or Electron's native zoom. */
+@media screen {
+  html[data-lobnan-web-display-scale] { zoom: var(--lobnan-web-display-scale, 1); }
+}
+@media print {
+  html[data-lobnan-web-display-scale] { zoom: 1 !important; }
+}
