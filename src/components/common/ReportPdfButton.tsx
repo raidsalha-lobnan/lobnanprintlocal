@@ -3,8 +3,8 @@ import {FileDown} from 'lucide-react';
 import {saveReportPdf,requirePdfRoot,type PdfPaper} from '../../utils/reportPdfEngine';
 import {waitForStatementPrintPhotos} from '../../utils/statementPrintReadiness';
 
-type Props={filename:string;selector:string;scope?:string;paper?:PdfPaper;compact?:boolean;numberPages?:boolean;className?:string};
-export function ReportPdfButton({filename,selector,scope,paper='a4',compact,numberPages,className}:Props){
+type Props={filename:string;selector:string;scope?:string;paper?:PdfPaper;compact?:boolean;numberPages?:boolean;includeFormValues?:boolean;className?:string};
+export function ReportPdfButton({filename,selector,scope,paper='a4',compact,numberPages,includeFormValues,className}:Props){
  const [busy,setBusy]=useState(false);
  const running=useRef(false);
  const button=useRef<HTMLButtonElement>(null);
@@ -17,7 +17,7 @@ export function ReportPdfButton({filename,selector,scope,paper='a4',compact,numb
    const root=parent instanceof HTMLElement&&parent.matches(selector)?parent:requirePdfRoot(selector,parent);
    const ready=await waitForStatementPrintPhotos();
    if(!ready&&!window.confirm('لم تكتمل بعض الصور الأصلية. هل تريد الحفظ بالصور المتاحة؟'))return;
-   await saveReportPdf(root,{filename,paper,compact,numberPages});
+   await saveReportPdf(root,{filename,paper,compact,numberPages,includeFormValues});
   }catch(error){
    console.error('Local document PDF export failed',error);
    alert('تعذّر حفظ PDF. لم تتغير البيانات المحاسبية. '+(error instanceof Error?error.message:''));
