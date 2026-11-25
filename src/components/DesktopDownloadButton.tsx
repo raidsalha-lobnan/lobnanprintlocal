@@ -1,55 +1,72 @@
 import React,{useEffect,useState} from 'react';
-import {Download,Loader2} from 'lucide-react';
+import {Download} from 'lucide-react';
 
 type ReleaseAsset={
- name:string;state?:string;size?:number;browser_download_url:string
+  name:string;
+  state?:string;
+  size?:number;
+  browser_download_url:string;
 };
-const RELEASE_API='https://api.github.com/repos/raidsalha-lobnan/lobnanprintlocal/releases/latest';
+type Release={tag_name?:string;draft?:boolean;prerelease?:boolean;assets?:ReleaseAsset[]};
+
+const repo='raidsalha-lobnan/lobnanprintlocal';
+const RELEASE_API='https://api.github.com/repos/'+repo+'/releases/latest';
+// This installer was published and verified by the Windows CI workflow.
+// It remains a working download even when GitHub's API cannot be reached
+// from a particular user's browser.
+export const VERIFIED_FALLBACK_WINDOWS_INSTALLER=
+  'https://github.com/'+repo+'/releases/download/desktop-v1.1.7/LobnanPrint-Setup-1.1.7.exe';
+
+function validOfficialInstaller(release:Release|null):string|null{
+  if(!release || release.draft || release.prerelease)return null;
+  const version=/^desktop-v(\d+\.\d+\.\d+)$/.exec(String(release.tag_name||''))?.[1];
+  if(!version)return null;
+  const name='LobnanPrint-Setup-'+version+'.exe';
+  const expected='https://github.com/'+repo+'/releases/download/desktop-v'+version+'/'+name;
+  const asset=release.assets?.find(x=>x.name===name &&
+    x.state==='uploaded' && Number(x.size)>20_000_000 &&
+    x.browser_download_url===expected);
+  return asset?expected:null;
+}
 
 /**
- * This is a real Windows (.exe) download, NOT the Chrome PWA shortcut.
- * Never advertise an executable that has not passed the release workflow
- * and been published as a verified GitHub Release asset.
+ * Always show a real install button at the TOP of the app's first toolbar.
+ * A blocked GitHub API is never allowed to make this button disappear.
+ * This installs a native Windows app; it is not the Chrome PWA shortcut.
  */
 export const DesktopDownloadButton:React.FC=()=>{
- const [link,setLink]=useState<string|null>(null);
- const [status,setStatus]=useState<'checking'|'ready'|'unavailable'>('checking');
- useEffect(()=>{
-  const desktop=(globalThis as unknown as {electronAPI?:{isElectron?:boolean}}).electronAPI?.isElectron;
-  if(desktop||!/Windows|Win64|Win32|WinNT/i.test(navigator.userAgent)){
-   setStatus('unavailable');return;
-  }
-  const controller=new AbortController();
-  void fetch(RELEASE_API,{
-   cache:'no-store',signal:controller.signal,
-   headers:{Accept:'application/vnd.github+json'}
-  }).then(async response=>response.ok?await response.json():null)
-   .then(data=>{
-    const assets=Array.isArray(data?.assets)?data.assets as ReleaseAsset[]:[];
-    const version=/^desktop-v(\d+\.\d+\.\d+)$/.exec(String(data?.tag_name||''))?.[1];
-    const name=version?'LobnanPrint-Setup-'+version+'.exe':'';
-    const asset=assets.find(x=>version&&
-     x.name===name&&x.state==='uploaded'&&
-     Number(x.size)>20_000_000&&
-     x.browser_download_url==='https://github.com/raidsalha-lobnan/lobnanprintlocal/releases/download/desktop-v'+version+'/'+name
-    );
-    if(asset){setLink(asset.browser_download_url);setStatus('ready');}
-    else setStatus('unavailable');
-   }).catch(()=>setStatus('unavailable'));
-  return()=>controller.abort();
- },[]);
- const isDesktop=(globalThis as unknown as {electronAPI?:{isElectron?:boolean}}).electronAPI?.isElectron;
- if(isDesktop||!/Windows|Win64|Win32|WinNT/i.test(navigator.userAgent))return null;
- if(status==='ready'&&link)
-  return <a href={link} target="_blank" rel="noopener noreferrer"
-   title="تحميل تطبيق Windows بقاعدة SQLite محلية في مجلد ثابت"
-   className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-900 hover:bg-indigo-100">
-    <Download className="h-3.5 w-3.5"/> تحميل تطبيق الكمبيوتر
-   </a>;
- // A visible status is more truthful than a broken download link.
- return <span title={status==='checking'?'جاري التأكد من وجود ملف التثبيت':'لم يُنشر ملف التثبيت المعتمد بعد'}
-  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
-  {status==='checking'?<Loader2 className="h-3.5 w-3.5 animate-spin"/>:<Download className="h-3.5 w-3.5"/>}
-  {status==='checking'?'فحص تطبيق الكمبيوتر':'تطبيق الكمبيوتر قيد الإعداد'}
- </span>;
+  const [download,setDownload]=useState(VERIFIED_FALLBACK_WINDOWS_INSTALLER);
+  const isElectron=Boolean((globalThis as unknown as {
+    electronAPI?:{isElectron?:boolean}
+  }).electronAPI?.isElectron);
+  const isWindows=typeof navigator!=='undefined' &&
+    /Windows|Win64|Win32|WinNT/i.test(navigator.userAgent);
+
+  useEffect(()=>{
+    if(isElectron||!isWindows)return;
+    const controller=new AbortController();
+    void fetch(RELEASE_API,{
+      cache:'no-store',
+      signal:controller.signal,
+      headers:{Accept:'application/vnd.github+json'}
+    }).then(async response=>response.ok?await response.json() as Release:null)
+      .then(release=>{
+        const current=validOfficialInstaller(release);
+        if(current)setDownload(current);
+      }).catch(()=>{/* Keep the verified fallback installer. */});
+    return()=>controller.abort();
+  },[isElectron,isWindows]);
+
+  if(isElectron || !isWindows)return null;
+
+  return (
+    <a href={download} target="_blank" rel="noopener noreferrer"
+      aria-label="تحميل وتثبيت تطبيق Windows بقاعدة SQLite محلية"
+      title="تثبيت تطبيق Windows الحقيقي: قاعدة SQLite محلية ثابتة على قرص غير C متى توفر"
+      className="h-5 inline-flex shrink-0 items-center gap-1 rounded border border-emerald-300/70 bg-emerald-700 px-2 text-[10px] font-bold text-white hover:bg-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white">
+      <Download className="h-3 w-3 shrink-0"/>
+      <span className="hidden xl:inline">تثبيت تطبيق Windows (SQLite)</span>
+      <span className="xl:hidden">تثبيت Windows</span>
+    </a>
+  );
 };
