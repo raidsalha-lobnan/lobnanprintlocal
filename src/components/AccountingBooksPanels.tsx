@@ -1,3 +1,4 @@
+import {ReportPdfButton} from './common/ReportPdfButton';
 import React, {useMemo,useState} from 'react';
 import type {Account,JournalEntry} from '../types';
 import {makeJournalBook,makeLedgerBook,makeTrialBalance,bookMoney} from '../utils/accountingBooks';
@@ -96,7 +97,8 @@ export const AccountingBooksPanels:React.FC<Props>=({
    </div>
    <div className="books-no-print flex gap-2">
     <button type="button" onClick={onExport} className="px-3 py-1.5 text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-md">تصدير Excel / CSV</button>
-    <button type="button" onClick={()=>window.print()} className="px-3 py-1.5 text-xs font-bold bg-slate-100 border border-slate-200 text-slate-700 rounded-md">طباعة</button>
+    <ReportPdfButton filename={title} selector=".accounting-book-print" scope=".accounting-book-print" numberPages />
+                <button type="button" onClick={()=>window.print()} className="px-3 py-1.5 text-xs font-bold bg-slate-100 border border-slate-200 text-slate-700 rounded-md">طباعة</button>
    </div>
   </header>
 
