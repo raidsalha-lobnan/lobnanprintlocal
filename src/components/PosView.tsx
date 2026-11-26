@@ -377,6 +377,9 @@ const CashierSession: React.FC<{ownerId: string}> = ({ownerId}) => {
 
 interface PosFullDraftData {
   editingSignature?: string | null;
+  resumedHeldId?: string | null;
+  aggregateDuplicateItems?: boolean;
+  useLastCustomerPrice?: boolean;
   currencyCode?: string;
   exchangeRate?: number;
   cashCurrencyCode?: string;
@@ -489,6 +492,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   const savedPosDraft = useMemo(() => getInitialPosDraft(currentUser?.id), [currentUser?.id]);
 
   const draftIdRef = useRef(savedPosDraft.draftId || crypto.randomUUID());
+  const resumedHeldInvoiceIdRef=useRef<string|null>(savedPosDraft.resumedHeldId||null);
   // A browser restart can create a new tab slot while older unsent drafts
   // remain in localStorage. Offer read-only discovery, never auto-replay them.
   const [recoverableDrafts] = useState(() =>
@@ -670,8 +674,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   });
 
   // Checkboxes from screenshot
-  const [aggregateDuplicateItems, setAggregateDuplicateItems] = useState<boolean>(true);
-  const [useLastCustomerPrice, setUseLastCustomerPrice] = useState<boolean>(false);
+  const [aggregateDuplicateItems, setAggregateDuplicateItems] = useState<boolean>(savedPosDraft.aggregateDuplicateItems??true);
+  const [useLastCustomerPrice, setUseLastCustomerPrice] = useState<boolean>(savedPosDraft.useLastCustomerPrice??false);
 
   // اعتماد كافة وحدات الأصناف المدخلة في البرنامج لجدول الكاشير
   const programUnits = useMemo(() => {
@@ -853,6 +857,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
   // Synchronize selected treasuries when treasuries list is loaded or updated
   useEffect(() => {
+    if (resumedHeldInvoiceIdRef.current) return;
     if (treasuries && treasuries.length > 0) {
       if (cashTreasuryCode !== 'CASH-1101') setCashTreasuryCode('CASH-1101');
       const nonCash=treasuries.filter(t=>t.type!=='cash_box'&&t.status!=='inactive'&&
@@ -922,6 +927,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     try {
       const draft: PosFullDraftData = {
         draftId:draftIdRef.current, ownerId,
+        resumedHeldId:resumedHeldInvoiceIdRef.current,aggregateDuplicateItems,useLastCustomerPrice,
         editingInvoiceId:currentEditingInvoiceIdRef.current,
         editingSignature:openedInvoiceSignatureRef.current,
         currencyCode:selectedCurrencyCode, exchangeRate:customExchangeRate,
@@ -962,7 +968,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       console.warn('Failed to persist the active cashier form', error);
     }
   }, [
-    POS_FULL_DRAFT_KEY, ownerId, selectedCurrencyCode, customExchangeRate,
+    POS_FULL_DRAFT_KEY, ownerId, aggregateDuplicateItems,useLastCustomerPrice,selectedCurrencyCode, customExchangeRate,
     cashCurrencyCode, bankCurrencyCode, cashExchangeRate, bankExchangeRate,
     bankTreasuryCode, paymentMethod, invoiceWorkflowStatus, tableLines,
     posTargetType,
@@ -1467,7 +1473,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   const [heldLoading,setHeldLoading]=useState(true);
   const [heldBusy,setHeldBusy]=useState(false);
   const heldOperationRef=useRef(false);
-  const resumedHeldInvoiceIdRef=useRef<string|null>(null);
+
   useEffect(()=>{
     let active=true;
     const refresh=async()=>{
@@ -1542,6 +1548,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
   // Sync customer code and balance when customer selection changes
   useEffect(() => {
+    if (resumedHeldInvoiceIdRef.current) return;
     if (currentCustomer) {
       setCustomerCode(currentCustomer.code || '');
       if (!customerName || customerName === 'عميل كاشير نقدي' || customerName === 'زبون نقدي') {
@@ -2089,7 +2096,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   const isInvoiceLoadingRef = useRef<boolean>(false);
   const prevPricingCustIdRef = useRef(effectivePricingCustomerId);
   useEffect(() => {
-    if (isInvoiceLoadingRef.current || editingPosInvoiceId || currentEditingInvoiceIdRef.current) {
+    if (resumedHeldInvoiceIdRef.current || isInvoiceLoadingRef.current || editingPosInvoiceId || currentEditingInvoiceIdRef.current) {
       prevPricingCustIdRef.current = effectivePricingCustomerId;
       return;
     }
@@ -3149,11 +3156,12 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     if(heldInvoices.length>=50&&!resumedHeldInvoiceIdRef.current){
       alert('الحد الأقصى للفواتير المعلقة 50 فاتورة.');return;
     }
+    if(pendingGalleryUploadsRef.current>0){alert('انتظر اكتمال تجهيز صور الفاتورة قبل تعليقها.');return;}
     const newHeld:HeldInvoiceData={
       id:resumedHeldInvoiceIdRef.current||'held-'+crypto.randomUUID(),
       heldAt:new Date().toLocaleString('ar-EG'),
       customerName,customerId:selectedCustomerId,customCustomerText,
-      subCustomerName,subCustomerId,lines:tableLines.map(l=>({...l})),
+      subCustomerName,subCustomerId,lines:structuredClone(tableLines),
       totalAmount:calculatedTotalAmount,notes:invoiceNotes,paymentNotes,
       fullDraft:{
         posTargetType,selectedCustomerId,customerCode,customerName,pricingTier,
@@ -3163,7 +3171,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
         shippingDetails,cashAmountInput,bankAmountInput,paymentMethod,
         selectedCurrencyCode,customExchangeRate,cashCurrencyCode,cashExchangeRate,
         cashTreasuryCode,bankCurrencyCode,bankExchangeRate,bankTreasuryCode,
-        invoiceWorkflowStatus,activeRowId
+        invoiceWorkflowStatus,activeRowId,aggregateDuplicateItems,useLastCustomerPrice,draftId:draftIdRef.current
       }
     };
     // Durable recovery checkpoint before a network call; keep it until
@@ -3215,8 +3223,12 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     if(filled&&!window.confirm('توجد فاتورة حالية، هل تريد استبدالها بالمعلّق؟'))return false;
     const d=held.fullDraft||{};
     const targetId=d.selectedCustomerId??held.customerId??'';
+    // Establish restoration identity BEFORE any state changes. The effective pricing
+    // customer may be the subcustomer or undefined for cash; it is not targetId.
+    resumedHeldInvoiceIdRef.current=held.id;
+    draftIdRef.current=d.draftId||crypto.randomUUID();
     prevPricingCustIdRef.current=targetId;
-    setTableLines(held.lines.map(l=>({...l})));
+    setTableLines(structuredClone(held.lines));
     setPosTargetType(d.posTargetType||'customer');
     setSelectedCustomerId(targetId);
     setCustomerCode(d.customerCode||'');
@@ -3242,14 +3254,17 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     setCashAmountInput(d.cashAmountInput??'0');
     setBankAmountInput(d.bankAmountInput??'0');
     setPaymentMethod(d.paymentMethod||'cash');
-    if(d.selectedCurrencyCode){previousCurrency.current=d.selectedCurrencyCode;setSelectedCurrencyCode(d.selectedCurrencyCode);}
-    if(typeof d.customExchangeRate==='number')setCustomExchangeRate(d.customExchangeRate);
+    const restoredCurrency=d.selectedCurrencyCode||'ILS';
+    previousCurrency.current=restoredCurrency;setSelectedCurrencyCode(restoredCurrency);
+    setCustomExchangeRate(typeof d.customExchangeRate==='number'?d.customExchangeRate:1);
     if(d.cashCurrencyCode)setCashCurrencyCode(d.cashCurrencyCode);
     if(typeof d.cashExchangeRate==='number')setCashExchangeRate(d.cashExchangeRate);
     setCashTreasuryCode(d.cashTreasuryCode||'CASH-1101');
     if(d.bankCurrencyCode)setBankCurrencyCode(d.bankCurrencyCode);
     if(typeof d.bankExchangeRate==='number')setBankExchangeRate(d.bankExchangeRate);
-    if(d.bankTreasuryCode)setBankTreasuryCode(d.bankTreasuryCode);
+    setBankTreasuryCode(d.bankTreasuryCode??'');
+    setAggregateDuplicateItems(d.aggregateDuplicateItems??true);
+    setUseLastCustomerPrice(d.useLastCustomerPrice??false);
     setInvoiceWorkflowStatus(d.invoiceWorkflowStatus||'new');
     setActiveRowId(d.activeRowId||held.lines[0]?.id||null);
     resumedHeldInvoiceIdRef.current=held.id;
