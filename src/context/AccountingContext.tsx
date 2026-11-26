@@ -7343,6 +7343,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       basePaidAmount:cashBaseAmount+bankBaseAmount>0
         ?round(cashBaseAmount+bankBaseAmount):round(paidAmount*exchangeRate),
       cashPaidAmount,bankPaidAmount,cashBaseAmount,bankBaseAmount,
+      cashCurrency:extraOptions?.cashCurrency,bankCurrency:extraOptions?.bankCurrency,
+      cashExchangeRate:extraOptions?.cashExchangeRate,bankExchangeRate:extraOptions?.bankExchangeRate,
       cashTreasuryCode:extraOptions?.cashTreasuryCode,
       bankTreasuryCode:extraOptions?.bankTreasuryCode,
       treasuryAccountCode:extraOptions?.treasuryAccountCode,
@@ -7406,6 +7408,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           original,items,customerName,paymentMethod,customerId,notes,
           {...extraOptions, editingInvoiceId:original.id}
         );
+        // Currency-specific treasury revision must not silently reallocate a previously posted receipt.
+        const distinctTender=(v:Invoice)=>((v.cashPaidAmount||0)>0&&!!v.cashCurrency&&v.cashCurrency!==(v.currency||'ILS'))||((v.bankPaidAmount||0)>0&&!!v.bankCurrency&&v.bankCurrency!==(v.currency||'ILS'));
+        if(!descriptionOnly&&(distinctTender(original)||distinctTender(draft)))
+          throw new Error('تعديل مالي لفاتورة معتمدة بسداد متعدد العملات يحتاج تسوية محاسبية مستقلة؛ لم يتم تعديل الفاتورة أو الأرصدة.');
         const proposed:Invoice=descriptionOnly||{
           ...original,
           ...draft,
