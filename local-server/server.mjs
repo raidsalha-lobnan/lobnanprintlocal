@@ -437,7 +437,7 @@ const srv=http.createServer(async(req,res)=>{
       return;
     }
     if(req.method==='GET' && url.pathname==='/api/v1/head')
-      return json(res,200,{sequence:await service.head(workspace)},cors);
+      return json(res,200,{sequence:await service.head(workspace),posTenderCurrencyVersion:1},cors);
     if(req.method==='GET' && url.pathname==='/api/v1/bootstrap'){
       const snapshot=await service.bootstrap(workspace);
       return json(res,200,STRICT_AUTH?safeSnapshot(filterSnapshot(snapshot,access),access):snapshot,cors);
