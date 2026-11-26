@@ -17,7 +17,7 @@ import { RequisitionModal } from './pos/RequisitionModal';
 import { FavoriteItemsDrawer } from './pos/FavoriteItemsDrawer';
 import { InvoicesReviewModal } from './pos/InvoicesReviewModal';
 import { HeldInvoicesModal, type HeldInvoiceData } from './pos/HeldInvoicesModal';
-import {listCentralHeldInvoices,saveCentralHeldInvoice,deleteCentralHeldInvoice} from '../services/heldPosInvoices';
+import {listCentralHeldInvoices,saveCentralHeldInvoice,deleteCentralHeldInvoice,mergeHeldRecovery} from '../services/heldPosInvoices';
 import { DraftInvoicesQueueModal } from './pos/DraftInvoicesQueueModal';
 import { SheetInvoiceRow } from '../services/liveSheetService';
 import { onlineInvoicePostingService } from '../services/onlineInvoicePostingService';
@@ -556,6 +556,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
   // تعيين العميل الافتراضي (CUST-0001) كزبون كاشير رئيسي فقط إذا لم تكن هناك مسودة سابقة محفوظة
   useEffect(() => {
+    if (resumedHeldInvoiceIdRef.current) return;
     if (savedPosDraft.customerName && savedPosDraft.customerName !== 'عميل كاشير نقدي') return;
     if (savedPosDraft.selectedCustomerId) return;
     if (!selectedCustomerId && !customerCode && !editingPosInvoiceId && posTargetType === 'customer' && customerName === 'عميل كاشير نقدي') {
@@ -1496,8 +1497,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
             }catch(error){console.warn('Held invoice needs central retry',error);}
           }
           if(changed)remote=await listCentralHeldInvoices<HeldInvoiceData>('desktop');
-          remote=[...remote,...localPending.filter(h=>h?.localOnly&&
-            !remote.some(r=>r.id===h.id))];
+          remote=mergeHeldRecovery(remote,localPending);
         }
         // Migrate old local-only holds once; never copy another user's cache.
         const ownerKey='pos_held_legacy_owner_v1';
@@ -1516,8 +1516,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           remote=await listCentralHeldInvoices<HeldInvoiceData>('desktop');
         }
         // A legacy migration refresh must not discard local pending records.
-        if(Array.isArray(localPending))remote=[...remote,...localPending.filter(h=>h?.localOnly&&
-          !remote.some(row=>row.id===h.id))];
+        if(Array.isArray(localPending))remote=mergeHeldRecovery(remote,localPending);
         if(active)setHeldInvoices(remote);
       }catch(error){
         console.warn('PostgreSQL held invoice loading failed',error);
