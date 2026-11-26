@@ -5,7 +5,7 @@ import {spawn} from 'node:child_process';
 
 // Accept only a bounded, inert document tree. No script, frames, links,
 // credentials, local files or external network requests are needed.
-const tags=new Set('html body main section article header footer aside div span p h1 h2 h3 h4 h5 h6 table thead tbody tfoot tr th td colgroup col br hr b strong i em small label ul ol li dl dt dd figure figcaption address pre code sup sub input textarea select option img svg g path rect circle ellipse line polyline polygon text tspan defs clipPath linearGradient radialGradient stop use symbol title desc'.split(' ').map(x=>x.toLowerCase()));
+const tags=new Set('html body main section article header footer aside div span p h1 h2 h3 h4 h5 h6 table thead tbody tfoot tr th td colgroup col br hr b strong i em small label ul ol li dl dt dd figure figcaption address pre code sup sub input textarea select option img svg g path rect circle ellipse line polyline polygon text tspan defs clipPath linearGradient radialGradient stop use symbol title desc a form button'.split(' ').map(x=>x.toLowerCase()));
 const voids=new Set(['img','input','br','hr','col']);
 const svgNames={clippath:'clipPath',lineargradient:'linearGradient',radialgradient:'radialGradient'};
 const attrs=/^(?:id|class|style|dir|lang|role|title|alt|width|height|colspan|rowspan|span|type|value|checked|selected|disabled|readonly|hidden|name|xmlns|viewbox|preserveaspectratio|x|y|x1|y1|x2|y2|cx|cy|r|rx|ry|d|points|fill|fill-rule|fill-opacity|stroke|stroke-width|stroke-linecap|stroke-linejoin|stroke-opacity|opacity|transform|clip-path|offset|stop-color|stop-opacity|gradientunits|gradienttransform|font-size|text-anchor|dominant-baseline|data-[a-z0-9_-]+|aria-[a-z0-9_-]+)$/i;
@@ -38,7 +38,9 @@ export function buildInertPrintHtml(payload){
  const tree=payload.tree;
  if(tree?.tag?.toLowerCase()!=='body')throw Error('PRINT_BODY_REQUIRED');
  const csp="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
- return '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="'+csp+'"><style>'+payload.css+'</style></head>'+render(tree)+'</html>';
+ const h=payload.htmlAttrs||{};
+ const htmlAttributes=['class','style','dir','lang'].map(k=>typeof h[k]==='string'?' '+k+'="'+esc(h[k].slice(0,100000))+'"':'').join('');
+ return '<!doctype html><html'+htmlAttributes+'><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="'+csp+'"><style>'+payload.css+'</style></head>'+render(tree)+'</html>';
 }
 export async function renderPrintSurfacePdf(payload){
  const html=buildInertPrintHtml(payload);
