@@ -56,3 +56,23 @@ test('a failed central suspension is still recoverable locally without clearing 
   assert.match(section,/saveCentralHeldInvoice/);
  }
 });
+
+test('held restoration protects stored prices and dimensions before any state hydration',()=>{
+ const desktop=src('src/components/PosView.tsx');
+ const mobile=src('src/components/pos/MobilePosView.tsx');
+ const d=desktop.slice(desktop.indexOf('const handleResumeHeldInvoice='),desktop.indexOf('const handleDeleteHeldInvoice='));
+ const m=mobile.slice(mobile.indexOf('const handleResumeHeldInvoice'),mobile.indexOf('const handleDeleteHeldInvoice'));
+ assert.ok(d.indexOf('resumedHeldInvoiceIdRef.current=held.id')<d.indexOf('setTableLines(structuredClone(held.lines))'));
+ assert.ok(m.indexOf('resumedMobileHeldIdRef.current=held.id')<m.indexOf('setCart(structuredClone(held.cart))'));
+ assert.match(desktop,/if \(resumedHeldInvoiceIdRef.current \|\| isInvoiceLoadingRef.current/);
+ assert.match(mobile,/if\(resumedMobileHeldIdRef.current\)\{prevMobileCustIdRef.current=selectedCustomerId;return;\}/);
+ assert.match(desktop,/resumedHeldId:resumedHeldInvoiceIdRef.current/);
+ assert.match(mobile,/resumedHeldId:resumedMobileHeldIdRef.current/);
+ assert.match(d,/previousCurrency.current=restoredCurrency/);
+});
+test('hold save checks the entire persisted JSON body, not only the id',()=>{
+ const service=src('src/services/heldPosInvoices.ts');
+ assert.match(service,/listCentralHeldInvoices<T>\(kind\)/);
+ assert.match(service,/heldSnapshotsMatch\(snapshot,stored\)/);
+ assert.match(service,/HELD_INVOICE_SNAPSHOT_MISMATCH/);
+});
