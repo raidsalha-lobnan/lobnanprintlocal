@@ -216,11 +216,11 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
 
   // Calculations in Base Currency (ILS)
   const numCashAmount = parseFloat(cashAmount) || 0;
-  const numCashRate = cashExchangeRate > 0 ? cashExchangeRate : 1.0;
+  const numCashRate = cashCurrencyCode==='ILS'?1:cashExchangeRate > 0 ? cashExchangeRate : 1.0;
   const cashPaidBase = Number((numCashAmount * numCashRate).toFixed(2));
 
   const numBankAmount = parseFloat(bankAmount) || 0;
-  const numBankRate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
+  const numBankRate = bankCurrencyCode==='ILS'?1:bankExchangeRate > 0 ? bankExchangeRate : 1.0;
   const bankPaidBase = Number((numBankAmount * numBankRate).toFixed(2));
 
   const invoiceBase = Number((calculatedTotalAmount * (currentInvCurrencyCode==='ILS'?1:currentInvRate)).toFixed(2));
@@ -238,9 +238,9 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
       onQuickFullCash();
       return;
     }
-    const currentBankPaid = (parseFloat(bankAmount) || 0) * (bankExchangeRate > 0 ? bankExchangeRate : 1.0);
+    const currentBankPaid = (parseFloat(bankAmount) || 0) * (bankCurrencyCode==='ILS'?1:bankExchangeRate > 0 ? bankExchangeRate : 1.0);
     const remainingBase = Math.max(0, Number((invoiceBase - currentBankPaid).toFixed(2)));
-    const cRate = cashExchangeRate > 0 ? cashExchangeRate : 1.0;
+    const cRate = cashCurrencyCode==='ILS'?1:cashExchangeRate > 0 ? cashExchangeRate : 1.0;
     const reqCash = Number((remainingBase / cRate).toFixed(2));
     onChangeCashAmount(String(reqCash));
   };
@@ -250,9 +250,9 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
       onQuickFullBank();
       return;
     }
-    const currentCashPaid = (parseFloat(cashAmount) || 0) * (cashExchangeRate > 0 ? cashExchangeRate : 1.0);
+    const currentCashPaid = (parseFloat(cashAmount) || 0) * (cashCurrencyCode==='ILS'?1:cashExchangeRate > 0 ? cashExchangeRate : 1.0);
     const remainingBase = Math.max(0, Number((invoiceBase - currentCashPaid).toFixed(2)));
-    const bRate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
+    const bRate = bankCurrencyCode==='ILS'?1:bankExchangeRate > 0 ? bankExchangeRate : 1.0;
     const reqBank = Number((remainingBase / bRate).toFixed(2));
     onChangeBankAmount(String(reqBank));
   };
@@ -421,7 +421,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
               onChange={e => onChangeCashAmount(e.target.value)}
               placeholder="0.00"
               className="w-20 sm:w-24 bg-white text-slate-900 font-mono font-black px-1.5 py-0.5 rounded text-xs text-left border border-slate-300 focus:ring-1 focus:ring-emerald-400"
-              title="المبلغ المدفوع نقداً"
+              title={`المبلغ المدفوع أصلاً بعملة ${cashCurrencyCode}، المعادل: ${cashPaidBase.toFixed(2)} ₪`}
             />
             <button
               type="button"
@@ -512,7 +512,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
               onChange={e => onChangeBankAmount(e.target.value)}
               placeholder="0.00"
               className="w-20 sm:w-24 bg-white text-slate-900 font-mono font-black px-1.5 py-0.5 rounded text-xs text-left border border-slate-300 focus:ring-1 focus:ring-blue-400"
-              title="المبلغ المدفوع بنكياً / شبكة"
+              title={`المبلغ المدفوع أصلاً بعملة ${bankCurrencyCode}، المعادل: ${bankPaidBase.toFixed(2)} ₪`}
             />
             <button
               type="button"
