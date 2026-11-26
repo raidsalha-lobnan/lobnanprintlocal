@@ -1,3 +1,4 @@
+import {invoicePdfFilename} from '../utils/reportPdfEngine';
 import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
@@ -808,7 +809,7 @@ export const SalesReturnsView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                <ReportPdfButton filename={'مردودات مبيعات - '+selectedSalesReturnForPrint.returnNumber} selector="[data-pdf-document]" scope="[data-pdf-document]" />
+                <ReportPdfButton filename={invoicePdfFilename(selectedSalesReturnForPrint.returnNumber,selectedSalesReturnForPrint.customerName)} selector="[data-pdf-document]" scope="[data-pdf-document]" />
                 <button
                   onClick={() => window.print()}
                   className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
