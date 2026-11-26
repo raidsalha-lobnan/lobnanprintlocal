@@ -95,8 +95,8 @@ export const ReceiptVouchersView: React.FC = () => {
 
   // Statistics
   const todayIso = new Date().toISOString().split('T')[0];
-  const totalAmount = receiptVouchers.reduce((sum, v) => sum + v.amount, 0);
-  const todayAmount = receiptVouchers.filter(v => v.date === todayIso).reduce((sum, v) => sum + v.amount, 0);
+  const totalAmount = receiptVouchers.reduce((sum, v) => sum + (v.baseAmount ?? v.amount * (v.exchangeRate || 1)), 0);
+  const todayAmount = receiptVouchers.filter(v => v.date === todayIso).reduce((sum, v) => sum + (v.baseAmount ?? v.amount * (v.exchangeRate || 1)), 0);
   const routedTotals=sumReceiptRoutes(receiptVouchers,treasuries);
   const cashTotal=routedTotals.cash;
   const bankTotal=routedTotals.noncash;
