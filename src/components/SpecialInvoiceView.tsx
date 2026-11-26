@@ -1,3 +1,4 @@
+import {invoicePdfFilename} from '../utils/reportPdfEngine';
 import {ReportPdfButton} from './common/ReportPdfButton';
 import React, { useState, useEffect, useRef } from 'react';
 import { DateInput } from '../components/common/DateInput';
@@ -427,7 +428,7 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
               <Save className="w-4 h-4" />
               <span>حفظ بالسجل</span>
             </button>
-            <ReportPdfButton filename={('فاتورة مبيعات خاصة - ')+invoiceNumber} selector="[data-pdf-document]" scope="[data-pdf-document]" includeFormValues />
+            <ReportPdfButton filename={invoicePdfFilename(invoiceNumber,customerName)} selector="[data-pdf-document]" scope="[data-pdf-document]" includeFormValues />
             <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm shadow-sm transition-colors">
               <Printer className="w-4 h-4" />
               <span>طباعة الفاتورة</span>
