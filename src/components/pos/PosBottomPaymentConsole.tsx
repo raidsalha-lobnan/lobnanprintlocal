@@ -223,13 +223,14 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
   const numBankRate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
   const bankPaidBase = Number((numBankAmount * numBankRate).toFixed(2));
 
+  const invoiceBase = Number((calculatedTotalAmount * (currentInvCurrencyCode==='ILS'?1:currentInvRate)).toFixed(2));
   const totalPaidBase = Number((cashPaidBase + bankPaidBase).toFixed(2));
-  const changeDueBase = Math.max(0, Number((totalPaidBase - calculatedTotalAmount).toFixed(2)));
-  const remainingDueBase = Math.max(0, Number((calculatedTotalAmount - totalPaidBase).toFixed(2)));
+  const changeDueBase = Math.max(0, Number((totalPaidBase - invoiceBase).toFixed(2)));
+  const remainingDueBase = Math.max(0, Number((invoiceBase - totalPaidBase).toFixed(2)));
 
   // Equivalent Total in Invoice Currency if not ILS
   const totalInInvoiceCurrency =
-    currentInvRate > 0 ? Number((calculatedTotalAmount / currentInvRate).toFixed(2)) : calculatedTotalAmount;
+    calculatedTotalAmount;
 
   // زر كامل: يضع قيمة المتبقي مع الاحتفاظ بالمدفوعات الأخرى
   const handleInternalFullCash = () => {
@@ -238,7 +239,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
       return;
     }
     const currentBankPaid = (parseFloat(bankAmount) || 0) * (bankExchangeRate > 0 ? bankExchangeRate : 1.0);
-    const remainingBase = Math.max(0, Number((calculatedTotalAmount - currentBankPaid).toFixed(2)));
+    const remainingBase = Math.max(0, Number((invoiceBase - currentBankPaid).toFixed(2)));
     const cRate = cashExchangeRate > 0 ? cashExchangeRate : 1.0;
     const reqCash = Number((remainingBase / cRate).toFixed(2));
     onChangeCashAmount(String(reqCash));
@@ -250,7 +251,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
       return;
     }
     const currentCashPaid = (parseFloat(cashAmount) || 0) * (cashExchangeRate > 0 ? cashExchangeRate : 1.0);
-    const remainingBase = Math.max(0, Number((calculatedTotalAmount - currentCashPaid).toFixed(2)));
+    const remainingBase = Math.max(0, Number((invoiceBase - currentCashPaid).toFixed(2)));
     const bRate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
     const reqBank = Number((remainingBase / bRate).toFixed(2));
     onChangeBankAmount(String(reqBank));
@@ -372,7 +373,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
           {/* إجمالي الفاتورة بالعملة المختارة إذا كانت أجنبية */}
           {currentInvCurrencyCode !== 'ILS' && (
             <div className="bg-amber-500/20 text-amber-200 px-2 py-0.5 rounded text-[11px] font-bold border border-amber-400/40 shrink-0">
-              المطلوب: {totalInInvoiceCurrency.toFixed(2)} {currentActiveCurrency.symbol}
+              المطلوب: {totalInInvoiceCurrency.toFixed(2)} {currentActiveCurrency.symbol} ≈ {invoiceBase.toFixed(2)} ₪
             </div>
           )}
         </div>
