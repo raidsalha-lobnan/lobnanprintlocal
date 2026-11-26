@@ -3,6 +3,7 @@ import type { Invoice, InvoiceItem } from '../types';
 import { PrintHeader } from './common/PrintHeader';
 import { OfficialStamp } from './common/OfficialStamp';
 import { formatDateDisplay } from '../utils/dateUtils';
+import { displayDimension, hasVisibleInvoiceDimensions } from '../utils/invoiceDimensions';
 
 /** Display only: source is the cashier's invoice item array, in its saved order. */
 interface SalesInvoicePrintPageProps {
@@ -80,6 +81,7 @@ export const SalesInvoicePrintPage: React.FC<SalesInvoicePrintPageProps> = ({
         <tbody>
           {items.map((it, i) => {
             const note = String(it.notes || it.description || '').trim();
+            const showDimensions = hasVisibleInvoiceDimensions(it);
             return (
               <tr key={`${startIndex + i}-${it.itemId}`}>
                 <td className="sales-invoice-cell-center">{startIndex + i + 1}</td>
@@ -87,9 +89,9 @@ export const SalesInvoicePrintPage: React.FC<SalesInvoicePrintPageProps> = ({
                   <strong>{it.itemName}</strong>
                   {note && note !== it.itemName && <span> / {note}</span>}
                 </td>
-                <td className="sales-invoice-cell-center">{it.length || '—'}</td>
-                <td className="sales-invoice-cell-center">{it.width || '—'}</td>
-                <td className="sales-invoice-cell-center">{it.count ?? '—'}</td>
+                <td className="sales-invoice-cell-center">{displayDimension(it.length, showDimensions)}</td>
+                <td className="sales-invoice-cell-center">{displayDimension(it.width, showDimensions)}</td>
+                <td className="sales-invoice-cell-center">{displayDimension(it.count, showDimensions)}</td>
                 <td className="sales-invoice-cell-center sales-invoice-quantity">{it.quantity}</td>
                 <td className="sales-invoice-cell-number">{amount(it.unitPrice)}</td>
                 <td className="sales-invoice-cell-number sales-invoice-total">{amount(it.total)}</td>
