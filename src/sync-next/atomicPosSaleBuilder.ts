@@ -153,6 +153,7 @@ export function buildNewAtomicPosSale(input:Inputs):{posting:AtomicInvoicePostin
   const declared=quote?0:money(nonnegative(Number(options.paidAmount??
     (explicit>0?round(explicit/fx):input.paymentMethod==='credit'?0:total)),'PAID_AMOUNT'),'PAID_AMOUNT');
   const paid=explicit>0?round(explicit/fx):declared;
+  if(explicit>0&&paid<=0)throw new Error('POS_TENDER_BELOW_INVOICE_MINOR_UNIT');
   if(explicit>0&&Math.abs(declared-paid)>0.001)
     throw new Error('POS_PAYMENT_SPLIT_DOES_NOT_MATCH_PAID_AMOUNT');
   const paidBase=money(paid*fx,'BASE_PAID');
@@ -188,10 +189,10 @@ export function buildNewAtomicPosSale(input:Inputs):{posting:AtomicInvoicePostin
     customerName:input.customerName,items:invoiceItems,subtotal,discountTotal,
     taxRate:vat,taxAmount:tax,totalAmount:total,paidAmount:paid,
     remainingAmount:remaining,paymentMethod:input.paymentMethod,
-    status:remaining<=0?'paid':paid>0?'partial':'unpaid',
+    status:baseOutstanding<=0?'paid':selectedPayment>0?'partial':'unpaid',
     paymentStatus:computeInvoicePaymentStatus({
-      paymentMethod:input.paymentMethod,totalAmount:total,paidAmount:paid,
-      remainingAmount:remaining,cashPaidAmount:cash,bankPaidAmount:bank,
+      paymentMethod:input.paymentMethod,totalAmount:baseTotal,paidAmount:selectedPayment,
+      remainingAmount:baseOutstanding,cashPaidAmount:cashBase,bankPaidAmount:bankBase,
       explicitPaymentStatus:options.paymentStatus
     }),workflowStatus:wf,notes:notes||'',
     additionalCharges:charges,representative:options.representative,
