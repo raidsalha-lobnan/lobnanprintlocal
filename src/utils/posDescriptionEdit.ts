@@ -47,6 +47,8 @@ type PosEditOptions = {
   exchangeRate?:number;
   cashPaidAmount?:number;
   bankPaidAmount?:number;
+  cashCurrency?:string;bankCurrency?:string;
+  cashExchangeRate?:number;bankExchangeRate?:number;
   cashTreasuryCode?:string;
   bankTreasuryCode?:string;
   treasuryAccountCode?:string;
@@ -110,6 +112,8 @@ export function preparePosDescriptionOnlyEdit(
   // default UI treasury selector only when that payment leg is precisely zero.
   const cash=originalPayment(original,'cash');
   const bank=originalPayment(original,'bank');
+  if((cash>0&&original.cashCurrency&&(!textEquals(options.cashCurrency,original.cashCurrency)||!numberEquals(options.cashExchangeRate,original.cashExchangeRate,1)))||
+     (bank>0&&original.bankCurrency&&(!textEquals(options.bankCurrency,original.bankCurrency)||!numberEquals(options.bankExchangeRate,original.bankExchangeRate,1))))return null;
   if((cash>0&&treasury(options.cashTreasuryCode||'CASH-1101')!==
        treasury(original.cashTreasuryCode||original.treasuryAccountCode||'CASH-1101'))||
      (bank>0&&treasury(options.bankTreasuryCode)!==
