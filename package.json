@@ -18,7 +18,7 @@
     "verify:clean": "node scripts/verify-clean-source.cjs",
     "build:shared-pos": "esbuild src/sync-next/atomicPosSaleBuilder.ts --bundle --platform=node --format=esm --target=node20 --outfile=local-server/atomic-pos-builder.compiled.mjs",
     "prebuild": "npm run build:shared-pos",
-    "prebuild:exe": "node scripts/assert-desktop-build-env.cjs && npm run build:shared-pos && npm run setup:desktop-updater",
+    "prebuild:exe": "node scripts/assert-desktop-build-env.cjs && npm run build:shared-pos && npm run setup:desktop-updater && node scripts/build-native-update-helper.cjs",
     "setup:desktop-updater": "npm install --save-exact --ignore-scripts --no-audit --no-fund electron-updater@6.8.10"
   },
   "build": {
@@ -30,7 +30,9 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "!electron/LobnanUpdateHelper.exe",
+      "!electron/native-update-helper.cs"
     ],
     "win": {
       "target": [
@@ -50,6 +52,12 @@
       {
         "provider": "generic",
         "url": "https://github.com/raidsalha-lobnan/lobnanprintlocal/releases/latest/download"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "electron/LobnanUpdateHelper.exe",
+        "to": "LobnanUpdateHelper.exe"
       }
     ]
   },
