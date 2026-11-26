@@ -137,25 +137,29 @@ export function buildNewAtomicPosSale(input:Inputs):{posting:AtomicInvoicePostin
   const wf=options.workflowStatus||'new';
   const posted=isInvoiceAccountingEligible(wf);
   const quote=wf==='quotation';
-  const paid=quote?0:money(nonnegative(Number(options.paidAmount??
-    (input.paymentMethod==='credit'?0:total)),'PAID_AMOUNT'),'PAID_AMOUNT');
-  if(paid>total)throw new Error('POS_OVERPAYMENT_REQUIRES_SEPARATE_CREDIT_WORKFLOW');
-  const remaining=round(total-paid);
-  const cash=nonnegative(Number(options.cashPaidAmount??0),'CASH_PAID');
-  const bank=nonnegative(Number(options.bankPaidAmount??0),'BANK_PAID');
-  const cashRate=positive(Number(options.cashExchangeRate??fx),'CASH_RATE');
-  const bankRate=positive(Number(options.bankExchangeRate??fx),'BANK_RATE');
+  const cash=money(nonnegative(Number(options.cashPaidAmount??0),'CASH_PAID'),'CASH_PAID');
+  const bank=money(nonnegative(Number(options.bankPaidAmount??0),'BANK_PAID'),'BANK_PAID');
+  const invoiceCurrency=options.currency||'ILS';
+  const cashCurrency=options.cashCurrency||invoiceCurrency;
+  const bankCurrency=options.bankCurrency||invoiceCurrency;
+  const cashRate=positive(Number(options.cashExchangeRate??(cashCurrency==='ILS'?1:fx)),'CASH_RATE');
+  const bankRate=positive(Number(options.bankExchangeRate??(bankCurrency==='ILS'?1:fx)),'BANK_RATE');
+  if((invoiceCurrency==='ILS'&&fx!==1)||(cash>0&&cashCurrency==='ILS'&&cashRate!==1)||(bank>0&&bankCurrency==='ILS'&&bankRate!==1))
+    throw new Error('POS_BASE_CURRENCY_RATE_MUST_BE_ONE');
   const cashBase=money(cash*cashRate,'BASE_CASH');
   const bankBase=money(bank*bankRate,'BASE_BANK');
-  const paidBase=money(paid*fx,'BASE_PAID');
   const explicit=round(cashBase+bankBase);
-  if(explicit>0&&Math.abs(explicit-paidBase)>Math.max(0.011,fx*0.005+0.005))
+  if(quote&&explicit>0)throw new Error('POS_QUOTATION_CANNOT_HAVE_PAYMENT');
+  const declared=quote?0:money(nonnegative(Number(options.paidAmount??
+    (explicit>0?round(explicit/fx):input.paymentMethod==='credit'?0:total)),'PAID_AMOUNT'),'PAID_AMOUNT');
+  const paid=explicit>0?round(explicit/fx):declared;
+  if(explicit>0&&Math.abs(declared-paid)>0.001)
     throw new Error('POS_PAYMENT_SPLIT_DOES_NOT_MATCH_PAID_AMOUNT');
-  if(quote&&(cashBase>0||bankBase>0))
-    throw new Error('POS_QUOTATION_CANNOT_HAVE_PAYMENT');
+  const paidBase=money(paid*fx,'BASE_PAID');
   const selectedPayment=explicit>0?explicit:paidBase;
+  if(selectedPayment>baseTotal||paid>total)throw new Error('POS_OVERPAYMENT_REQUIRES_SEPARATE_CREDIT_WORKFLOW');
+  const remaining=round(total-paid);
   const baseOutstanding=round(baseTotal-selectedPayment);
-  if(baseOutstanding<0)throw new Error('POS_INVALID_BASE_PAYMENT');
   const requestedSubName=cleanSubCustomerName(options.subCustomerName||
     options.customCustomerText||'');
   const partyChanges:ProposedChange[]=[];
@@ -196,8 +200,8 @@ export function buildNewAtomicPosSale(input:Inputs):{posting:AtomicInvoicePostin
     currency:options.currency||'ILS',currencySymbol:options.currencySymbol||'₪',
     exchangeRate:fx,baseTotalAmount:baseTotal,basePaidAmount:selectedPayment,
     cashPaidAmount:cash,bankPaidAmount:bank,
-    cashCurrency:options.cashCurrency||options.currency||'ILS',bankCurrency:options.bankCurrency||options.currency||'ILS',
-    cashExchangeRate:cashRate,bankExchangeRate:bankRate,cashBaseAmount:cashBase,bankBaseAmount:bankBase,baseRemainingAmount:baseOutstanding,
+    ...(explicit>0?{cashCurrency,bankCurrency,cashExchangeRate:cashRate,bankExchangeRate:bankRate,cashBaseAmount:cashBase,bankBaseAmount:bankBase}:{}),
+    baseRemainingAmount:baseOutstanding,
     cashTreasuryCode:options.cashTreasuryCode,bankTreasuryCode:options.bankTreasuryCode,
     treasuryAccountCode:options.treasuryAccountCode,
     subCustomerId,subCustomerName,subCustomerPhone:options.subCustomerPhone,
