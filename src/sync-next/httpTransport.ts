@@ -174,6 +174,19 @@ export class LocalHttpSyncTransport implements SyncTransport {
     });
   }
   async push(cmd:SyncCommand):Promise<CommitReceipt>{
+    // New tender currency metadata must never be committed by an older server
+    // that attributes all receipts to the invoice currency. A retryable error
+    // leaves the immutable command in the durable local outbox.
+    if(cmd.changes.some(c=>{
+      if(c.entity!=='invoices'||!c.value)return false;
+      const v=c.value as unknown as Invoice, currency=v.currency||'ILS';
+      return (Number(v.cashPaidAmount||0)>0&&!!v.cashCurrency&&v.cashCurrency!==currency)||
+             (Number(v.bankPaidAmount||0)>0&&!!v.bankCurrency&&v.bankCurrency!==currency);
+    })){
+      const head=await this.request<{posTenderCurrencyVersion?:number}>('head?workspace='+encodeURIComponent(this.workspaceId));
+      if(head.posTenderCurrencyVersion!==1)throw Error('POS_TENDER_CURRENCY_SERVER_UPDATE_REQUIRED: بقيت الفاتورة محفوظة محليًا، ويلزم تحديث الخادم قبل ترحيل دفعات العملات المختلفة.');
+    }
+
     if (cmd.invoiceRevision) {
       const [change] = cmd.changes;
       if (cmd.changes.length !== 1 || change.entity !== 'invoices' || !change.value ||
