@@ -172,23 +172,26 @@ test('installer handoff requires worker readiness and verifies the digest again'
  assert.match(script,/APP_PROCESS_STILL_RUNNING/);
  assert.ok(script.indexOf('HELPER_HANDOFF_NOT_AUTHORIZED')<script.indexOf('Start-Process -FilePath $installer'));
 });
-test('Windows helper launcher waits for ready acknowledgement instead of spawn alone',async()=>{
+test('Windows native helper waits for ready acknowledgement instead of spawn alone',async()=>{
  if(process.platform!=='win32')return;
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lobnan-helper-handshake-'));
  const {EventEmitter}=require('node:events');
  try{
+  const helperSource=path.join(dir,'fixture-helper.exe');
+  fs.writeFileSync(helperSource,'fixture only');
   const launched=await startDetachedInstaller({
    oldPid:process.pid,installer:path.join(dir,'LobnanPrint-Setup-1.1.80.exe'),
-   appExecutable:path.join(dir,'LobnanPrint.exe'),expectedVersion:'1.1.80'
+   appExecutable:path.join(dir,'LobnanPrint.exe'),expectedVersion:'1.1.80',expectedDigest:'a'.repeat(64),helperSource
   },(exe,args,options)=>{
-   assert.match(exe,/WindowsPowerShell[\\/]v1\.0[\\/]powershell\.exe$/i);
+   assert.match(exe,/helper-[a-f0-9]+\.exe$/);
+   assert.equal(fs.readFileSync(exe,'utf8'),'fixture only');
    assert.equal(options.detached,true);
-   const worker=Buffer.from(args.at(-1),'base64').toString('utf16le');
-   assert.match(worker,/Start-Process -FilePath \$installer/);
-   assert.doesNotMatch(worker,/-EncodedCommand/);
-   assert.equal(typeof options.stdio[1],'number');
-   const ready=worker.match(/\$ready = '([^']+)'/)[1];
-   assert.equal(fs.existsSync(ready.replace(/\.ready$/,'.go')),false);
+   assert.equal(args[0],String(process.pid));
+   assert.equal(args[3],'1.1.80');
+   assert.equal(args[4],'a'.repeat(64));
+   assert.equal(args[6],'silent');
+   const ready=args[5]+'.ready';
+   assert.equal(fs.existsSync(args[5]+'.go'),false);
    const child=new EventEmitter();
    child.unref=()=>{};
    setTimeout(()=>{fs.writeFileSync(ready,'HELPER_READY');},100);
