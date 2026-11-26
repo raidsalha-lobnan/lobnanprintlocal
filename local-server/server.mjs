@@ -7,6 +7,7 @@ import pg from 'pg';
 import {SyncService} from './sync-service.mjs';
 import {revisePostedInvoice} from './invoice-revision-service.mjs';
 import {generateOfficialReportPdf} from './official-report-renderer.mjs';
+import {renderPrintSurfacePdf} from './print-surface-pdf.mjs';
 import {TelegramDelivery} from './telegram-delivery.mjs';
 import {TelegramHub} from './telegram-hub.mjs';
 import {TelegramMiniPos} from './telegram-mini-pos.mjs';
@@ -364,6 +365,25 @@ const srv=http.createServer(async(req,res)=>{
       const ok=await telegramHub.ackInbox(payload?.updateId,payload?.leaseToken);
       if(!ok)throw new InputError('TELEGRAM_INBOX_LEASE_EXPIRED',409);
       return json(res,200,{ok:true},cors);
+    }
+    if(req.method==='POST' && url.pathname==='/api/v1/reports/print-surface-pdf'){
+      // Render only the document submitted by an authenticated operator.
+      // No database queries for report content, no external resources or scripts.
+      if(!STRICT_AUTH||!access?.can('view'))throw new InputError('REPORT_PDF_PERMISSION_DENIED',403);
+      if(officialPdfActive>=2)throw new InputError('REPORT_PDF_BUSY',429);
+      officialPdfActive++;
+      try{
+        const payload=await parseBody(req,64_000_000);
+        const pdf=await renderPrintSurfacePdf(payload);
+        res.writeHead(200,{
+          'content-type':'application/pdf','content-length':pdf.length,
+          'content-disposition':'attachment; filename="document.pdf"',
+          'cache-control':'no-store, private','x-content-type-options':'nosniff',
+          'access-control-allow-origin':cors||'','vary':'Origin'
+        });
+        res.end(pdf);
+      }finally{officialPdfActive--;}
+      return;
     }
     if(req.method==='POST' && url.pathname==='/api/v1/reports/official-pdf'){
       // Chrome headless prints the existing React report with @media print,
