@@ -65,10 +65,10 @@ export const PaymentVouchersView: React.FC = () => {
 
   // Statistics
   const todayIso = new Date().toISOString().split('T')[0];
-  const totalAmount = paymentVouchers.reduce((sum, v) => sum + v.amount, 0);
-  const todayAmount = paymentVouchers.filter(v => v.date === todayIso).reduce((sum, v) => sum + v.amount, 0);
-  const cashTotal = paymentVouchers.filter(v => v.paymentMethod === 'cash').reduce((sum, v) => sum + v.amount, 0);
-  const bankTotal = paymentVouchers.filter(v => v.paymentMethod === 'bank_transfer' || v.paymentMethod === 'cheque').reduce((sum, v) => sum + v.amount, 0);
+  const totalAmount = paymentVouchers.reduce((sum, v) => sum + (v.baseAmount ?? v.amount * (v.exchangeRate || 1)), 0);
+  const todayAmount = paymentVouchers.filter(v => v.date === todayIso).reduce((sum, v) => sum + (v.baseAmount ?? v.amount * (v.exchangeRate || 1)), 0);
+  const cashTotal = paymentVouchers.filter(v => v.paymentMethod === 'cash').reduce((sum, v) => sum + (v.baseAmount ?? v.amount * (v.exchangeRate || 1)), 0);
+  const bankTotal = paymentVouchers.filter(v => v.paymentMethod === 'bank_transfer' || v.paymentMethod === 'cheque').reduce((sum, v) => sum + (v.baseAmount ?? v.amount * (v.exchangeRate || 1)), 0);
 
   const getMethodBadge = (method: string) => {
     switch (method) {
