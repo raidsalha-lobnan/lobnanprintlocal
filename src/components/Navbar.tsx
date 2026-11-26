@@ -408,14 +408,6 @@ export const Navbar: React.FC = () => {
           icon: BookOpenCheck,
           badge: 'مزدوج',
           badgeColor: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-        },
-        {
-          id: 'sync_statement',
-          label: '6. سند وتدقيق المزامنة مع السيرفر',
-          sublabel: 'كشف تفصيلي بما تم نقله للسيرفر وما تم جلبه وما لم يتم نقله وسجل الأخطاء',
-          icon: Activity,
-          badge: pendingSyncCount > 0 ? `${pendingSyncCount} معلق` : null,
-          badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
         }
       ]
     },
@@ -540,6 +532,14 @@ export const Navbar: React.FC = () => {
           label: '3. التشغيل المحلي وربط خادم SQL',
           sublabel: 'إعدادات الاتصال المباشر بقاعدة بيانات SQL المحلية',
           icon: Layers
+        },
+        {
+          id: 'sync_statement',
+          label: 'سند وتدقيق المزامنة مع السيرفر',
+          sublabel: 'كشف تفصيلي بما تم نقله للسيرفر وما تم جلبه وما لم يتم نقله وسجل الأخطاء',
+          icon: Activity,
+          badge: pendingSyncCount > 0 ? `${pendingSyncCount} معلق` : null,
+          badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
         },
         { id: 'action_local_database', label: 'القاعدة المحلية والاتصال', icon: HardDrive },
         { id: 'action_import_master_snapshot', label: 'استيعاب النسخة الرئيسية (إجراء إداري)', icon: Database },
@@ -684,7 +684,7 @@ export const Navbar: React.FC = () => {
     if (section.id === 'hr_menu' && ['employees', 'employees_adjustments', 'employees_payroll'].includes(activeTab)) return true;
     if (section.id === 'finance_accounting_menu' && ['branches', 'warehouses', 'treasuries', 'debt_clearing', 'accounting'].includes(activeTab)) return true;
     if (section.id === 'reports_menu' && (activeTab === 'reports' || activeTab.startsWith('report_'))) return true;
-    if (section.id === 'settings_menu' && (activeTab === 'settings' || activeTab.startsWith('settings_') || activeTab === 'users_permissions' || activeTab === 'audit_log')) return true;
+    if (section.id === 'settings_menu' && (activeTab === 'settings' || activeTab.startsWith('settings_') || activeTab === 'users_permissions' || activeTab === 'audit_log' || activeTab === 'sync_statement' || activeTab === 'sync_audit')) return true;
     return section.items.some(item => item.id === activeTab);
   };
 
