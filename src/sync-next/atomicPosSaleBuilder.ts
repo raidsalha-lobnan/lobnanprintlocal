@@ -16,7 +16,7 @@ type Options = {
   date?:string;invoiceNumber?:string;taxRate?:number;overallDiscount?:number;
   additionalCharges?:number;paidAmount?:number;currency?:string;currencySymbol?:string;
   exchangeRate?:number;cashPaidAmount?:number;bankPaidAmount?:number;
-  cashExchangeRate?:number;bankExchangeRate?:number;cashTreasuryCode?:string;
+  cashExchangeRate?:number;bankExchangeRate?:number;cashCurrency?:string;bankCurrency?:string;cashTreasuryCode?:string;
   bankTreasuryCode?:string;treasuryAccountCode?:string;
   subCustomerId?:string;subCustomerName?:string;customCustomerText?:string;
   subCustomerPhone?:string;counterpartyType?:'customer'|'supplier'|'employee';
@@ -149,7 +149,7 @@ export function buildNewAtomicPosSale(input:Inputs):{posting:AtomicInvoicePostin
   const bankBase=money(bank*bankRate,'BASE_BANK');
   const paidBase=money(paid*fx,'BASE_PAID');
   const explicit=round(cashBase+bankBase);
-  if(explicit>0&&Math.abs(explicit-paidBase)>0.01)
+  if(explicit>0&&Math.abs(explicit-paidBase)>Math.max(0.011,fx*0.005+0.005))
     throw new Error('POS_PAYMENT_SPLIT_DOES_NOT_MATCH_PAID_AMOUNT');
   if(quote&&(cashBase>0||bankBase>0))
     throw new Error('POS_QUOTATION_CANNOT_HAVE_PAYMENT');
@@ -196,6 +196,8 @@ export function buildNewAtomicPosSale(input:Inputs):{posting:AtomicInvoicePostin
     currency:options.currency||'ILS',currencySymbol:options.currencySymbol||'₪',
     exchangeRate:fx,baseTotalAmount:baseTotal,basePaidAmount:selectedPayment,
     cashPaidAmount:cash,bankPaidAmount:bank,
+    cashCurrency:options.cashCurrency||options.currency||'ILS',bankCurrency:options.bankCurrency||options.currency||'ILS',
+    cashExchangeRate:cashRate,bankExchangeRate:bankRate,cashBaseAmount:cashBase,bankBaseAmount:bankBase,baseRemainingAmount:baseOutstanding,
     cashTreasuryCode:options.cashTreasuryCode,bankTreasuryCode:options.bankTreasuryCode,
     treasuryAccountCode:options.treasuryAccountCode,
     subCustomerId,subCustomerName,subCustomerPhone:options.subCustomerPhone,
