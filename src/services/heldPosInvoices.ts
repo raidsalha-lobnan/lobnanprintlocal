@@ -32,6 +32,21 @@ export function heldSnapshotsMatch(expected:unknown,actual:unknown):boolean{
   };
   return canonical(expected)===canonical(actual);
 }
+// A matching ID alone is not proof that the latest local version was saved.
+export function mergeHeldRecovery<T extends {id:string;localOnly?:boolean}>(remote:T[],pending:T[]):T[]{
+  const merged=[...remote];
+  for(const local of pending){
+    if(!local?.localOnly||!local.id)continue;
+    const index=merged.findIndex(row=>row.id===local.id);
+    if(index<0){merged.push(local);continue;}
+    const expected=JSON.parse(JSON.stringify({...local,localOnly:false}));
+    if(!heldSnapshotsMatch(expected,merged[index])){
+      // Keep the unconfirmed local version visible, without overwriting the server.
+      merged[index]=local;
+    }
+  }
+  return merged;
+}
 export async function saveCentralHeldInvoice<T extends {id:string}>(kind:HeldPosKind,held:T):Promise<void>{
   // Freeze exactly what travels over JSON, including nested attachments and zero values.
   const snapshot=JSON.parse(JSON.stringify(held)) as T;
