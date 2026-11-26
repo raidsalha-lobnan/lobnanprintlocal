@@ -139,28 +139,29 @@ function powershellInstallCommand({oldPid,installer,appExecutable,expectedVersio
   'if ($outcome -eq "VERIFIED_INSTALLED") { exit 0 } else { exit 6 }'
  ].join('\r\n');
 }
-async function startDetachedInstaller({oldPid,installer,appExecutable,expectedVersion,interactive=false,expectedDigest},launch=spawn){
+async function startDetachedInstaller({oldPid,installer,appExecutable,expectedVersion,interactive=false,expectedDigest,helperSource},launch=spawn){
  if(process.platform!=='win32')return false;
  const dir=path.dirname(installer);
  const handshake=path.join(dir,'helper-'+crypto.randomBytes(12).toString('hex'));
- const systemRoot=process.env.SystemRoot||process.env.WINDIR||'C:\\Windows';
- const executable=path.join(systemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
- const ps=powershellInstallCommand({oldPid,installer,appExecutable,expectedVersion,interactive,expectedDigest,handshake});
- const encoded=Buffer.from(ps,'utf16le').toString('base64');
- // One PowerShell worker, not an encoded PowerShell command nested inside
- // another encoded command. Avoid bootstrap quoting and command-length failures.
  const launcherLog=path.join(dir,'install-launcher.log');
  let fd,child,launchError=null,exited=false;
  const note=message=>{try{fs.appendFileSync(launcherLog,new Date().toISOString()+' '+message+'\n');}catch{}};
  try{
+  const packaged=process.resourcesPath&&path.join(process.resourcesPath,'LobnanUpdateHelper.exe');
+  const source=helperSource||(packaged&&fs.existsSync(packaged)?packaged:path.join(__dirname,'LobnanUpdateHelper.exe'));
+  if(!/^[a-f0-9]{64}$/i.test(expectedDigest||''))throw Error('NATIVE_HELPER_DIGEST_REQUIRED');
+  // Copy outside the installation directory before starting, avoiding locks
+  // on files NSIS must replace. Never execute a cache copy from an old run.
+  const executable=handshake+'.exe';
+  fs.copyFileSync(source,executable,fs.constants.COPYFILE_EXCL);
   fd=fs.openSync(launcherLog,'a');
-  note('WORKER_START '+expectedVersion);
-  child=launch(executable,['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',encoded],{
+  note('NATIVE_WORKER_START '+expectedVersion);
+  child=launch(executable,[String(oldPid),installer,appExecutable,expectedVersion,expectedDigest,handshake,interactive?'interactive':'silent'],{
    detached:true,stdio:['ignore',fd,fd],windowsHide:true,cwd:dir
   });
-  child.once('error',error=>{launchError=error;note('WORKER_ERROR '+String(error));});
-  child.once('exit',(code,signal)=>{exited=true;note('WORKER_EXIT '+code+' '+(signal||''));});
- }catch(error){note('SPAWN_FAILED '+String(error));return false;}
+  child.once('error',error=>{launchError=error;note('NATIVE_WORKER_ERROR '+String(error));});
+  child.once('exit',(code,signal)=>{exited=true;note('NATIVE_WORKER_EXIT '+code+' '+(signal||''));});
+ }catch(error){note('NATIVE_SPAWN_FAILED '+String(error));return false;}
  finally{if(fd!==undefined)fs.closeSync(fd);}
  const deadline=Date.now()+30000;
  while(Date.now()<deadline){
