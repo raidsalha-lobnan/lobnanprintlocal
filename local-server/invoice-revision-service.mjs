@@ -129,6 +129,8 @@ export async function revisePostedInvoice(service,workspace,request,actorId,acce
     proposedRate:rate,manualReviewRequired:true,
     reason:'Foreign currency rate change for a settled payment requires verified FX settlement and gain/loss accounting'
    });
+  const distinctTender=v=>((v.cashPaidAmount||0)>0&&v.cashCurrency&&v.cashCurrency!==(v.currency||'ILS'))||((v.bankPaidAmount||0)>0&&v.bankCurrency&&v.bankCurrency!==(v.currency||'ILS'));
+  if(distinctTender(invoice)||distinctTender(proposed))throw new InputError('INVOICE_REVISION_MULTICURRENCY_TENDER_REQUIRES_REVIEW',409,{invoiceNumber:invoice.invoiceNumber,manualReviewRequired:true});
   try{validateProposedInvoice(proposed,{original:invoice});}
   catch(error){throw new InputError('INVOICE_REVISION_INVALID_ARITHMETIC',422,
    {reason:String(error.message)});}
