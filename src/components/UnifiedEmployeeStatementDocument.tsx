@@ -159,7 +159,7 @@ export const UnifiedEmployeeStatementDocument: React.FC<Props> = ({
                                     </td>
                                     <td className="text-center font-mono border-l border-slate-200">{displayDimension(item.length, hasVisibleInvoiceDimensions(item))}</td>
                                     <td className="text-center font-mono border-l border-slate-200">{displayDimension(item.width, hasVisibleInvoiceDimensions(item))}</td>
-                                    <td className="text-center font-mono border-l border-slate-200">{hasVisibleInvoiceDimensions(item) ? item.count || 1 : '—'}</td>
+                                    <td className="text-center font-mono border-l border-slate-200">{displayDimension(item.count, hasVisibleInvoiceDimensions(item))}</td>
                                     <td className="text-center font-mono border-l border-slate-200 font-bold">{item.quantity}</td>
                                     <td className="text-left font-mono border-l border-slate-200">{number(item.unitPrice)}</td>
                                     <td className="text-left font-mono font-bold">{number(item.total)}</td>
