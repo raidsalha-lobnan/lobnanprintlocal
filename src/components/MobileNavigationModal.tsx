@@ -316,7 +316,6 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
           icon: Store,
           perm: 'view_settings'
         },
-        { id: 'sync_statement', label: 'تفاصيل وتدقيق المزامنة', icon: History, perm: 'view_accounting' },
         {
           id: 'accounting',
           label: '4. القيود المحاسبية ودليل الحسابات',
@@ -423,6 +422,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
           icon: Layers,
           perm: 'view_settings'
         },
+        { id: 'sync_statement', label: 'سند وتدقيق المزامنة مع السيرفر', icon: History, perm: 'view_accounting' },
         { id: 'action_local_database', label: 'القاعدة المحلية والاتصال', icon: Layers, perm: 'view_settings' },
         { id: 'action_import_master_snapshot', label: 'استيعاب النسخة الرئيسية (إجراء إداري)', icon: Download, perm: 'view_settings' },
         { id: 'audit_log', label: 'سجل العمليات والتدقيق', icon: History, perm: 'view_settings' },
