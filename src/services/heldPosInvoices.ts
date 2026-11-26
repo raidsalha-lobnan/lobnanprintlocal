@@ -20,9 +20,25 @@ export async function listCentralHeldInvoices<T>(kind:HeldPosKind):Promise<T[]>{
   if(!Array.isArray(result.items))throw new Error('HELD_INVOICE_INVALID_LIST');
   return result.items;
 }
+// PostgreSQL jsonb can reorder keys, but must preserve every value and array entry.
+export function heldSnapshotsMatch(expected:unknown,actual:unknown):boolean{
+  const canonical=(value:unknown):string=>{
+    if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
+    if(value!==null&&typeof value==='object'){
+      const record=value as Record<string,unknown>;
+      return '{'+Object.keys(record).sort().map(key=>JSON.stringify(key)+':'+canonical(record[key])).join(',')+'}';
+    }
+    return JSON.stringify(value)??'null';
+  };
+  return canonical(expected)===canonical(actual);
+}
 export async function saveCentralHeldInvoice<T extends {id:string}>(kind:HeldPosKind,held:T):Promise<void>{
-  const receipt=await heldRequest<{id:string;saved:boolean}>('POST','',{kind,held});
-  if(receipt.id!==held.id||receipt.saved!==true)throw new Error('HELD_INVOICE_RECEIPT_MISMATCH');
+  // Freeze exactly what travels over JSON, including nested attachments and zero values.
+  const snapshot=JSON.parse(JSON.stringify(held)) as T;
+  const receipt=await heldRequest<{id:string;saved:boolean}>('POST','',{kind,held:snapshot});
+  if(receipt.id!==snapshot.id||receipt.saved!==true)throw new Error('HELD_INVOICE_RECEIPT_MISMATCH');
+  const stored=(await listCentralHeldInvoices<T>(kind)).find(row=>row.id===snapshot.id);
+  if(!stored||!heldSnapshotsMatch(snapshot,stored))throw new Error('HELD_INVOICE_SNAPSHOT_MISMATCH');
 }
 export async function deleteCentralHeldInvoice(id:string):Promise<void>{
   const receipt=await heldRequest<{id:string;deleted:boolean}>('DELETE','/'+encodeURIComponent(id));
