@@ -176,12 +176,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
     setInvoiceCurrency(currCode);
     const curr = currencies.find(c => c.code === currCode);
     const rate=currCode==='ILS'?1:curr?.rateAgainstBase||1;
-    const oldRate=invoiceExchangeRate>0?invoiceExchangeRate:1;
-    setItems(prev=>prev.map(row=>row.itemId?{
-      ...row,
-      unitPrice:Number((row.unitPrice*oldRate/rate).toFixed(4)),
-      discount:Number((row.discount*oldRate/rate).toFixed(2))
-    }:row));
+    // Currency selection defines the unit of the entered values; never reprice the draft.
     setInvoiceExchangeRate(rate);
     setCashPurchasePayment(prev=>prev.currency===currCode?{...prev,rate}:prev);
     setBankPurchasePayment(prev=>prev.currency===currCode?{...prev,rate}:prev);
