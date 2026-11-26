@@ -310,7 +310,7 @@ export const UnifiedPartyStatementDocument: React.FC<UnifiedPartyStatementProps>
                                           </td>
                                           <td className="text-center font-mono text-slate-800 border-l border-slate-200">{displayDimension(it.length, hasVisibleInvoiceDimensions(it))}</td>
                                           <td className="text-center font-mono text-slate-800 border-l border-slate-200">{displayDimension(it.width, hasVisibleInvoiceDimensions(it))}</td>
-                                          <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{hasVisibleInvoiceDimensions(it) ? (it.count || 1) : '-'}</td>
+                                          <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{displayDimension(it.count, hasVisibleInvoiceDimensions(it))}</td>
                                           <td className="text-center font-mono font-bold text-slate-900 border-l border-slate-200">
                                             {it.quantity}
                                           </td>
