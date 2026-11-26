@@ -10,6 +10,7 @@ const invoiceFields=['date','type','customerId','counterpartyType','counterparty
  'paymentMethod','status','notes','currency','currencySymbol','exchangeRate',
  'additionalCharges','warehouse','branchId','subCustomerId','cashPaidAmount',
  'bankPaidAmount','cashBaseAmount','bankBaseAmount',
+ 'cashCurrency','bankCurrency','cashExchangeRate','bankExchangeRate',
  'cashTreasuryCode','bankTreasuryCode',
  'representative','paymentNotes','customCustomerText','subCustomerName',
  'subCustomerPhone','branch','workflowStatus','paymentStatus','deliveryDate'];
