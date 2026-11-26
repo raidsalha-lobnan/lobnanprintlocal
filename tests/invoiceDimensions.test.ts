@@ -41,7 +41,7 @@ test('print statement replaces length, width and count with dashes for ordinary 
   assert.equal(show,false);
   assert.equal(displayDimension(item.length,show),'-');
   assert.equal(displayDimension(item.width,show),'-');
-  assert.equal(show ? item.count : '-', '-');
+  assert.equal(displayDimension(item.count,show),'-');
   assert.equal(item.quantity,2);
   assert.equal(item.unitPrice,5);
  }
@@ -53,5 +53,5 @@ test('print statement keeps real lengths, widths and count for measured items',(
  assert.equal(show,true);
  assert.equal(displayDimension(item.length,show),'2');
  assert.equal(displayDimension(item.width,show),'1.5');
- assert.equal(show ? item.count : '-',3);
+ assert.equal(displayDimension(item.count,show),'3');
 });
