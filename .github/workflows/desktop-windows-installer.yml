@@ -29,6 +29,7 @@ on:
       - 'scripts/check-packaged-sqlite.cjs'
       - 'scripts/smoke-original-print-pdf.mjs'
       - 'scripts/smoke-windows-update-handoff.cjs'
+      - 'scripts/build-native-update-helper.cjs'
       - 'package.json'
       - '.github/workflows/desktop-windows-installer.yml'
 
@@ -61,7 +62,9 @@ jobs:
         run: node --import tsx --test tests/desktop-sqlite-mirror.test.ts tests/pos-attempt-indexeddb.test.ts
       - name: Test SHA256-verified unattended updates and strict next-start install guard
         run: node --test tests/desktop-auto-update.test.cjs
-      - name: Verify actual Electron to PowerShell installer handoff and automatic reopen
+      - name: Compile standalone Windows update helper
+        run: node scripts/build-native-update-helper.cjs
+      - name: Verify actual Electron to native installer handoff and automatic reopen
         run: node scripts/smoke-windows-update-handoff.cjs
       - name: Test native and browser install actions and SQLite status control
         run: node --test tests/desktop-install-ui.test.mjs
@@ -90,6 +93,7 @@ jobs:
           if (!(Test-Path 'dist-electron/win-unpacked/resources/app.asar')) {
             throw 'WINDOWS_APPLICATION_BUNDLE_MISSING'
           }
+          if (!(Test-Path 'dist-electron/win-unpacked/resources/LobnanUpdateHelper.exe')) { throw 'NATIVE_UPDATE_HELPER_NOT_PACKAGED' }
           Write-Host 'SQLITE_TESTED_APPLICATION_PACKAGE_PRESENT'
       - name: Validate installer before publication
         shell: pwsh
