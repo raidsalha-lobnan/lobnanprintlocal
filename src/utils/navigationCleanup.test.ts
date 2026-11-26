@@ -88,3 +88,13 @@ test('redundant shortcut tags and unverified scanner-connected notice removed',(
  assert.doesNotMatch(inventory,/الماسح متصل/);
  assert.match(inventory,/setShowBarcodeScanner/);
 });
+
+test('sync audit appears once in settings rather than finance on both layouts',()=>{
+ for(const source of [desktopMenu(),mobile.slice(mobile.indexOf("id: 'control_panel_menu'"),mobile.indexOf('const displaySections'))]){
+  const finance=source.indexOf("id: 'finance_accounting_menu'");
+  const settings=source.indexOf("id: 'settings_menu'");
+  const audit=source.indexOf("id: 'sync_statement'");
+  assert.ok(finance>=0&&settings>finance&&audit>settings);
+  assert.equal((source.match(/id: 'sync_statement'/g)||[]).length,1);
+ }
+});
