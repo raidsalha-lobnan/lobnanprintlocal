@@ -180,7 +180,8 @@ export class LocalHttpSyncTransport implements SyncTransport {
     if(cmd.changes.some(c=>{
       if(c.entity!=='invoices'||!c.value)return false;
       const v=c.value as unknown as Invoice, currency=v.currency||'ILS';
-      return (Number(v.cashPaidAmount||0)>0&&!!v.cashCurrency&&v.cashCurrency!==currency)||
+      return (cmd.atomicInvoiceId&&currency!=='ILS'&&v.baseRemainingAmount!==undefined)||
+             (Number(v.cashPaidAmount||0)>0&&!!v.cashCurrency&&v.cashCurrency!==currency)||
              (Number(v.bankPaidAmount||0)>0&&!!v.bankCurrency&&v.bankCurrency!==currency);
     })){
       const head=await this.request<{posTenderCurrencyVersion?:number}>('head?workspace='+encodeURIComponent(this.workspaceId));
