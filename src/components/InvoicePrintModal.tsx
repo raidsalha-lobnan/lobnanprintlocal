@@ -234,7 +234,7 @@ export const InvoicePrintModal: React.FC = () => {
               <div key={index}
                 className={'sales-invoice-print-wrap' + (index !== salesPageIndex ? ' sales-preview-page-hidden' : '')}>
                 <SalesInvoicePrintPage invoice={inv} items={chunk}
-                  pageIndex={index} pageCount={totalPages} currency={settings.currency}
+                  pageIndex={index} pageCount={totalPages} currency={inv.currencySymbol || settings.currency}
                   treasuries={treasuries} compact={salesMargins === 'compact'} isDraft={isDraftPreview} />
               </div>
             ))}
