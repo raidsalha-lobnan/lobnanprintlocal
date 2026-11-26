@@ -33,7 +33,7 @@ export async function settleAtomicPosPaymentTreasuries(client,workspace,command,
   fail('POS_TREASURY_JOURNAL_PAYMENT_SPLIT_MISMATCH');
  const rawCash=Number(invoice.cashPaidAmount||0),rawBank=Number(invoice.bankPaidAmount||0);
  const anyExplicit=rawCash>0||rawBank>0;
- const amount=Number(invoice.paidAmount||0),currency=String(invoice.currency||'ILS');
+ const amount=Number(invoice.paidAmount||0),invoiceCurrency=String(invoice.currency||'ILS');
  if(!Number.isFinite(amount)||amount<=0||!Number.isFinite(rawCash)||!Number.isFinite(rawBank)||
    rawCash<0||rawBank<0)fail('POS_TREASURY_PAYMENT_AMOUNT_INVALID');
  let cashAmount=rawCash,bankAmount=rawBank;
@@ -47,10 +47,10 @@ export async function settleAtomicPosPaymentTreasuries(client,workspace,command,
   fail('POS_TREASURY_AMOUNT_METHOD_MISMATCH');
  const legs=[
   {kind:'cash',ledger:'1101',code:invoice.cashTreasuryCode||'CASH-1101',
-   amount:cashAmount,base:cashBase},
+   amount:cashAmount,base:cashBase,currency:anyExplicit?(invoice.cashCurrency||invoiceCurrency):invoiceCurrency,rate:anyExplicit?invoice.cashExchangeRate:invoice.exchangeRate},
   {kind:'bank',ledger:'1102',code:invoice.bankTreasuryCode||
    (bankBase>0?invoice.treasuryAccountCode:undefined),
-   amount:bankAmount,base:bankBase}
+   amount:bankAmount,base:bankBase,currency:anyExplicit?(invoice.bankCurrency||invoiceCurrency):invoiceCurrency,rate:anyExplicit?invoice.bankExchangeRate:invoice.exchangeRate}
  ].filter(x=>x.base>0);
  if(legs.some(x=>!x.code||!/^CASH-\d{4,}$/.test(x.code)||
    (x.kind==='cash'&&x.code!=='CASH-1101')||
@@ -59,6 +59,7 @@ export async function settleAtomicPosPaymentTreasuries(client,workspace,command,
  if(legs.some(x=>minor(x.amount)===null||minor(x.amount)<=0||
    !Number.isFinite(x.base/x.amount)||x.base/x.amount<=0))
   fail('POS_TREASURY_EXCHANGE_RATE_INVALID');
+ if(legs.some(x=>!/^[A-Z]{3}$/.test(x.currency)))fail('POS_TREASURY_CURRENCY_INVALID');
  const codes=legs.map(x=>x.code);
  if(new Set(codes).size!==codes.length)fail('POS_TREASURY_DUPLICATE_SELECTION');
  const rows=(await client.query(
@@ -75,6 +76,9 @@ export async function settleAtomicPosPaymentTreasuries(client,workspace,command,
     (leg.kind==='bank'&&v.type==='cash_box'))
    fail('POS_TREASURY_TYPE_OR_STATUS_INVALID');
   const previous=minor(v.balance),base=leg.base,received=minor(leg.amount);
+  const currency=leg.currency;
+  const rate=leg.rate===undefined?money(leg.base)/leg.amount:Number(leg.rate);
+  if(!Number.isFinite(rate)||rate<=0||Math.abs(Math.round(leg.amount*rate*100)-leg.base)>1)fail('POS_TREASURY_EXCHANGE_RATE_MISMATCH');
   const held=minor(v.currencyBalances?.[currency]??
     (currency==='ILS'?v.balance:0));
   if(previous===null||held===null||received===null)
@@ -89,8 +93,8 @@ export async function settleAtomicPosPaymentTreasuries(client,workspace,command,
   const transaction={
    id:transactionId,treasuryId:row.record_id,treasuryName:v.name,
    date,type:'deposit',amount:leg.amount,actualAmount:leg.amount,
-   currency,currencySymbol:invoice.currencySymbol||'₪',
-   exchangeRate:money(base)/leg.amount,
+   currency,currencySymbol:currency==='ILS'?'₪':currency==='USD'?'$':currency==='EUR'?'€':currency==='JOD'?'د.أ':currency,
+   exchangeRate:rate,
    baseCurrency:'ILS',baseAmount:money(base),
    balanceAfter:nextBase,balanceAfterCurrency:nextCurrency,
    referenceType:'pos_sale',referenceId:invoice.id,
