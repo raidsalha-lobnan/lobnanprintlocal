@@ -51,7 +51,7 @@ import { BarcodeScannerModal } from '../BarcodeScannerModal';
 import { matchItemByBarcode } from '../../utils/barcodeGenerator';
 import { posSound } from '../../utils/audio';
 import { isSquareMeterUnit } from '../../utils/unitsOfMeasure';
-import {listCentralHeldInvoices,saveCentralHeldInvoice,deleteCentralHeldInvoice} from '../../services/heldPosInvoices';
+import {listCentralHeldInvoices,saveCentralHeldInvoice,deleteCentralHeldInvoice,mergeHeldRecovery} from '../../services/heldPosInvoices';
 
 interface MobilePosViewProps {
   onSwitchToDesktop?: () => void;
@@ -392,8 +392,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
             }catch(error){console.warn('Mobile hold needs central retry',error);}
           }
           if(changed)remote=await listCentralHeldInvoices<MobileHeldInvoice>('mobile');
-          remote=[...remote,...localPending.filter(h=>h?.localOnly&&
-            !remote.some(r=>r.id===h.id))];
+          remote=mergeHeldRecovery(remote,localPending);
         }
         const ownerKey='pos_mobile_held_legacy_owner_v1';
         const migratedKey='pos_mobile_held_migration_done_v1_'+currentUser.id;
@@ -411,8 +410,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
           remote=await listCentralHeldInvoices<MobileHeldInvoice>('mobile');
         }
         // Merge pending device recovery copies even after legacy migration.
-        if(Array.isArray(localPending))remote=[...remote,...localPending.filter(h=>h?.localOnly&&
-          !remote.some(row=>row.id===h.id))];
+        if(Array.isArray(localPending))remote=mergeHeldRecovery(remote,localPending);
         if(active)setHeldInvoices(remote);
       }catch(error){
         console.warn('Unable to load mobile holds from PostgreSQL',error);
