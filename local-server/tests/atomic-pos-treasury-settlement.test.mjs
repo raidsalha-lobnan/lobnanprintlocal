@@ -92,3 +92,22 @@ test('missing bank identity is refused even if the GL journal already has a 1102
   {atomicInvoiceId:invoice.id},t.applied),
   /POS_TREASURY_SELECT_EXPLICIT_BANK_OR_MAIN_CASH/);
 });
+
+test('USD tender is credited to USD drawer, not invoice currency; bank leg is independent',async()=>{
+ const t=example();
+ Object.assign(t.applied[0].value,{currency:'ILS',exchangeRate:1,paidAmount:180.45,basePaidAmount:180.45,
+  cashPaidAmount:50,cashCurrency:'USD',cashExchangeRate:3.209,
+  bankPaidAmount:20,bankCurrency:'ILS',bankExchangeRate:1});
+ t.applied[1].value.lines=[{accountCode:'1101',debit:160.45,credit:0},
+  {accountCode:'1102',debit:20,credit:0},{accountCode:'4101',debit:0,credit:180.45}];
+ assert.equal(await settleAtomicPosPaymentTreasuries(t.client,'lobnan_main',{atomicInvoiceId:invoice.id},t.applied),2);
+ const cash=t.changed[0].value,bank=t.changed[1].value;
+ assert.equal(cash.currencyBalances.USD,50);
+ assert.equal(cash.currencyBalances.ILS,288);
+ assert.equal(cash.balance,448.45);
+ assert.equal(cash.transactions[0].amount,50);
+ assert.equal(cash.transactions[0].currency,'USD');
+ assert.equal(cash.transactions[0].exchangeRate,3.209);
+ assert.equal(cash.transactions[0].baseAmount,160.45);
+ assert.equal(bank.currencyBalances.ILS,170);
+});
