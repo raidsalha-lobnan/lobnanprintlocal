@@ -1,3 +1,4 @@
+import {invoicePdfFilename} from '../utils/reportPdfEngine';
 import {ReportPdfButton} from './common/ReportPdfButton';
 import React from 'react';
 import { useAccounting } from '../context/AccountingContext';
@@ -53,7 +54,7 @@ export const PurchasePrintModal: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <ReportPdfButton filename={(isReturn?'مردودات مشتريات - ':'فاتورة مشتريات - ')+((data as any).returnNumber||(data as any).invoiceNumber)} selector="[data-pdf-document]" scope="[data-pdf-document]" />
+            <ReportPdfButton filename={invoicePdfFilename((data as any).returnNumber||(data as any).invoiceNumber,data.supplierName,'مورد')} selector="[data-pdf-document]" scope="[data-pdf-document]" />
             <button
               onClick={handlePrint}
               className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
