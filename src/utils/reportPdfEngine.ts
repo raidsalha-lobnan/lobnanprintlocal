@@ -65,8 +65,7 @@ function downloadOriginalPdf(bytes:Uint8Array,filename:string){
  document.body.appendChild(a);a.click();a.remove();
  setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
-/** Browser clients cannot silently generate a native print PDF. Use the exact
- * original print surface there, rather than silently returning a different layout. */
+/** Physical printing only. PDF saving never opens this dialog. */
 function openOriginalBrowserPrint(doc:Document):Promise<void>{
  const view=doc.defaultView;
  if(!view)throw Error('PRINT_WINDOW_UNAVAILABLE');
@@ -111,7 +110,9 @@ export async function saveReportPdf(root:HTMLElement,options:ReportPdfOptions):P
   }else if(api?.isElectron){
    throw Error('يرجى تحديث نسخة Windows لتفعيل الحفظ المطابق للطباعة.');
   }else{
-   await openOriginalBrowserPrint(scoped.doc);
+   const {renderBrowserPrintPdf}=await import('./browserPrintSurfacePdf');
+   const bytes=await renderBrowserPrintPdf(scoped.doc);
+   downloadOriginalPdf(bytes,name);
   }
  }finally{scoped?.restore();savingPrintDocument=false;}
 }
