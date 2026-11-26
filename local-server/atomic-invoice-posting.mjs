@@ -123,7 +123,12 @@ export function validateAtomicInvoicePosting(command){
   if(paid<0||paid>total||arDebited!==total-paid)
     fail('ATOMIC_POSTING_RECEIVABLE_MISMATCH');
   const remainder=Number(invoice.remainingAmount||0);
-  if(Math.abs(Math.round(remainder*baseRate*100)-arDebited)>1)
+  if(invoice.baseRemainingAmount!==undefined){
+    if(cents(invoice.baseRemainingAmount,'BASE_REMAINING')!==arDebited||
+       ((invoice.cashBaseAmount!==undefined||invoice.bankBaseAmount!==undefined)&&cents(invoice.paidAmount??0,'INVOICE_PAID')!==Math.round(paid/baseRate))||
+       cents(invoice.remainingAmount??0,'INVOICE_REMAINING')!==cents(invoice.totalAmount,'TOTAL')-cents(invoice.paidAmount??0,'INVOICE_PAID'))
+      fail('ATOMIC_POSTING_OUTSTANDING_MISMATCH');
+  }else if(Math.abs(Math.round(remainder*baseRate*100)-arDebited)>1)
     fail('ATOMIC_POSTING_OUTSTANDING_MISMATCH');
 
   const physical=expectedPhysical;
