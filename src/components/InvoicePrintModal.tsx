@@ -1,4 +1,4 @@
-import {printReportSurface,requirePdfRoot} from '../utils/reportPdfEngine';
+import {printReportSurface,requirePdfRoot,invoicePdfFilename} from '../utils/reportPdfEngine';
 import {ReportPdfButton} from './common/ReportPdfButton';
 ﻿import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../context/AccountingContext';
@@ -153,7 +153,7 @@ export const InvoicePrintModal: React.FC = () => {
           )}
 
           <div className="flex items-center gap-2">
-            {printFormat!=='sales' && <ReportPdfButton filename={'فاتورة مبيعات - '+inv.invoiceNumber} selector="[data-invoice-pdf]" scope="[data-invoice-pdf]" paper={printFormat==='thermal'?'thermal':printFormat==='sales'&&salesOrientation==='landscape'?'a4-landscape':'a4'} compact={salesMargins==='compact'} />}
+            {printFormat!=='sales' && <ReportPdfButton filename={invoicePdfFilename(inv.invoiceNumber,formattedCustomerDisplayName)} selector="[data-invoice-pdf]" scope="[data-invoice-pdf]" paper={printFormat==='thermal'?'thermal':printFormat==='sales'&&salesOrientation==='landscape'?'a4-landscape':'a4'} compact={salesMargins==='compact'} />}
             <button
               onClick={handlePrint}
               className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs transition-colors cursor-pointer"
@@ -181,7 +181,7 @@ export const InvoicePrintModal: React.FC = () => {
               <button type="button" onClick={handlePrint} className="sales-tool-primary" title="طباعة جميع الصفحات">
                 <Printer size={15} /> طباعة الآن
               </button>
-              <ReportPdfButton filename={'فاتورة مبيعات - '+inv.invoiceNumber} selector="[data-invoice-pdf]" scope="[data-invoice-pdf]" paper={printFormat==='thermal'?'thermal':printFormat==='sales'&&salesOrientation==='landscape'?'a4-landscape':'a4'} compact={salesMargins==='compact'} />
+              <ReportPdfButton filename={invoicePdfFilename(inv.invoiceNumber,formattedCustomerDisplayName)} selector="[data-invoice-pdf]" scope="[data-invoice-pdf]" paper={printFormat==='thermal'?'thermal':printFormat==='sales'&&salesOrientation==='landscape'?'a4-landscape':'a4'} compact={salesMargins==='compact'} />
               <button type="button" onClick={exportSalesCsv} title="تصدير البنود بحسب ترتيب الكاشير">
                 <Download size={15} /> تصدير CSV
               </button>
