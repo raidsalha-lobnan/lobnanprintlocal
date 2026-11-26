@@ -7,7 +7,7 @@ import { SalesInvoicePrintPage } from './SalesInvoicePrintPage';
 import { PrintHeader, ThermalReceiptHeader } from './common/PrintHeader';
 import { ReportSignatures } from './common/ReportSignatures';
 import { formatDateDisplay } from '../utils/dateUtils';
-import { isDimensionalInvoiceItem } from '../utils/invoiceDimensions';
+import { displayDimension, hasVisibleInvoiceDimensions } from '../utils/invoiceDimensions';
 import { formatInvoiceCustomerDisplay } from '../utils/partyUtils';
 
 const parseThumbnails = (val?: string): string[] => {
@@ -84,7 +84,7 @@ export const InvoicePrintModal: React.FC = () => {
       ['م', 'الصنف / البيان', 'الطول', 'العرض', 'العدد', 'الكمية', 'السعر', 'الإجمالي'],
       ...rawItems.map((it, index) => [
         index + 1, [it.itemName, it.notes || it.description].filter(Boolean).join(' / '),
-        it.length ?? '', it.width ?? '', it.count ?? '', it.quantity, it.unitPrice, it.total,
+        displayDimension(it.length, hasVisibleInvoiceDimensions(it)), displayDimension(it.width, hasVisibleInvoiceDimensions(it)), displayDimension(it.count, hasVisibleInvoiceDimensions(it)), it.quantity, it.unitPrice, it.total,
       ]),
     ];
     const csvCell = (value: unknown) => '"' + String(value ?? '').replace(/"/g, '""') + '"';
@@ -316,10 +316,7 @@ export const InvoicePrintModal: React.FC = () => {
                     <tbody className="divide-y divide-slate-200 font-sans">
                       {chunk.map((it, idxWithinChunk) => {
                         const overallIndex = chunkIdx * ITEMS_PER_PAGE + idxWithinChunk + 1;
-                        const hasDimensions = isDimensionalInvoiceItem(it);
-                        const length = Number(it.length) || 0;
-                        const width = Number(it.width) || 0;
-                        const count = Number(it.count) || 1;
+                        const hasDimensions = hasVisibleInvoiceDimensions(it);
                         const unit = it.unit || (hasDimensions ? 'م²' : 'حبة');
 
                         return (
@@ -349,13 +346,13 @@ export const InvoicePrintModal: React.FC = () => {
                               {it.notes || it.description || '-'}
                             </td>
                             <td className="p-2 text-center font-mono font-medium">
-                              {hasDimensions && length > 0 ? length : '—'}
+                              {displayDimension(it.length, hasDimensions)}
                             </td>
                             <td className="p-2 text-center font-mono font-medium">
-                              {hasDimensions && width > 0 ? width : '—'}
+                              {displayDimension(it.width, hasDimensions)}
                             </td>
                             <td className="p-2 text-center font-mono font-medium">
-                              {hasDimensions ? count : '—'}
+                              {displayDimension(it.count, hasDimensions)}
                             </td>
                             <td className="p-2 text-center font-mono font-bold text-blue-900">
                               {it.quantity}
@@ -685,7 +682,7 @@ export const InvoicePrintModal: React.FC = () => {
 
             <div className="space-y-2 text-right text-[11px]">
               {inv.items.map((it, idx) => {
-                const hasDimensions = isDimensionalInvoiceItem(it);
+                const hasDimensions = hasVisibleInvoiceDimensions(it);
                 return (
                   <div key={idx} className="border-b border-dotted border-slate-300 pb-1">
                     <div className="flex justify-between font-bold text-slate-900">
@@ -701,7 +698,7 @@ export const InvoicePrintModal: React.FC = () => {
                     <div className="flex justify-between text-[9px] text-slate-400 font-light font-mono mt-0.5">
                       <span>
                         {hasDimensions
-                          ? `[${it.length}×${it.width}م × ${it.count || 1} = ${it.quantity} ${it.unit || 'م²'}] `
+                          ? `[${displayDimension(it.length, hasDimensions)}×${displayDimension(it.width, hasDimensions)}م × ${displayDimension(it.count, hasDimensions)} = ${it.quantity} ${it.unit || 'م²'}] `
                           : `الكمية: ${it.quantity} ${it.unit || 'حبة'} `
                         }× {it.unitPrice.toFixed(2)}
                         {it.discount && it.discount > 0 ? ` (خصم: ${it.discount})` : ''}
