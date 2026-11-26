@@ -142,3 +142,42 @@ test('reject incomplete and tampered bundles before writing to database',()=>{
   (revenue.value as any).lines.find((x:any)=>x.accountCode==='2104').credit=0;
   assert.throws(()=>validateAtomicInvoicePosting(d));
 });
+
+test('invoice USD 80 x 2 and USD 50 tender preserve original values and exact ILS accounting',()=>{
+ const stock=item('stock-A',80,5);
+ const {posting,invoice}=builder({
+  items:[{item:stock,quantity:2,unitPrice:80}],
+  inventory:[snapshot('inventory',stock)],
+  paymentMethod:'cash',
+  options:{currency:'USD',currencySymbol:'$',exchangeRate:3.209,paidAmount:50,
+   cashPaidAmount:50,cashCurrency:'USD',cashExchangeRate:3.209,cashTreasuryCode:'CASH-1101'}
+ });
+ assert.equal(invoice.totalAmount,160);
+ assert.equal(invoice.baseTotalAmount,513.44);
+ assert.equal(invoice.cashPaidAmount,50);
+ assert.equal(invoice.cashCurrency,'USD');
+ assert.equal(invoice.cashExchangeRate,3.209);
+ assert.equal(invoice.basePaidAmount,160.45);
+ assert.equal(invoice.remainingAmount,110);
+ assert.equal(invoice.baseRemainingAmount,352.99);
+ assert.equal(posting.partyChanges[0].value?.balance,352.99);
+ assert.equal(validateAtomicInvoicePosting(command(posting)),true);
+});
+test('mixed tender currencies remain separate from invoice currency and exact receivable is preserved',()=>{
+ const stock=item('stock-A',80,5);
+ const {posting,invoice}=builder({
+  items:[{item:stock,quantity:2,unitPrice:80}],inventory:[snapshot('inventory',stock)],
+  paymentMethod:'cash',
+  options:{currency:'USD',currencySymbol:'$',exchangeRate:3.209,paidAmount:56.23,
+   cashPaidAmount:50,cashCurrency:'USD',cashExchangeRate:3.209,cashTreasuryCode:'CASH-1101',
+   bankPaidAmount:20,bankCurrency:'ILS',bankExchangeRate:1,bankTreasuryCode:'CASH-1103'}
+ });
+ assert.equal(invoice.totalAmount,160);
+ assert.equal(invoice.basePaidAmount,180.45);
+ assert.equal(invoice.baseRemainingAmount,332.99);
+ assert.equal(invoice.bankPaidAmount,20);
+ assert.equal(invoice.bankCurrency,'ILS');
+ assert.equal(invoice.cashPaidAmount,50);
+ assert.equal(invoice.remainingAmount,103.77);
+ assert.equal(validateAtomicInvoicePosting(command(posting)),true);
+});
