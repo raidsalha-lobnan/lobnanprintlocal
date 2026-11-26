@@ -2631,7 +2631,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     // 2. Validation for cash customers without sub-customer name when invoice is unpaid (آجل):
     const hasSubCustomerName = !!(subCustomerName?.trim() || customCustomerText?.trim());
 
-    if (isCashCustomer && !hasSubCustomerName && calculatedRemaining > 0.05) {
+    if (isCashCustomer && !hasSubCustomerName && !forcedPayment && calculatedRemaining > 0.05) {
       posSound.error();
       alert(
         'تنبيه نظامي: الزبون نقدي عام ولا يوجد اسم زبون فرعي.\nلا يمكن حفظ الفاتورة كـ (آجل) غير مدفوعة بالكامل.\nيرجى تسديد كامل المبلغ (نقداً أو بنكياً) أو تحديد اسم زبون فرعي / اختيار عميل مسجل في النظام.'
@@ -2703,6 +2703,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     const bBase = Number((bankVal * numBankRate).toFixed(2));
     const tPaidBase = Number((cBase + bBase).toFixed(2));
 
+    if(tPaidBase>calculatedTotalBase){alert('مبلغ السداد يتجاوز إجمالي الفاتورة بالشيكل.');return;}
+    if(isCashCustomer&&!hasSubCustomerName&&calculatedTotalBase-tPaidBase>0.005){alert('يجب تحديد زبون لتسجيل المتبقي بالشيكل.');return;}
     const effectiveMethod: PaymentMethod = forcedPayment
       ? forcedPayment.method
       : resolvePosPaymentMethod(cBase,bBase,paymentMethod);
@@ -3240,7 +3242,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     setCashAmountInput(d.cashAmountInput??'0');
     setBankAmountInput(d.bankAmountInput??'0');
     setPaymentMethod(d.paymentMethod||'cash');
-    if(d.selectedCurrencyCode)setSelectedCurrencyCode(d.selectedCurrencyCode);
+    if(d.selectedCurrencyCode){previousCurrency.current=d.selectedCurrencyCode;setSelectedCurrencyCode(d.selectedCurrencyCode);}
     if(typeof d.customExchangeRate==='number')setCustomExchangeRate(d.customExchangeRate);
     if(d.cashCurrencyCode)setCashCurrencyCode(d.cashCurrencyCode);
     if(typeof d.cashExchangeRate==='number')setCashExchangeRate(d.cashExchangeRate);
@@ -3409,15 +3411,13 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
         setBankAmountInput('0');
       }
     }
-    if (inv.cashCurrency) {setCashCurrencyCode(inv.cashCurrency);setCashExchangeRate(inv.cashExchangeRate||1);}
-    if (inv.bankCurrency) {setBankCurrencyCode(inv.bankCurrency);setBankExchangeRate(inv.bankExchangeRate||1);}
-    if (inv.currency) {
-      previousCurrency.current=inv.currency;
-      setSelectedCurrencyCode(inv.currency);
-    }
-    if (inv.exchangeRate) {
-      setCustomExchangeRate(inv.exchangeRate);
-    }
+    setCashCurrencyCode(inv.cashCurrency||inv.currency||'ILS');
+    setCashExchangeRate(inv.cashExchangeRate||inv.exchangeRate||1);
+    setBankCurrencyCode(inv.bankCurrency||inv.currency||'ILS');
+    setBankExchangeRate(inv.bankExchangeRate||inv.exchangeRate||1);
+    previousCurrency.current=inv.currency||'ILS';
+    setSelectedCurrencyCode(inv.currency||'ILS');
+    setCustomExchangeRate(inv.exchangeRate||1);
 
     const effectiveTaxAmount = Number(inv.taxAmount !== undefined ? inv.taxAmount : inv.taxTotal) || 0;
     if (typeof inv.taxRate === 'number') {
