@@ -1788,14 +1788,17 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
   // Calculate Cash and Bank Payments in Base Currency (₪)
   const numCashAmount = parseFloat(cashAmountInput) || 0;
-  const numCashRate = cashExchangeRate > 0 ? cashExchangeRate : 1.0;
+  const numCashRate = cashCurrencyCode==='ILS'?1:cashExchangeRate > 0 ? cashExchangeRate : 1.0;
   const cashPaidBase = Number((numCashAmount * numCashRate).toFixed(2));
 
   const numBankAmount = parseFloat(bankAmountInput) || 0;
-  const numBankRate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
+  const numBankRate = bankCurrencyCode==='ILS'?1:bankExchangeRate > 0 ? bankExchangeRate : 1.0;
   const bankPaidBase = Number((numBankAmount * numBankRate).toFixed(2));
 
-  const parsedPaidAmount = Number((cashPaidBase + bankPaidBase).toFixed(2));
+  const invoiceRate = selectedCurrencyCode === 'ILS' ? 1 : (customExchangeRate > 0 ? customExchangeRate : 1);
+  const calculatedTotalBase = Number((calculatedTotalAmount * invoiceRate).toFixed(2));
+  const parsedPaidBase = Number((cashPaidBase + bankPaidBase).toFixed(2));
+  const parsedPaidAmount = Number((parsedPaidBase / invoiceRate).toFixed(2));
   const calculatedRemaining = Math.max(0, Number((calculatedTotalAmount - parsedPaidAmount).toFixed(2)));
 
   const currentPaymentStatus = computeInvoicePaymentStatus({
@@ -1812,14 +1815,14 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   const handleQuickFullCash = () => {
     // 1. حساب المبلغ المدفوع بالبنك حالياً بالعملة الأساسية (الشيكل)
     const currentBankAmount = parseFloat(bankAmountInput) || 0;
-    const bRate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
+    const bRate = numBankRate;
     const currentBankPaidBase = Number((currentBankAmount * bRate).toFixed(2));
 
     // 2. حساب المبلغ المتبقي بعد خصم أي مدفوعات بنكية سابقة
-    const remainingBase = Math.max(0, Number((calculatedTotalAmount - currentBankPaidBase).toFixed(2)));
+    const remainingBase = Math.max(0, Number((calculatedTotalBase - currentBankPaidBase).toFixed(2)));
 
     // 3. تحويل المبلغ المتبقي لعملة الدفع النقدي المختارة
-    const cRate = cashExchangeRate > 0 ? cashExchangeRate : 1.0;
+    const cRate = numCashRate;
     const reqCash = Number((remainingBase / cRate).toFixed(2));
 
     // 4. تعيين المتبقي في خانة الدفع النقدي مع الاحتفاظ بالدفع البنكي كما هو دون تصفيره
@@ -1840,14 +1843,14 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   const handleQuickFullBank = () => {
     // 1. حساب المبلغ المدفوع نقداً حالياً بالعملة الأساسية (الشيكل)
     const currentCashAmount = parseFloat(cashAmountInput) || 0;
-    const cRate = cashExchangeRate > 0 ? cashExchangeRate : 1.0;
+    const cRate = numCashRate;
     const currentCashPaidBase = Number((currentCashAmount * cRate).toFixed(2));
 
     // 2. حساب المبلغ المتبقي بعد خصم أي مدفوعات نقدية سابقة
-    const remainingBase = Math.max(0, Number((calculatedTotalAmount - currentCashPaidBase).toFixed(2)));
+    const remainingBase = Math.max(0, Number((calculatedTotalBase - currentCashPaidBase).toFixed(2)));
 
     // 3. تحويل المبلغ المتبقي لعملة الدفع البنكي المختارة
-    const bRate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
+    const bRate = numBankRate;
     const reqBank = Number((remainingBase / bRate).toFixed(2));
 
     // 4. تعيين المتبقي في خانة الدفع البنكي مع الاحتفاظ بالدفع النقدي كما هو دون تصفيره
@@ -2696,9 +2699,9 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     const bankVal = forcedPayment && forcedPayment.bankAmount !== undefined
       ? forcedPayment.bankAmount
       : (parseFloat(bankAmountInput) || 0);
-    const cBase = cashVal * (cashExchangeRate || 1.0);
-    const bBase = bankVal * (bankExchangeRate || 1.0);
-    const tPaidBase = cBase + bBase;
+    const cBase = Number((cashVal * numCashRate).toFixed(2));
+    const bBase = Number((bankVal * numBankRate).toFixed(2));
+    const tPaidBase = Number((cBase + bBase).toFixed(2));
 
     const effectiveMethod: PaymentMethod = forcedPayment
       ? forcedPayment.method
@@ -2745,7 +2748,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
         additionalCharges,
         overallDiscount: calculatedDiscountTotal,
         taxRate: effectiveTaxRate,
-        paidAmount: customExchangeRate > 0 ? Number((tPaidBase / customExchangeRate).toFixed(2)) : tPaidBase,
+        paidAmount: Number((tPaidBase / invoiceRate).toFixed(2)),
         representative,
         branch,
         branchId: branches.find(b => b.name === branch)?.id || activeBranchId,
@@ -2764,14 +2767,14 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
         treasuryAccountCode: effectiveTreasuryCode,
         currency: activeCurrency.code,
         currencySymbol: activeCurrency.symbol,
-        exchangeRate: customExchangeRate > 0 ? customExchangeRate : 1.0,
+        exchangeRate: invoiceRate,
         cashPaidAmount: cashVal,
         cashCurrency: cashCurrencyCode,
-        cashExchangeRate: cashExchangeRate,
+        cashExchangeRate: numCashRate,
         cashTreasuryCode: 'CASH-1101',
         bankPaidAmount: bankVal,
         bankCurrency: bankCurrencyCode,
-        bankExchangeRate: bankExchangeRate,
+        bankExchangeRate: numBankRate,
         bankTreasuryCode: forcedPayment && (forcedPayment.method === 'card' || forcedPayment.method === 'bank_transfer') ? forcedPayment.treasuryCode : bankTreasuryCode,
         // Empty string is an intentional clearing of the previous receipt note.
         paymentNotes,
@@ -2988,11 +2991,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       return;
     }
 
-    // 1. Force Base Currency: Palestinian Shekel (ILS ₪) with rate 1.0
-    setSelectedCurrencyCode('ILS');
-    setCustomExchangeRate(1.0);
-    setCashCurrencyCode('ILS');
-    setCashExchangeRate(1.0);
+    // Keep invoice and cash currencies independent; full payment is expressed in cash currency.
+    const req = Number((calculatedTotalBase / numCashRate).toFixed(2));
 
     // 2. Main Cash Treasury (الصندوق المختار أو الصندوق الرئيسي 1101)
     const mainCashTreasury = 'CASH-1101';
@@ -3001,7 +3001,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
     // 3. Mark invoice state as fully paid
     setPaymentMethod('cash');
-    setCashAmountInput(String(calculatedTotalAmount));
+    setCashAmountInput(String(req));
     setBankAmountInput('0');
 
     posSound.playCashBeep();
@@ -3009,7 +3009,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     // 4. Save invoice immediately with direct full cash payment in cash treasury
     handleSaveInvoice(printMode, true, {
       method: 'cash',
-      cashAmount: calculatedTotalAmount,
+      cashAmount: req,
       bankAmount: 0,
       treasuryCode: mainCashTreasury
     });
@@ -3018,8 +3018,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   // Direct Pay Visa / Card
   const handleQuickPayCard = (printMode: 'none' | 'prompt' | 'thermal-direct' | 'a4-direct' | 'a4-custom-direct' = 'prompt') => {
     setPaymentMethod('card');
-    const rate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
-    const req = Number((calculatedTotalAmount / rate).toFixed(2));
+    const rate = numBankRate;
+    const req = Number((calculatedTotalBase / rate).toFixed(2));
     setBankAmountInput(String(req));
     setCashAmountInput('0');
     const bTreasury = bankTreasuryCode;
@@ -3066,10 +3066,10 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
 
     const cashVal = parseFloat(cashAmountInput) || 0;
     const bankVal = parseFloat(bankAmountInput) || 0;
-    const cBase = cashVal * (cashExchangeRate || 1.0);
-    const bBase = bankVal * (bankExchangeRate || 1.0);
-    const tPaidBase = cBase + bBase;
-    const effectivePaid = customExchangeRate > 0 ? Number((tPaidBase / customExchangeRate).toFixed(2)) : tPaidBase;
+    const cBase = Number((cashVal * numCashRate).toFixed(2));
+    const bBase = Number((bankVal * numBankRate).toFixed(2));
+    const tPaidBase = Number((cBase + bBase).toFixed(2));
+    const effectivePaid = Number((tPaidBase / invoiceRate).toFixed(2));
 
     let effectiveMethod: PaymentMethod = 'credit';
     if (cBase > 0 && bBase === 0) effectiveMethod = 'cash';
@@ -3116,11 +3116,14 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       userName: currentUser?.fullName || currentUser?.username,
       currency: activeCurrency.code,
       currencySymbol: activeCurrency.symbol,
-      exchangeRate: customExchangeRate > 0 ? customExchangeRate : 1.0,
-      baseTotalAmount: (customExchangeRate > 0 ? calculatedTotalAmount * customExchangeRate : calculatedTotalAmount),
+      exchangeRate: invoiceRate,
+      baseTotalAmount: calculatedTotalBase,
       basePaidAmount: tPaidBase,
       cashPaidAmount: cashVal,
       bankPaidAmount: bankVal,
+      cashCurrency:cashCurrencyCode,bankCurrency:bankCurrencyCode,
+      cashExchangeRate:numCashRate,bankExchangeRate:numBankRate,
+      cashBaseAmount:cBase,bankBaseAmount:bBase,
       cashTreasuryCode: cashTreasuryCode,
       bankTreasuryCode: bankTreasuryCode,
       workflowStatus: invoiceWorkflowStatus
@@ -3406,7 +3409,10 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
         setBankAmountInput('0');
       }
     }
+    if (inv.cashCurrency) {setCashCurrencyCode(inv.cashCurrency);setCashExchangeRate(inv.cashExchangeRate||1);}
+    if (inv.bankCurrency) {setBankCurrencyCode(inv.bankCurrency);setBankExchangeRate(inv.bankExchangeRate||1);}
     if (inv.currency) {
+      previousCurrency.current=inv.currency;
       setSelectedCurrencyCode(inv.currency);
     }
     if (inv.exchangeRate) {
@@ -5787,10 +5793,10 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                 >
                   <span className="text-[10px] text-blue-200 font-sans font-bold">الإجمالي:</span>
                   <span className="font-black text-xs sm:text-sm text-white">{(Number(calculatedSubtotal) || 0).toFixed(2)}</span>
-                  <span className="text-[10px] text-blue-200 font-sans">₪</span>
+                  <span className="text-[10px] text-blue-200 font-sans">{activeCurrency.symbol}</span>
                   {selectedCurrencyCode !== 'ILS' && (
                     <span className="text-[9px] text-amber-300 font-sans border-r border-blue-700 pr-1">
-                      ≈ {((Number(calculatedSubtotal) || 0) / (customExchangeRate || 1)).toFixed(2)} {activeCurrency.symbol}
+                      ≈ {((Number(calculatedSubtotal) || 0) * invoiceRate).toFixed(2)} ₪
                     </span>
                   )}
                 </div>
@@ -5828,7 +5834,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                   title="المبلغ المدفوع فعلياً نقداً وبنكياً"
                 >
                   <span className="text-[10px] text-emerald-600 font-sans font-bold">المدفوع:</span>
-                  <span className="font-black text-xs text-emerald-700">{(Number(parsedPaidAmount) || 0).toFixed(2)}</span>
+                  <span className="font-black text-xs text-emerald-700">{(Number(parsedPaidAmount) || 0).toFixed(2)} {activeCurrency.symbol}</span>
                 </div>
 
                 {/* 8. المتبقي (بارز جداً لسرعة التحصيل) */}
@@ -5842,10 +5848,10 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                 >
                   <span className="text-[10px] text-rose-100 font-sans font-bold">المتبقي:</span>
                   <span className="font-black text-xs sm:text-sm tracking-wider">{(Number(calculatedRemaining) || 0).toFixed(2)}</span>
-                  <span className="text-[10px] text-white font-sans">₪</span>
+                  <span className="text-[10px] text-white font-sans">{activeCurrency.symbol}</span>
                   {selectedCurrencyCode !== 'ILS' && (
                     <span className="text-[9px] text-amber-200 font-sans border-r border-rose-400/50 pr-1">
-                      ≈ {((Number(calculatedRemaining) || 0) / (customExchangeRate || 1)).toFixed(2)} {activeCurrency.symbol}
+                      ≈ {Math.max(0,calculatedTotalBase-parsedPaidBase).toFixed(2)} ₪
                     </span>
                   )}
                 </div>
@@ -6075,13 +6081,13 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-600">إجمالي الفاتورة الأساسي بالشيكل:</span>
-                  <span className="font-bold font-mono text-slate-900">{calculatedTotalAmount.toFixed(2)} ₪</span>
+                  <span className="font-bold font-mono text-slate-900">{calculatedTotalBase.toFixed(2)} ₪</span>
                 </div>
                 {selectedCurrencyCode !== 'ILS' && (
                   <div className="flex justify-between text-emerald-700 font-bold">
                     <span>ما يعادل بالعملة المختارة ({activeCurrency.name}):</span>
                     <span className="font-mono">
-                      {(calculatedTotalAmount / (customExchangeRate || 1)).toFixed(2)} {activeCurrency.symbol}
+                      {calculatedTotalAmount.toFixed(2)} {activeCurrency.symbol}
                     </span>
                   </div>
                 )}
