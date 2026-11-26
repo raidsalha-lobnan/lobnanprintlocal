@@ -4,6 +4,7 @@ import { renderBusinessReportHeader } from './reportBusinessHeader';
 import type { BusinessSettings, Invoice, Treasury } from '../types';
 import { formatDateDisplay } from './dateUtils';
 import { isConfirmedSalesInvoice } from './invoiceConfirmation';
+import { displayDimension, hasVisibleInvoiceDimensions } from './invoiceDimensions';
 
 export interface DetailedSalesReportOptions {
   companyName: string;
@@ -31,8 +32,6 @@ const money = (value: unknown): string => number(value).toLocaleString('en-US',{
 const quantity = (value: unknown): string => number(value).toLocaleString('en-US',{
   maximumFractionDigits:4,
 });
-const dimension = (value: unknown): string =>
-  value === null || value === undefined || value === '' ? '—' : quantity(value);
 const currencyFor = (invoice: Invoice) => {
   const code=String(invoice.currency || 'ILS');
   const symbol=String(invoice.currencySymbol || (code==='ILS'?'₪':code));
@@ -121,12 +120,13 @@ function invoiceMarkup(invoice:Invoice,index:number,options:DetailedSalesReportO
   const symbol=currencyFor(invoice).symbol;
   const rows=(invoice.items||[]).length?(invoice.items||[]).map((item,i)=>{
     const note=noteFor(item);
+    const showDimensions=hasVisibleInvoiceDimensions(item);
     return '<tr><td>'+escapeHtml(i+1)+'</td><td class="sku">'+escapeHtml(item.itemCode || item.itemId || '—')+
       '</td><td class="item-cell"><b>'+escapeHtml(item.itemName || '—')+'</b>'+
       (note?'<span class="item-note"> — '+escapeHtml(note)+'</span>':'')+'</td>'+
-      '<td class="num">'+escapeHtml(dimension(item.length))+'</td>'+
-      '<td class="num">'+escapeHtml(dimension(item.width))+'</td>'+
-      '<td class="num">'+escapeHtml(dimension(item.count))+'</td>'+
+      '<td class="num">'+escapeHtml(displayDimension(item.length,showDimensions))+'</td>'+
+      '<td class="num">'+escapeHtml(displayDimension(item.width,showDimensions))+'</td>'+
+      '<td class="num">'+escapeHtml(displayDimension(item.count,showDimensions))+'</td>'+
       '<td class="num">'+quantity(item.quantity)+'</td>'+
       '<td class="num">'+money(item.unitPrice)+'</td>'+
       '<td class="num">'+money(item.discount)+'</td>'+
