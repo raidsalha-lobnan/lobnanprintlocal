@@ -190,12 +190,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
   const [invoiceNotes, setInvoiceNotes] = useState<string>(() => savedMobileDraft.invoiceNotes || '');
 
-  useEffect(() => {
-    const found = currencies.find(c => c.code === payCurrencyCode);
-    if (found) {
-      setPayExchangeRate(found.rateAgainstBase || 1.0);
-    }
-  }, [payCurrencyCode, currencies]);
+  // The stored or explicitly selected invoice exchange rate is a snapshot.
+  // Do not overwrite it when background currency data refreshes.
 
   useEffect(() => {
     const found = currencies.find(c => c.code === cashCurrencyCode);
@@ -909,9 +905,9 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const netTotal = Number((taxableAmount + taxAmount).toFixed(2));
 
   // Invoice and tender are distinct. The numeric input is in the selected tender currency.
-  const invoiceRate=selectedCurrencyCode==='ILS'?1:payExchangeRate;
+  const invoiceRate=selectedCurrencyCode==='ILS'?1:(payExchangeRate>0?payExchangeRate:1);
   const tenderCurrencyCode=paymentMethod==='card'?bankCurrencyCode:cashCurrencyCode;
-  const tenderRate=tenderCurrencyCode==='ILS'?1:(paymentMethod==='card'?bankExchangeRate:cashExchangeRate);
+  const tenderRate=tenderCurrencyCode==='ILS'?1:Math.max(0.0001,paymentMethod==='card'?bankExchangeRate:cashExchangeRate);
   const tenderSymbol=currencies.find(c=>c.code===tenderCurrencyCode)?.symbol||tenderCurrencyCode;
   const totalBase=Number((netTotal*invoiceRate).toFixed(2));
   const fullTender=Number((totalBase/tenderRate).toFixed(2));
@@ -951,7 +947,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       if(effectivePaidBase>totalBase){alert('مبلغ السداد يتجاوز إجمالي الفاتورة بالشيكل.');return;}
 
       // If remaining balance exists, validate that it is associated with a specific customer or sub-customer
-      if (remaining > 0) {
+      if (totalBase-effectivePaidBase > 0.005) {
         const isMainCustomer = Boolean(
           selectedCustomerId ||
           (partyTypeMode !== 'customer' && customerNameInput.trim() !== '') ||
@@ -1358,7 +1354,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                 type="number"
                 step="any"
                 min="0.0001"
-                value={payExchangeRate}
+                disabled={selectedCurrencyCode==='ILS'}
+                value={selectedCurrencyCode==='ILS'?1:payExchangeRate}
                 onChange={(e) => {
                   const val = Math.max(0.0001, parseFloat(e.target.value) || 1.0);
                   setPayExchangeRate(val);
