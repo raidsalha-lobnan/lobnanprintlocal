@@ -1,0 +1,10 @@
+'use strict';
+const path=require('node:path');
+const fs=require('node:fs');
+const {spawnSync}=require('node:child_process');
+if(process.platform!=='win32')throw Error('WINDOWS_HELPER_BUILD_REQUIRES_WINDOWS');
+const csc=path.join(process.env.SystemRoot||'C:\\Windows','Microsoft.NET','Framework64','v4.0.30319','csc.exe');
+const target=path.resolve('electron/LobnanUpdateHelper.exe');
+const result=spawnSync(csc,['/nologo','/target:winexe','/optimize+','/out:'+target,path.resolve('electron/native-update-helper.cs')],{stdio:'inherit',timeout:30000});
+if(result.error||result.status!==0||!fs.existsSync(target))throw Error('NATIVE_UPDATE_HELPER_BUILD_FAILED');
+console.log('NATIVE_UPDATE_HELPER_BUILT');
