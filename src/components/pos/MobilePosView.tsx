@@ -132,6 +132,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   }, []);
 
   const draftId = useRef(savedMobileDraft.draftId || crypto.randomUUID());
+  const resumedMobileHeldIdRef=useRef<string|null>(savedMobileDraft.resumedHeldId||null);
   const [leaveTargetTab,setLeaveTargetTab] = useState<string|null>(null);
   const [leaveBusy,setLeaveBusy] = useState(false);
   const leaveApprovedRef=useRef(false);
@@ -293,7 +294,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
       if (hasContent) {
         localStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
-          draftId:draftId.current, paidAmountInput,
+          draftId:draftId.current, resumedHeldId:resumedMobileHeldIdRef.current,paidAmountInput,
           selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate,
           partyTypeMode,
           customerNameInput,
@@ -316,7 +317,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     const handleBeforeUnload = () => {
       try {
         localStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
-          draftId:draftId.current, paidAmountInput,
+          draftId:draftId.current, resumedHeldId:resumedMobileHeldIdRef.current,paidAmountInput,
           selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate,
           partyTypeMode,
           customerNameInput,
@@ -338,6 +339,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   // Automatically re-evaluate cart item prices whenever customer changes in Mobile POS
   const prevMobileCustIdRef = useRef(selectedCustomerId);
   useEffect(() => {
+    if(resumedMobileHeldIdRef.current){prevMobileCustIdRef.current=selectedCustomerId;return;}
     if (prevMobileCustIdRef.current !== selectedCustomerId) {
       prevMobileCustIdRef.current = selectedCustomerId;
       if (cart.length > 0) {
@@ -368,7 +370,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const [heldLoading,setHeldLoading]=useState(true);
   const [heldBusy,setHeldBusy]=useState(false);
   const heldOperationRef=useRef(false);
-  const resumedMobileHeldIdRef=useRef<string|null>(null);
+
   useEffect(()=>{
     let active=true;
     const refresh=async()=>{
@@ -681,12 +683,12 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       customerName:customerNameInput.trim()||'زبون نقدي / عام',
       customerId:selectedCustomerId,subCustomerId:selectedSubCustomerId,
       customSubCustomerName,partyTypeMode,
-      cart:cart.map(ci=>({...ci})),totalAmount:netTotal,
+      cart:structuredClone(cart),totalAmount:netTotal,
       globalDiscount,notes:invoiceNotes,
       fullDraft:{
         paymentMethod,paidAmountInput,selectedCurrencyCode,payCurrencyCode,payExchangeRate,
         cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate,
-        selectedBankTreasuryCode,selectedCashTreasuryCode,invoiceNotes
+        selectedBankTreasuryCode,selectedCashTreasuryCode,invoiceNotes,draftId:draftId.current
       }
     };
     // Per-user local recovery, written before remote save so an F5 does
@@ -737,7 +739,10 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const handleResumeHeldInvoice = (held:MobileHeldInvoice) => {
     if(cart.length>0&&!window.confirm('توجد بنود في الفاتورة الحالية، هل تريد استبدالها بالمعلّق؟'))return;
     const d=held.fullDraft||{};
-    setCart(held.cart.map(ci=>({...ci})));
+    resumedMobileHeldIdRef.current=held.id;
+    draftId.current=d.draftId||crypto.randomUUID();
+    prevMobileCustIdRef.current=held.customerId||'';
+    setCart(structuredClone(held.cart));
     setCustomerNameInput(held.customerName||'زبون نقدي / عام');
     setSelectedCustomerId(held.customerId||'');
     setSelectedSubCustomerId(held.subCustomerId||'');
@@ -754,7 +759,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     if(typeof d.cashExchangeRate==='number')setCashExchangeRate(d.cashExchangeRate);
     if(d.bankCurrencyCode)setBankCurrencyCode(d.bankCurrencyCode);
     if(typeof d.bankExchangeRate==='number')setBankExchangeRate(d.bankExchangeRate);
-    if(d.selectedBankTreasuryCode)setSelectedBankTreasuryCode(d.selectedBankTreasuryCode);
+    setSelectedBankTreasuryCode(d.selectedBankTreasuryCode??'');
     if(d.selectedCashTreasuryCode)setSelectedCashTreasuryCode(d.selectedCashTreasuryCode);
     resumedMobileHeldIdRef.current=held.id;
     setShowHeldModal(false);posSound.beep();
