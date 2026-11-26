@@ -373,6 +373,13 @@ export interface Invoice {
   paymentNotes?: string;      // ملاحظة إيصال السداد / الدفعة (منفصلة تماماً عن ملاحظات الفاتورة)
   cashPaidAmount?: number;
   bankPaidAmount?: number;
+  cashCurrency?: string;
+  bankCurrency?: string;
+  cashExchangeRate?: number;
+  bankExchangeRate?: number;
+  cashBaseAmount?: number;
+  bankBaseAmount?: number;
+  baseRemainingAmount?: number;
   cashTreasuryCode?: string;
   bankTreasuryCode?: string;
   treasuryAccountCode?: string;
