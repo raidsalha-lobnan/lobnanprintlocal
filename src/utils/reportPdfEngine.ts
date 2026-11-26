@@ -2,6 +2,14 @@
  * This module never recalculates totals, retypesets or rasterizes pages. */
 export type PdfPaper='a4'|'a4-landscape'|'a5-landscape'|'thermal';
 export type ReportPdfOptions={filename:string;paper?:PdfPaper;compact?:boolean;numberPages?:boolean;includeFormValues?:boolean};
+/** Filename only: do not modify invoice numbering or financial data.
+ * A main / sub customer separator is not a valid Windows filename character. */
+export function invoicePdfFilename(number:unknown,partyName:unknown,fallbackParty='زبون نقدي'):string{
+ const clean=(value:unknown)=>String(value??'').replace(/[\\/:*?"<>|\u0000-\u001f]/g,' - ').replace(/\s+/g,' ').replace(/[ .]+$/g,'').trim();
+ const id=clean(number)||'مسودة';
+ const party=clean(partyName)||fallbackParty;
+ return (id+' - '+party).slice(0,180).replace(/[ .]+$/g,'')+'.pdf';
+}
 type NativePrintApi={renderPrintPdf?:(request:{windowName?:string})=>Promise<Uint8Array>;isElectron?:boolean};
 const nativePrintApi=()=> (globalThis as unknown as {electronAPI?:NativePrintApi}).electronAPI;
 let savingPrintDocument=false;
