@@ -111,7 +111,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
   // Multi-Currency
   const baseCurrency = currencies.find(c => c.isBase) || { code: 'ILS', symbol: '₪', rateAgainstBase: 1.0 };
-  const [selectedCurrencyCode, setSelectedCurrencyCode] = useState(settings.baseCurrencyCode || 'ILS');
+  const [selectedCurrencyCode, setSelectedCurrencyCode] = useState(()=>{try{return JSON.parse(localStorage.getItem(posDraftStorageKey('mobile_pos_active_draft',currentUser?.id||currentUserId))||'{}').selectedCurrencyCode||settings.baseCurrencyCode||'ILS';}catch{return settings.baseCurrencyCode||'ILS';}});
   const activeCurrency = currencies.find(c => c.code === selectedCurrencyCode) || baseCurrency;
 
   const MOBILE_POS_DRAFT_KEY = posDraftStorageKey('mobile_pos_active_draft', currentUser?.id || currentUserId);
@@ -178,15 +178,15 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   }, [cashTreasuries, selectedCashTreasuryCode]);
 
   // Payment currency & exchange rate state (Global / default, plus dedicated cash & bank rates)
-  const [payCurrencyCode, setPayCurrencyCode] = useState<string>(settings.baseCurrencyCode || 'ILS');
-  const [payExchangeRate, setPayExchangeRate] = useState<number>(1.0);
+  const [payCurrencyCode, setPayCurrencyCode] = useState<string>(savedMobileDraft.payCurrencyCode||selectedCurrencyCode);
+  const [payExchangeRate, setPayExchangeRate] = useState<number>(savedMobileDraft.payExchangeRate||activeCurrency.rateAgainstBase||1.0);
 
   // Method-specific currency & exchange rate states (Cash vs Bank/Card)
-  const [cashCurrencyCode, setCashCurrencyCode] = useState<string>(settings.baseCurrencyCode || 'ILS');
-  const [cashExchangeRate, setCashExchangeRate] = useState<number>(1.0);
+  const [cashCurrencyCode, setCashCurrencyCode] = useState<string>(savedMobileDraft.cashCurrencyCode||settings.baseCurrencyCode||'ILS');
+  const [cashExchangeRate, setCashExchangeRate] = useState<number>(savedMobileDraft.cashExchangeRate||1.0);
 
-  const [bankCurrencyCode, setBankCurrencyCode] = useState<string>(settings.baseCurrencyCode || 'ILS');
-  const [bankExchangeRate, setBankExchangeRate] = useState<number>(1.0);
+  const [bankCurrencyCode, setBankCurrencyCode] = useState<string>(savedMobileDraft.bankCurrencyCode||settings.baseCurrencyCode||'ILS');
+  const [bankExchangeRate, setBankExchangeRate] = useState<number>(savedMobileDraft.bankExchangeRate||1.0);
 
   const [invoiceNotes, setInvoiceNotes] = useState<string>(() => savedMobileDraft.invoiceNotes || '');
 
@@ -298,6 +298,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       if (hasContent) {
         localStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
           draftId:draftId.current, paidAmountInput,
+          selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate,
           partyTypeMode,
           customerNameInput,
           customSubCustomerName,
@@ -313,13 +314,14 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
         localStorage.removeItem(MOBILE_POS_DRAFT_KEY);
       }
     } catch {}
-  }, [partyTypeMode, customerNameInput, customSubCustomerName, selectedCustomerId, selectedSubCustomerId, cart, paymentMethod, globalDiscount, invoiceNotes]);
+  }, [partyTypeMode, customerNameInput, customSubCustomerName, selectedCustomerId, selectedSubCustomerId, cart, paymentMethod, globalDiscount, invoiceNotes,paidAmountInput,selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
       try {
         localStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
           draftId:draftId.current, paidAmountInput,
+          selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate,
           partyTypeMode,
           customerNameInput,
           customSubCustomerName,
@@ -335,7 +337,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [partyTypeMode, customerNameInput, customSubCustomerName, selectedCustomerId, selectedSubCustomerId, cart, paymentMethod, globalDiscount, invoiceNotes]);
+  }, [partyTypeMode, customerNameInput, customSubCustomerName, selectedCustomerId, selectedSubCustomerId, cart, paymentMethod, globalDiscount, invoiceNotes,paidAmountInput,selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate]);
 
   // Automatically re-evaluate cart item prices whenever customer changes in Mobile POS
   const prevMobileCustIdRef = useRef(selectedCustomerId);
@@ -906,12 +908,17 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const taxAmount = settings.taxNumber ? Number(((taxableAmount * taxRate) / 100).toFixed(2)) : 0;
   const netTotal = Number((taxableAmount + taxAmount).toFixed(2));
 
-  // Live Effective Paid & Remaining calculations for UI and Validation
-  const rawLivePaid = paidAmountInput.trim() !== ''
-    ? parseFloat(paidAmountInput)
-    : (paymentMethod === 'credit' ? 0 : netTotal);
-  const effectivePaid = isNaN(rawLivePaid) ? (paymentMethod === 'credit' ? 0 : netTotal) : Math.max(0, rawLivePaid);
-  const effectiveRemaining = Math.max(0, Number((netTotal - effectivePaid).toFixed(2)));
+  // Invoice and tender are distinct. The numeric input is in the selected tender currency.
+  const invoiceRate=selectedCurrencyCode==='ILS'?1:payExchangeRate;
+  const tenderCurrencyCode=paymentMethod==='card'?bankCurrencyCode:cashCurrencyCode;
+  const tenderRate=tenderCurrencyCode==='ILS'?1:(paymentMethod==='card'?bankExchangeRate:cashExchangeRate);
+  const tenderSymbol=currencies.find(c=>c.code===tenderCurrencyCode)?.symbol||tenderCurrencyCode;
+  const totalBase=Number((netTotal*invoiceRate).toFixed(2));
+  const fullTender=Number((totalBase/tenderRate).toFixed(2));
+  const rawLivePaid=paidAmountInput.trim()!==''?parseFloat(paidAmountInput):(paymentMethod==='credit'?0:fullTender);
+  const effectivePaid=Number.isFinite(rawLivePaid)?Math.max(0,rawLivePaid):0;
+  const effectivePaidBase=Number((effectivePaid*tenderRate).toFixed(2));
+  const effectiveRemaining=Math.max(0,Number((netTotal-effectivePaidBase/invoiceRate).toFixed(2)));
 
   const isMainCustomerSelected = Boolean(
     selectedCustomerId ||
@@ -939,11 +946,9 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     }
 
     try {
-      const rawPaid = paidAmountInput.trim() !== ''
-        ? parseFloat(paidAmountInput)
-        : (paymentMethod === 'credit' ? 0 : netTotal);
-      const paid = isNaN(rawPaid) ? (paymentMethod === 'credit' ? 0 : netTotal) : Math.max(0, rawPaid);
-      const remaining = Math.max(0, Number((netTotal - paid).toFixed(2)));
+      const paid=effectivePaid;
+      const remaining=effectiveRemaining;
+      if(effectivePaidBase>totalBase){alert('مبلغ السداد يتجاوز إجمالي الفاتورة بالشيكل.');return;}
 
       // If remaining balance exists, validate that it is associated with a specific customer or sub-customer
       if (remaining > 0) {
@@ -1000,18 +1005,6 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       const activeCashCurr = currencies.find(c => c.code === cashCurrencyCode) || activeCurrency;
       const activeBankCurr = currencies.find(c => c.code === bankCurrencyCode) || activeCurrency;
 
-      const activePayCurr = paymentMethod === 'card'
-        ? activeBankCurr
-        : paymentMethod === 'cash'
-        ? activeCashCurr
-        : (currencies.find(c => c.code === payCurrencyCode) || activeCurrency);
-
-      const effectivePayExchangeRate = paymentMethod === 'card'
-        ? bankExchangeRate
-        : paymentMethod === 'cash'
-        ? cashExchangeRate
-        : payExchangeRate;
-
       const effectiveTreasuryCode = paymentMethod === 'card'
         ? selectedBankTreasuryCode
         : 'CASH-1101';
@@ -1035,19 +1028,19 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
         invoiceNotes.trim() || `فاتورة كاشير هاتف - ${paymentMethod === 'cash' ? 'نقداً' : paymentMethod === 'card' ? 'شبكة/بنك' : 'آجل'}`,
         {
           taxRate: taxRate,
-          paidAmount: paid,
-          currency: activePayCurr.code,
-          currencySymbol: activePayCurr.symbol,
-          exchangeRate: effectivePayExchangeRate,
+          paidAmount: Number((effectivePaidBase/invoiceRate).toFixed(2)),
+          currency: activeCurrency.code,
+          currencySymbol: activeCurrency.symbol,
+          exchangeRate: invoiceRate,
           treasuryAccountCode: effectiveTreasuryCode,
           cashPaidAmount: paymentMethod === 'cash' || paymentMethod === 'credit' ? paid : 0,
           cashTreasuryCode: 'CASH-1101',
           cashCurrency: activeCashCurr.code,
-          cashExchangeRate: cashExchangeRate,
+          cashExchangeRate: cashCurrencyCode==='ILS'?1:cashExchangeRate,
           bankPaidAmount: paymentMethod === 'card' ? paid : 0,
           bankTreasuryCode: selectedBankTreasuryCode,
           bankCurrency: activeBankCurr.code,
-          bankExchangeRate: bankExchangeRate,
+          bankExchangeRate: bankCurrencyCode==='ILS'?1:bankExchangeRate,
           branchId: activeBranchId,
           counterpartyType: partyTypeMode,
           counterpartyId: selectedCustomerId || undefined,
@@ -2177,13 +2170,13 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                   </span>
                   {/* Converted amount in selected payment method currency if different */}
                   {(() => {
-                    const currentMethodCurrCode = paymentMethod === 'cash' ? cashCurrencyCode : paymentMethod === 'card' ? bankCurrencyCode : payCurrencyCode;
-                    const currentMethodRate = paymentMethod === 'cash' ? cashExchangeRate : paymentMethod === 'card' ? bankExchangeRate : payExchangeRate;
+                    const currentMethodCurrCode = tenderCurrencyCode;
+                    const currentMethodRate = tenderRate;
                     const currentMethodCurr = currencies.find(c => c.code === currentMethodCurrCode);
                     if (currentMethodCurrCode !== activeCurrency.code && currentMethodRate > 0) {
                       return (
                         <span className="block text-[10px] text-emerald-700 font-bold">
-                          ≈ {((netTotal * (activeCurrency.rateAgainstBase || 1.0)) / currentMethodRate).toFixed(2)} {currentMethodCurr?.symbol || currentMethodCurrCode}
+                          ≈ {(totalBase / currentMethodRate).toFixed(2)} {currentMethodCurr?.symbol || currentMethodCurrCode}
                         </span>
                       );
                     }
@@ -2199,7 +2192,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                     <span>المبلغ المدفوع:</span>
                     <button
                       type="button"
-                      onClick={() => setPaidAmountInput(String(netTotal))}
+                      onClick={() => setPaidAmountInput(String(fullTender))}
                       className="text-[10px] text-blue-600 hover:underline cursor-pointer"
                       title="دفع كامل المبلغ"
                     >
@@ -2210,14 +2203,15 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                     <input
                       type="number"
                       step="any"
-                      placeholder={paymentMethod === 'credit' ? '0.00' : String(netTotal)}
+                      placeholder={paymentMethod === 'credit' ? '0.00' : String(fullTender)}
                       value={paidAmountInput}
                       onChange={(e) => setPaidAmountInput(e.target.value)}
                       className="w-24 bg-white border border-slate-300 focus:border-blue-500 rounded-md px-1.5 py-0.5 text-xs font-mono text-center font-bold text-slate-900 focus:outline-none"
                     />
-                    <span className="text-[10px] font-bold text-slate-500">{activeCurrency.symbol}</span>
+                    <span className="text-[10px] font-bold text-slate-500">{tenderSymbol}</span>
                   </div>
                 </div>
+                <div className="text-[10px] text-slate-500">المعادل بالشيكل: {effectivePaidBase.toFixed(2)} ₪</div>
 
                 {/* Remaining debt balance & validation badge if remaining > 0 */}
                 {effectiveRemaining > 0 && (
@@ -2462,10 +2456,6 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
                       setSelectedCurrencyCode(c.code);
                       setPayCurrencyCode(c.code);
                       setPayExchangeRate(c.rateAgainstBase || 1.0);
-                      setCashCurrencyCode(c.code);
-                      setCashExchangeRate(c.code === 'ILS' ? 1.0 : c.rateAgainstBase || 1.0);
-                      setBankCurrencyCode(c.code);
-                      setBankExchangeRate(c.code === 'ILS' ? 1.0 : c.rateAgainstBase || 1.0);
                       setShowCurrencyModal(false);
                       posSound.beep();
                     }}
