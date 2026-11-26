@@ -28,6 +28,7 @@ on:
       - 'scripts/assert-desktop-build-env.cjs'
       - 'scripts/check-packaged-sqlite.cjs'
       - 'scripts/smoke-original-print-pdf.mjs'
+      - 'scripts/smoke-windows-update-handoff.cjs'
       - 'package.json'
       - '.github/workflows/desktop-windows-installer.yml'
 
@@ -60,6 +61,8 @@ jobs:
         run: node --import tsx --test tests/desktop-sqlite-mirror.test.ts tests/pos-attempt-indexeddb.test.ts
       - name: Test SHA256-verified unattended updates and strict next-start install guard
         run: node --test tests/desktop-auto-update.test.cjs
+      - name: Verify actual Electron to PowerShell installer handoff and automatic reopen
+        run: node scripts/smoke-windows-update-handoff.cjs
       - name: Test native and browser install actions and SQLite status control
         run: node --test tests/desktop-install-ui.test.mjs
       - name: Verify original print PDF paper orientation and isolation before publication
