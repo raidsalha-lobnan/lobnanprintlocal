@@ -138,8 +138,8 @@ export const TaxInvoicePrintView: React.FC = () => {
     if (!ready || !canvas.current) return;
     try {
       const pdf = new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true});
-      const h=210*H/W;
-      pdf.addImage(canvas.current.toDataURL('image/png'),'PNG',0,(297-h)/2,210,h);
+      const w=Math.min(210,297*W/H), h=w*H/W;
+      pdf.addImage(canvas.current.toDataURL('image/png'),'PNG',(210-w)/2,(297-h)/2,w,h);
       pdf.save('tax-invoice-'+serial+'.pdf');
     } catch { setMessage('تعذر حفظ PDF.'); }
   };
