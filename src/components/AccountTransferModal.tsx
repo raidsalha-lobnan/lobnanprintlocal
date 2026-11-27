@@ -56,7 +56,7 @@ export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onCl
  };
  const numeric=Number(amount);
  const validAmount=Number.isFinite(numeric)&&numeric>0&&numeric<1e12&&Math.abs(numeric*100-Math.round(numeric*100))<0.00001;
- const same=(source.type==='employee')===(target.type==='employee')&&source.id===target.id;
+ const same=(source.type==='employee')===(target.type==='employee')&&source.id===target.id&&!(source.type==='customer'&&target.type==='customer'&&String(source.subCustomerId||'')!==String(target.subCustomerId||''));
  const locked=!!pending||busy;
  const balanceText=(n:number|null)=>n===null?'—':fmt(Math.abs(n))+' '+settings.currency+' '+(n>0?'مدين':n<0?'دائن':'');
  const endpointControl=(p:Endpoint,set:(v:Endpoint)=>void,search:string,setSearch:(v:string)=>void,side:'source'|'target')=>{

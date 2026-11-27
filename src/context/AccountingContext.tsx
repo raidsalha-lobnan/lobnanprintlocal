@@ -5969,7 +5969,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const hasVouchers = vouchers.some(v => v.partyId === id);
     const hasPrintOrders = printOrders.some(po => po.customerId === id);
     const hasChildren = parties.some(p => p.parentPartyId === id);
-    const hasClearing = debtClearings.some(c => c.customerId === id || c.supplierId === id);
+    const hasClearing = debtClearings.some(c => c.customerId === id || c.supplierId === id || c.creditSubCustomerId === id || c.debitSubCustomerId === id);
     if (hasInvoices || hasPurchases || hasReturns || hasVouchers ||
         hasPrintOrders || hasChildren || hasClearing) {
       return {

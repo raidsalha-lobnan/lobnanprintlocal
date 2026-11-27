@@ -106,7 +106,11 @@ export async function postAccountTransfer(service,workspace,input,actorId,access
   }
   const clearingNumber='CLR-'+year+'-'+String(sequence+1).padStart(3,'0');
   const journalId='entry-'+id,changes=[],balances=new Map();
-  for(const effect of plan.effects){
+  // Aggregate by actual ledger owner. A transfer between two subcustomers of
+  // one parent changes the allocations but leaves its total unchanged.
+  const grouped=new Map();
+  for(const effect of plan.effects){const key=effect.entity+':'+effect.id;const prev=grouped.get(key);grouped.set(key,{...effect,signedLedgerDelta:Math.round(((prev?.signedLedgerDelta||0)+effect.signedLedgerDelta)*100)/100});}
+  for(const effect of grouped.values()){
    const resolved=[a,b].find(x=>x.entity===effect.entity&&x.party.id===effect.id);
    if(effect.entity==='employees'){
     // Employee balance is derived from its approved statement, not a mutable card.
@@ -117,7 +121,7 @@ export async function postAccountTransfer(service,workspace,input,actorId,access
    const after=money(Math.round((before+effect.signedLedgerDelta)*100)/100);
    const next={...value,balance:after};
    if(!access.canChange('parties',next,value))fail('ACCOUNT_TRANSFER_PERMISSION_DENIED',403);
-   changes.push(rowChange('parties',resolved.row,next));
+   if(effect.signedLedgerDelta!==0)changes.push(rowChange('parties',resolved.row,next));
    balances.set(effect.entity+':'+effect.id,{before,after});
   }
   for(const [code,delta] of Object.entries(plan.accountDeltas)){

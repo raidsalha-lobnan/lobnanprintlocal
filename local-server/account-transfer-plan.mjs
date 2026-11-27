@@ -35,7 +35,7 @@ export function buildAccountTransferPlan({source,target,amount,balanceSide='debi
  if(n<=0)fail('ACCOUNT_TRANSFER_AMOUNT_INVALID');
  if(!['debit','credit'].includes(balanceSide))fail('ACCOUNT_TRANSFER_SIDE_INVALID');
  // A party marked both uses ONE underlying balance, not two distinct cards.
- if(a.entity===b.entity&&a.id===b.id)fail('ACCOUNT_TRANSFER_SAME_ACCOUNT');
+ if(a.entity===b.entity&&a.id===b.id&&!(a.type==='customer'&&b.type==='customer'&&String(a.subCustomerId||'')!==String(b.subCustomerId||'')))fail('ACCOUNT_TRANSFER_SAME_ACCOUNT');
  if([a,b].some(x=>x.entity==='parties'&&(
   ['pt-cust-1','cust-0001','c-0001','1'].includes(x.id.toLowerCase())||
   String(x.code||'').toUpperCase()==='CUST-0001')))

@@ -207,7 +207,8 @@ export class SyncService {
                 OR (entity='parties' AND value->>'parentPartyId'=$2)
                 OR (entity=ANY($3::text[]) AND
                  (value->>'partyId'=$2 OR value->>'customerId'=$2 OR
-                  value->>'supplierId'=$2 OR value->>'counterpartyId'=$2))
+                  value->>'supplierId'=$2 OR value->>'counterpartyId'=$2 OR
+                  value->>'creditSubCustomerId'=$2 OR value->>'debitSubCustomerId'=$2))
                ) LIMIT 1`,
               [workspace,change.id,[
                 'vouchers','purchases','purchaseReturns','salesReturns',
