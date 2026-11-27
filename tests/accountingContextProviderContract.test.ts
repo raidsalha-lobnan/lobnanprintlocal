@@ -64,7 +64,9 @@ test('atomic receipt callback has one implementation and is wired as that same f
  assert.ok(functionValue&&ts.isArrowFunction(functionValue),
   'Atomic receipt callback must have a concrete implementation');
  const statements=functionValue.body.getText(source);
- assert.match(statements,/fetchAuthoritativeBootstrap/);
+ assert.doesNotMatch(statements,/fetchAuthoritativeBootstrap/);
+ assert.match(statements,/receipt\.changes/);
+ assert.match(statements,/saved.*journal.*treasuryChanged.*partyChanged/s);
  assert.match(statements,/remote\.push/);
  assert.match(statements,/journalEntries/);
  assert.match(statements,/treasuries/);
