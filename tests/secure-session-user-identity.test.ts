@@ -47,6 +47,7 @@ test('accounting user identity cannot fall back to the first saved user or to a 
   assert.match(segment,/getCurrentSessionProfile\(\)/);
   assert.match(ctx,/if\(secureLoginEnabled\(\)\)return getCurrentSessionActorId\(\)/);
   assert.match(ctx,/Refused UI user switch: account identity is bound to PostgreSQL login/);
-  assert.match(navbar,/!secureLoginEnabled\(\) && isAdmin \?/);
+  assert.doesNotMatch(navbar,/\b(?:setCurrentUser|switchUser)\b/);
+  assert.match(navbar,/currentUser\?\.fullName/);
   assert.match(auth,/bindCurrentSessionProfile\(user\)/);
 });
