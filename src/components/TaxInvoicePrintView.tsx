@@ -1,9 +1,29 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { jsPDF } from 'jspdf';
 import { tafqeet } from '../utils/tafqeet';
 import templateUrl from '../assets/tax-invoice/original-clean.png?url';
 
 type Line = { item: string; qty: string; price: string; fontSize?: number };
+type HandStyle = 'ruqaa' | 'lemonada';
+const fontNames: Record<HandStyle,string> = {ruqaa:'TaxInvoiceHandwriting',lemonada:'TaxInvoiceCasual'};
+const fontSpec = (style: HandStyle, size: number) => (style === 'lemonada' ? '300 ' : '400 ') + size + 'px "' + fontNames[style] + '"';
+const clampSize = (n: number) => Math.max(12,Math.min(35,n));
+const autoItemSize = (text: string, base: number) => {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return clampSize(base + (words <= 2 ? 5 : words <= 4 ? 2 : words <= 7 ? 0 : -Math.min(9,words-7)));
+};
+function fitSize(ctx: CanvasRenderingContext2D, text: string, width: number, desired: number, style: HandStyle, ready: boolean) {
+  let fitted = clampSize(desired);
+  const measure = () => {
+    ctx.font = ready ? fontSpec(style,fitted) : fitted + 'px Arial';
+    return ctx.measureText(text);
+  };
+  let m = measure();
+  while (fitted > 12 && (m.width > width-4 || m.actualBoundingBoxAscent+m.actualBoundingBoxDescent > 34)) {
+    fitted = Math.max(12,fitted-0.5); m=measure();
+  }
+  return fitted;
+}
 type HeaderFontKey = 'customer' | 'address' | 'date' | 'note' | 'total' | 'vat' | 'grand' | 'words';
 const headerFontFields: { key: HeaderFontKey; label: string }[] = [
   {key:'customer',label:'اسم العميل'}, {key:'address',label:'العنوان'},
@@ -18,8 +38,10 @@ const fmt = (n: number) => (n / 100).toFixed(2);
 
 export const TaxInvoicePrintView: React.FC = () => {
   const template = templateUrl;
-  const font = new URL(import.meta.env.BASE_URL + 'fonts/tax-invoice/ArefRuqaa-Regular.ttf', document.baseURI).href;
-  const [fontReady, setFontReady] = useState(false);
+  const [style,setStyle] = useState<HandStyle>('ruqaa');
+  const [loadedStyle,setLoadedStyle] = useState<HandStyle | null>(null);
+  const fontReady = loadedStyle === style;
+  const font = new URL(import.meta.env.BASE_URL + 'fonts/tax-invoice/' + (style==='ruqaa'?'ArefRuqaa-Regular.ttf':'Lemonada.ttf'), document.baseURI).href;
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [serial, setSerial] = useState('');
   const [date, setDate] = useState('');
@@ -34,6 +56,13 @@ export const TaxInvoicePrintView: React.FC = () => {
   const [message, setMessage] = useState('');
   const canvas = useRef<HTMLCanvasElement>(null);
   const active = lines.filter(l => l.item.trim() || l.qty !== '' || l.price !== '');
+  const rowSizes = useMemo(() => {
+    const ctx=document.createElement('canvas').getContext('2d');
+    return lines.map(l=>{
+      const wanted=l.fontSize ?? autoItemSize(l.item,size);
+      return ctx ? fitSize(ctx,l.item,373,wanted,style,fontReady) : wanted;
+    });
+  },[lines,size,style,fontReady]);
   const validLine = (l: Line) => !!l.item.trim() && l.qty !== '' && l.price !== '' && Number.isFinite(Number(l.qty)) && Number(l.qty) > 0 && Number.isFinite(Number(l.price)) && Number(l.price) >= 0 && Number(l.price) <= 999999 && Number(l.qty) <= 999999 && Math.abs(Number(l.price)*100 - Math.round(Number(l.price)*100)) < 0.000001;
   const lineAmount = (l: Line) => cents((Number(l.qty) || 0) * (Number(l.price) || 0));
   const total = active.reduce((sum,l) => sum + lineAmount(l),0);
@@ -58,21 +87,21 @@ export const TaxInvoicePrintView: React.FC = () => {
   }, [template]);
 
   useEffect(() => {
-    setFontReady(false);
+    setLoadedStyle(null);
     if (!font) return;
     let stopped = false;
     let face: FontFace | undefined;
     (async () => {
       try {
-        face = new FontFace('TaxInvoiceHandwriting', 'url(' + font + ')');
+        face = new FontFace(fontNames[style], 'url(' + font + ')', {weight:style==='lemonada'?'300 700':'400'});
         await face.load();
         if (stopped) return;
         document.fonts.add(face);
-        setFontReady(true);
+        setLoadedStyle(style);
       } catch { if (!stopped) setMessage('تعذر تحميل الخط المدمج. أعد فتح الشاشة قبل الطباعة.'); }
     })();
     return () => { stopped = true; if (face) document.fonts.delete(face); };
-  }, [font]);
+  }, [font,style]);
 
   useEffect(() => {
     const c = canvas.current;
@@ -90,13 +119,8 @@ export const TaxInvoicePrintView: React.FC = () => {
       if (!value) return;
       ctx.save(); ctx.direction = rtl ? 'rtl' : 'ltr'; ctx.textAlign = rtl ? 'right' : 'center'; ctx.textBaseline = 'middle';
       ctx.fillStyle = '#153b9e';
-      const family = fontReady ? 'TaxInvoiceHandwriting' : 'Arial';
-      ctx.font = sz + 'px "' + family + '"';
-      // Fit the complete connected phrase; never split Arabic letter shaping.
-      let fitted = sz;
-      const setFont = () => { ctx.font = fitted + 'px "' + family + '"'; };
-      setFont();
-      while (fitted > 12 && (ctx.measureText(value).width > width - 4 || ctx.measureText(value).actualBoundingBoxAscent + ctx.measureText(value).actualBoundingBoxDescent > 34)) { fitted -= 0.5; setFont(); }
+      // Measure and fit complete Arabic phrases, preserving contextual shaping.
+      fitSize(ctx,value,width,sz,style,fontReady);
       ctx.fillText(value,x,y,width - 4);
       ctx.restore();
     };
@@ -115,7 +139,7 @@ export const TaxInvoicePrintView: React.FC = () => {
     hand(address,855,361,649,true,headerSizes.address ?? size);
     active.slice(0,MAX).forEach((l,i) => {
       const y = 534 + i * 42.5;
-      const rowSize = l.fontSize ?? size;
+      const rowSize = l.fontSize ?? autoItemSize(l.item,size);
       hand(l.item,939,y,373,true,rowSize);
       hand(l.qty,500,y,98,false,rowSize);
       if (l.price !== '') split(cents(Number(l.price)||0),y,342,419,rowSize);
@@ -147,7 +171,7 @@ export const TaxInvoicePrintView: React.FC = () => {
     if (vat !== '' && Number(vat) > 0) hand(vat,416,1234,38,false,headerSizes.vat ?? 22);
     hand(amountWords,793,1365,700,true,headerSizes.words ?? Math.min(size,26));
     ctx.save(); ctx.direction='rtl'; ctx.textAlign='center'; ctx.font='15px Arial'; ctx.fillStyle='#555'; ctx.fillText('نسخة إلكترونية — تعبئة رقمية بخط عربي',512,1424); ctx.restore();
-  },[image,fontReady,serial,date,customer,address,lines,vat,note,words,size,headerSizes]);
+  },[image,fontReady,style,serial,date,customer,address,lines,vat,note,words,size,headerSizes]);
 
   const update = (index: number,key: 'item' | 'qty' | 'price',value: string) => setLines(old => old.map((l,i) => i===index ? {...l,[key]:value} : l));
   const exportPdf = () => {
@@ -187,13 +211,15 @@ export const TaxInvoicePrintView: React.FC = () => {
           <label className="col-span-2">العنوان<input className={field} value={address} onChange={e=>setAddress(e.target.value)}/></label>
         </div>
         <div className="overflow-x-auto"><table className="w-full text-sm min-w-[460px]"><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>المبلغ</th><th>حجم الخط</th><th></th></tr></thead><tbody>
-          {lines.map((l,i)=><tr key={i}><td><input aria-label={'الصنف '+(i+1)} className={field} value={l.item} onChange={e=>update(i,'item',e.target.value)}/></td><td><input aria-label="الكمية" className={field+' min-w-16'} type="number" min="0" step="any" value={l.qty} onChange={e=>update(i,'qty',e.target.value)}/></td><td><input aria-label="سعر الوحدة" className={field+' min-w-20'} type="number" min="0" step=".01" value={l.price} onChange={e=>update(i,'price',e.target.value)}/></td><td className="px-1 whitespace-nowrap">{fmt(lineAmount(l))}</td><td className="min-w-[72px]"><select aria-label={'حجم خط البند '+(i+1)} className={field} value={l.fontSize ?? ''} onChange={e=>{const value=e.target.value;setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:value===''?undefined:Number(value)}:row));}}><option value="">عام ({size})</option>{Array.from({length:24},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></td><td><button type="button" aria-label="حذف البند" onClick={()=>setLines(old=>old.length===1?[blank()]:old.filter((_,j)=>i!==j))}>×</button></td></tr>)}
+          {lines.map((l,i)=><tr key={i}><td><input aria-label={'الصنف '+(i+1)} className={field} value={l.item} onChange={e=>update(i,'item',e.target.value)}/></td><td><input aria-label="الكمية" className={field+' min-w-16'} type="number" min="0" step="any" value={l.qty} onChange={e=>update(i,'qty',e.target.value)}/></td><td><input aria-label="سعر الوحدة" className={field+' min-w-20'} type="number" min="0" step=".01" value={l.price} onChange={e=>update(i,'price',e.target.value)}/></td><td className="px-1 whitespace-nowrap">{fmt(lineAmount(l))}</td><td className="min-w-[115px]"><div className="flex items-center justify-center gap-1" dir="ltr"><button type="button" aria-label={'تصغير خط البند '+(i+1)} disabled={rowSizes[i]<=12} className="border rounded px-2 py-1 disabled:opacity-40" onClick={()=>setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:clampSize(rowSizes[i]-1)}:row))}>−</button><span className="tabular-nums min-w-[28px] text-center">{rowSizes[i]}</span><button type="button" aria-label={'تكبير خط البند '+(i+1)} disabled={rowSizes[i]>=35} className="border rounded px-2 py-1 disabled:opacity-40" onClick={()=>setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:clampSize(rowSizes[i]+1)}:row))}>+</button></div><button type="button" className="block mx-auto text-xs text-blue-700" onClick={()=>setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:undefined}:row))}>{l.fontSize===undefined?'تلقائي ✓':'عودة للتلقائي'}</button></td><td><button type="button" aria-label="حذف البند" onClick={()=>setLines(old=>old.length===1?[blank()]:old.filter((_,j)=>i!==j))}>×</button></td></tr>)}
         </tbody></table></div>
         <button type="button" disabled={lines.length>=MAX} onClick={()=>setLines(old=>[...old,blank()])} className="border rounded px-3 py-1 disabled:opacity-50">+ إضافة بند</button>
         <p className="text-xs text-slate-500">حتى 15 سطرًا، بما فيها سطر الملاحظات.</p>
         <label className="block">الملاحظات<input className={field} value={note} onChange={e=>setNote(e.target.value)}/></label>
         <div className="grid grid-cols-2 gap-2"><label>نسبة الضريبة % (أدخل 0 عند عدم وجودها)<input className={field} type="number" min="0" max="100" step=".01" value={vat} onChange={e=>setVat(e.target.value)}/></label><div className="text-sm space-y-1"><div>المجموع: {fmt(total)} ₪</div><div>الضريبة: {fmt(tax)} ₪</div><strong>الإجمالي: {fmt(grand)} ₪</strong></div></div>
         <label className="block">المبلغ بالكلمات (تلقائي وقابل للتعديل)<input className={field} value={words} placeholder={amountWords} onChange={e=>setWords(e.target.value)}/></label>
+        <label className="block text-sm">نمط الخط العربي<select className={field} value={style} onChange={e=>setStyle(e.target.value as HandStyle)}><option value="ruqaa">رقعة — Aref Ruqaa</option><option value="lemonada">خط عربي حر خفيف — Lemonada</option></select></label>
+        <p className="text-xs text-slate-500">الحجم التلقائي يتغير بحسب عدد الكلمات وعرضها الحقيقي. يمكن تعديل كل بند بعلامتي + و− ضمن مساحة الخانة.</p>
         <label className="block text-sm">حجم الخط العام: {size}<input className="w-full" type="range" min="12" max="35" value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
         <details className="border rounded p-2"><summary className="cursor-pointer text-sm font-medium">أحجام خطوط الخانات الأخرى</summary><div className="grid grid-cols-2 gap-2 mt-2">{headerFontFields.map(({key,label})=><label key={key} className="text-sm">{label}<select className={field} value={headerSizes[key] ?? ''} onChange={e=>{const value=e.target.value;setHeaderSizes(old=>({...old,[key]:value===''?undefined:Number(value)}));}}><option value="">افتراضي</option>{Array.from({length:24},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div><button type="button" className="border rounded px-2 py-1 mt-2 text-sm" onClick={()=>{setHeaderSizes({});setLines(old=>old.map(l=>({...l,fontSize:undefined})));setSize(27);}}>إعادة الأحجام الافتراضية</button></details>
         <div className="flex flex-wrap gap-2"><button type="button" disabled={!ready} onClick={print} className="bg-blue-700 text-white rounded px-4 py-2 disabled:opacity-40">طباعة</button><button type="button" disabled={!ready} onClick={exportPdf} className="bg-slate-800 text-white rounded px-4 py-2 disabled:opacity-40">حفظ PDF</button></div>
