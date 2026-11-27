@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {findRecoverableCashierDrafts} from '../src/utils/posDraftRecovery';
+import {findRecoverableCashierDrafts,discardRecoverableCashierDraft} from '../src/utils/posDraftRecovery';
 
 function storage(rows: Record<string, string>): Pick<Storage,'length'|'key'|'getItem'> {
   const keys = Object.keys(rows);
@@ -58,4 +58,33 @@ test('new offline sale confirms a durable outbox or acknowledged record before r
   assert.ok(queued >= 0 && proof > queued && success > proof);
   assert.match(sale,/confirmedInvoice\(invoiceId\)/);
   assert.match(sale,/getLocalDb\(\)\.pending\(\)/);
+});
+
+test('explicit discard removes only the selected unchanged recovery copy', () => {
+  const active='pos_active_full_draft:worker-1:current';
+  const old='pos_active_full_draft:worker-1:old';
+  const other='pos_active_full_draft:worker-2:other';
+  const rows:Record<string,string>={
+    [active]:makeDraft('worker-1','draft-current','active',30),
+    [old]:makeDraft('worker-1','draft-old','old',20),
+    [other]:makeDraft('worker-2','draft-other','other',40),
+    'pos_held_private_cache_v1_worker-1':'held',
+    'lobnan_pending_atomic_pos_attempt:draft-old':'pending'
+  };
+  const store={get length(){return Object.keys(rows).length;},
+    key:(i:number)=>Object.keys(rows)[i]??null,
+    getItem:(k:string)=>rows[k]??null,removeItem:(k:string)=>{delete rows[k];}};
+  const [candidate]=findRecoverableCashierDrafts(store,'worker-1',active,'draft-current');
+  const original=rows[old];
+  rows[old]=makeDraft('worker-1','draft-old','changed in another tab',50);
+  assert.equal(discardRecoverableCashierDraft(store,'worker-1',active,'draft-current',candidate),false);
+  rows[old]=original;
+  assert.equal(discardRecoverableCashierDraft(store,'worker-2',active,'draft-current',candidate),false);
+  assert.equal(discardRecoverableCashierDraft(store,'worker-1',old,'draft-current',candidate),false);
+  assert.equal(discardRecoverableCashierDraft(store,'worker-1',active,'draft-current',candidate),true);
+  assert.equal(store.getItem(old),null);
+  assert.ok(rows[active]&&rows[other]);
+  assert.equal(rows['pos_held_private_cache_v1_worker-1'],'held');
+  assert.equal(rows['lobnan_pending_atomic_pos_attempt:draft-old'],'pending');
+  assert.deepEqual(findRecoverableCashierDrafts(store,'worker-1',active,'draft-current'),[]);
 });
