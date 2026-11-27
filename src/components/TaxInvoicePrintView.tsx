@@ -3,7 +3,14 @@ import { jsPDF } from 'jspdf';
 import { tafqeet } from '../utils/tafqeet';
 import templateUrl from '../assets/tax-invoice/original-clean.png?url';
 
-type Line = { item: string; qty: string; price: string };
+type Line = { item: string; qty: string; price: string; fontSize?: number };
+type HeaderFontKey = 'customer' | 'address' | 'date' | 'note' | 'total' | 'vat' | 'grand' | 'words';
+const headerFontFields: { key: HeaderFontKey; label: string }[] = [
+  {key:'customer',label:'اسم العميل'}, {key:'address',label:'العنوان'},
+  {key:'date',label:'التاريخ'}, {key:'note',label:'الملاحظات'},
+  {key:'total',label:'المجموع'}, {key:'vat',label:'الضريبة'},
+  {key:'grand',label:'الإجمالي'}, {key:'words',label:'المبلغ بالكلمات'}
+];
 const blank = (): Line => ({ item: '', qty: '', price: '' });
 const W = 1024, H = 1455, MAX = 15;
 const cents = (n: number) => Math.round((n + Number.EPSILON) * 100);
@@ -23,6 +30,7 @@ export const TaxInvoicePrintView: React.FC = () => {
   const [note, setNote] = useState('');
   const [words, setWords] = useState('');
   const [size, setSize] = useState(27);
+  const [headerSizes, setHeaderSizes] = useState<Partial<Record<HeaderFontKey, number>>>({});
   const [message, setMessage] = useState('');
   const canvas = useRef<HTMLCanvasElement>(null);
   const active = lines.filter(l => l.item.trim() || l.qty !== '' || l.price !== '');
@@ -92,28 +100,29 @@ export const TaxInvoicePrintView: React.FC = () => {
       ctx.fillText(value,x,y,width - 4);
       ctx.restore();
     };
-    const split = (n: number, y: number, whole: number, frac: number) => {
+    const split = (n: number, y: number, whole: number, frac: number, sz = size) => {
       const abs = Math.abs(n);
-      hand(String(Math.floor(abs/100)),whole,y,whole===342 ? 92 : 127,false,Math.min(size,28));
-      hand(String(abs%100).padStart(2,'0'),frac,y,45,false,Math.min(size,26));
+      hand(String(Math.floor(abs/100)),whole,y,whole===342 ? 92 : 127,false,sz);
+      hand(String(abs%100).padStart(2,'0'),frac,y,45,false,sz);
     };
     const parts = date.split('-');
     if (parts.length === 3) {
-      hand(parts[0].slice(2),790,270,32,false,23);
-      hand(parts[1],836,270,35,false,23);
-      hand(parts[2],875,270,27,false,23);
+      hand(parts[0].slice(2),790,270,32,false,headerSizes.date ?? 23);
+      hand(parts[1],836,270,35,false,headerSizes.date ?? 23);
+      hand(parts[2],875,270,27,false,headerSizes.date ?? 23);
     }
-    hand(customer,758,322,608);
-    hand(address,855,361,649);
+    hand(customer,758,322,608,true,headerSizes.customer ?? size);
+    hand(address,855,361,649,true,headerSizes.address ?? size);
     active.slice(0,MAX).forEach((l,i) => {
       const y = 534 + i * 42.5;
-      hand(l.item,939,y,373);
-      hand(l.qty,500,y,98,false);
-      if (l.price !== '') split(cents(Number(l.price)||0),y,342,419);
-      if (l.qty !== '' && l.price !== '') split(lineAmount(l),y,154,258);
+      const rowSize = l.fontSize ?? size;
+      hand(l.item,939,y,373,true,rowSize);
+      hand(l.qty,500,y,98,false,rowSize);
+      if (l.price !== '') split(cents(Number(l.price)||0),y,342,419,rowSize);
+      if (l.qty !== '' && l.price !== '') split(lineAmount(l),y,154,258,rowSize);
     });
-    if (note.trim() && active.length < MAX) hand(note,939,534 + active.length * 42.5,373);
-    split(total,1181,154,258);
+    if (note.trim() && active.length < MAX) hand(note,939,534 + active.length * 42.5,373,true,headerSizes.note ?? size);
+    split(total,1181,154,258,headerSizes.total ?? size);
     if (vat !== '') {
       if (tax === 0) {
         // One centered dash per VAT amount cell, scaled to its actual width.
@@ -131,16 +140,16 @@ export const TaxInvoicePrintView: React.FC = () => {
         }
         ctx.restore();
       } else {
-        split(tax,1234,154,258);
+        split(tax,1234,154,258,headerSizes.vat ?? size);
       }
     }
-    split(grand,1288,154,258);
-    hand(vat === '' ? '' : vat,416,1234,38,false,22);
-    hand(amountWords,793,1365,700,true,Math.min(size,26));
+    split(grand,1288,154,258,headerSizes.grand ?? size);
+    if (vat !== '' && Number(vat) > 0) hand(vat,416,1234,38,false,headerSizes.vat ?? 22);
+    hand(amountWords,793,1365,700,true,headerSizes.words ?? Math.min(size,26));
     ctx.save(); ctx.direction='rtl'; ctx.textAlign='center'; ctx.font='15px Arial'; ctx.fillStyle='#555'; ctx.fillText('نسخة إلكترونية — تعبئة رقمية بخط عربي',512,1424); ctx.restore();
-  },[image,fontReady,serial,date,customer,address,lines,vat,note,words,size]);
+  },[image,fontReady,serial,date,customer,address,lines,vat,note,words,size,headerSizes]);
 
-  const update = (index: number,key: keyof Line,value: string) => setLines(old => old.map((l,i) => i===index ? {...l,[key]:value} : l));
+  const update = (index: number,key: 'item' | 'qty' | 'price',value: string) => setLines(old => old.map((l,i) => i===index ? {...l,[key]:value} : l));
   const exportPdf = () => {
     if (!ready || !canvas.current) return;
     try {
@@ -177,15 +186,16 @@ export const TaxInvoicePrintView: React.FC = () => {
           <label className="col-span-2">اسم العميل<input className={field} value={customer} onChange={e=>setCustomer(e.target.value)}/></label>
           <label className="col-span-2">العنوان<input className={field} value={address} onChange={e=>setAddress(e.target.value)}/></label>
         </div>
-        <div className="overflow-x-auto"><table className="w-full text-sm min-w-[460px]"><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>المبلغ</th><th></th></tr></thead><tbody>
-          {lines.map((l,i)=><tr key={i}><td><input aria-label={'الصنف '+(i+1)} className={field} value={l.item} onChange={e=>update(i,'item',e.target.value)}/></td><td><input aria-label="الكمية" className={field+' min-w-16'} type="number" min="0" step="any" value={l.qty} onChange={e=>update(i,'qty',e.target.value)}/></td><td><input aria-label="سعر الوحدة" className={field+' min-w-20'} type="number" min="0" step=".01" value={l.price} onChange={e=>update(i,'price',e.target.value)}/></td><td className="px-1 whitespace-nowrap">{fmt(lineAmount(l))}</td><td><button type="button" aria-label="حذف البند" onClick={()=>setLines(old=>old.length===1?[blank()]:old.filter((_,j)=>i!==j))}>×</button></td></tr>)}
+        <div className="overflow-x-auto"><table className="w-full text-sm min-w-[460px]"><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>المبلغ</th><th>حجم الخط</th><th></th></tr></thead><tbody>
+          {lines.map((l,i)=><tr key={i}><td><input aria-label={'الصنف '+(i+1)} className={field} value={l.item} onChange={e=>update(i,'item',e.target.value)}/></td><td><input aria-label="الكمية" className={field+' min-w-16'} type="number" min="0" step="any" value={l.qty} onChange={e=>update(i,'qty',e.target.value)}/></td><td><input aria-label="سعر الوحدة" className={field+' min-w-20'} type="number" min="0" step=".01" value={l.price} onChange={e=>update(i,'price',e.target.value)}/></td><td className="px-1 whitespace-nowrap">{fmt(lineAmount(l))}</td><td className="min-w-[72px]"><select aria-label={'حجم خط البند '+(i+1)} className={field} value={l.fontSize ?? ''} onChange={e=>{const value=e.target.value;setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:value===''?undefined:Number(value)}:row));}}><option value="">عام ({size})</option>{Array.from({length:24},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></td><td><button type="button" aria-label="حذف البند" onClick={()=>setLines(old=>old.length===1?[blank()]:old.filter((_,j)=>i!==j))}>×</button></td></tr>)}
         </tbody></table></div>
         <button type="button" disabled={lines.length>=MAX} onClick={()=>setLines(old=>[...old,blank()])} className="border rounded px-3 py-1 disabled:opacity-50">+ إضافة بند</button>
         <p className="text-xs text-slate-500">حتى 15 سطرًا، بما فيها سطر الملاحظات.</p>
         <label className="block">الملاحظات<input className={field} value={note} onChange={e=>setNote(e.target.value)}/></label>
         <div className="grid grid-cols-2 gap-2"><label>نسبة الضريبة % (أدخل 0 عند عدم وجودها)<input className={field} type="number" min="0" max="100" step=".01" value={vat} onChange={e=>setVat(e.target.value)}/></label><div className="text-sm space-y-1"><div>المجموع: {fmt(total)} ₪</div><div>الضريبة: {fmt(tax)} ₪</div><strong>الإجمالي: {fmt(grand)} ₪</strong></div></div>
         <label className="block">المبلغ بالكلمات (تلقائي وقابل للتعديل)<input className={field} value={words} placeholder={amountWords} onChange={e=>setWords(e.target.value)}/></label>
-        <label className="block text-sm">حجم الخط: {size}<input className="w-full" type="range" min="20" max="35" value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
+        <label className="block text-sm">حجم الخط العام: {size}<input className="w-full" type="range" min="12" max="35" value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
+        <details className="border rounded p-2"><summary className="cursor-pointer text-sm font-medium">أحجام خطوط الخانات الأخرى</summary><div className="grid grid-cols-2 gap-2 mt-2">{headerFontFields.map(({key,label})=><label key={key} className="text-sm">{label}<select className={field} value={headerSizes[key] ?? ''} onChange={e=>{const value=e.target.value;setHeaderSizes(old=>({...old,[key]:value===''?undefined:Number(value)}));}}><option value="">افتراضي</option>{Array.from({length:24},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div><button type="button" className="border rounded px-2 py-1 mt-2 text-sm" onClick={()=>{setHeaderSizes({});setLines(old=>old.map(l=>({...l,fontSize:undefined})));setSize(27);}}>إعادة الأحجام الافتراضية</button></details>
         <div className="flex flex-wrap gap-2"><button type="button" disabled={!ready} onClick={print} className="bg-blue-700 text-white rounded px-4 py-2 disabled:opacity-40">طباعة</button><button type="button" disabled={!ready} onClick={exportPdf} className="bg-slate-800 text-white rounded px-4 py-2 disabled:opacity-40">حفظ PDF</button></div>
         {!ready && <p className="text-xs text-slate-600">أكمل الرقم والتاريخ والعميل والبنود والضريبة وانتظر جاهزية الخط المدمج لتفعيل الإخراج.</p>}
       </div>
