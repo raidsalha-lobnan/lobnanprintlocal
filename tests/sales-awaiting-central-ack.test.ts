@@ -47,8 +47,8 @@ test('official register, customer statements, employee statements, VAT and print
   const printing=root('utils/printDetailedSalesInvoiceRegister.ts');
   assert.match(sales,/separateInvoiceConfirmation\(invoices\)/);
   assert.match(sales,/data-testid="sales-awaiting-postgres-confirmation"/);
-  assert.match(sales,/filteredInvoices = confirmedInvoices/);
-  assert.match(sales,/\{filteredInvoices\.length\} \/ \{confirmedInvoices\.length\}/);
+  assert.match(sales,/filteredInvoices = React\.useMemo\(\(\) => confirmedInvoices/);
+  assert.match(sales,/إجمالي الفواتير: \{confirmedInvoices\.length\}/);
   assert.match(printing,/buildDetailedSalesReportHtml\(confirmedInvoices,options\)/);
   assert.equal((statements.match(/if \(!isConfirmedSalesInvoice\(inv\)\) return;/g)||[]).length,2);
   assert.match(reports,/confirmedSalesForTax = invoices\.filter\(isConfirmedSalesInvoice\)/);
