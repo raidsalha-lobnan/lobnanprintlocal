@@ -1,4 +1,5 @@
 import {ReportPdfButton} from './common/ReportPdfButton';
+import {AccountTransferModal,transferTypeLabel} from './AccountTransferModal';
 import React, { useState, useMemo } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
@@ -40,6 +41,9 @@ export const DebtClearingView: React.FC = () => {
 
   // Modal / Form state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [transferOpen,setTransferOpen]=useState(false);
+  const [reverseTransfer,setReverseTransfer]=useState<DebtClearingRecord|undefined>();
+  const showBalance=(n:number|null,currency=settings.currency)=>n===null?'راجع كشف الحساب':formatNumber(Math.abs(n),2)+' '+currency+(n>0?' مدين':n<0?' دائن':'');
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
 
@@ -105,6 +109,7 @@ export const DebtClearingView: React.FC = () => {
   };
 
   const openEditModal = (record: DebtClearingRecord) => {
+    if(record.transferVersion===2){showFeedback('السند المعتمد يُصحح بقيد عكسي مستقل ثم سند جديد.','error');return;}
     setModalMode('edit');
     setEditingRecordId(record.id);
     setSelectedCustomerId(record.customerId);
@@ -179,6 +184,7 @@ export const DebtClearingView: React.FC = () => {
 
   const handleConfirmDelete = () => {
     if (!recordToDelete) return;
+    if(recordToDelete.transferVersion===2){setRecordToDelete(null);return;}
     const res = deleteDebtClearing(recordToDelete.id);
     if (res.success) {
       showFeedback(res.message || 'تم حذف سند المقاصة واسترجاع الأرصدة والقيود المحاسبية بنجاح');
@@ -228,15 +234,15 @@ export const DebtClearingView: React.FC = () => {
             <span className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
               <Scale className="w-5 h-5" />
             </span>
-            <h1 className="text-xl font-bold text-slate-800">مقاصة وتسوية الديون بين عميل ومورد</h1>
+            <h1 className="text-xl font-bold text-slate-800">المقاصة والتحويل بين الحسابات</h1>
           </div>
           <p className="text-[10px] text-slate-400 font-light mt-1">
-            تسوية الذمم المالية المتبادلة دون المساس بصناديق النقد والخزائن، مع إثبات القيود المزدوجة وإتاحة التعديل والحذف المحاسبي المتوازن.
+            نقل الأرصدة وتسوية الذمم بين العملاء والموردين والموظفين، بقيد مزدوج دون المساس بالصناديق النقدية.
           </p>
         </div>
 
         <button
-          onClick={openCreateModal}
+          onClick={()=>{setReverseTransfer(undefined);setTransferOpen(true);}}
           className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4" />
@@ -250,7 +256,7 @@ export const DebtClearingView: React.FC = () => {
         <div className="space-y-0.5">
           <span className="font-bold">القاعدة المحاسبية المعتمدة للمقاصة:</span>
           <p className="text-[11px] text-teal-800">
-            عملية المقاصة تخفض ذمة العميل (دائن) وتسقط التزام المورد (مدين) بموجب قيد يومية متوازن، وتظهر تلقائياً بكشف حساب كل طرف دون الدخول في حركات الخزن النقدية أو البنوك.
+            نقل رصيد مدين من الأول للثاني يقيد الثاني مديناً والأول دائناً، ونقل رصيد دائن يعكس القيد. يظهر الأثر في كشف الطرفين دون حركة نقدية.
           </p>
         </div>
       </div>
@@ -297,7 +303,7 @@ export const DebtClearingView: React.FC = () => {
             <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="بحث برقم المقاصة، اسم العميل، اسم المورد، أو البيان..."
+              placeholder="بحث برقم المقاصة، اسم أحد الطرفين، أو البيان..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
@@ -314,8 +320,8 @@ export const DebtClearingView: React.FC = () => {
               <tr>
                 <th className="p-3">رقم التسوية</th>
                 <th className="p-3">التاريخ</th>
-                <th className="p-3">طرف العميل (مدين)</th>
-                <th className="p-3">طرف المورد (دائن)</th>
+                <th className="p-3">الحساب الدائن (طرف القيد)</th>
+                <th className="p-3">الحساب المدين (طرف القيد)</th>
                 <th className="p-3">سبب وبيان المقاصة</th>
                 <th className="p-3">مبلغ المقاصة</th>
                 <th className="p-3">المنفذ</th>
@@ -338,15 +344,15 @@ export const DebtClearingView: React.FC = () => {
                     </td>
                     <td className="p-3 text-slate-600 font-mono">{item.date}</td>
                     <td className="p-3">
-                      <div className="font-bold text-slate-800">{item.customerName}</div>
+                      <div className="font-bold text-slate-800">{item.customerName} — {transferTypeLabel(item.creditPartyType)}</div>
                       <span className="text-[10px] text-slate-400 font-mono">
-                        الرصيد بعد: {formatNumber(item.customerNewBalance, 2)} {settings.currency}
+                        الرصيد بعد: {showBalance(item.customerNewBalance,item.currency||settings.currency)}
                       </span>
                     </td>
                     <td className="p-3">
-                      <div className="font-bold text-slate-800">{item.supplierName}</div>
+                      <div className="font-bold text-slate-800">{item.supplierName} — {transferTypeLabel(item.debitPartyType||'supplier')}</div>
                       <span className="text-[10px] text-slate-400 font-mono">
-                        الرصيد بعد: {formatNumber(Math.abs(item.supplierNewBalance), 2)} {settings.currency}
+                        الرصيد بعد: {showBalance(item.supplierNewBalance,item.currency||settings.currency)}
                       </span>
                     </td>
                     <td className="p-3 text-slate-600 max-w-[220px] truncate" title={item.reason}>
@@ -366,6 +372,7 @@ export const DebtClearingView: React.FC = () => {
                           <Printer className="w-4 h-4" />
                         </button>
                         <button
+                          disabled={item.transferVersion===2}
                           onClick={() => openEditModal(item)}
                           className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-md transition-colors cursor-pointer"
                           title="تعديل سند المقاصة وإعادة احتساب الأرصدة"
@@ -373,9 +380,10 @@ export const DebtClearingView: React.FC = () => {
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => setRecordToDelete(item)}
+                          disabled={item.transferVersion===2&&(!!item.reversesId||debtClearings.some(c=>c.reversesId===item.id))}
+                          onClick={() => {if(item.transferVersion===2){setReverseTransfer(item);setTransferOpen(true);}else setRecordToDelete(item);}}
                           className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                          title="حذف سند المقاصة وإلغاء أثره المحاسبي"
+                          title={item.transferVersion===2?'عكس السند بقيد جديد دون حذف الأصلي':'حذف سند المقاصة وإلغاء أثره المحاسبي'}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -389,6 +397,8 @@ export const DebtClearingView: React.FC = () => {
         </div>
       </div>
 
+      {transferOpen&&<AccountTransferModal key={currentUser?.id||'none'} reverse={reverseTransfer}
+        onClose={()=>setTransferOpen(false)} onSaved={record=>{setTransferOpen(false);setReverseTransfer(undefined);showFeedback('تم اعتماد القيد في PostgreSQL');setSelectedClearingForPrint(record);}}/>}
       {/* Execute / Edit Clearing Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
@@ -692,27 +702,27 @@ export const DebtClearingView: React.FC = () => {
               {/* Legal Text & Details */}
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 leading-relaxed">
                 <p>
-                  بموجب هذا السند تم الاتفاق على إجراء مقاصة مالية محاسبية بين كل من الطرفين أدناه، وذلك لتسوية الذمم المتبادلة وإسقاطها من الحسابات:
+                  بموجب هذا السند تم الاتفاق على إجراء مقاصة مالية محاسبية بين كل من الطرفين أدناه، وذلك لنقل الرصيد أو تسوية الذمم بين الحسابين:
                 </p>
 
                 <div className="grid grid-cols-2 gap-4 pt-1">
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-slate-400 block">الطرف الأول (العميل):</span>
+                    <span className="text-[10px] text-slate-400 block">الحساب الدائن ({transferTypeLabel(selectedClearingForPrint.creditPartyType)}):</span>
                     <strong className="text-sm font-bold text-slate-800 block mt-0.5">
                       {selectedClearingForPrint.customerName}
                     </strong>
                     <span className="text-[9px] text-slate-400 font-light block mt-1 font-mono">
-                      الرصيد المتبقي: {formatNumber(selectedClearingForPrint.customerNewBalance, 2)} {settings.currency}
+                      الرصيد المتبقي: {showBalance(selectedClearingForPrint.customerNewBalance,selectedClearingForPrint.currency||settings.currency)}
                     </span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-slate-400 block">الطرف الثاني (المورد):</span>
+                    <span className="text-[10px] text-slate-400 block">الحساب المدين ({transferTypeLabel(selectedClearingForPrint.debitPartyType||'supplier')}):</span>
                     <strong className="text-sm font-bold text-slate-800 block mt-0.5">
                       {selectedClearingForPrint.supplierName}
                     </strong>
                     <span className="text-[9px] text-slate-400 font-light block mt-1 font-mono">
-                      الرصيد المتبقي: {formatNumber(Math.abs(selectedClearingForPrint.supplierNewBalance), 2)} {settings.currency}
+                      الرصيد المتبقي: {showBalance(selectedClearingForPrint.supplierNewBalance,selectedClearingForPrint.currency||settings.currency)}
                     </span>
                   </div>
                 </div>
@@ -745,11 +755,11 @@ export const DebtClearingView: React.FC = () => {
               {/* Signatures */}
               <div className="grid grid-cols-3 gap-4 pt-8 text-center border-t border-slate-200">
                 <div>
-                  <span className="block font-bold text-slate-700 mb-8">توقيع الطرف الأول (العميل)</span>
+                  <span className="block font-bold text-slate-700 mb-8">توقيع الحساب الدائن</span>
                   <div className="border-b border-dashed border-slate-300 w-32 mx-auto"></div>
                 </div>
                 <div>
-                  <span className="block font-bold text-slate-700 mb-8">توقيع الطرف الثاني (المورد)</span>
+                  <span className="block font-bold text-slate-700 mb-8">توقيع الحساب المدين</span>
                   <div className="border-b border-dashed border-slate-300 w-32 mx-auto"></div>
                 </div>
                 <div>
