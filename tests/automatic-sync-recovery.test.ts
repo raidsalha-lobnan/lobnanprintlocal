@@ -16,7 +16,8 @@ test('new customer and stock item have exactly one durable enqueue path each',()
  assert.match(inventory,/crypto\.randomUUID\(\)/);
  assert.match(party,/crypto\.randomUUID\(\)/);
  assert.match(inventory,/pushToServerSync\('inventory', newItem\)/);
- assert.match(party,/pushToServerSync\('parties', newParty\)/);
+ assert.match(party,/await repository\.put\('parties',newParty\.id,newParty/);
+ assert.doesNotMatch(party,/pushToServerSync\('parties', newParty\)/);
  assert.doesNotMatch(inventory,/setDoc\(doc\(db, 'inventory', newItem.id/);
  assert.doesNotMatch(party,/setDoc\(doc\(db, 'parties', newParty.id/);
  assert.doesNotMatch(movement,/setDoc\(doc\(db, 'stockMovements', newMovement.id/);
@@ -28,13 +29,18 @@ test('React state updater callbacks do not launch network/outbox writes for new 
  const checks=[
   [movement,"pushToServerSync('stockMovements', newMovement)"],
   [inventory,"pushToServerSync('inventory', newItem)"],
-  [party,"pushToServerSync('parties', newParty)"]
+  [party,"await repository.put('parties',newParty.id,newParty"]
  ] as const;
  for(const [section,enqueue] of checks){
   const callbackEnd=section.search(/return next;\r?\n    \}\);/);
   assert.ok(callbackEnd>=0,'state updater closure is present');
   const queueAt=section.indexOf(enqueue);
-  assert.ok(queueAt>callbackEnd,'durable enqueue happens after React state updater');
+  if(section===party){
+   const stateAt=section.indexOf('setParties(prev =>');
+   assert.ok(queueAt>=0 && queueAt<stateAt && stateAt<callbackEnd,'party must be durable before publishing React state');
+  }else{
+   assert.ok(queueAt>callbackEnd,'durable enqueue happens outside React state updater');
+  }
   assert.equal(section.split(enqueue).length-1,1,'one durable enqueue per action');
  }
 });
@@ -131,7 +137,7 @@ test('after initial bootstrap, opening an already-initialized device uses event 
  assert.match(boot,/await coordinator\.start\(\)/);
  const coordinator=readFileSync(new URL('../src/sync-next/coordinator.ts',import.meta.url),'utf8');
  assert.match(coordinator,/let cursor = await this\.local\.cursor\(\)/);
- assert.match(coordinator,/await this\.local\.applyEvent\(event\)/);
+ assert.match(coordinator,/await this\.local\.applyEvent\(event, !supportsBatch\)/);
 });
 test('a desktop cashier active draft survives reload and preserves its invoice rows',()=>{
  const pos=readFileSync(new URL('../src/components/PosView.tsx',import.meta.url),'utf8');
