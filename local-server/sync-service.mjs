@@ -85,7 +85,7 @@ export class SyncService {
     return this.withTx(client=>this.pushInTx(workspace,command,actorId,client));
   }
   // Internal only: must be called inside an open PostgreSQL transaction.
-  async pushInTx(workspace,command,actorId,client,authorizedRevisionInvoiceId=null,authorizedMiniPurchase=false) {
+  async pushInTx(workspace,command,actorId,client,authorizedRevisionInvoiceId=null,authorizedMiniPurchase=false,authorizedAccountTransferId=null) {
     validateCommand(command,workspace);
     validateAtomicInvoicePosting(command);
     const hash=fingerprint(command);
@@ -124,6 +124,12 @@ export class SyncService {
       for(const change of command.changes) {
         const previous=await client.query('SELECT version,value FROM sync_records WHERE workspace=$1 AND entity=$2 AND record_id=$3',[workspace,change.entity,change.id]);
         const old=previous.rows[0]; const actual=old?Number(old.version):0;
+        if(change.entity==='debtClearings'&&(old?.value?.transferVersion===2||change.value?.transferVersion===2)&&
+          (authorizedAccountTransferId!==change.id||actual!==0))
+          throw new InputError('ACCOUNT_TRANSFER_REQUIRES_ATOMIC_ENDPOINT',403);
+        if(change.entity==='journalEntries'&&(old?.value?.accountTransferVersion===2||change.value?.accountTransferVersion===2)&&
+          (authorizedAccountTransferId!==change.value?.referenceId||actual!==0))
+          throw new InputError('ACCOUNT_TRANSFER_JOURNAL_REQUIRES_ATOMIC_ENDPOINT',403);
         if(['journalEntries','printOrders','debtClearings'].includes(change.entity))
           await forbidRetiredLegacyPrintResurrection(client,workspace,change);
         if(change.entity==='journalEntries'&&actual===0&&change.value?.referenceType==='receipt')
