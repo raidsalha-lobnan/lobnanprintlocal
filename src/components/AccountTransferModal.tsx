@@ -14,7 +14,7 @@ const fmt=(n:number)=>n.toFixed(2);
 function readPending(key:string):Request|null{
  try{const value=JSON.parse(localStorage.getItem(key)||'null');return value?.requestId?value:null;}catch{return null;}
 }
-export function AccountTransferModal({onClose,onSaved,reverse}:{onClose:()=>void;onSaved:(r:DebtClearingRecord)=>void;reverse?:DebtClearingRecord}){
+export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onClose:()=>void;onSaved:(r:DebtClearingRecord)=>void;reverse?:DebtClearingRecord}){
  const {parties,employees,settings,currentUser,unifiedRepository,vouchers,employeeAdvances,
   employeeDeductions,employeeIncentives,invoices,purchases,purchaseReturns,salesReturns,payrollSheets,
   journalEntries,debtClearings}=useAccounting();
