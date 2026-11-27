@@ -20,6 +20,7 @@ import { InvoicesView } from './components/InvoicesView';
 import { ExcelOneDriveDraftsView } from './components/ExcelOneDriveDraftsView';
 import { DailyEntrySheetView } from './components/DailyEntrySheetView';
 import { SpecialInvoiceView } from './components/SpecialInvoiceView';
+import { TaxInvoicePrintView } from './components/TaxInvoicePrintView';
 import { InventoryView } from './components/InventoryView';
 import { PurchasesView } from './components/PurchasesView';
 import { AccountingView } from './components/AccountingView';
@@ -237,6 +238,7 @@ const MainLayout: React.FC = () => {
         case 'excel_drafts':
         case 'daily_entry_sheet':
         case 'special_invoice':
+        case 'tax_invoice_print':
         case 'sales_returns':
           return hasPermission('view_invoices');
         case 'inventory':
@@ -509,6 +511,8 @@ const MainLayout: React.FC = () => {
         return <DailyEntrySheetView />;
       case 'special_invoice':
         return <SpecialInvoiceView />;
+      case 'tax_invoice_print':
+        return hasPermission('view_invoices') ? <TaxInvoicePrintView /> : null;
       case 'sales_returns':
         return <SalesReturnsView />;
       case 'receipt_vouchers':

@@ -310,6 +310,12 @@ export const Navbar: React.FC = () => {
           label: '7. فاتورة مبيعات خاصة',
           sublabel: 'إنشاء وطباعة فاتورة مبيعات خاصة بتصميم مخصص',
           icon: FileText
+        },
+        {
+          id: 'tax_invoice_print',
+          label: 'فاتورة ضريبية',
+          sublabel: 'إخراج نسخة من فاتورة مسجلة للطباعة أو PDF دون قيد إضافي',
+          icon: FileText
         }
       ]
     },
@@ -617,6 +623,7 @@ export const Navbar: React.FC = () => {
             reqPerm = 'view_print_orders';
             break;
           case 'invoices':
+          case 'tax_invoice_print':
           case 'sales_returns':
             reqPerm = 'view_invoices';
             break;
@@ -678,7 +685,7 @@ export const Navbar: React.FC = () => {
 
   const isSectionActive = (section: TopMenuSection) => {
     if (section.id === 'control_panel_menu' && ['home', 'dashboard'].includes(activeTab)) return true;
-    if (section.id === 'sales_menu' && ['pos', 'print_orders', 'parties', 'invoices', 'sales_returns', 'receipt_vouchers'].includes(activeTab)) return true;
+    if (section.id === 'sales_menu' && ['pos', 'print_orders', 'parties', 'invoices', 'sales_returns', 'receipt_vouchers', 'tax_invoice_print'].includes(activeTab)) return true;
     if (section.id === 'purchases_expenses_menu' && ['purchases', 'purchases_suppliers', 'purchases_invoices', 'purchases_returns', 'payment_vouchers', 'expenses'].includes(activeTab)) return true;
     if (section.id === 'items_menu' && ['inventory', 'warehouses'].includes(activeTab)) return true;
     if (section.id === 'hr_menu' && ['employees', 'employees_adjustments', 'employees_payroll'].includes(activeTab)) return true;
