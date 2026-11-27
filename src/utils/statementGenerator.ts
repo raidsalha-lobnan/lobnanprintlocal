@@ -630,7 +630,7 @@ export function generateAccountStatement(params: {
   // لا تدخل ضمن الصناديق المالية وتظهر بكشف العميل (دائن/قبض) والمورد (مدين/صرف)
   debtClearings.forEach(clr => {
     // إذا كان الطرف هو العميل: مقاصة تسوية دائنة (بمثابة سداد/قبض يقلل مديونية العميل)
-    if (clr.customerId === party.id) {
+    if (clr.customerId === party.id && clr.creditPartyType !== 'employee') {
       allTx.push({
         id: `${clr.id}-cust`,
         date: clr.date,
@@ -639,7 +639,7 @@ export function generateAccountStatement(params: {
         type: 'clearance',
         category: 'receipt',
         typeLabel: 'مقاصة حسابات (قبض / تسوية دائنة)',
-        description: `مقاصة تسوية مع المورد: ${clr.supplierName} - ${clr.reason || 'تسوية أرصدة متبادلة'}`,
+        description: `مقاصة تسوية مع ${clr.supplierName} - ${clr.reason || 'تسوية أرصدة متبادلة'}`,
         voucherNotes: clr.notes,
         counterPartyName: clr.supplierName,
         reason: clr.reason,
@@ -649,7 +649,7 @@ export function generateAccountStatement(params: {
     }
 
     // إذا كان الطرف هو المورد: مقاصة تسوية مدينة (بمثابة سداد/صرف يقلل مستحقات المورد)
-    if (clr.supplierId === party.id) {
+    if (clr.supplierId === party.id && clr.debitPartyType !== 'employee') {
       allTx.push({
         id: `${clr.id}-supp`,
         date: clr.date,
@@ -658,7 +658,7 @@ export function generateAccountStatement(params: {
         type: 'clearance',
         category: 'disbursement',
         typeLabel: 'مقاصة حسابات (صرف / تسوية مدينة)',
-        description: `مقاصة تسوية مع العميل: ${clr.customerName} - ${clr.reason || 'تسوية أرصدة متبادلة'}`,
+        description: `مقاصة تسوية مع ${clr.customerName} - ${clr.reason || 'تسوية أرصدة متبادلة'}`,
         voucherNotes: clr.notes,
         counterPartyName: clr.customerName,
         reason: clr.reason,
@@ -1365,6 +1365,17 @@ export function generateEmployeeStatement(params: {
 
   // 10. Debt Clearings (تسويات الديون ومقاصة الحسابات)
   (debtClearings || []).forEach(dc => {
+    if(dc.transferVersion===2){
+      const credit=dc.creditPartyType==='employee'&&dc.customerId===empId;
+      const debit=dc.debitPartyType==='employee'&&dc.supplierId===empId;
+      if(credit||debit)allTx.push({
+        id:dc.id,date:dc.date,refNum:dc.clearingNumber,type:'debt_clearing',
+        typeLabel:'مقاصة وتحويل حساب',
+        description:'مقاصة مع '+(credit?dc.supplierName:dc.customerName)+' - '+dc.reason,
+        entitlement:credit?dc.amount:0,advance:0,deduction:0,disbursement:debit?dc.amount:0
+      });
+      return;
+    }
     if (isMatched(dc.customerId, dc.customerName, dc.reason) || isMatched(dc.supplierId, dc.supplierName, dc.reason)) {
       allTx.push({
         id: dc.id,
