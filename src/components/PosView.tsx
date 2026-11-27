@@ -4,7 +4,7 @@ import { posDraftStorageKey } from '../utils/posDraftStorageKey';
 import {removePosAttempt} from '../sync-next/posAttemptStore';
 import {POS_LEAVE_INTENT_EVENT,type PosLeaveIntentDetail} from '../utils/posLeaveNavigation';
 import {PosLeaveDialog} from './pos/PosLeaveDialog';
-import { findRecoverableCashierDrafts } from '../utils/posDraftRecovery';
+import { findRecoverableCashierDrafts, discardRecoverableCashierDraft } from '../utils/posDraftRecovery';
 import { useAccounting } from '../context/AccountingContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { MobilePosView } from './pos/MobilePosView';
@@ -495,7 +495,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   const resumedHeldInvoiceIdRef=useRef<string|null>(savedPosDraft.resumedHeldId||null);
   // A browser restart can create a new tab slot while older unsent drafts
   // remain in localStorage. Offer read-only discovery, never auto-replay them.
-  const [recoverableDrafts] = useState(() =>
+  const [recoverableDrafts, setRecoverableDrafts] = useState(() =>
     findRecoverableCashierDrafts(localStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current));
   const [leaveTargetTab,setLeaveTargetTab] = useState<string|null>(null);
   const [leaveBusy,setLeaveBusy] = useState(false);
@@ -3887,7 +3887,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
         <div role="alert" className="bg-amber-50 border-b border-amber-400 px-3 py-2 text-amber-950 text-xs flex flex-wrap items-center gap-2">
           <strong>عُثر على مسودات كاشير من تبويبات سابقة. راجع سجل الفواتير قبل استعادتها أو إعادة حفظها.</strong>
           {recoverableDrafts.slice(0, 3).map(candidate => (
-            <button key={candidate.key} type="button"
+            <div key={candidate.key} className="inline-flex items-center gap-1">
+            <button type="button"
               className="rounded border border-amber-600 bg-white px-2 py-1 font-bold hover:bg-amber-100"
               onClick={() => {
                 if (posSaveUiInFlightRef.current) {
@@ -3914,6 +3915,24 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
               }}>
               استعادة: {candidate.itemPreview} ({new Date(candidate.timestamp || Date.now()).toLocaleDateString('ar-EG')})
             </button>
+            <button type="button" aria-label={'حذف المسودة: ' + candidate.itemPreview}
+              className="rounded border border-red-600 bg-white px-2 py-1 font-bold text-red-700 hover:bg-red-50"
+              onClick={() => {
+                if (posSaveUiInFlightRef.current) {
+                  alert('انتظر اكتمال الحفظ المحلي الحالي أولاً.');
+                  return;
+                }
+                if (!window.confirm('حذف نسخة الاسترداد المحلية: ' + candidate.itemPreview + '؟ تأكد من عدم استخدامها في تبويب آخر. لن تُحذف أي فاتورة معتمدة أو عملية مزامنة.')) return;
+                try {
+                  if (!discardRecoverableCashierDraft(localStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current, candidate)) {
+                    alert('المسودة تغيرت أو لم تعد متاحة. تمت إعادة فحص القائمة؛ لم نحذف نسخة أخرى.');
+                  }
+                  setRecoverableDrafts(findRecoverableCashierDrafts(localStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current));
+                } catch {
+                  alert('تعذر حذف نسخة الاسترداد المحلية. لم يتم تغيير الفواتير المعتمدة.');
+                }
+              }}>حذف المسودة</button>
+            </div>
           ))}
         </div>
       )}
