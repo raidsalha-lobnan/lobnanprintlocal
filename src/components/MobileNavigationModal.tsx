@@ -304,8 +304,8 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
         },
         {
           id: 'debt_clearing',
-          label: '2. مقاصة وتسوية الديون المتبادلة',
-          sublabel: 'تسوية حسابات الجهات التي تعمل كعميل ومورد في آن واحد',
+          label: '2. المقاصة والتحويل بين الحسابات',
+          sublabel: 'تحويل الأرصدة بين العملاء والموردين والموظفين',
           icon: ArrowRightLeft,
           perm: 'view_accounting'
         },
