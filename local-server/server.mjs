@@ -19,6 +19,7 @@ import {stageSyncPart,commitSyncParts} from './chunked-sync-ingest.mjs';
 import {listHeldPosInvoices,storeHeldPosInvoice,deleteHeldPosInvoice} from './held-pos-invoices.mjs';
 import {UserAuth,stripUserSecrets} from './user-auth.mjs';
 import {resolveAccess,filterSnapshot,filterEvents,authorizeCommand} from './access-policy.mjs';
+import {postAccountTransfer} from './account-transfer-posting.mjs';
 import {stripPrivateFields} from './legacy-snapshot.mjs';
 import {classifyApprovedCatalogError} from './approved-settings-guard.mjs';
 import {settingsVisibleToUser} from './workspace-settings-public.mjs';
@@ -481,6 +482,12 @@ const srv=http.createServer(async(req,res)=>{
       const row={key:'invoices:'+id,entity:'invoices',id,
         version:Number(result.rows[0].version),value};
       return json(res,200,{record:safeSnapshot({records:[row]},access).records[0]},cors);
+    }
+    if(req.method==='POST' && url.pathname==='/api/v1/account-transfers'){
+      if(!STRICT_AUTH)throw new InputError('SESSION_LOGIN_REQUIRED',401);
+      const request=await parseBody(req,16000);
+      const result=await postAccountTransfer(service,workspace,request,user.id,access);
+      return json(res,200,result,cors);
     }
     if(req.method==='POST' && url.pathname==='/api/v1/invoices/revise'){
       // Financial amendments are routed through the authenticated, auditable
