@@ -899,8 +899,21 @@ export interface ExpenseItem {
 export type Currency = CurrencyInfo;
 export type TreasuryAccount = Treasury;
 
+export type AccountTransferPartyType = 'customer' | 'supplier' | 'employee';
+export type AccountTransferBalanceSide = 'debit' | 'credit';
 export interface DebtClearingRecord {
   id: string;
+  transferVersion?: 2;
+  sourceId?: string;
+  sourceType?: AccountTransferPartyType;
+  sourceName?: string;
+  targetId?: string;
+  targetType?: AccountTransferPartyType;
+  targetName?: string;
+  balanceSide?: AccountTransferBalanceSide;
+  creditPartyType?: AccountTransferPartyType;
+  debitPartyType?: AccountTransferPartyType;
+  reversesId?: string;
   clearingNumber: string;
   date: string;
   customerId: string;
@@ -913,10 +926,10 @@ export interface DebtClearingRecord {
   notes: string;
   createdBy: string;
   createdAt: string;
-  customerOldBalance: number;
-  customerNewBalance: number;
-  supplierOldBalance: number;
-  supplierNewBalance: number;
+  customerOldBalance: number | null;
+  customerNewBalance: number | null;
+  supplierOldBalance: number | null;
+  supplierNewBalance: number | null;
   journalEntryId?: string;
 }
 
