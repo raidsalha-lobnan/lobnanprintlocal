@@ -26,7 +26,7 @@ function fitSize(ctx: CanvasRenderingContext2D, text: string, width: number, des
 }
 type HeaderFontKey = 'customer' | 'address' | 'date' | 'note' | 'total' | 'vat' | 'grand' | 'words';
 const headerFontFields: { key: HeaderFontKey; label: string }[] = [
-  {key:'customer',label:'اسم العميل'}, {key:'address',label:'العنوان'},
+  {key:'address',label:'العنوان'},
   {key:'date',label:'التاريخ'}, {key:'note',label:'الملاحظات'},
   {key:'total',label:'المجموع'}, {key:'vat',label:'الضريبة'},
   {key:'grand',label:'الإجمالي'}, {key:'words',label:'المبلغ بالكلمات'}
@@ -56,6 +56,11 @@ export const TaxInvoicePrintView: React.FC = () => {
   const [message, setMessage] = useState('');
   const canvas = useRef<HTMLCanvasElement>(null);
   const active = lines.filter(l => l.item.trim() || l.qty !== '' || l.price !== '');
+  const customerWanted = headerSizes.customer ?? autoItemSize(customer,size);
+  const customerSize = useMemo(() => {
+    const ctx = document.createElement('canvas').getContext('2d');
+    return ctx ? fitSize(ctx,customer,608,customerWanted,style,fontReady) : customerWanted;
+  },[customer,customerWanted,style,fontReady]);
   const rowSizes = useMemo(() => {
     const ctx=document.createElement('canvas').getContext('2d');
     return lines.map(l=>{
@@ -135,7 +140,7 @@ export const TaxInvoicePrintView: React.FC = () => {
       hand(parts[1],836,270,35,false,headerSizes.date ?? 23);
       hand(parts[2],875,270,27,false,headerSizes.date ?? 23);
     }
-    hand(customer,758,322,608,true,headerSizes.customer ?? size);
+    hand(customer,758,322,608,true,customerWanted);
     hand(address,855,361,649,true,headerSizes.address ?? size);
     active.slice(0,MAX).forEach((l,i) => {
       const y = 534 + i * 42.5;
@@ -171,7 +176,7 @@ export const TaxInvoicePrintView: React.FC = () => {
     if (vat !== '' && Number(vat) > 0) hand(vat,416,1234,38,false,headerSizes.vat ?? 22);
     hand(amountWords,793,1365,700,true,headerSizes.words ?? Math.min(size,26));
     ctx.save(); ctx.direction='rtl'; ctx.textAlign='center'; ctx.font='15px Arial'; ctx.fillStyle='#555'; ctx.fillText('نسخة إلكترونية — تعبئة رقمية بخط عربي',512,1424); ctx.restore();
-  },[image,fontReady,style,serial,date,customer,address,lines,vat,note,words,size,headerSizes]);
+  },[image,fontReady,style,serial,date,customer,customerWanted,address,lines,vat,note,words,size,headerSizes]);
 
   const update = (index: number,key: 'item' | 'qty' | 'price',value: string) => setLines(old => old.map((l,i) => i===index ? {...l,[key]:value} : l));
   const exportPdf = () => {
@@ -207,7 +212,7 @@ export const TaxInvoicePrintView: React.FC = () => {
         <div className="grid grid-cols-2 gap-2">
           <label>رقم الفاتورة<input className={field} dir="ltr" inputMode="numeric" maxLength={12} value={serial} onChange={e=>setSerial(e.target.value.replace(/[^0-9]/g,''))} placeholder="0000316"/></label>
           <label>التاريخ<input className={field} type="date" value={date} onChange={e=>setDate(e.target.value)}/></label>
-          <label className="col-span-2">اسم العميل<input className={field} value={customer} onChange={e=>setCustomer(e.target.value)}/></label>
+          <div className="col-span-2"><label htmlFor="tax-customer-name">اسم العميل</label><div className="flex flex-wrap items-center gap-2"><input id="tax-customer-name" className={field+' flex-1 min-w-[140px]'} value={customer} onChange={e=>setCustomer(e.target.value)}/><div className="flex items-center gap-1" dir="ltr"><button type="button" aria-label="تصغير خط اسم العميل" disabled={customerSize<=12} className="border rounded px-3 py-1 disabled:opacity-40" onClick={()=>setHeaderSizes(old=>({...old,customer:clampSize(customerSize-1)}))}>−</button><span className="tabular-nums min-w-[30px] text-center" aria-label="حجم خط اسم العميل">{customerSize}</span><button type="button" aria-label="تكبير خط اسم العميل" disabled={customerSize>=35 || customerSize<customerWanted} className="border rounded px-3 py-1 disabled:opacity-40" onClick={()=>setHeaderSizes(old=>({...old,customer:clampSize(customerSize+1)}))}>+</button></div><button type="button" className="text-sm text-blue-700 border rounded px-2 py-1" onClick={()=>setHeaderSizes(old=>({...old,customer:undefined}))}>{headerSizes.customer===undefined?'تلقائي ✓':'عودة للتلقائي'}</button></div></div>
           <label className="col-span-2">العنوان<input className={field} value={address} onChange={e=>setAddress(e.target.value)}/></label>
         </div>
         <div className="overflow-x-auto"><table className="w-full text-sm min-w-[460px]"><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>المبلغ</th><th>حجم الخط</th><th></th></tr></thead><tbody>
