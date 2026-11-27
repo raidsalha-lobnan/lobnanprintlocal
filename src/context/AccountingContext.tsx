@@ -4948,6 +4948,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   ): { success: boolean; message?: string } => {
     const existing = debtClearings.find(c => c.id === id);
     if (!existing) return { success: false, message: 'سند المقاصة غير موجود' };
+    if(existing.transferVersion===2) return {success:false,message:'السند المعتمد لا يعدل ولا يحذف؛ استخدم القيد العكسي.'};
 
     // 1. Revert previous party balance impacts
     const prevCust = parties.find(p => p.id === existing.customerId);
@@ -5040,6 +5041,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const deleteDebtClearing = (id: string): { success: boolean; message?: string } => {
     const existing = debtClearings.find(c => c.id === id);
     if (!existing) return { success: false, message: 'سند المقاصة غير موجود' };
+    if(existing.transferVersion===2) return {success:false,message:'السند المعتمد لا يعدل ولا يحذف؛ استخدم القيد العكسي.'};
 
     // 1. Restore balances
     const cust = parties.find(p => p.id === existing.customerId);
@@ -6015,6 +6017,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const deleteEmployee = (id: string) => {
+    if(debtClearings.some(c=>(c.creditPartyType==='employee'&&c.customerId===id)||(c.debitPartyType==='employee'&&c.supplierId===id)))return;
     setEmployees(prev => prev.filter(emp => emp.id !== id));
     registerDeletedDoc('employees', id);
     removeLocalRecord(localRecordRef( 'employees', id)).catch(() => {});
