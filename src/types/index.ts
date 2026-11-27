@@ -922,6 +922,7 @@ export interface DebtClearingRecord {
   creditPartyType?: AccountTransferPartyType;
   debitPartyType?: AccountTransferPartyType;
   reversesId?: string;
+  replacesId?: string;
   clearingNumber: string;
   date: string;
   customerId: string;

@@ -9,26 +9,26 @@ import {calculateEmployeeTrueBalance,calculatePartyTrueBalance} from '../utils/s
 
 export const transferTypeLabel=(type?:AccountTransferPartyType)=>type==='employee'?'موظف':type==='supplier'?'مورد':'عميل';
 type Endpoint={type:AccountTransferPartyType;id:string;subCustomerId?:string};
-type Request={requestId:string;date:string;source:Endpoint;target:Endpoint;amount:number;balanceSide:AccountTransferBalanceSide;reason:string;notes:string}|{requestId:string;date:string;reversesId:string;reason:string;notes:string};
+type Request={requestId:string;date:string;source:Endpoint;target:Endpoint;amount:number;balanceSide:AccountTransferBalanceSide;reason:string;notes:string;replacesId?:string}|{requestId:string;date:string;reversesId:string;reason:string;notes:string};
 const dateToday=()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
 const types:AccountTransferPartyType[]=['customer','supplier','employee'];
 const fmt=(n:number)=>n.toFixed(2);
 function readPending(key:string):Request|null{
  try{const value=JSON.parse(localStorage.getItem(key)||'null');return value?.requestId?value:null;}catch{return null;}
 }
-export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onClose:()=>void;onSaved:(r:DebtClearingRecord)=>void;reverse?:DebtClearingRecord}){
+export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string;onClose:()=>void;onSaved:(r:DebtClearingRecord)=>void;reverse?:DebtClearingRecord;edit?:DebtClearingRecord}){
  const {parties,employees,settings,currentUser,unifiedRepository,vouchers,employeeAdvances,
   employeeDeductions,employeeIncentives,invoices,purchases,purchaseReturns,salesReturns,payrollSheets,
   journalEntries,debtClearings,printOrders}=useAccounting();
  const pendingKey='lobnan_account_transfer_pending_v2:'+String(currentUser?.id||'none');
  const [pending,setPending]=useState<Request|null>(()=>readPending(pendingKey));
- const [source,setSource]=useState<Endpoint>(()=>pending&&'source' in pending?pending.source:{type:'customer',id:''});
- const [target,setTarget]=useState<Endpoint>(()=>pending&&'target' in pending?pending.target:{type:'supplier',id:''});
- const [balanceSide,setBalanceSide]=useState<AccountTransferBalanceSide>(()=>pending&&'balanceSide' in pending?pending.balanceSide:'debit');
- const [amount,setAmount]=useState(()=>pending&&'amount' in pending?String(pending.amount):String(reverse?.amount||''));
- const [date,setDate]=useState(pending?.date||dateToday());
- const [reason,setReason]=useState(pending?.reason||(reverse?'عكس سند '+reverse.clearingNumber:''));
- const [notes,setNotes]=useState(pending?.notes||'');
+ const [source,setSource]=useState<Endpoint>(()=>pending&&'source' in pending?pending.source:edit?{type:edit.sourceType||'customer',id:edit.sourceId||edit.customerId,subCustomerId:edit.sourceSubCustomerId}:{type:'customer',id:''});
+ const [target,setTarget]=useState<Endpoint>(()=>pending&&'target' in pending?pending.target:edit?{type:edit.targetType||'supplier',id:edit.targetId||edit.supplierId,subCustomerId:edit.targetSubCustomerId}:{type:'supplier',id:''});
+ const [balanceSide,setBalanceSide]=useState<AccountTransferBalanceSide>(()=>pending&&'balanceSide' in pending?pending.balanceSide:edit?.balanceSide||'debit');
+ const [amount,setAmount]=useState(()=>pending&&'amount' in pending?String(pending.amount):String(reverse?.amount||edit?.amount||''));
+ const [date,setDate]=useState(pending?.date||edit?.date||dateToday());
+ const [reason,setReason]=useState(pending?.reason||(reverse?'عكس سند '+reverse.clearingNumber:edit?.reason||''));
+ const [notes,setNotes]=useState(pending?.notes||edit?.notes||'');
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
  const [sourceSearch,setSourceSearch]=useState(()=>parties.find(x=>x.id===source.id)?.name||employees.find(x=>x.id===source.id)?.name||'');
@@ -92,10 +92,10 @@ export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onCl
   if(!pending&&!reverse&&(!source.id||!target.id||same||!validAmount||!reason.trim()||(sourceSubSearch.trim()&&!source.subCustomerId)||(targetSubSearch.trim()&&!target.subCustomerId))){
    setError('اختر حسابين مختلفين وأدخل مبلغاً صحيحاً وبيان التحويل.');return;
   }
-  if(!pending&&!window.confirm(reverse?'سيُنشأ قيد عكسي مستقل دون حذف القيد الأصلي. هل تريد المتابعة؟':'هل تؤكد اتجاه التحويل والمبلغ؟ سيُرحّل قيد متوازن دون حركة نقدية.'))return;
+  if(!pending&&!window.confirm(edit?'سيتم عكس السند القديم واعتماد البديل معاً. هل تؤكد التعديل؟':reverse?'سيُنشأ قيد عكسي مستقل دون حذف القيد الأصلي. هل تريد المتابعة؟':'هل تؤكد اتجاه التحويل والمبلغ؟ سيُرحّل قيد متوازن دون حركة نقدية.'))return;
   const request:Request=pending||(reverse?
    {requestId:crypto.randomUUID(),date,reversesId:reverse.id,reason,notes}:
-   {requestId:crypto.randomUUID(),date,source,target,amount:numeric,balanceSide,reason,notes});
+   {requestId:crypto.randomUUID(),date,source,target,amount:numeric,balanceSide,reason,notes,...(edit?{replacesId:edit.id}:{})});
   try{
    // The immutable request is stored BEFORE transmission; a lost response
    // is retried using the same key rather than creating a second journal.
@@ -124,7 +124,8 @@ export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onCl
  };
  return <div dir="rtl" className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-3">
   <form onSubmit={submit} className="w-full max-w-3xl max-h-[95vh] overflow-auto rounded-xl bg-white p-4 text-xs shadow-xl space-y-3">
-   <div className="flex justify-between items-center"><h3 className="font-bold text-base">{reverse?'عكس سند مقاصة':'سند مقاصة وتحويل حسابات'}</h3><button type="button" onClick={onClose} disabled={busy}>إغلاق ✕</button></div>
+   <div className="flex justify-between items-center"><h3 className="font-bold text-base">{edit?'تعديل سند '+edit.clearingNumber:reverse?'إلغاء سند مقاصة':'سند مقاصة وتحويل حسابات'}</h3><button type="button" onClick={onClose} disabled={busy}>إغلاق ✕</button></div>
+   {edit&&!pending&&<p className="rounded border border-amber-300 bg-amber-50 p-2">سيعكس النظام السند السابق ويرحّل البديل في معاملة واحدة. معاينة الأرصدة الحالية قبل عكس السند.</p>}
    {pending&&<p className="rounded border border-amber-300 bg-amber-50 p-2">يوجد طلب محفوظ لم يتأكد اعتماده بعد. إعادة المحاولة تستخدم المعرف نفسه؛ لن تنشئ قيداً ثانياً.</p>}
    {!reverse&&!(pending&&'reversesId' in pending)&&<>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{endpointControl(source,setSource,sourceSearch,setSourceSearch,'source')}{endpointControl(target,setTarget,targetSearch,setTargetSearch,'target')}</div>
@@ -144,7 +145,7 @@ export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onCl
    <label className="block">ملاحظات<textarea disabled={locked} value={notes} onChange={e=>setNotes(e.target.value)} className="block w-full rounded border p-2"/></label>
    {error&&<div role="alert" className="rounded bg-rose-50 text-rose-800 p-2">{error}</div>}
    <div className="flex gap-2 justify-end"><button type="button" disabled={busy} onClick={onClose} className="rounded border px-3 py-2">إغلاق</button>
-    <button type="submit" disabled={busy} className="rounded bg-indigo-700 text-white px-4 py-2 font-bold disabled:opacity-50">{busy?'جاري التحقق من الاعتماد...':pending?'إعادة محاولة الاعتماد':reverse?'اعتماد القيد العكسي':'اعتماد المقاصة والقيد'}</button></div>
+    <button type="submit" disabled={busy} className="rounded bg-indigo-700 text-white px-4 py-2 font-bold disabled:opacity-50">{busy?'جاري التحقق من الاعتماد...':pending?'إعادة محاولة الاعتماد':reverse?'تأكيد الإلغاء':edit?'حفظ التعديل':'اعتماد المقاصة والقيد'}</button></div>
   </form>
  </div>;
 }

@@ -30,7 +30,8 @@ export function normalizeAccountTransferRequest(input){
  const source=partyInput(input.source),target=partyInput(input.target);
  const amount=money(input.amount),balanceSide=input.balanceSide;
  if(amount<=0||!['debit','credit'].includes(balanceSide))fail('ACCOUNT_TRANSFER_INVALID_DIRECTION_OR_AMOUNT');
- return {requestId,date,source,target,amount,balanceSide,reason:clean(input.reason,500),notes:clean(input.notes||'',2000)};
+ if(input.replacesId!==undefined&&!validId(input.replacesId))fail('ACCOUNT_TRANSFER_INVALID_REPLACEMENT');
+ return {requestId,date,source,target,amount,balanceSide,reason:clean(input.reason,500),notes:clean(input.notes||'',2000),...(input.replacesId?{replacesId:input.replacesId}:{})};
 }
 const hash=r=>createHash('sha256').update(JSON.stringify(r)).digest('hex');
 const rowChange=(entity,row,value)=>({entity,id:row.record_id,expectedVersion:Number(row.version),value});
@@ -42,7 +43,21 @@ const create=(entity,id,value)=>({entity,id,expectedVersion:0,value});
  */
 export async function postAccountTransfer(service,workspace,input,actorId,access){
  if(!actorId||!access?.can('view_accounting')||!access.can('add'))fail('ACCOUNT_TRANSFER_PERMISSION_DENIED',403);
- const r=normalizeAccountTransferRequest(input),fingerprint=hash(r);
+ const r=normalizeAccountTransferRequest(input);
+ if(r.replacesId){
+  if(!access.can('edit'))fail('ACCOUNT_TRANSFER_PERMISSION_DENIED',403);
+  return service.withTx(async client=>{
+   const nested={withTx:fn=>fn(client),pushInTx:service.pushInTx.bind(service)};
+   const original=(await client.query("SELECT value FROM sync_records WHERE workspace=$1 AND entity='debtClearings' AND record_id=$2",[workspace,r.replacesId])).rows[0]?.value;
+   if(!original||!access.canRead('debtClearings',original,r.replacesId))fail('ACCOUNT_TRANSFER_REVERSAL_NOT_ALLOWED',409);
+   await postAccountTransfer(nested,workspace,{requestId:r.requestId+'-reverse',date:original.date,reversesId:r.replacesId,reason:'عكس سند للتعديل',notes:''},actorId,access);
+   return postSingleAccountTransfer(nested,workspace,r,actorId,access);
+  });
+ }
+ return postSingleAccountTransfer(service,workspace,r,actorId,access);
+}
+async function postSingleAccountTransfer(service,workspace,r,actorId,access){
+ const fingerprint=hash(r);
  const commandId='account-transfer-'+r.requestId,id='clr-transfer-'+r.requestId;
  return service.withTx(async client=>{
   await client.query('INSERT INTO sync_workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING',[workspace]);
@@ -154,7 +169,7 @@ export async function postAccountTransfer(service,workspace,input,actorId,access
    supplierId:debit.party.id,supplierName:debit.party.name,
    customerOldBalance:cb.before,customerNewBalance:cb.after,
    supplierOldBalance:db.before,supplierNewBalance:db.after,journalEntryId:journalId,
-   ...(r.reversesId?{reversesId:r.reversesId}:{})};
+   ...(r.reversesId?{reversesId:r.reversesId}:{}) ,...(r.replacesId?{replacesId:r.replacesId}:{})};
   const journal={id:journalId,entryNumber:'JV-'+clearingNumber,date:r.date,
    description:'مقاصة وتحويل حسابات: '+a.party.name+' / '+b.party.name+' - '+r.reason,
    referenceType:'clearance',referenceId:id,accountTransferVersion:2,lines:plan.lines.map((line,i)=>{const leg=i===0?debit:credit;return {...line,...(leg.party.subCustomerId?{subCustomerId:leg.party.subCustomerId,subCustomerName:leg.party.subCustomerName}: {})};}),createdAt:now};
