@@ -114,7 +114,26 @@ export const TaxInvoicePrintView: React.FC = () => {
     });
     if (note.trim() && active.length < MAX) hand(note,939,534 + active.length * 42.5,373);
     split(total,1181,154,258);
-    split(tax,1234,154,258);
+    if (vat !== '') {
+      if (tax === 0) {
+        // One centered dash per VAT amount cell, scaled to its actual width.
+        ctx.save();
+        ctx.strokeStyle = '#153b9e';
+        ctx.lineWidth = 2.4;
+        ctx.lineCap = 'round';
+        for (const [left, right] of [[85,222],[222,293]]) {
+          const mid = (left + right) / 2;
+          const half = (right - left) * 0.32;
+          ctx.beginPath();
+          ctx.moveTo(mid - half, 1235);
+          ctx.lineTo(mid + half, 1233);
+          ctx.stroke();
+        }
+        ctx.restore();
+      } else {
+        split(tax,1234,154,258);
+      }
+    }
     split(grand,1288,154,258);
     hand(vat === '' ? '' : vat,416,1234,38,false,22);
     hand(amountWords,793,1365,700,true,Math.min(size,26));
