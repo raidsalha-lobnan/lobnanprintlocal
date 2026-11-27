@@ -36,3 +36,4 @@ serviceAccount*.json
 .env.local-server
 private-backups/
 local-server/node_modules/
+public/fonts/tax-invoice/

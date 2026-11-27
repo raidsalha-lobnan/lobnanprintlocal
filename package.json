@@ -17,9 +17,11 @@
     "test": "node --import tsx --test --test-force-exit tests/*.test.ts src/utils/*.test.ts",
     "verify:clean": "node scripts/verify-clean-source.cjs",
     "build:shared-pos": "esbuild src/sync-next/atomicPosSaleBuilder.ts --bundle --platform=node --format=esm --target=node20 --outfile=local-server/atomic-pos-builder.compiled.mjs",
-    "prebuild": "npm run build:shared-pos",
-    "prebuild:exe": "node scripts/assert-desktop-build-env.cjs && npm run build:shared-pos && npm run setup:desktop-updater && node scripts/build-native-update-helper.cjs",
-    "setup:desktop-updater": "npm install --save-exact --ignore-scripts --no-audit --no-fund electron-updater@6.8.10"
+    "prebuild": "npm run prepare:tax-font && npm run build:shared-pos",
+    "prebuild:exe": "npm run prepare:tax-font && node scripts/assert-desktop-build-env.cjs && npm run build:shared-pos && npm run setup:desktop-updater && node scripts/build-native-update-helper.cjs",
+    "setup:desktop-updater": "npm install --save-exact --ignore-scripts --no-audit --no-fund electron-updater@6.8.10",
+    "prepare:tax-font": "node scripts/prepare-tax-invoice-font.mjs",
+    "predev": "npm run prepare:tax-font"
   },
   "build": {
     "appId": "com.lobnanprint.accounting.desktop",
