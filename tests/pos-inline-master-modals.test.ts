@@ -30,9 +30,9 @@ test('mobile quick-add uses a dialog without dropping the current basket', () =>
   assert.match(mobile, /setQuickPartyDialog\(\{initialType: partyTypeMode/);
 });
 
-test('Excel and OneDrive open the already embedded drafts modal', () => {
+test('removed Excel and OneDrive buttons do not open a separate screen', () => {
   assert.doesNotMatch(desktop, /setActiveTab\('excel_drafts'\)/);
-  assert.match(desktop, /onClick=\{\(\) => setIsDraftQueueOpen\(true\)\}/);
+  assert.doesNotMatch(desktop, /setIsDraftQueueOpen\(true\)/);
   assert.match(desktop, /<DraftInvoicesQueueModal/);
 });
 
