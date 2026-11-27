@@ -344,13 +344,13 @@ export const DebtClearingView: React.FC = () => {
                     </td>
                     <td className="p-3 text-slate-600 font-mono">{item.date}</td>
                     <td className="p-3">
-                      <div className="font-bold text-slate-800">{item.customerName} — {transferTypeLabel(item.creditPartyType)}</div>
+                      <div className="font-bold text-slate-800">{item.customerName}{item.creditSubCustomerName?' / '+item.creditSubCustomerName:''} — {transferTypeLabel(item.creditPartyType)}</div>
                       <span className="text-[10px] text-slate-400 font-mono">
                         الرصيد بعد: {showBalance(item.customerNewBalance,item.currency||settings.currency)}
                       </span>
                     </td>
                     <td className="p-3">
-                      <div className="font-bold text-slate-800">{item.supplierName} — {transferTypeLabel(item.debitPartyType||'supplier')}</div>
+                      <div className="font-bold text-slate-800">{item.supplierName}{item.debitSubCustomerName?' / '+item.debitSubCustomerName:''} — {transferTypeLabel(item.debitPartyType||'supplier')}</div>
                       <span className="text-[10px] text-slate-400 font-mono">
                         الرصيد بعد: {showBalance(item.supplierNewBalance,item.currency||settings.currency)}
                       </span>
@@ -709,7 +709,7 @@ export const DebtClearingView: React.FC = () => {
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
                     <span className="text-[10px] text-slate-400 block">الحساب الدائن ({transferTypeLabel(selectedClearingForPrint.creditPartyType)}):</span>
                     <strong className="text-sm font-bold text-slate-800 block mt-0.5">
-                      {selectedClearingForPrint.customerName}
+                      {selectedClearingForPrint.customerName}{selectedClearingForPrint.creditSubCustomerName?' / '+selectedClearingForPrint.creditSubCustomerName:''}
                     </strong>
                     <span className="text-[9px] text-slate-400 font-light block mt-1 font-mono">
                       الرصيد المتبقي: {showBalance(selectedClearingForPrint.customerNewBalance,selectedClearingForPrint.currency||settings.currency)}
@@ -719,7 +719,7 @@ export const DebtClearingView: React.FC = () => {
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
                     <span className="text-[10px] text-slate-400 block">الحساب المدين ({transferTypeLabel(selectedClearingForPrint.debitPartyType||'supplier')}):</span>
                     <strong className="text-sm font-bold text-slate-800 block mt-0.5">
-                      {selectedClearingForPrint.supplierName}
+                      {selectedClearingForPrint.supplierName}{selectedClearingForPrint.debitSubCustomerName?' / '+selectedClearingForPrint.debitSubCustomerName:''}
                     </strong>
                     <span className="text-[9px] text-slate-400 font-light block mt-1 font-mono">
                       الرصيد المتبقي: {showBalance(selectedClearingForPrint.supplierNewBalance,selectedClearingForPrint.currency||settings.currency)}

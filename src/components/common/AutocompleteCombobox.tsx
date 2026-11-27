@@ -38,6 +38,7 @@ export interface AutocompleteComboboxProps {
   onChangeText?: (text: string) => void;
   onQuickAdd?: (name: string) => void | Promise<any>;
   quickAddButtonLabel?: string;
+  allowQuickAdd?: boolean;
   entityType?: EntityType;
   placeholder?: string;
   disabled?: boolean;
@@ -101,6 +102,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
   onChangeText,
   onQuickAdd,
   quickAddButtonLabel,
+  allowQuickAdd = true,
   entityType = 'customer',
   placeholder,
   disabled = false,
@@ -286,7 +288,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
   // Perform quick addition directly in place
   const handlePerformQuickAdd = async () => {
     const trimmed = inputText.trim();
-    if (!trimmed) return;
+    if (!trimmed || !allowQuickAdd) return;
 
     if (onQuickAdd) {
       await onQuickAdd(trimmed);
@@ -397,14 +399,14 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setHighlightedIndex(prev => {
-        const max = filteredItems.length + (!exactMatchExists && inputText.trim() ? 1 : 0);
+        const max = filteredItems.length + (allowQuickAdd && !exactMatchExists && inputText.trim() ? 1 : 0);
         const next = prev + 1;
         return next >= max ? 0 : next;
       });
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlightedIndex(prev => {
-        const max = filteredItems.length + (!exactMatchExists && inputText.trim() ? 1 : 0);
+        const max = filteredItems.length + (allowQuickAdd && !exactMatchExists && inputText.trim() ? 1 : 0);
         const next = prev - 1;
         return next < 0 ? max - 1 : next;
       });
@@ -412,11 +414,11 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
       e.preventDefault();
       if (highlightedIndex >= 0 && highlightedIndex < filteredItems.length) {
         handleSelect(filteredItems[highlightedIndex]);
-      } else if (highlightedIndex === filteredItems.length && !exactMatchExists && inputText.trim()) {
+      } else if (highlightedIndex === filteredItems.length && allowQuickAdd && !exactMatchExists && inputText.trim()) {
         handlePerformQuickAdd();
       } else if (filteredItems.length === 1) {
         handleSelect(filteredItems[0]);
-      } else if (!exactMatchExists && inputText.trim()) {
+      } else if (allowQuickAdd && !exactMatchExists && inputText.trim()) {
         handlePerformQuickAdd();
       } else {
         setIsOpen(false);
@@ -534,7 +536,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
               </span>
             </span>
 
-            {!exactMatchExists && inputText.trim() && (
+            {allowQuickAdd && !exactMatchExists && inputText.trim() && (
               <button
                 type="button"
                 onClick={handlePerformQuickAdd}
@@ -607,7 +609,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
             )}
 
             {/* In-place Quick Add Action Button inside dropdown */}
-            {!exactMatchExists && inputText.trim() && (
+            {allowQuickAdd && !exactMatchExists && inputText.trim() && (
               <div className="p-2 bg-emerald-50/60 border-t border-emerald-100">
                 <button
                   type="button"

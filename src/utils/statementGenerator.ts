@@ -628,9 +628,14 @@ export function generateAccountStatement(params: {
 
   // 8. Debt Clearings (مقاصة ديون بين عميل ومورد)
   // لا تدخل ضمن الصناديق المالية وتظهر بكشف العميل (دائن/قبض) والمورد (مدين/صرف)
+  const clearingLegMatches=(parentId:string,subId?:string)=>{
+    if(party.isSubCustomer)return subId?subId===party.id&&parentId===subCustomerParentId(party):parentId===party.id;
+    if(parentId!==party.id)return false;
+    return !subCustomerId||subCustomerId==='all'||subId===(targetSubCustObj?.id||subCustomerId);
+  };
   debtClearings.forEach(clr => {
     // إذا كان الطرف هو العميل: مقاصة تسوية دائنة (بمثابة سداد/قبض يقلل مديونية العميل)
-    if (clr.customerId === party.id && clr.creditPartyType !== 'employee') {
+    if (clearingLegMatches(clr.customerId,clr.creditSubCustomerId) && clr.creditPartyType !== 'employee') {
       allTx.push({
         id: `${clr.id}-cust`,
         date: clr.date,
@@ -641,7 +646,8 @@ export function generateAccountStatement(params: {
         typeLabel: 'مقاصة حسابات (قبض / تسوية دائنة)',
         description: `مقاصة تسوية مع ${clr.supplierName} - ${clr.reason || 'تسوية أرصدة متبادلة'}`,
         voucherNotes: clr.notes,
-        counterPartyName: clr.supplierName,
+        counterPartyName: clr.supplierName+(clr.debitSubCustomerName?' / '+clr.debitSubCustomerName:''),
+        subCustomerName:clr.creditSubCustomerName,
         reason: clr.reason,
         debit: 0,
         credit: clr.amount
@@ -649,7 +655,7 @@ export function generateAccountStatement(params: {
     }
 
     // إذا كان الطرف هو المورد: مقاصة تسوية مدينة (بمثابة سداد/صرف يقلل مستحقات المورد)
-    if (clr.supplierId === party.id && clr.debitPartyType !== 'employee') {
+    if (clearingLegMatches(clr.supplierId,clr.debitSubCustomerId) && clr.debitPartyType !== 'employee') {
       allTx.push({
         id: `${clr.id}-supp`,
         date: clr.date,
@@ -660,7 +666,8 @@ export function generateAccountStatement(params: {
         typeLabel: 'مقاصة حسابات (صرف / تسوية مدينة)',
         description: `مقاصة تسوية مع ${clr.customerName} - ${clr.reason || 'تسوية أرصدة متبادلة'}`,
         voucherNotes: clr.notes,
-        counterPartyName: clr.customerName,
+        counterPartyName: clr.customerName+(clr.creditSubCustomerName?' / '+clr.creditSubCustomerName:''),
+        subCustomerName:clr.debitSubCustomerName,
         reason: clr.reason,
         debit: clr.amount,
         credit: 0

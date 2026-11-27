@@ -3,10 +3,12 @@ import {useAccounting} from '../context/AccountingContext';
 import type {AccountTransferPartyType,AccountTransferBalanceSide,DebtClearingRecord} from '../types';
 import {authHeaders,getCurrentSessionToken,publicSyncApiUrl} from '../services/secureAuth';
 import {fetchWithSyncDeadline} from '../sync-next/requestDeadline';
-import {calculateEmployeeTrueBalance} from '../utils/statementGenerator';
+import {AutocompleteCombobox} from './common/AutocompleteCombobox';
+import {subCustomerParentId,isInvoiceOnlySubCustomer} from '../utils/subCustomerIdentity';
+import {calculateEmployeeTrueBalance,calculatePartyTrueBalance} from '../utils/statementGenerator';
 
 export const transferTypeLabel=(type?:AccountTransferPartyType)=>type==='employee'?'موظف':type==='supplier'?'مورد':'عميل';
-type Endpoint={type:AccountTransferPartyType;id:string};
+type Endpoint={type:AccountTransferPartyType;id:string;subCustomerId?:string};
 type Request={requestId:string;date:string;source:Endpoint;target:Endpoint;amount:number;balanceSide:AccountTransferBalanceSide;reason:string;notes:string}|{requestId:string;date:string;reversesId:string;reason:string;notes:string};
 const dateToday=()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
 const types:AccountTransferPartyType[]=['customer','supplier','employee'];
@@ -17,7 +19,7 @@ function readPending(key:string):Request|null{
 export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onClose:()=>void;onSaved:(r:DebtClearingRecord)=>void;reverse?:DebtClearingRecord}){
  const {parties,employees,settings,currentUser,unifiedRepository,vouchers,employeeAdvances,
   employeeDeductions,employeeIncentives,invoices,purchases,purchaseReturns,salesReturns,payrollSheets,
-  journalEntries,debtClearings}=useAccounting();
+  journalEntries,debtClearings,printOrders}=useAccounting();
  const pendingKey='lobnan_account_transfer_pending_v2:'+String(currentUser?.id||'none');
  const [pending,setPending]=useState<Request|null>(()=>readPending(pendingKey));
  const [source,setSource]=useState<Endpoint>(()=>pending&&'source' in pending?pending.source:{type:'customer',id:''});
@@ -29,11 +31,13 @@ export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onCl
  const [notes,setNotes]=useState(pending?.notes||'');
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
- const [sourceSearch,setSourceSearch]=useState('');
- const [targetSearch,setTargetSearch]=useState('');
+ const [sourceSearch,setSourceSearch]=useState(()=>parties.find(x=>x.id===source.id)?.name||employees.find(x=>x.id===source.id)?.name||'');
+ const [targetSearch,setTargetSearch]=useState(()=>parties.find(x=>x.id===target.id)?.name||employees.find(x=>x.id===target.id)?.name||'');
+ const [sourceSubSearch,setSourceSubSearch]=useState(()=>parties.find(x=>x.id===source.subCustomerId)?.name||'');
+ const [targetSubSearch,setTargetSubSearch]=useState(()=>parties.find(x=>x.id===target.subCustomerId)?.name||'');
  const options=(type:AccountTransferPartyType)=>{
   if(type==='employee')return employees.map(e=>({id:e.id,name:e.name,code:e.code}));
-  return parties.filter(p=>(p.type===type||p.type==='both')&&p.code!=='CUST-0001')
+  return parties.filter(p=>(p.type===type||p.type==='both')&&!p.isSubCustomer&&p.code!=='CUST-0001')
     .map(p=>({id:p.id,name:p.name,code:p.code}));
  };
  const getBalance=(p:Endpoint)=>{
@@ -43,7 +47,12 @@ export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onCl
    return emp?-calculateEmployeeTrueBalance(emp,vouchers,employeeAdvances,employeeDeductions,employeeIncentives,
     invoices,purchases,purchaseReturns,salesReturns,payrollSheets,journalEntries,debtClearings):null;
   }
-  return parties.find(x=>x.id===p.id)?.balance??null;
+  const main=parties.find(x=>x.id===p.id);
+  if(main&&p.subCustomerId){
+   const subs=parties.filter(x=>x.isSubCustomer&&subCustomerParentId(x)===main.id);
+   return calculatePartyTrueBalance(main,invoices,vouchers,purchases,purchaseReturns,salesReturns,printOrders,journalEntries,debtClearings,p.subCustomerId,subs);
+  }
+  return main?.balance??null;
  };
  const numeric=Number(amount);
  const validAmount=Number.isFinite(numeric)&&numeric>0&&numeric<1e12&&Math.abs(numeric*100-Math.round(numeric*100))<0.00001;
@@ -53,16 +62,24 @@ export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onCl
  const endpointControl=(p:Endpoint,set:(v:Endpoint)=>void,search:string,setSearch:(v:string)=>void,side:'source'|'target')=>{
   const balance=getBalance(p),delta=(balanceSide==='debit'?-1:1)*(side==='source'?1:-1)*numeric;
   const list=options(p.type);
+  const subSearch=side==='source'?sourceSubSearch:targetSubSearch;
+  const setSubSearch=side==='source'?setSourceSubSearch:setTargetSubSearch;
+  const subs=p.type==='customer'&&p.id?parties.filter(x=>x.isSubCustomer&&subCustomerParentId(x)===p.id&&!isInvoiceOnlySubCustomer(x)).map(x=>({id:x.id,name:x.name,code:x.code})):[];
   return <div className="space-y-2 rounded-lg border bg-slate-50 p-3">
    <strong>{side==='source'?'الطرف الأول — من حساب':'الطرف الثاني — إلى حساب'}</strong>
-   <div className="flex gap-1">{types.map(t=><button type="button" key={t} disabled={locked} onClick={()=>{set({type:t,id:''});setSearch('');}}
+   <div className="flex gap-1">{types.map(t=><button type="button" key={t} disabled={locked} onClick={()=>{set({type:t,id:''});setSearch('');setSubSearch('');}}
     className={'flex-1 rounded border p-1.5 font-bold '+(t===p.type?'bg-indigo-600 text-white':'bg-white')}>{transferTypeLabel(t)}</button>)}</div>
-   <input disabled={locked} value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث بالاسم أو الكود" className="w-full rounded border p-2"/>
-   <select disabled={locked} value={p.id} onChange={e=>set({...p,id:e.target.value})} className="w-full rounded border p-2">
-    <option value="">اختر الحساب</option>
-    {list.filter(x=>x.id===p.id||[x.name,x.code].some(v=>String(v||'').toLowerCase().includes(search.trim().toLowerCase()))).map(x=>
-     <option value={x.id} key={x.id}>{x.name} — {x.code}</option>)}
-   </select>
+   <AutocompleteCombobox items={list} selectedId={p.id} value={locked?(list.find(x=>x.id===p.id)?.name||search):search}
+    entityType={p.type} showCode={false} allowQuickAdd={false} disabled={locked}
+    placeholder={'اكتب اسم '+transferTypeLabel(p.type)+' أو الكود...'}
+    onChangeText={text=>{setSearch(text);if(text!==list.find(x=>x.id===p.id)?.name){set({type:p.type,id:''});setSubSearch('');}}}
+    onSelect={opt=>{set({type:p.type,id:opt.id});setSearch(opt.name);setSubSearch('');}}/>
+   {p.type==='customer'&&<AutocompleteCombobox items={subs} selectedId={p.subCustomerId||''}
+    value={locked?(subs.find(x=>x.id===p.subCustomerId)?.name||subSearch):subSearch}
+    entityType="customer" showCode={false} allowQuickAdd={false} disabled={locked||!p.id}
+    placeholder="العميل الفرعي (اختياري)"
+    onChangeText={text=>{setSubSearch(text);if(text!==subs.find(x=>x.id===p.subCustomerId)?.name)set({...p,subCustomerId:undefined});}}
+    onSelect={opt=>{set({...p,subCustomerId:opt.id||undefined});setSubSearch(opt.name);}}/>}
    <div>الرصيد الحالي: <b>{balanceText(balance)}</b></div>
    <div>الرصيد المتوقع: <b>{balanceText(balance===null||!validAmount?null:balance+delta)}</b></div>
    <div className="text-[10px] text-slate-500">الرصيد حسب بيانات الجهاز؛ يعتمد الخادم بياناته الفعلية عند الحفظ.</div>
@@ -72,7 +89,7 @@ export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onCl
   e.preventDefault();
   if(busy)return;
   if(!currentUser?.id){setError('يرجى تسجيل الدخول أولاً');return;}
-  if(!pending&&!reverse&&(!source.id||!target.id||same||!validAmount||!reason.trim())){
+  if(!pending&&!reverse&&(!source.id||!target.id||same||!validAmount||!reason.trim()||(sourceSubSearch.trim()&&!source.subCustomerId)||(targetSubSearch.trim()&&!target.subCustomerId))){
    setError('اختر حسابين مختلفين وأدخل مبلغاً صحيحاً وبيان التحويل.');return;
   }
   if(!pending&&!window.confirm(reverse?'سيُنشأ قيد عكسي مستقل دون حذف القيد الأصلي. هل تريد المتابعة؟':'هل تؤكد اتجاه التحويل والمبلغ؟ سيُرحّل قيد متوازن دون حركة نقدية.'))return;
@@ -111,7 +128,7 @@ export function AccountTransferModal({onClose,onSaved,reverse}:{key?:string;onCl
    {pending&&<p className="rounded border border-amber-300 bg-amber-50 p-2">يوجد طلب محفوظ لم يتأكد اعتماده بعد. إعادة المحاولة تستخدم المعرف نفسه؛ لن تنشئ قيداً ثانياً.</p>}
    {!reverse&&!(pending&&'reversesId' in pending)&&<>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{endpointControl(source,setSource,sourceSearch,setSourceSearch,'source')}{endpointControl(target,setTarget,targetSearch,setTargetSearch,'target')}</div>
-    <button type="button" disabled={locked} onClick={()=>{setSource(target);setTarget(source);setSourceSearch(targetSearch);setTargetSearch(sourceSearch);}} className="rounded border p-2">عكس الطرفين ⇄</button>
+    <button type="button" disabled={locked} onClick={()=>{setSource(target);setTarget(source);setSourceSearch(targetSearch);setTargetSearch(sourceSearch);setSourceSubSearch(targetSubSearch);setTargetSubSearch(sourceSubSearch);}} className="rounded border p-2">عكس الطرفين ⇄</button>
     <div className="flex flex-wrap gap-2 items-center"><label>نوع الرصيد المنقول:</label>
      <label><input type="radio" disabled={locked} checked={balanceSide==='debit'} onChange={()=>setBalanceSide('debit')}/> مدين</label>
      <label><input type="radio" disabled={locked} checked={balanceSide==='credit'} onChange={()=>setBalanceSide('credit')}/> دائن</label>

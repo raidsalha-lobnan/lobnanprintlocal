@@ -907,6 +907,14 @@ export interface DebtClearingRecord {
   sourceId?: string;
   sourceType?: AccountTransferPartyType;
   sourceName?: string;
+  sourceSubCustomerId?: string;
+  sourceSubCustomerName?: string;
+  targetSubCustomerId?: string;
+  targetSubCustomerName?: string;
+  creditSubCustomerId?: string;
+  creditSubCustomerName?: string;
+  debitSubCustomerId?: string;
+  debitSubCustomerName?: string;
   targetId?: string;
   targetType?: AccountTransferPartyType;
   targetName?: string;

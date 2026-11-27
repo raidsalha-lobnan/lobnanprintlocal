@@ -12,7 +12,8 @@ const clean=(v,max)=>{if(typeof v!=='string'||v.length>max)fail('ACCOUNT_TRANSFE
 const partyInput=p=>{
  if(!p||!Object.hasOwn(TRANSFER_ACCOUNTS,p.type)||!validId(p.id))
   fail('ACCOUNT_TRANSFER_PARTY_INVALID');
- return {type:p.type,id:p.id};
+ if(p.subCustomerId!==undefined&&(p.type!=='customer'||!validId(p.subCustomerId)||p.subCustomerId.startsWith('invoice-sub:')))fail('ACCOUNT_TRANSFER_SUBCUSTOMER_INVALID');
+ return {type:p.type,id:p.id,...(p.subCustomerId?{subCustomerId:p.subCustomerId}:{})};
 };
 export function normalizeAccountTransferRequest(input){
  if(!input||!/^[-a-zA-Z0-9_]{12,100}$/.test(String(input.requestId||'')))
@@ -69,8 +70,8 @@ export async function postAccountTransfer(service,workspace,input,actorId,access
     "SELECT 1 FROM sync_records WHERE workspace=$1 AND entity='debtClearings' AND value->>'reversesId'=$2 LIMIT 1",
     [workspace,r.reversesId])).rows[0];
    if(prior)fail('ACCOUNT_TRANSFER_ALREADY_REVERSED',409);
-   source={type:original.sourceType,id:original.sourceId};
-   target={type:original.targetType,id:original.targetId};
+   source=partyInput({type:original.sourceType,id:original.sourceId,subCustomerId:original.sourceSubCustomerId});
+   target=partyInput({type:original.targetType,id:original.targetId,subCustomerId:original.targetSubCustomerId});
    amount=money(original.amount);
    balanceSide=original.balanceSide==='debit'?'credit':'debit';
   }
@@ -83,7 +84,14 @@ export async function postAccountTransfer(service,workspace,input,actorId,access
    if(!value||value._deleted||!access.canRead(entity,value,p.id)||
       (entity==='parties'&&value.type!==p.type&&value.type!=='both'))
     fail('ACCOUNT_TRANSFER_PARTY_NOT_AVAILABLE',409);
-   return {row,party:{...p,name:value.name,code:value.code},entity};
+   if(entity==='parties'&&value.isSubCustomer)fail('ACCOUNT_TRANSFER_MAIN_PARTY_REQUIRED',409);
+   let subCustomerName;
+   if(p.subCustomerId){
+    const sub=(await client.query("SELECT value FROM sync_records WHERE workspace=$1 AND entity='parties' AND record_id=$2",[workspace,p.subCustomerId])).rows[0]?.value;
+    if(!sub||sub._deleted||sub.isSubCustomer!==true||!['customer','both'].includes(sub.type)||String(sub.parentPartyId||sub.parentCustomerId||'')!==p.id||!access.canRead('parties',sub,p.subCustomerId))fail('ACCOUNT_TRANSFER_SUBCUSTOMER_PARENT_MISMATCH',409);
+    subCustomerName=sub.name;
+   }
+   return {row,party:{...p,name:value.name,code:value.code,subCustomerName},entity};
   };
   const a=await resolve(source),b=await resolve(target);
   const plan=buildAccountTransferPlan({source:a.party,target:b.party,amount,balanceSide});
@@ -134,6 +142,10 @@ export async function postAccountTransfer(service,workspace,input,actorId,access
    transferVersion:2,requestFingerprint:fingerprint,sourceId:a.party.id,sourceType:a.party.type,
    sourceName:a.party.name,targetId:b.party.id,targetType:b.party.type,targetName:b.party.name,
    balanceSide,creditPartyType:credit.party.type,debitPartyType:debit.party.type,
+   ...(a.party.subCustomerId?{sourceSubCustomerId:a.party.subCustomerId,sourceSubCustomerName:a.party.subCustomerName}:{}),
+   ...(b.party.subCustomerId?{targetSubCustomerId:b.party.subCustomerId,targetSubCustomerName:b.party.subCustomerName}:{}),
+   ...(credit.party.subCustomerId?{creditSubCustomerId:credit.party.subCustomerId,creditSubCustomerName:credit.party.subCustomerName}:{}),
+   ...(debit.party.subCustomerId?{debitSubCustomerId:debit.party.subCustomerId,debitSubCustomerName:debit.party.subCustomerName}:{}),
    customerId:credit.party.id,customerName:credit.party.name,
    supplierId:debit.party.id,supplierName:debit.party.name,
    customerOldBalance:cb.before,customerNewBalance:cb.after,
@@ -141,7 +153,7 @@ export async function postAccountTransfer(service,workspace,input,actorId,access
    ...(r.reversesId?{reversesId:r.reversesId}:{})};
   const journal={id:journalId,entryNumber:'JV-'+clearingNumber,date:r.date,
    description:'مقاصة وتحويل حسابات: '+a.party.name+' / '+b.party.name+' - '+r.reason,
-   referenceType:'clearance',referenceId:id,accountTransferVersion:2,lines:plan.lines,createdAt:now};
+   referenceType:'clearance',referenceId:id,accountTransferVersion:2,lines:plan.lines.map((line,i)=>{const leg=i===0?debit:credit;return {...line,...(leg.party.subCustomerId?{subCustomerId:leg.party.subCustomerId,subCustomerName:leg.party.subCustomerName}: {})};}),createdAt:now};
   if(!access.canChange('debtClearings',record,null)||!access.canChange('journalEntries',journal,null))
    fail('ACCOUNT_TRANSFER_PERMISSION_DENIED',403);
   changes.push(create('debtClearings',id,record),create('journalEntries',journalId,journal));
