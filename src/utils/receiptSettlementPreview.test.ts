@@ -75,8 +75,17 @@ test('historical receipts without baseAmount use their ORIGINAL rate',()=>{
  assert.equal(result?.after,100);
 });
 
-test('unposted discounts and invalid inputs cannot create a misleading settlement',()=>{
- assert.equal(calc({discount:10}),null);
+test('receipt discounts reduce the preview once, without changing posted balance',()=>{
+ const result=calc({discount:10});
+ assert.equal(result?.currentBalance,350);
+ assert.equal(result?.before,500);
+ assert.equal(result?.after,340);
+ assert.equal(result?.draftReceiptBase,160);
+ assert.equal(result?.deltaFromCurrent,-10);
+});
+
+test('invalid inputs cannot create a misleading settlement',()=>{
+ assert.equal(calc({discount:-10}),null);
  assert.equal(calc({amount:12.345}),null);
  assert.equal(calc({exchangeRate:0}),null);
  assert.equal(calc({exchangeRate:Infinity}),null);
