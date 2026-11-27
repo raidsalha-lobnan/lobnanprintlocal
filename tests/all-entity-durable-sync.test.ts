@@ -20,7 +20,7 @@ test('every one of the 28 business entity types has a synchronized local, server
   const bootSource=read('src/sync-next/boot.ts')
     .split('const supported=new Set<string>([')[1].split(']);')[0];
   const repositorySource=read('src/sync-next/repository.ts')
-    .split('const supported: EntityName[] = [')[1].split('];')[0];
+    .split('const supported: EntityName[] = onlyEntities ? [...new Set(onlyEntities)] : [')[1].split('];')[0];
   for(const [layer,s] of [
     ['type union',typeSource],['PostgreSQL validator',serverSource],
     ['local repository writer',bootSource],['local unified projection',repositorySource]
