@@ -14,7 +14,9 @@ test('all customer and supplier financial statement routes use one authoritative
   assert.match(reports, /activeReport === 'supplier_statement'/);
   assert.equal((document.match(/invoice-financial-strip/g) || []).length, 1);
   assert.match(document, /hasVisibleInvoiceDimensions/);
-  assert.match(document, /showItemDetails && row\.items/);
+  assert.match(document, /row\.items && row\.items\.length > 0 && \(showItemDetails \|\|/);
+  assert.match(document, /\{showItemDetails && \(/);
+  assert.match(document, /row\.items\.map\(/);
   assert.match(document, /row\.paidAmount/);
   assert.match(document, /row\.remainingAmount/);
   assert.doesNotMatch(reports, /مدين \(عليه\)/);
