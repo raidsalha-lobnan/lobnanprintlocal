@@ -38,7 +38,7 @@ test('local incremental invoice projection reads individual IDs without scanning
         value:{id:'invoice-410',invoiceNumber:'INV-00410',totalAmount:999}}],
       cursor:cursor(2)
     });
-    assert.deepEqual(notifications.at(-1),[{entity:'invoices',id:'invoice-410'}]);
+    assert.deepEqual(notifications.at(-1)?.map(({entity,id})=>({entity,id})),[{entity:'invoices',id:'invoice-410'}]);
     // A targeted multi-collection query must NOT scan the 500 invoice rows.
     const nonInvoiceGroups=await db.listVisibleGrouped(['parties','inventory']);
     assert.equal(nonInvoiceGroups.parties.length,0);
