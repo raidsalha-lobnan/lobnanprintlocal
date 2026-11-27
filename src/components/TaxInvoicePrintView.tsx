@@ -1,18 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { jsPDF } from 'jspdf';
 import { tafqeet } from '../utils/tafqeet';
-import { drawTaxInvoiceTemplate } from '../utils/drawTaxInvoiceTemplate';
+import templateUrl from '../assets/tax-invoice/original-clean.png?url';
 
 type Line = { item: string; qty: string; price: string };
 const blank = (): Line => ({ item: '', qty: '', price: '' });
-const W = 1024, H = 1455, MAX = 9;
-const prefix = 'tax-print-assets-v1:';
-const read = (key: string) => { try { return localStorage.getItem(prefix + key) || ''; } catch { return ''; } };
+const W = 1024, H = 1455, MAX = 15;
 const cents = (n: number) => Math.round((n + Number.EPSILON) * 100);
 const fmt = (n: number) => (n / 100).toFixed(2);
 
 export const TaxInvoicePrintView: React.FC = () => {
-  const [template] = useState(() => read('template'));
+  const template = templateUrl;
   const font = new URL(import.meta.env.BASE_URL + 'fonts/tax-invoice/ArefRuqaa-Regular.ttf', document.baseURI).href;
   const [fontReady, setFontReady] = useState(false);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -34,7 +32,7 @@ export const TaxInvoicePrintView: React.FC = () => {
   const tax = Math.round(total * (Number(vat) || 0) / 100);
   const grand = total + tax;
   const amountWords = words.trim() || tafqeet(grand/100, 'شيكل', 'أغورة');
-  const ready = fontReady && /^\d{1,12}$/.test(serial) && !!date && date.startsWith('20') && !!customer.trim() && active.length > 0 && active.every(validLine) && active.length + (note.trim() ? 1 : 0) <= MAX && vat !== '' && Number.isFinite(Number(vat)) && Number(vat) >= 0 && Number(vat) <= 100 && grand <= 9999999999;
+  const ready = !!image && fontReady && /^\d{1,12}$/.test(serial) && !!date && date.startsWith('20') && !!customer.trim() && active.length > 0 && active.every(validLine) && active.length + (note.trim() ? 1 : 0) <= MAX && vat !== '' && Number.isFinite(Number(vat)) && Number(vat) >= 0 && Number(vat) <= 100 && grand <= 9999999999;
 
   useEffect(() => {
     setImage(null);
@@ -43,10 +41,10 @@ export const TaxInvoicePrintView: React.FC = () => {
     const img = new Image();
     img.onload = () => {
       if (stopped) return;
-      if (Math.abs(img.width / img.height - W / H) > 0.025) { setMessage('تعذر استخدام الصورة المحفوظة سابقًا؛ يتم عرض النموذج المدمج غير المختوم.'); return; }
+      if (Math.abs(img.width / img.height - W / H) > 0.025) { setMessage('أبعاد النموذج الأصلي المدمج غير صحيحة.'); return; }
       setImage(img);
     };
-    img.onerror = () => { if (!stopped) setMessage('تعذر فتح الصورة المحفوظة سابقًا؛ يتم عرض النموذج المدمج غير المختوم.'); };
+    img.onerror = () => { if (!stopped) setMessage('تعذر فتح النموذج الأصلي المدمج. أعد فتح الشاشة.'); };
     img.src = template;
     return () => { stopped = true; };
   }, [template]);
@@ -70,15 +68,14 @@ export const TaxInvoicePrintView: React.FC = () => {
 
   useEffect(() => {
     const c = canvas.current;
-    if (!c) return;
+    if (!c || !image) return;
     c.width = 2048; c.height = 2910;
     const ctx = c.getContext('2d');
     if (!ctx) return;
     ctx.scale(2,2);
     ctx.fillStyle = '#fff'; ctx.fillRect(0,0,W,H);
-    if (image) ctx.drawImage(image,0,0,W,H); else drawTaxInvoiceTemplate(ctx);
+    ctx.drawImage(image,0,0,W,H);
     // Replace only the original serial digits, leaving the printed prefix B.
-    ctx.fillStyle = '#fff'; ctx.fillRect(449,269,220,42);
     ctx.fillStyle = '#d40000'; ctx.font = '34px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.direction = 'ltr';
     ctx.fillText(serial,454,289,210);
     const hand = (value: string,x: number,y: number,width: number,rtl = true,sz = size) => {
@@ -153,7 +150,7 @@ export const TaxInvoicePrintView: React.FC = () => {
     <header className="flex flex-wrap justify-between items-center gap-2"><div><h1 className="text-xl font-bold">فاتورة ضريبية</h1><p className="text-sm text-slate-600">نسخة طباعة لعملية مسجلة فعليًا — لا ترحيل محاسبي ولا حركة مخزون. البيانات المدخلة لا تحفظ كسجل مبيعات.</p></div><button type="button" onClick={reset} className="border rounded px-3 py-2">نموذج جديد</button></header>
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       <div className="bg-white border rounded-lg p-3 space-y-3">
-        <p className="text-xs text-slate-500">النموذج والخط العربي جاهزان تلقائيًا. {image ? 'تم استخدام صورة النموذج المحفوظة سابقًا على الجهاز.' : 'النموذج المدمج إعادة رسم غير مختومة؛ التوقيع والختم الفعليان عند الاعتماد.'} {fontReady ? 'الخط جاهز.' : 'جاري تجهيز الخط.'}</p>
+        <p className="text-xs text-slate-500">{image ? 'صورة النموذج الأصلي مدمجة دون الرقم التسلسلي السابق والختم.' : 'جاري تحميل النموذج الأصلي.'} {fontReady ? 'الخط جاهز.' : 'جاري تجهيز الخط.'}</p>
         {message && <p role="status" className="text-sm text-blue-800">{message}</p>}
         <div className="grid grid-cols-2 gap-2">
           <label>رقم الفاتورة<input className={field} dir="ltr" inputMode="numeric" maxLength={12} value={serial} onChange={e=>setSerial(e.target.value.replace(/[^0-9]/g,''))} placeholder="0000316"/></label>
@@ -165,7 +162,7 @@ export const TaxInvoicePrintView: React.FC = () => {
           {lines.map((l,i)=><tr key={i}><td><input aria-label={'الصنف '+(i+1)} className={field} value={l.item} onChange={e=>update(i,'item',e.target.value)}/></td><td><input aria-label="الكمية" className={field+' min-w-16'} type="number" min="0" step="any" value={l.qty} onChange={e=>update(i,'qty',e.target.value)}/></td><td><input aria-label="سعر الوحدة" className={field+' min-w-20'} type="number" min="0" step=".01" value={l.price} onChange={e=>update(i,'price',e.target.value)}/></td><td className="px-1 whitespace-nowrap">{fmt(lineAmount(l))}</td><td><button type="button" aria-label="حذف البند" onClick={()=>setLines(old=>old.length===1?[blank()]:old.filter((_,j)=>i!==j))}>×</button></td></tr>)}
         </tbody></table></div>
         <button type="button" disabled={lines.length>=MAX} onClick={()=>setLines(old=>[...old,blank()])} className="border rounded px-3 py-1 disabled:opacity-50">+ إضافة بند</button>
-        <p className="text-xs text-slate-500">حتى تسعة أسطر فوق الختم، بما فيها سطر الملاحظات.</p>
+        <p className="text-xs text-slate-500">حتى 15 سطرًا، بما فيها سطر الملاحظات.</p>
         <label className="block">الملاحظات<input className={field} value={note} onChange={e=>setNote(e.target.value)}/></label>
         <div className="grid grid-cols-2 gap-2"><label>نسبة الضريبة % (أدخل 0 عند عدم وجودها)<input className={field} type="number" min="0" max="100" step=".01" value={vat} onChange={e=>setVat(e.target.value)}/></label><div className="text-sm space-y-1"><div>المجموع: {fmt(total)} ₪</div><div>الضريبة: {fmt(tax)} ₪</div><strong>الإجمالي: {fmt(grand)} ₪</strong></div></div>
         <label className="block">المبلغ بالكلمات (تلقائي وقابل للتعديل)<input className={field} value={words} placeholder={amountWords} onChange={e=>setWords(e.target.value)}/></label>
