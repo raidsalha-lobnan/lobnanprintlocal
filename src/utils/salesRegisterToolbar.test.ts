@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 
 const view=readFileSync(new URL('../components/InvoicesView.tsx',import.meta.url),'utf8');
 const marker='      {/* One compact, responsive sales register command bar. */}';
-const tableMarker='      {/* Invoices Table - Single line per invoice */}';
+const tableMarker='      {/* Only this table fills the remaining screen height. The footer never scrolls away. */}';
 const start=view.indexOf(marker);
 const end=view.indexOf(tableMarker);
 assert.ok(start>=0 && end>start,'Sale invoice register toolbar boundaries must exist');
@@ -27,7 +27,7 @@ test('remove manual recovery-and-merge and destructive delete-all controls from 
 });
 
 test('sales register is compact, one responsive bar, with no subtitle under title',()=>{
-  assert.match(toolbar,/flex flex-wrap items-center gap-2 rounded-xl/);
+  assert.match(toolbar,/flex shrink-0 flex-nowrap items-center gap-1 rounded-lg/);
   assert.match(toolbar,/سجل فواتير المبيعات/);
   assert.doesNotMatch(toolbar,/فواتير نقاط البيع السريعة، وأوامر مطبوعات المطبعة المعتمدة/);
   assert.equal((toolbar.match(/<section\b/g)||[]).length,1);
@@ -43,20 +43,21 @@ test('filter and date state continue to filter existing invoice list, not invoic
   assert.match(toolbar,/value=\{singleDate\}/);
   assert.match(toolbar,/value=\{dateFrom\}/);
   assert.match(toolbar,/value=\{dateTo\}/);
-  assert.match(view,/const filteredInvoices = confirmedInvoices/);
+  assert.match(view,/const filteredInvoices = React\.useMemo\(\(\) => confirmedInvoices/);
   assert.match(view,/separateInvoiceConfirmation\(invoices\)/);
-  assert.match(view,/const totalInvoiced = filteredInvoices\.reduce/);
+  assert.match(view,/const totalInvoiced = React\.useMemo\(\s*\(\) => filteredInvoices\.reduce/);
 });
 
-test('invoice details, export, deleted basket, audit and daily entry remain functional',()=>{
+test('invoice details, deleted basket, audit and paginated results remain functional',()=>{
   assert.match(toolbar,/onClick=\{handlePrintDetailedInvoices\}/);
   assert.match(toolbar,/setIsDeletedInvoicesOpen\(true\)/);
   assert.match(toolbar,/setIsAuditLogOpen\(true\)/);
-  assert.match(toolbar,/setActiveTab\('daily_entry_sheet'\)/);
-  assert.match(toolbar,/setActiveTab\('excel_drafts'\)/);
+  assert.doesNotMatch(toolbar,/setActiveTab\('daily_entry_sheet'\)/);
+  assert.doesNotMatch(toolbar,/setActiveTab\('excel_drafts'\)/);
   assert.match(view,/<DeletedInvoicesModal/);
   assert.match(view,/<InvoiceAuditLogModal/);
-  assert.match(table,/filteredInvoices\.map\(/);
+  assert.match(view,/visibleInvoices = React\.useMemo\(\(\) => filteredInvoices\.slice\(/);
+  assert.match(table,/visibleInvoices\.map\(/);
   assert.match(table,/setSelectedInvoiceForPrint\(inv\)/);
   assert.match(table,/setEditingPosInvoiceId\(inv\.id\)/);
   assert.match(table,/deleteInvoice\(inv\.id\)/);
