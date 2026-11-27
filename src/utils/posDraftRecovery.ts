@@ -42,3 +42,26 @@ export function findRecoverableCashierDrafts(
   } catch { return drafts.sort((a, b) => b.timestamp - a.timestamp).slice(0, 8); }
   return drafts.sort((a, b) => b.timestamp - a.timestamp).slice(0, 8);
 }
+
+/** Explicitly discard one unchanged, owner-scoped recovery copy only.
+ * Never touch the active form, PostgreSQL holds, or the durable posting outbox.
+ */
+export function discardRecoverableCashierDraft(
+  storage: Pick<Storage, 'getItem' | 'removeItem'>,
+  ownerId: string,
+  activeKey: string,
+  activeDraftId: string,
+  candidate: RecoverableCashierDraft
+): boolean {
+  if (!ownerId || candidate.key === activeKey ||
+      !candidate.key.startsWith('pos_active_full_draft:' + ownerId + ':')) return false;
+  const raw = storage.getItem(candidate.key);
+  if (raw === null || raw !== candidate.raw) return false;
+  let draft: any;
+  try { draft = JSON.parse(raw); } catch { return false; }
+  if (!draft || draft.ownerId !== ownerId || !Array.isArray(draft.tableLines) ||
+      String(draft.draftId || '') !== candidate.draftId ||
+      (activeDraftId && draft.draftId === activeDraftId)) return false;
+  storage.removeItem(candidate.key);
+  return storage.getItem(candidate.key) === null;
+}
