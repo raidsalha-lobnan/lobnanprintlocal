@@ -42,7 +42,7 @@ export const DebtClearingView:React.FC=()=>{
    <button onClick={()=>{unifiedRepository?.requestSync();setNotice('تم طلب تحديث السجل');}} className="rounded border p-1.5" title="تحديث"><RefreshCw size={14}/></button>
    <button onClick={()=>setRegister(true)} className="inline-flex items-center gap-1 rounded border px-2 py-1.5"><Printer size={14}/>طباعة / PDF السجل</button>
    <label className="flex gap-1 items-center"><input type="checkbox" checked={showHistory} onChange={e=>{setShowHistory(e.target.checked);setPage(1);}}/>إظهار الملغاة والقيود العكسية</label>
-   <strong>عدد السندات: {active.length}</strong><span className="font-bold text-indigo-700">الإجمالي: {totals.map(([c,v])=>money(v)+' '+c).join(' / ')||'0.00'}</span>
+   <strong>عدد السندات: {active.length}</strong><span className="font-bold text-indigo-700">الإجمالي: {totals.map(([c,v])=>money(Number(v))+' '+c).join(' / ')||'0.00'}</span>
   </section>
   {notice&&<div className="flex justify-between rounded border border-amber-200 bg-amber-50 p-2">{notice}<button onClick={()=>setNotice('')}>✕</button></div>}
   <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-1 border rounded bg-white">
