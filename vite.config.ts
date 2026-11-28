@@ -630,7 +630,10 @@ export default defineConfig(() => {
         workbox: {
           skipWaiting: false,
           clientsClaim: false,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          globPatterns: ['**/*.{js,mjs,css,html,ico,png,jpg,jpeg,webp,svg,woff,woff2,ttf,otf,wasm,webmanifest}'],
+          globIgnores: ['**/telegram-pos*','**/api/**','**/master_drive_database_snapshot*'],
+          navigateFallback: 'index.html',
+          navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/telegram-pos(?:[/.?]|$)/, /\/[^/?]+\.[^/?]+$/],
           maximumFileSizeToCacheInBytes: 15 * 1024 * 1024, // 15MB
         },
         devOptions: {

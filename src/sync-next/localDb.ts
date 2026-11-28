@@ -10,6 +10,7 @@ import {isProtectedRejectedBulkPartySnapshot,isVerifiedRejectedBulkBystander,rej
 import {planBlockedCommandQuarantine} from './blockedQueueQuarantine';
 import {canIndependentSaleBypassKey,isNewAtomicPosSale} from './atomicRecoveryPolicy';
 import {hydrateFromPinnedSqlite,mirrorCompletedTransaction} from './desktopSqliteMirror';
+import {durableWriteTransaction} from './durableWriteTransaction';
 
 const DB_VERSION = 3;
 const RECORDS = 'records';
@@ -216,10 +217,7 @@ export class LocalSyncDb {
     }));
 
     const db = await this.getDb();
-    const tx = db.transaction(
-      [RECORDS, OUTBOX, RECEIPTS],
-      'readwrite'
-    );
+    const tx = durableWriteTransaction(db,[RECORDS, OUTBOX, RECEIPTS]);
     const done = completed(tx);
 
     try {
@@ -347,7 +345,7 @@ export class LocalSyncDb {
 
   async resolveReviewedRevision(commandId: string, reviewedVersion: number, useLocal: boolean) {
     const db = await this.getDb();
-    const tx = db.transaction([RECORDS, OUTBOX, RECEIPTS], 'readwrite');
+    const tx = durableWriteTransaction(db,[RECORDS, OUTBOX, RECEIPTS]);
     const done = completed(tx);
     try {
       const outbox = tx.objectStore(OUTBOX);
@@ -628,10 +626,7 @@ export class LocalSyncDb {
   ): Promise<void> {
     const db = await this.getDb();
 
-    const tx = db.transaction(
-      [RECORDS, OUTBOX, RECEIPTS],
-      'readwrite'
-    );
+    const tx = durableWriteTransaction(db,[RECORDS, OUTBOX, RECEIPTS]);
     const done = completed(tx);
 
     try {
@@ -954,7 +949,7 @@ export class LocalSyncDb {
    */
   async reconcileAlreadyConfirmed(commandId:string,authoritative:StoredRecord[],reason:string):Promise<boolean> {
     const db=await this.dbPromise;
-    const tx=db.transaction([RECORDS,OUTBOX,RECEIPTS],'readwrite');
+    const tx=durableWriteTransaction(db,[RECORDS, OUTBOX, RECEIPTS]);
     const done=completed(tx);
     try {
       const outbox=tx.objectStore(OUTBOX);
@@ -994,7 +989,7 @@ export class LocalSyncDb {
   async rebaseContactChange(commandId:string,authoritative:StoredRecord,
     value:JsonObject):Promise<boolean>{
     const db=await this.dbPromise;
-    const tx=db.transaction([RECORDS,OUTBOX,RECEIPTS],'readwrite');
+    const tx=durableWriteTransaction(db,[RECORDS, OUTBOX, RECEIPTS]);
     const done=completed(tx);
     try{
       const outbox=tx.objectStore(OUTBOX);

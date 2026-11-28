@@ -1,3 +1,4 @@
+import {durableWriteTransaction} from './durableWriteTransaction';
 /**
  * Durable POS save-attempt identity store for Chrome/Edge.
  *
@@ -112,7 +113,7 @@ export async function writePosAttempt(key:string,value:PosAttemptIdentity):Promi
     return;
   }
   const db=await database();
-  const tx=db.transaction(STORE,'readwrite');
+  const tx=durableWriteTransaction(db,STORE);
   const done=committed(tx);
   tx.objectStore(STORE).put({key,value});
   // Only report local persistence after IndexedDB's transaction completes.
@@ -127,7 +128,7 @@ export async function removePosAttempt(key:string):Promise<void> {
     return;
   }
   const db=await database();
-  const tx=db.transaction(STORE,'readwrite');
+  const tx=durableWriteTransaction(db,STORE);
   const done=committed(tx);
   tx.objectStore(STORE).delete(key);
   await done;

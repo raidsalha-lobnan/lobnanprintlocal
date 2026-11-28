@@ -1,4 +1,5 @@
 import type {SystemUser} from '../types';
+import {fetchWithSyncDeadline} from '../sync-next/requestDeadline';
 
 const STORED_LOGIN_KEY='lobnan_offline_encrypted_login_v1';
 export const AUTH_TOKEN_KEY='lobnan_postgres_user_session';
@@ -90,12 +91,12 @@ async function cacheOfflineLogin(password:string,user:SystemUser,token:string,ex
 }
 export async function loginOnline(identifier:string,password:string):Promise<SystemUser>{
   const base=publicSyncApiUrl();
-  const response=await fetch(base+'/api/v1/auth/login',{
+  const response=await fetchWithSyncDeadline(base+'/api/v1/auth/login',{
     method:'POST',
     headers:{'Content-Type':'application/json',...authHeaders(base,'')},
     body:JSON.stringify({identifier,password}),
     cache:'no-store'
-  });
+  },12000);
   if(!response.ok){
     if(response.status===429)throw Error('AUTH_RATE_LIMIT');
     if(response.status===401)throw Error('BAD_USERNAME_OR_PASSWORD');

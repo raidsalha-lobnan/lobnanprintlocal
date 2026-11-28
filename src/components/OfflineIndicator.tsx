@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { WifiOff, Wifi, RefreshCw, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { SyncConflictModal } from './SyncConflictModal';
+import {assessLocalStorageHealth} from '../sync-next/storageHealth';
 
 export const OfflineIndicator: React.FC = () => {
   const {
@@ -16,6 +17,14 @@ export const OfflineIndicator: React.FC = () => {
   const [isRetrying, setIsRetrying] = useState(false);
   const [showRestoredNotice, setShowRestoredNotice] = useState(false);
   const prevOnlineRef = useRef(isOnline);
+  const [storageHealth,setStorageHealth]=useState<Awaited<ReturnType<typeof assessLocalStorageHealth>>|null>(null);
+  useEffect(()=>{
+    let active=true;
+    const check=()=>void assessLocalStorageHealth().then(value=>{if(active)setStorageHealth(value);}).catch(()=>{});
+    check();const timer=window.setInterval(check,60000);window.addEventListener('focus',check);
+    return ()=>{active=false;window.clearInterval(timer);window.removeEventListener('focus',check);};
+  },[]);
+  const storageLow=!!storageHealth&&storageHealth.quotaBytes!==null&&storageHealth.usageBytes!==null&&storageHealth.quotaBytes-storageHealth.usageBytes<50*1024*1024;
 
   useEffect(() => {
     if (!prevOnlineRef.current && isOnline) {
@@ -41,6 +50,7 @@ export const OfflineIndicator: React.FC = () => {
     <>
       <SyncConflictModal isOpen={isConflictModalOpen} onClose={closeConflictModal} />
 
+      {storageHealth&&(!storageHealth.idbAvailable||storageLow||storageHealth.persistent===false)&&<div dir="rtl" role="status" className="fixed bottom-16 left-4 z-[199] max-w-[90vw] rounded-lg border border-amber-500 bg-amber-50 px-3 py-2 text-xs text-amber-950 shadow">{!storageHealth.idbAvailable?'التخزين المحلي غير متاح؛ لا تعتمد عملية غير مؤكدة.':storageLow?'مساحة التخزين المحلي منخفضة؛ زامن العمليات وأفرغ مساحة القرص بأمان.':'المتصفح لم يضمن التخزين الدائم؛ لا تحذف بيانات الموقع قبل مزامنة كل العمليات.'}</div>}
       {/* Restored connection alert */}
       {showRestoredNotice && (
         <div 
@@ -91,7 +101,7 @@ export const OfflineIndicator: React.FC = () => {
           </div>
 
           <span className="text-slate-300 text-[11px] hidden sm:inline">
-            تُحفظ كافة الفواتير والعمليات تلقائياً على هذا الجهاز.
+            العمليات المؤكدة محلياً تنتظر المزامنة. لا تغلق الشاشة إذا ظهر خطأ حفظ.
           </span>
 
           {pendingSyncCount > 0 && (
