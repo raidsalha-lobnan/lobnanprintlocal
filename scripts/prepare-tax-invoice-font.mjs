@@ -19,7 +19,13 @@ const assets = [
   ['Mikhak-Light.ttf','f0e85eb928f9719402159435546407827e149a11','https://raw.githubusercontent.com/aminabedi68/Mikhak/9dea055eb3dfc752879442224460c6e5d6ebe232/fonts/ttf/Mikhak-Light.ttf'],
   ['Mikhak-OFL.txt','fd34f9640eefffa6cd629d09115ac310745d0c39','https://raw.githubusercontent.com/aminabedi68/Mikhak/9dea055eb3dfc752879442224460c6e5d6ebe232/OFL.txt'],
   ['Marhey.ttf','b54afeaefdac874cae1952efe3a9e47906907179','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/marhey/Marhey%5Bwght%5D.ttf'],
-  ['Marhey-OFL.txt','d4683065ab49e7067d25d48e5cd2ddc27b3aa193','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/marhey/OFL.txt']
+  ['Marhey-OFL.txt','d4683065ab49e7067d25d48e5cd2ddc27b3aa193','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/marhey/OFL.txt'],
+  ["Ruwudu-Regular.ttf","693379e57156a890170c8da1803a1a72e2eeedd2","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/ruwudu/Ruwudu-Regular.ttf"],
+  ["ruwudu-OFL.txt","30bffb6b10bf4ca631ca79947a5536019658beb0","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/ruwudu/OFL.txt"],
+  ["Rakkas-Regular.ttf","949b454ff4e8a3d8e692743ee863d3657911cc0e","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/rakkas/Rakkas-Regular.ttf"],
+  ["rakkas-OFL.txt","818eba2813b866f0cb2955785beda56cbd6c3852","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/rakkas/OFL.txt"],
+  ["Alkalami-Regular.ttf","cc162c7bac2ee391866da6e14ba9db2feea43596","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/alkalami/Alkalami-Regular.ttf"],
+  ["alkalami-OFL.txt","2b99bdb66efd6034257e7f8387d24e3a79c0e815","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/alkalami/OFL.txt"]
 ];
 const gitHash = bytes => createHash('sha1').update('blob '+bytes.length+'\\0'.replace('\\0','\0')).update(bytes).digest('hex');
 for (const [name, expected, url] of assets) {

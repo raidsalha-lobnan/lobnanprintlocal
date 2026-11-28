@@ -4,20 +4,20 @@ import { tafqeet } from '../utils/tafqeet';
 import templateUrl from '../assets/tax-invoice/original-clean.png?url';
 
 type Line = { item: string; qty: string; price: string; fontSize?: number };
-type HandStyle = 'ruqaa' | 'lemonada' | 'katibeh' | 'lateef' | 'playpen' | 'mikhak' | 'marhey';
-const fontNames: Record<HandStyle,string> = {ruqaa:'TaxInvoiceHandwriting',lemonada:'TaxInvoiceCasual',katibeh:'TaxInvoiceKatibeh',lateef:'TaxInvoiceLateef',playpen:'TaxInvoicePlaypen',mikhak:'TaxInvoiceMikhak',marhey:'TaxInvoiceMarhey'};
-const fontFiles: Record<HandStyle,string> = {ruqaa:'ArefRuqaa-Regular.ttf',lemonada:'Lemonada.ttf',katibeh:'Katibeh-Regular.ttf',lateef:'Lateef-Regular.ttf',playpen:'PlaypenSansArabic.ttf',mikhak:'Mikhak-Light.ttf',marhey:'Marhey.ttf'};
+type HandStyle = 'ruqaa' | 'lemonada' | 'katibeh' | 'lateef' | 'playpen' | 'mikhak' | 'marhey' | 'ruwudu' | 'rakkas' | 'alkalami';
+const fontNames: Record<HandStyle,string> = {ruqaa:'TaxInvoiceHandwriting',lemonada:'TaxInvoiceCasual',katibeh:'TaxInvoiceKatibeh',lateef:'TaxInvoiceLateef',playpen:'TaxInvoicePlaypen',mikhak:'TaxInvoiceMikhak',marhey:'TaxInvoiceMarhey',ruwudu:'TaxInvoiceRuwudu',rakkas:'TaxInvoiceRakkas',alkalami:'TaxInvoiceAlkalami'};
+const fontFiles: Record<HandStyle,string> = {ruqaa:'ArefRuqaa-Regular.ttf',lemonada:'Lemonada.ttf',katibeh:'Katibeh-Regular.ttf',lateef:'Lateef-Regular.ttf',playpen:'PlaypenSansArabic.ttf',mikhak:'Mikhak-Light.ttf',marhey:'Marhey.ttf',ruwudu:'Ruwudu-Regular.ttf',rakkas:'Rakkas-Regular.ttf',alkalami:'Alkalami-Regular.ttf'};
 const MAX_FONT_SIZE = 60;
-const fontSpec = (style: HandStyle, size: number) => (style === 'lemonada' || style === 'playpen' || style === 'marhey' ? '300 ' : '400 ') + size + 'px "' + fontNames[style] + '"';
+const fontSpec = (style: HandStyle, size: number, playpenWeight = 300) => (style === 'playpen' ? playpenWeight : style === 'lemonada' || style === 'marhey' ? 300 : 400) + ' ' + size + 'px "' + fontNames[style] + '"';
 const clampSize = (n: number) => Math.max(12,Math.min(MAX_FONT_SIZE,n));
 const autoItemSize = (text: string, base: number) => {
   const words = text.trim().split(/\s+/).filter(Boolean).length;
   return clampSize(base + (words <= 2 ? 5 : words <= 4 ? 2 : words <= 7 ? 0 : -Math.min(9,words-7)));
 };
-function fitSize(ctx: CanvasRenderingContext2D, text: string, width: number, desired: number, style: HandStyle, ready: boolean, maxHeight = 34) {
+function fitSize(ctx: CanvasRenderingContext2D, text: string, width: number, desired: number, style: HandStyle, ready: boolean, maxHeight = 34, playpenWeight = 300) {
   let fitted = clampSize(desired);
   const measure = () => {
-    ctx.font = ready ? fontSpec(style,fitted) : fitted + 'px Arial';
+    ctx.font = ready ? fontSpec(style,fitted,playpenWeight) : fitted + 'px Arial';
     return ctx.measureText(text);
   };
   let m = measure();
@@ -41,8 +41,13 @@ const fmt = (n: number) => (n / 100).toFixed(2);
 export const TaxInvoicePrintView: React.FC = () => {
   const template = templateUrl;
   const [style,setStyle] = useState<HandStyle>('playpen');
-  const [loadedStyle,setLoadedStyle] = useState<HandStyle | null>(null);
-  const fontReady = loadedStyle === style;
+  const [playpenWeight,setPlaypenWeight] = useState(300);
+  const [contextual,setContextual] = useState(true);
+  const [alternate,setAlternate] = useState<'standard'|'ss01'|'ss02'>('standard');
+  const featureSettings = style==='playpen' ? '"calt" '+(contextual?'1':'0')+', "ss01" '+(alternate==='ss01'?'1':'0')+', "ss02" '+(alternate==='ss02'?'1':'0') : 'normal';
+  const fontKey = style+':'+featureSettings;
+  const [loadedStyle,setLoadedStyle] = useState<string | null>(null);
+  const fontReady = loadedStyle === fontKey;
   const font = new URL(import.meta.env.BASE_URL + 'fonts/tax-invoice/' + fontFiles[style], document.baseURI).href;
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [serial, setSerial] = useState('');
@@ -62,15 +67,15 @@ export const TaxInvoicePrintView: React.FC = () => {
   const customerWanted = headerSizes.customer ?? autoItemSize(customer,size);
   const customerSize = useMemo(() => {
     const ctx = document.createElement('canvas').getContext('2d');
-    return ctx ? fitSize(ctx,customer,608,customerWanted,style,fontReady,40) : customerWanted;
-  },[customer,customerWanted,style,fontReady]);
+    return ctx ? fitSize(ctx,customer,608,customerWanted,style,fontReady,40,playpenWeight) : customerWanted;
+  },[customer,customerWanted,style,fontReady,playpenWeight]);
   const rowSizes = useMemo(() => {
     const ctx=document.createElement('canvas').getContext('2d');
     return lines.map(l=>{
       const wanted=l.fontSize ?? autoItemSize(l.item,size);
-      return ctx ? fitSize(ctx,l.item,373,wanted,style,fontReady) : wanted;
+      return ctx ? fitSize(ctx,l.item,373,wanted,style,fontReady,34,playpenWeight) : wanted;
     });
-  },[lines,size,style,fontReady]);
+  },[lines,size,style,fontReady,playpenWeight]);
   const validLine = (l: Line) => !!l.item.trim() && l.qty !== '' && l.price !== '' && Number.isFinite(Number(l.qty)) && Number(l.qty) > 0 && Number.isFinite(Number(l.price)) && Number(l.price) >= 0 && Number(l.price) <= 999999 && Number(l.qty) <= 999999 && Math.abs(Number(l.price)*100 - Math.round(Number(l.price)*100)) < 0.000001;
   const lineAmount = (l: Line) => cents((Number(l.qty) || 0) * (Number(l.price) || 0));
   const total = active.reduce((sum,l) => sum + lineAmount(l),0);
@@ -101,16 +106,16 @@ export const TaxInvoicePrintView: React.FC = () => {
     let face: FontFace | undefined;
     (async () => {
       try {
-        face = new FontFace(fontNames[style], 'url(' + font + ')', {weight:style==='lemonada'||style==='marhey'?'300 700':style==='playpen'?'100 800':'400'});
+        face = new FontFace(fontNames[style], 'url(' + font + ')', {weight:style==='lemonada'||style==='marhey'?'300 700':style==='playpen'?'100 800':'400',featureSettings});
         await face.load();
         if (stopped) return;
         document.fonts.add(face);
-        setLoadedStyle(style);
+        setLoadedStyle(fontKey);
         setMessage('');
       } catch { if (!stopped) setMessage('تعذر تحميل الخط المدمج. أعد فتح الشاشة قبل الطباعة.'); }
     })();
     return () => { stopped = true; if (face) document.fonts.delete(face); };
-  }, [font,style]);
+  }, [font,style,featureSettings,fontKey]);
 
   useEffect(() => {
     const c = canvas.current;
@@ -130,7 +135,7 @@ export const TaxInvoicePrintView: React.FC = () => {
       ctx.fillStyle = '#153b9e';
       // Measure and fit complete Arabic phrases, preserving contextual shaping.
       ctx.textBaseline = 'alphabetic';
-      fitSize(ctx,value,width,sz,style,fontReady,maxHeight);
+      fitSize(ctx,value,width,sz,style,fontReady,maxHeight,playpenWeight);
       const ink=ctx.measureText(value);
       const baseline=y+(ink.actualBoundingBoxAscent-ink.actualBoundingBoxDescent)/2;
       ctx.fillText(value,x,baseline,width - 4);
@@ -192,7 +197,7 @@ export const TaxInvoicePrintView: React.FC = () => {
     if (vat !== '' && Number(vat) > 0) hand(vat,416,1234,38,false,headerSizes.vat ?? 22);
     hand(amountWords,793,1365,700,true,headerSizes.words ?? Math.min(size,26));
     ctx.save(); ctx.direction='rtl'; ctx.textAlign='center'; ctx.font='15px Arial'; ctx.fillStyle='#555'; ctx.fillText('نسخة إلكترونية — تعبئة رقمية بخط عربي',512,1424); ctx.restore();
-  },[image,fontReady,style,serial,date,customer,customerWanted,address,lines,vat,note,words,size,headerSizes,cancelEmpty]);
+  },[image,fontReady,style,serial,date,customer,customerWanted,address,lines,vat,note,words,size,headerSizes,cancelEmpty,playpenWeight]);
 
   const update = (index: number,key: 'item' | 'qty' | 'price',value: string) => setLines(old => old.map((l,i) => i===index ? {...l,[key]:value} : l));
   const exportPdf = () => {
@@ -240,7 +245,8 @@ export const TaxInvoicePrintView: React.FC = () => {
         <label className="block">الملاحظات<input className={field} value={note} onChange={e=>setNote(e.target.value)}/></label>
         <div className="grid grid-cols-2 gap-2"><label>نسبة الضريبة % (أدخل 0 عند عدم وجودها)<input className={field} type="number" min="0" max="100" step=".01" value={vat} onChange={e=>setVat(e.target.value)}/></label><div className="text-sm space-y-1"><div>المجموع: {fmt(total)} ₪</div><div>الضريبة: {fmt(tax)} ₪</div><strong>الإجمالي: {fmt(grand)} ₪</strong></div></div>
         <label className="block">المبلغ بالكلمات (تلقائي وقابل للتعديل)<input className={field} value={words} placeholder={amountWords} onChange={e=>setWords(e.target.value)}/></label>
-        <label className="block text-sm">نمط الخط العربي<select className={field} value={style} onChange={e=>setStyle(e.target.value as HandStyle)}><option value="ruqaa">رقعة — Aref Ruqaa</option><option value="lemonada">خط عربي حر خفيف — Lemonada</option><option value="katibeh">خط عربي بقلم عريض — Katibeh</option><option value="lateef">خط عربي لين — Lateef</option><option value="playpen">كتابة يدوية عربية — Playpen Sans Arabic</option><option value="mikhak">Mikhak Light — شبه يدوي خفيف</option><option value="marhey">Marhey Light — حروف مرسومة يدويًا</option></select></label>
+        <label className="block text-sm">نمط الخط العربي<select className={field} value={style} onChange={e=>setStyle(e.target.value as HandStyle)}><option value="ruqaa">رقعة — Aref Ruqaa</option><option value="lemonada">خط عربي حر خفيف — Lemonada</option><option value="katibeh">خط عربي بقلم عريض — Katibeh</option><option value="lateef">خط عربي لين — Lateef</option><option value="playpen">كتابة يدوية عربية — Playpen Sans Arabic</option><option value="mikhak">Mikhak Light — شبه يدوي خفيف</option><option value="marhey">Marhey Light — حروف مرسومة يدويًا</option><option value="ruwudu">Ruwudu — كتابة عربية تقليدية</option><option value="rakkas">Rakkas — رقعة حرة</option><option value="alkalami">Alkalami — كتابة بالقلم</option></select></label>
+        {style==='playpen'&&<div className="border rounded p-2 space-y-2"><h3 className="text-sm font-medium">إعدادات Playpen للكتابة العربية</h3><label className="block text-sm">سماكة القلم: {playpenWeight}<input className="w-full" type="range" min="100" max="800" step="50" value={playpenWeight} onChange={e=>setPlaypenWeight(Number(e.target.value))}/></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={contextual} onChange={e=>setContextual(e.target.checked)}/> الأشكال السياقية للحروف (calt)</label><label className="block text-sm">أشكال الحروف الاختيارية<select className={field} value={alternate} onChange={e=>setAlternate(e.target.value as typeof alternate)}><option value="standard">الافتراضي</option><option value="ss01">مجموعة بدائل 1</option><option value="ss02">مجموعة بدائل 2</option></select></label><p className="text-xs text-slate-500">تتغير الأشكال حسب الحروف التي يدعمها الخط. تبقى بيانات الفاتورة كما هي.</p><button type="button" className="border rounded px-2 py-1 text-sm" onClick={()=>{setPlaypenWeight(300);setContextual(true);setAlternate('standard');}}>استعادة إعدادات الخط</button></div>}
         <p className="text-xs text-slate-500">الحجم التلقائي يتغير بحسب عدد الكلمات وعرضها الحقيقي. يمكن تعديل كل بند بعلامتي + و− ضمن مساحة الخانة.</p>
         <label className="block text-sm">حجم الخط العام: {size}<input className="w-full" type="range" min="12" max={MAX_FONT_SIZE} value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
         <details className="border rounded p-2"><summary className="cursor-pointer text-sm font-medium">أحجام خطوط الخانات الأخرى</summary><div className="grid grid-cols-2 gap-2 mt-2">{headerFontFields.map(({key,label})=><label key={key} className="text-sm">{label}<select className={field} value={headerSizes[key] ?? ''} onChange={e=>{const value=e.target.value;setHeaderSizes(old=>({...old,[key]:value===''?undefined:Number(value)}));}}><option value="">افتراضي</option>{Array.from({length:MAX_FONT_SIZE-11},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div><button type="button" className="border rounded px-2 py-1 mt-2 text-sm" onClick={()=>{setHeaderSizes({});setLines(old=>old.map(l=>({...l,fontSize:undefined})));setSize(27);}}>إعادة الأحجام الافتراضية</button></details>
