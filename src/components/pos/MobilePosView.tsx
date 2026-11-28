@@ -1,3 +1,4 @@
+import {readLocalHeldCache,checkpointLocalHeld,reconcileLocalHeld,confirmLocalHeld,removeLocalHeld,isHeldTransportUnavailable} from '../../services/localHeldCache';
 import {posDraftStorageKey} from '../../utils/posDraftStorageKey';
 import {removePosAttempt} from '../../sync-next/posAttemptStore';
 import {POS_LEAVE_INTENT_EVENT,type PosLeaveIntentDetail} from '../../utils/posLeaveNavigation';
@@ -377,10 +378,13 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       if(!currentUser?.id){if(active)setHeldLoading(false);return;}
       if(active){setHeldLoading(true);setHeldInvoices([]);}
       try{
+        const cached=await readLocalHeldCache<MobileHeldInvoice>(heldCacheKey);
+        if(active)setHeldInvoices(cached);
+        if(typeof navigator!=='undefined'&&!navigator.onLine){if(active)setHeldLoading(false);return;}
         let remote=await listCentralHeldInvoices<MobileHeldInvoice>('mobile');
         // A pending local copy is recoverable across refreshes even if
         // PostgreSQL was unreachable at the time of suspension.
-        const localPending=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
+        const localPending=await readLocalHeldCache<MobileHeldInvoice>(heldCacheKey);
         if(Array.isArray(localPending)){
           let changed=false;
           for(const held of localPending){
@@ -411,11 +415,12 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
         }
         // Merge pending device recovery copies even after legacy migration.
         if(Array.isArray(localPending))remote=mergeHeldRecovery(remote,localPending);
-        if(active)setHeldInvoices(remote);
+        const merged=await reconcileLocalHeld(heldCacheKey,remote);
+        if(active)setHeldInvoices(merged);
       }catch(error){
         console.warn('Unable to load mobile holds from PostgreSQL',error);
         if(active)try{
-          let cached=JSON.parse(localStorage.getItem(heldCacheKey)||'null');
+          let cached=await readLocalHeldCache<MobileHeldInvoice>(heldCacheKey);
           if((!Array.isArray(cached)||!cached.length)&&
              !localStorage.getItem('pos_mobile_held_migration_done_v1_'+currentUser.id)){
             const owner=localStorage.getItem('pos_mobile_held_legacy_owner_v1');
@@ -430,11 +435,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     window.addEventListener('online',refresh);
     return ()=>{active=false;window.removeEventListener('online',refresh);};
   },[currentUser?.id,showHeldModal]);
-  useEffect(()=>{
-    if(!heldLoading&&currentUser?.id)try{
-      localStorage.setItem(heldCacheKey,JSON.stringify(heldInvoices));
-    }catch(error){console.warn('Mobile held cache unavailable',error);}
-  },[heldInvoices,heldLoading,currentUser?.id]);
+
 
   // 3. Unified Search & Barcode Input State (دمج البحث والباركود في خانة واحدة ذكية)
   const [searchBarcodeQuery, setSearchBarcodeQuery] = useState<string>('');
@@ -693,18 +694,21 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     // not lose a hold during tunnel outages or server maintenance.
     const pendingHeld:MobileHeldInvoice={...newHeld,localOnly:true};
     let localBackupSaved=false;
-    try{
-      const before=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
-      const rows=Array.isArray(before)?before:[];
-      localStorage.setItem(heldCacheKey,JSON.stringify([
-        pendingHeld,...rows.filter(h=>h.id!==newHeld.id)
-      ]));
-      localBackupSaved=true;
-    }catch(error){console.warn('Mobile held recovery checkpoint failed',error);}
     heldOperationRef.current=true;setHeldBusy(true);
     try{
+      const rows=await checkpointLocalHeld(heldCacheKey,pendingHeld);
+      localBackupSaved=true;
+      setHeldInvoices(rows);
+    }catch(error){
+      heldOperationRef.current=false;setHeldBusy(false);
+      alert('تعذّر حفظ المعلّق محلياً. بقيت كل المدخلات في الكاشير. '+String(error));
+      return false;
+    }
+    try{
       const confirmedHeld={...newHeld,localOnly:false};
+      if(typeof navigator!=='undefined'&&!navigator.onLine)throw Error('LOCAL_HELD_OFFLINE');
       await saveCentralHeldInvoice('mobile',confirmedHeld);
+      await confirmLocalHeld(heldCacheKey,pendingHeld,confirmedHeld);
       setHeldInvoices(prev=>[confirmedHeld,...prev.filter(h=>h.id!==newHeld.id)]);
       resumedMobileHeldIdRef.current=null;
       draftId.current = crypto.randomUUID();
@@ -719,7 +723,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     }catch(error){
       posSound.error();
       if(localBackupSaved)setHeldInvoices(prev=>[pendingHeld,...prev.filter(h=>h.id!==newHeld.id)]);
-      if(localBackupSaved && allowLocalHoldForLeaveRef.current){
+      if(localBackupSaved && (allowLocalHoldForLeaveRef.current||isHeldTransportUnavailable(error))){
         resumedMobileHeldIdRef.current=null;
         draftId.current=crypto.randomUUID();
         setCart([]);setGlobalDiscount('');setPaidAmountInput('');setInvoiceNotes('');
@@ -769,7 +773,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     heldOperationRef.current=true;setHeldBusy(true);
     try{
       await deleteCentralHeldInvoice(id);
-      setHeldInvoices(prev=>prev.filter(h=>h.id!==id));
+      const remaining=await removeLocalHeld<MobileHeldInvoice>(heldCacheKey,id);
+      setHeldInvoices(remaining);
       if(resumedMobileHeldIdRef.current===id)resumedMobileHeldIdRef.current=null;
       posSound.beep();
     }catch(error){

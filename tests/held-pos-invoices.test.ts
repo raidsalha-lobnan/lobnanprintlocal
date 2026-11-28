@@ -49,7 +49,7 @@ test('a failed central suspension is still recoverable locally without clearing 
  const mobile=src('src/components/pos/MobilePosView.tsx');
  for(const component of [pos,mobile]){
   const section=component.slice(component.indexOf('const handleHoldInvoice = async'),component.indexOf('const handleResumeHeldInvoice'));
-  assert.match(section,/localStorage\.setItem\(heldCacheKey,JSON\.stringify/);
+  assert.match(section,/await checkpointLocalHeld\(heldCacheKey,pendingHeld\)/);
   assert.match(section,/localBackupSaved/);
   assert.match(section,/localOnly:true/);
   assert.match(section,/if\(localBackupSaved\)setHeldInvoices/);

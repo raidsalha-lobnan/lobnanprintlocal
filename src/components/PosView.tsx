@@ -1,3 +1,4 @@
+import {readLocalHeldCache,checkpointLocalHeld,reconcileLocalHeld,confirmLocalHeld,removeLocalHeld,isHeldTransportUnavailable} from '../services/localHeldCache';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'; // Trigger Sync
 import { DateInput } from '../components/common/DateInput';
 import { posDraftStorageKey } from '../utils/posDraftStorageKey';
@@ -1481,10 +1482,13 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       if(!currentUser?.id){if(active)setHeldLoading(false);return;}
       if(active){setHeldLoading(true);setHeldInvoices([]);}
       try{
+        const cached=await readLocalHeldCache<HeldInvoiceData>(heldCacheKey);
+        if(active)setHeldInvoices(cached);
+        if(typeof navigator!=='undefined'&&!navigator.onLine){if(active)setHeldLoading(false);return;}
         let remote=await listCentralHeldInvoices<HeldInvoiceData>('desktop');
         // Recover locally secured holds after a network error. Every retry
         // reuses the same hold ID and cannot create a second invoice.
-        const localPending=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
+        const localPending=await readLocalHeldCache<HeldInvoiceData>(heldCacheKey);
         if(Array.isArray(localPending)){
           let changed=false;
           for(const held of localPending){
@@ -1517,11 +1521,12 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
         }
         // A legacy migration refresh must not discard local pending records.
         if(Array.isArray(localPending))remote=mergeHeldRecovery(remote,localPending);
-        if(active)setHeldInvoices(remote);
+        const merged=await reconcileLocalHeld(heldCacheKey,remote);
+        if(active)setHeldInvoices(merged);
       }catch(error){
         console.warn('PostgreSQL held invoice loading failed',error);
         if(active)try{
-          let cached=JSON.parse(localStorage.getItem(heldCacheKey)||'null');
+          let cached=await readLocalHeldCache<HeldInvoiceData>(heldCacheKey);
           if((!Array.isArray(cached)||!cached.length)&&
              !localStorage.getItem('pos_held_migration_done_v1_'+currentUser.id)){
             const owner=localStorage.getItem('pos_held_legacy_owner_v1');
@@ -1536,11 +1541,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     window.addEventListener('online',refresh);
     return ()=>{active=false;window.removeEventListener('online',refresh);};
   },[currentUser?.id,isHeldInvoicesOpen]);
-  useEffect(()=>{
-    if(!heldLoading&&currentUser?.id)try{
-      localStorage.setItem(heldCacheKey,JSON.stringify(heldInvoices));
-    }catch(error){console.warn('Held invoice device cache unavailable',error);}
-  },[heldInvoices,heldLoading,currentUser?.id]);
+
 
   // Selected customer object
   const currentCustomer = parties.find(p => p.id === selectedCustomerId);
@@ -3177,18 +3178,21 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     // PostgreSQL returns success or it can be retried after refreshing.
     const pendingHeld:HeldInvoiceData={...newHeld,localOnly:true};
     let localBackupSaved=false;
-    try{
-      const before=JSON.parse(localStorage.getItem(heldCacheKey)||'[]');
-      const rows=Array.isArray(before)?before:[];
-      localStorage.setItem(heldCacheKey,JSON.stringify([
-        pendingHeld,...rows.filter(h=>h.id!==newHeld.id)
-      ]));
-      localBackupSaved=true;
-    }catch(error){console.warn('Held invoice local recovery checkpoint failed',error);}
     heldOperationRef.current=true;setHeldBusy(true);
     try{
+      const rows=await checkpointLocalHeld(heldCacheKey,pendingHeld);
+      localBackupSaved=true;
+      setHeldInvoices(rows);
+    }catch(error){
+      heldOperationRef.current=false;setHeldBusy(false);
+      alert('تعذّر حفظ المعلّق محلياً. بقيت كل المدخلات في الكاشير. '+String(error));
+      return false;
+    }
+    try{
       const confirmedHeld={...newHeld,localOnly:false};
+      if(typeof navigator!=='undefined'&&!navigator.onLine)throw Error('LOCAL_HELD_OFFLINE');
       await saveCentralHeldInvoice('desktop',confirmedHeld);
+      await confirmLocalHeld(heldCacheKey,pendingHeld,confirmedHeld);
       setHeldInvoices(prev=>[confirmedHeld,...prev.filter(h=>h.id!==newHeld.id)]);
       resumedHeldInvoiceIdRef.current=null;
       // This reset is deliberately AFTER the server receipt.
@@ -3201,7 +3205,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     }catch(error){
       posSound.error();
       if(localBackupSaved)setHeldInvoices(prev=>[pendingHeld,...prev.filter(h=>h.id!==newHeld.id)]);
-      if(localBackupSaved && allowLocalHoldForLeaveRef.current){
+      if(localBackupSaved && (allowLocalHoldForLeaveRef.current||isHeldTransportUnavailable(error))){
         resumedHeldInvoiceIdRef.current=null;
         handleClearInvoiceDirect(true);
         setPaymentNotes('');setPaymentMethod('cash');setTransactionType('cash');
@@ -3277,7 +3281,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     heldOperationRef.current=true;setHeldBusy(true);
     try{
       await deleteCentralHeldInvoice(id);
-      setHeldInvoices(prev=>prev.filter(h=>h.id!==id));
+      const remaining=await removeLocalHeld<HeldInvoiceData>(heldCacheKey,id);
+      setHeldInvoices(remaining);
       if(resumedHeldInvoiceIdRef.current===id)resumedHeldInvoiceIdRef.current=null;
       posSound.success();
     }catch(error){
