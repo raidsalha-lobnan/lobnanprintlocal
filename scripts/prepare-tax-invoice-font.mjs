@@ -13,7 +13,9 @@ const assets = [
   ['Katibeh-Regular.ttf','b073fab20efe9f5657d52120f559bd3c5dd8b489','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/katibeh/Katibeh-Regular.ttf'],
   ['Katibeh-OFL.txt','6642b740190e560e61f48dabe15deaec31c7075b','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/katibeh/OFL.txt'],
   ['Lateef-Regular.ttf','a81a714200f8afe903aa0a9b53fd3aed1c700174','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/lateef/Lateef-Regular.ttf'],
-  ['Lateef-OFL.txt','4799a032ad91e0351c94ffc3795b6a5945e9b5c9','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/lateef/OFL.txt']
+  ['Lateef-OFL.txt','4799a032ad91e0351c94ffc3795b6a5945e9b5c9','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/lateef/OFL.txt'],
+  ['PlaypenSansArabic.ttf','4f807c64e77fef2dd45b8b3c26b5d867fcd86d5c','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/playpensansarabic/PlaypenSansArabic%5Bwght%5D.ttf'],
+  ['PlaypenSansArabic-OFL.txt','b4b34da590f5717c2c2d9c00ef63574bcc0bf31e','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/playpensansarabic/OFL.txt']
 ];
 const gitHash = bytes => createHash('sha1').update('blob '+bytes.length+'\\0'.replace('\\0','\0')).update(bytes).digest('hex');
 for (const [name, expected, url] of assets) {

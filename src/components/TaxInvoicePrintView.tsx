@@ -4,11 +4,11 @@ import { tafqeet } from '../utils/tafqeet';
 import templateUrl from '../assets/tax-invoice/original-clean.png?url';
 
 type Line = { item: string; qty: string; price: string; fontSize?: number };
-type HandStyle = 'ruqaa' | 'lemonada' | 'katibeh' | 'lateef';
-const fontNames: Record<HandStyle,string> = {ruqaa:'TaxInvoiceHandwriting',lemonada:'TaxInvoiceCasual',katibeh:'TaxInvoiceKatibeh',lateef:'TaxInvoiceLateef'};
-const fontFiles: Record<HandStyle,string> = {ruqaa:'ArefRuqaa-Regular.ttf',lemonada:'Lemonada.ttf',katibeh:'Katibeh-Regular.ttf',lateef:'Lateef-Regular.ttf'};
+type HandStyle = 'ruqaa' | 'lemonada' | 'katibeh' | 'lateef' | 'playpen' | 'ekalem';
+const fontNames: Record<HandStyle,string> = {ruqaa:'TaxInvoiceHandwriting',lemonada:'TaxInvoiceCasual',katibeh:'TaxInvoiceKatibeh',lateef:'TaxInvoiceLateef',playpen:'TaxInvoicePlaypen',ekalem:'TaxInvoiceEKalem'};
+const fontFiles: Record<HandStyle,string> = {ruqaa:'ArefRuqaa-Regular.ttf',lemonada:'Lemonada.ttf',katibeh:'Katibeh-Regular.ttf',lateef:'Lateef-Regular.ttf',playpen:'PlaypenSansArabic.ttf',ekalem:''};
 const MAX_FONT_SIZE = 60;
-const fontSpec = (style: HandStyle, size: number) => (style === 'lemonada' ? '300 ' : '400 ') + size + 'px "' + fontNames[style] + '"';
+const fontSpec = (style: HandStyle, size: number) => (style === 'lemonada' || style === 'playpen' ? '300 ' : '400 ') + size + 'px "' + fontNames[style] + '"';
 const clampSize = (n: number) => Math.max(12,Math.min(MAX_FONT_SIZE,n));
 const autoItemSize = (text: string, base: number) => {
   const words = text.trim().split(/\s+/).filter(Boolean).length;
@@ -40,10 +40,12 @@ const fmt = (n: number) => (n / 100).toFixed(2);
 
 export const TaxInvoicePrintView: React.FC = () => {
   const template = templateUrl;
-  const [style,setStyle] = useState<HandStyle>('ruqaa');
+  const [style,setStyle] = useState<HandStyle>('playpen');
   const [loadedStyle,setLoadedStyle] = useState<HandStyle | null>(null);
   const fontReady = loadedStyle === style;
-  const font = new URL(import.meta.env.BASE_URL + 'fonts/tax-invoice/' + fontFiles[style], document.baseURI).href;
+  const [localFont,setLocalFont] = useState<ArrayBuffer | null>(null);
+  const [localFontNotice,setLocalFontNotice] = useState('');
+  const font = style === 'ekalem' ? '' : new URL(import.meta.env.BASE_URL + 'fonts/tax-invoice/' + fontFiles[style], document.baseURI).href;
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [serial, setSerial] = useState('');
   const [date, setDate] = useState('');
@@ -96,20 +98,45 @@ export const TaxInvoicePrintView: React.FC = () => {
 
   useEffect(() => {
     setLoadedStyle(null);
-    if (!font) return;
+    if (!font && style !== 'ekalem') return;
     let stopped = false;
     let face: FontFace | undefined;
     (async () => {
       try {
-        face = new FontFace(fontNames[style], 'url(' + font + ')', {weight:style==='lemonada'?'300 700':'400'});
+        const source = style === 'ekalem' ? (localFont ?? 'local("e-Kalem Tezyinat Regular"), local("eKalemTezyinat-Regular"), local("e-Kalem Tezyinat")') : 'url(' + font + ')';
+        face = new FontFace(fontNames[style], source, {weight:style==='lemonada'?'300 700':style==='playpen'?'100 800':'400'});
         await face.load();
         if (stopped) return;
         document.fonts.add(face);
         setLoadedStyle(style);
-      } catch { if (!stopped) setMessage('تعذر تحميل الخط المدمج. أعد فتح الشاشة قبل الطباعة.'); }
+        setMessage('');
+      } catch { if (!stopped) setMessage(style==='ekalem'?'خط e-Kalem غير مثبت على هذا الجهاز. اختر الملف محليًا مرة واحدة أو استخدم Playpen.':'تعذر تحميل الخط المدمج. أعد فتح الشاشة قبل الطباعة.'); }
     })();
     return () => { stopped = true; if (face) document.fonts.delete(face); };
-  }, [font,style]);
+  }, [font,style,localFont]);
+  useEffect(() => {
+    let db: IDBDatabase | undefined;
+    let stopped=false;
+    try {
+      const req=indexedDB.open('tax-invoice-private-font-v1',1);
+      req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains('fonts'))req.result.createObjectStore('fonts');};
+      req.onsuccess=()=>{if(stopped){req.result.close();return;}db=req.result;const read=db.transaction('fonts','readonly').objectStore('fonts').get('ekalem');read.onsuccess=()=>{if(!stopped && read.result instanceof ArrayBuffer)setLocalFont(read.result);};};
+    } catch {}
+    return ()=>{stopped=true;db?.close();};
+  },[]);
+  const importLocalFont = async (file: File | undefined) => {
+    if(!file)return;
+    if(file.size>5*1024*1024){setLocalFontNotice('حجم الخط أكبر من 5 ميغابايت.');return;}
+    try {
+      const bytes=await file.arrayBuffer();
+      const test=new FontFace('TaxInvoiceEKalemCheck',bytes);await test.load();
+      setLocalFont(bytes);setStyle('ekalem');
+      const req=indexedDB.open('tax-invoice-private-font-v1',1);
+      req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains('fonts'))req.result.createObjectStore('fonts');};
+      req.onerror=()=>setLocalFontNotice('الخط متاح لهذه الجلسة فقط.');
+      req.onsuccess=()=>{const db=req.result;const tx=db.transaction('fonts','readwrite');tx.objectStore('fonts').put(bytes,'ekalem');tx.oncomplete=()=>{db.close();setLocalFontNotice('تم حفظ الخط على هذا الجهاز دون رفعه إلى الإنترنت.');};tx.onerror=()=>{db.close();setLocalFontNotice('الخط متاح لهذه الجلسة فقط.');};};
+    } catch {setLocalFontNotice('تعذر قراءة ملف الخط.');}
+  };
 
   useEffect(() => {
     const c = canvas.current;
@@ -239,7 +266,8 @@ export const TaxInvoicePrintView: React.FC = () => {
         <label className="block">الملاحظات<input className={field} value={note} onChange={e=>setNote(e.target.value)}/></label>
         <div className="grid grid-cols-2 gap-2"><label>نسبة الضريبة % (أدخل 0 عند عدم وجودها)<input className={field} type="number" min="0" max="100" step=".01" value={vat} onChange={e=>setVat(e.target.value)}/></label><div className="text-sm space-y-1"><div>المجموع: {fmt(total)} ₪</div><div>الضريبة: {fmt(tax)} ₪</div><strong>الإجمالي: {fmt(grand)} ₪</strong></div></div>
         <label className="block">المبلغ بالكلمات (تلقائي وقابل للتعديل)<input className={field} value={words} placeholder={amountWords} onChange={e=>setWords(e.target.value)}/></label>
-        <label className="block text-sm">نمط الخط العربي<select className={field} value={style} onChange={e=>setStyle(e.target.value as HandStyle)}><option value="ruqaa">رقعة — Aref Ruqaa</option><option value="lemonada">خط عربي حر خفيف — Lemonada</option><option value="katibeh">خط عربي بقلم عريض — Katibeh</option><option value="lateef">خط عربي لين — Lateef</option></select></label>
+        <label className="block text-sm">نمط الخط العربي<select className={field} value={style} onChange={e=>setStyle(e.target.value as HandStyle)}><option value="ruqaa">رقعة — Aref Ruqaa</option><option value="lemonada">خط عربي حر خفيف — Lemonada</option><option value="katibeh">خط عربي بقلم عريض — Katibeh</option><option value="lateef">خط عربي لين — Lateef</option><option value="playpen">كتابة يدوية عربية — Playpen Sans Arabic</option><option value="ekalem">e-Kalem Tezyinat — خطك المرفق (محلي)</option></select></label>
+        {style==='ekalem'&&<div className="text-xs text-slate-600 space-y-1"><p>يستخدم الخط المثبت على الجهاز تلقائيًا، أو اختر ملفك مرة واحدة ليبقى محفوظًا محليًا.</p><input type="file" accept=".ttf,.otf" aria-label="خط e-Kalem المحلي" onChange={e=>void importLocalFont(e.target.files?.[0])}/>{localFontNotice&&<p>{localFontNotice}</p>}</div>}
         <p className="text-xs text-slate-500">الحجم التلقائي يتغير بحسب عدد الكلمات وعرضها الحقيقي. يمكن تعديل كل بند بعلامتي + و− ضمن مساحة الخانة.</p>
         <label className="block text-sm">حجم الخط العام: {size}<input className="w-full" type="range" min="12" max={MAX_FONT_SIZE} value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
         <details className="border rounded p-2"><summary className="cursor-pointer text-sm font-medium">أحجام خطوط الخانات الأخرى</summary><div className="grid grid-cols-2 gap-2 mt-2">{headerFontFields.map(({key,label})=><label key={key} className="text-sm">{label}<select className={field} value={headerSizes[key] ?? ''} onChange={e=>{const value=e.target.value;setHeaderSizes(old=>({...old,[key]:value===''?undefined:Number(value)}));}}><option value="">افتراضي</option>{Array.from({length:MAX_FONT_SIZE-11},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div><button type="button" className="border rounded px-2 py-1 mt-2 text-sm" onClick={()=>{setHeaderSizes({});setLines(old=>old.map(l=>({...l,fontSize:undefined})));setSize(27);}}>إعادة الأحجام الافتراضية</button></details>
