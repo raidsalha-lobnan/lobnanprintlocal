@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { jsPDF } from 'jspdf';
 import { tafqeet } from '../utils/tafqeet';
 import templateUrl from '../assets/tax-invoice/original-clean.png?url';
+import electronicStampUrl from '../assets/tax-invoice/electronic-stamp.png?url';
 
 type Line = { item: string; qty: string; price: string; fontSize?: number };
 type HandStyle = 'ruqaa' | 'lemonada' | 'katibeh' | 'lateef' | 'playpen' | 'mikhak' | 'marhey' | 'ruwudu' | 'rakkas' | 'alkalami';
@@ -50,6 +51,9 @@ export const TaxInvoicePrintView: React.FC = () => {
   const fontReady = loadedStyle === fontKey;
   const font = new URL(import.meta.env.BASE_URL + 'fonts/tax-invoice/' + fontFiles[style], document.baseURI).href;
   const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [stampImage,setStampImage] = useState<HTMLImageElement | null>(null);
+  const [applyStamp,setApplyStamp] = useState(false);
+  const [stampFailed,setStampFailed] = useState(false);
   const [serial, setSerial] = useState('');
   const [date, setDate] = useState('');
   const [customer, setCustomer] = useState('');
@@ -82,7 +86,7 @@ export const TaxInvoicePrintView: React.FC = () => {
   const tax = Math.round(total * (Number(vat) || 0) / 100);
   const grand = total + tax;
   const amountWords = words.trim() || tafqeet(grand/100, 'شيكل', 'أغورة');
-  const ready = !!image && fontReady && /^\d{1,12}$/.test(serial) && !!date && date.startsWith('20') && !!customer.trim() && active.length > 0 && active.every(validLine) && active.length + (note.trim() ? 1 : 0) <= MAX && vat !== '' && Number.isFinite(Number(vat)) && Number(vat) >= 0 && Number(vat) <= 100 && grand <= 9999999999;
+  const ready = !!image && (!applyStamp || !!stampImage) && fontReady && /^\d{1,12}$/.test(serial) && !!date && date.startsWith('20') && !!customer.trim() && active.length > 0 && active.every(validLine) && active.length + (note.trim() ? 1 : 0) <= MAX && vat !== '' && Number.isFinite(Number(vat)) && Number(vat) >= 0 && Number(vat) <= 100 && grand <= 9999999999;
 
   useEffect(() => {
     setImage(null);
@@ -98,6 +102,15 @@ export const TaxInvoicePrintView: React.FC = () => {
     img.src = template;
     return () => { stopped = true; };
   }, [template]);
+
+  useEffect(() => {
+    let stopped=false;
+    const img=new Image();
+    img.onload=()=>{if(!stopped){setStampImage(img);setStampFailed(false);}};
+    img.onerror=()=>{if(!stopped)setStampFailed(true);};
+    img.src=electronicStampUrl;
+    return ()=>{stopped=true;};
+  },[]);
 
   useEffect(() => {
     setLoadedStyle(null);
@@ -126,7 +139,10 @@ export const TaxInvoicePrintView: React.FC = () => {
     ctx.scale(2,2);
     ctx.fillStyle = '#fff'; ctx.fillRect(0,0,W,H);
     ctx.drawImage(image,0,0,W,H);
-    // Replace only the original serial digits, leaving the printed prefix B.
+    // Resize the original printed B glyph only; retain the original template elsewhere.
+    ctx.fillStyle='#fff';ctx.fillRect(405,269,38,42);
+    ctx.drawImage(image,409*image.width/W,271*image.height/H,28*image.width/W,35*image.height/H,416,275,22,28);
+    // Draw the entered serial in red without altering its digits.
     ctx.fillStyle = '#d40000'; ctx.font = '34px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.direction = 'ltr';
     ctx.fillText(serial,454,289,210);
     const hand = (value: string,x: number,y: number,width: number,rtl = true,sz = size,maxHeight = 34) => {
@@ -196,8 +212,9 @@ export const TaxInvoicePrintView: React.FC = () => {
     split(grand,1288,154,258,headerSizes.grand ?? size);
     if (vat !== '' && Number(vat) > 0) hand(vat,416,1234,38,false,headerSizes.vat ?? 22);
     hand(amountWords,793,1365,700,true,headerSizes.words ?? Math.min(size,26));
-    ctx.save(); ctx.direction='rtl'; ctx.textAlign='center'; ctx.font='15px Arial'; ctx.fillStyle='#555'; ctx.fillText('نسخة إلكترونية — تعبئة رقمية بخط عربي',512,1424); ctx.restore();
-  },[image,fontReady,style,serial,date,customer,customerWanted,address,lines,vat,note,words,size,headerSizes,cancelEmpty,playpenWeight]);
+    if (applyStamp && stampImage) ctx.drawImage(stampImage,648,1158,154,171);
+    ctx.save(); ctx.direction='rtl'; ctx.textAlign='center'; ctx.font='15px Arial'; ctx.fillStyle='#555'; ctx.fillText(applyStamp?'نسخة إلكترونية — تعبئة رقمية وختم إلكتروني':'نسخة إلكترونية — تعبئة رقمية بخط عربي',512,1424); ctx.restore();
+  },[image,fontReady,style,serial,date,customer,customerWanted,address,lines,vat,note,words,size,headerSizes,cancelEmpty,playpenWeight,stampImage,applyStamp]);
 
   const update = (index: number,key: 'item' | 'qty' | 'price',value: string) => setLines(old => old.map((l,i) => i===index ? {...l,[key]:value} : l));
   const exportPdf = () => {
@@ -223,7 +240,7 @@ export const TaxInvoicePrintView: React.FC = () => {
     doc.body.appendChild(img); img.src=canvas.current.toDataURL('image/png');
   };
   const field='w-full rounded border border-slate-300 px-2 py-1.5 text-sm bg-white text-slate-900';
-  const reset=()=>{setSerial('');setDate('');setCustomer('');setAddress('');setLines([blank()]);setVat('');setNote('');setWords('');};
+  const reset=()=>{setSerial('');setDate('');setCustomer('');setAddress('');setLines([blank()]);setVat('');setNote('');setWords('');setApplyStamp(false);};
   return <section dir="rtl" className="w-full min-w-0 text-slate-900 space-y-3 print:hidden">
     <header className="flex flex-wrap justify-between items-center gap-2"><div><h1 className="text-xl font-bold">فاتورة ضريبية</h1><p className="text-sm text-slate-600">نسخة طباعة لعملية مسجلة فعليًا — لا ترحيل محاسبي ولا حركة مخزون. البيانات المدخلة لا تحفظ كسجل مبيعات.</p></div><button type="button" onClick={reset} className="border rounded px-3 py-2">نموذج جديد</button></header>
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
@@ -250,6 +267,8 @@ export const TaxInvoicePrintView: React.FC = () => {
         <p className="text-xs text-slate-500">الحجم التلقائي يتغير بحسب عدد الكلمات وعرضها الحقيقي. يمكن تعديل كل بند بعلامتي + و− ضمن مساحة الخانة.</p>
         <label className="block text-sm">حجم الخط العام: {size}<input className="w-full" type="range" min="12" max={MAX_FONT_SIZE} value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
         <details className="border rounded p-2"><summary className="cursor-pointer text-sm font-medium">أحجام خطوط الخانات الأخرى</summary><div className="grid grid-cols-2 gap-2 mt-2">{headerFontFields.map(({key,label})=><label key={key} className="text-sm">{label}<select className={field} value={headerSizes[key] ?? ''} onChange={e=>{const value=e.target.value;setHeaderSizes(old=>({...old,[key]:value===''?undefined:Number(value)}));}}><option value="">افتراضي</option>{Array.from({length:MAX_FONT_SIZE-11},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div><button type="button" className="border rounded px-2 py-1 mt-2 text-sm" onClick={()=>{setHeaderSizes({});setLines(old=>old.map(l=>({...l,fontSize:undefined})));setSize(27);}}>إعادة الأحجام الافتراضية</button></details>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={applyStamp} disabled={!stampImage} onChange={e=>setApplyStamp(e.target.checked)}/> اعتماد وإضافة الختم الإلكتروني لهذه النسخة</label>
+        {stampFailed&&<p role="status" className="text-xs text-red-700">تعذر تجهيز صورة الختم الإلكتروني؛ يمكن الطباعة دون الختم.</p>}
         <div className="flex flex-wrap gap-2"><button type="button" disabled={!ready} onClick={print} className="bg-blue-700 text-white rounded px-4 py-2 disabled:opacity-40">طباعة</button><button type="button" disabled={!ready} onClick={exportPdf} className="bg-slate-800 text-white rounded px-4 py-2 disabled:opacity-40">حفظ PDF</button></div>
         {!ready && <p className="text-xs text-slate-600">أكمل الرقم والتاريخ والعميل والبنود والضريبة وانتظر جاهزية الخط المدمج لتفعيل الإخراج.</p>}
       </div>
