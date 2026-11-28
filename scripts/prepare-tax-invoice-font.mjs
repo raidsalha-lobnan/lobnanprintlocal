@@ -25,7 +25,13 @@ const assets = [
   ["Rakkas-Regular.ttf","949b454ff4e8a3d8e692743ee863d3657911cc0e","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/rakkas/Rakkas-Regular.ttf"],
   ["rakkas-OFL.txt","818eba2813b866f0cb2955785beda56cbd6c3852","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/rakkas/OFL.txt"],
   ["Alkalami-Regular.ttf","cc162c7bac2ee391866da6e14ba9db2feea43596","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/alkalami/Alkalami-Regular.ttf"],
-  ["alkalami-OFL.txt","2b99bdb66efd6034257e7f8387d24e3a79c0e815","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/alkalami/OFL.txt"]
+  ["alkalami-OFL.txt","2b99bdb66efd6034257e7f8387d24e3a79c0e815","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/alkalami/OFL.txt"],
+  ["IBMPlexSansArabic-Light.ttf","b1837f60f271e329c0873467c3f83c720d879d04","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/ibmplexsansarabic/IBMPlexSansArabic-Light.ttf"],
+  ["IBMPlexSansArabic-Regular.ttf","e779068718b9801b809605b2bf3067121cce524c","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/ibmplexsansarabic/IBMPlexSansArabic-Regular.ttf"],
+  ["IBMPlexSansArabic-Medium.ttf","e82313893b5b5b6af3e7429f5b798666f1e0b097","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/ibmplexsansarabic/IBMPlexSansArabic-Medium.ttf"],
+  ["IBMPlexSansArabic-SemiBold.ttf","f7a7fc87747a9ddabb3557d4a3f4140a7a1460b0","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/ibmplexsansarabic/IBMPlexSansArabic-SemiBold.ttf"],
+  ["IBMPlexSansArabic-Bold.ttf","211ff62d8d1778bff69a1b3a906b2ad1686564bc","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/ibmplexsansarabic/IBMPlexSansArabic-Bold.ttf"],
+  ["IBM-Plex-Sans-Arabic-OFL.txt","c35c4c618fab33da8695177b3a6cefe0810b7b28","https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/ibmplexsansarabic/OFL.txt"]
 ];
 const gitHash = bytes => createHash('sha1').update('blob '+bytes.length+'\\0'.replace('\\0','\0')).update(bytes).digest('hex');
 for (const [name, expected, url] of assets) {
@@ -41,3 +47,13 @@ for (const [name, expected, url] of assets) {
   }
 }
 console.log('Tax invoice font and OFL license ready');
+
+// Embed the licensed fallback in the stylesheet itself: the isolated PDF renderer
+// deliberately blocks external network requests, and must receive the font bytes.
+const accountingFaces = [["IBMPlexSansArabic-Light.ttf",300],["IBMPlexSansArabic-Regular.ttf",400],["IBMPlexSansArabic-Medium.ttf",500],["IBMPlexSansArabic-SemiBold.ttf",600],["IBMPlexSansArabic-Bold.ttf",700]];
+const accountingCss = [];
+for (const [name, weight] of accountingFaces) {
+  const font = await readFile(dir+'/'+name);
+  accountingCss.push('@font-face { font-family: "IBM Plex Sans Arabic"; font-style: normal; font-weight: '+weight+'; font-display: swap; src: url(data:font/ttf;base64,'+font.toString('base64')+') format("truetype"); }');
+}
+await writeFile(dir+'/accounting-fonts.css',accountingCss.join('\n')+'\n');

@@ -33,7 +33,12 @@ export async function buildBrowserPrintSnapshot(doc:Document){
    const rules=Array.from(sheet.cssRules).map(rule=>rule.cssText).join('\n');
    const media=sheet.media.mediaText;
    css.push(media&&media!=='all'?'@media '+media+' {\n'+rules+'\n}':rules);
-  }catch{throw Error('تعذّر قراءة تنسيق الطباعة الأصلي.');}
+  }catch{
+   // Browser extensions sometimes insert inaccessible stylesheets. They are
+   // not part of the application print template and must not block export.
+   if(sheet.href && /^(chrome-extension|moz-extension|safari-web-extension):/i.test(sheet.href))continue;
+   throw Error('تعذّر قراءة تنسيق الطباعة الأصلي. حدّث الصفحة ثم أعد المحاولة، أو استخدم طباعة التقرير.');
+  }
  }
  for(const sheet of doc.adoptedStyleSheets||[])css.push(Array.from(sheet.cssRules).map(rule=>rule.cssText).join('\n'));
  const imageCache=new Map<string,Promise<string>>();
