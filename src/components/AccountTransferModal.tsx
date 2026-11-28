@@ -89,8 +89,14 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
   e.preventDefault();
   if(busy)return;
   if(!currentUser?.id){setError('يرجى تسجيل الدخول أولاً');return;}
-  if(!pending&&!reverse&&(!source.id||!target.id||same||!validAmount||!reason.trim()||(sourceSubSearch.trim()&&!source.subCustomerId)||(targetSubSearch.trim()&&!target.subCustomerId))){
-   setError('اختر حسابين مختلفين وأدخل مبلغاً صحيحاً وبيان التحويل.');return;
+  if(!pending&&!reverse){
+   if(!source.id){setError('يرجى اختيار حساب الطرف الأول.');return;}
+   if(!target.id){setError('يرجى اختيار حساب الطرف الثاني.');return;}
+   if(sourceSubSearch.trim()&&!source.subCustomerId){setError('يرجى اختيار العميل الفرعي للطرف الأول من القائمة أو إفراغ خانته.');return;}
+   if(targetSubSearch.trim()&&!target.subCustomerId){setError('يرجى اختيار العميل الفرعي للطرف الثاني من القائمة أو إفراغ خانته.');return;}
+   if(same){setError('يجب اختيار حسابين مختلفين لإجراء المقاصة.');return;}
+   if(!validAmount){setError('يرجى إدخال مبلغ صحيح أكبر من صفر، وبحد أقصى منزلتين عشريتين.');return;}
+   if(!reason.trim()){setError('البيان مطلوب: يرجى كتابة بيان التحويل قبل اعتماد المقاصة.');document.getElementById('account-transfer-reason')?.focus();return;}
   }
   if(!pending&&!window.confirm(edit?'سيتم عكس السند القديم واعتماد البديل معاً. هل تؤكد التعديل؟':reverse?'سيُنشأ قيد عكسي مستقل دون حذف القيد الأصلي. هل تريد المتابعة؟':'هل تؤكد اتجاه التحويل والمبلغ؟ سيُرحّل قيد متوازن دون حركة نقدية.'))return;
   const request:Request=pending||(reverse?
@@ -141,7 +147,7 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
    </>}
    {(reverse||(pending&&'reversesId' in pending))&&<p className="rounded bg-amber-50 p-2">سيتم عكس السند {reverse?.clearingNumber||('reversesId' in (pending||{})?(pending as {reversesId:string}).reversesId:'')} بقيد مستقل.</p>}
    <label className="block">التاريخ<input type="date" required disabled={locked} value={date} onChange={e=>setDate(e.target.value)} className="block w-full rounded border p-2"/></label>
-   <label className="block">البيان<input disabled={locked} value={reason} onChange={e=>setReason(e.target.value)} className="block w-full rounded border p-2"/></label>
+   <label className="block">البيان {!reverse&&<span className="text-red-600 font-bold">(مطلوب) *</span>}<input id="account-transfer-reason" aria-required={!reverse} aria-invalid={!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')} disabled={locked} value={reason} placeholder="اكتب بيان التحويل" onChange={e=>{setReason(e.target.value);if(error.startsWith('البيان مطلوب'))setError('');}} className={'block w-full rounded border p-2 '+(!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')?'border-red-500 bg-rose-50':'')}/></label>
    <label className="block">ملاحظات<textarea disabled={locked} value={notes} onChange={e=>setNotes(e.target.value)} className="block w-full rounded border p-2"/></label>
    {error&&<div role="alert" className="rounded bg-rose-50 text-rose-800 p-2">{error}</div>}
    <div className="flex gap-2 justify-end"><button type="button" disabled={busy} onClick={onClose} className="rounded border px-3 py-2">إغلاق</button>
