@@ -1,4 +1,4 @@
-import React,{useMemo,useState} from 'react';
+import React,{useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {useAccounting} from '../context/AccountingContext';
 import type {DebtClearingRecord} from '../types';
 import {AccountTransferModal,transferTypeLabel} from './AccountTransferModal';
@@ -6,7 +6,7 @@ import {PrintHeader} from './common/PrintHeader';
 import {OfficialStamp} from './common/OfficialStamp';
 import {ReportPdfButton} from './common/ReportPdfButton';
 import {printReportSurface} from '../utils/reportPdfEngine';
-import {CLEARING_PRINT_CSS,renderClearingBody} from '../utils/clearingPrintDocument';
+import {CLEARING_PRINT_CSS,CLEARING_PREVIEW_CSS,renderClearingBody} from '../utils/clearingPrintDocument';
 import {Plus,Search,Printer,Edit2,Trash2,Eye,RefreshCw,X} from 'lucide-react';
 const money=(v:number)=>Number(v||0).toFixed(2);
 const name=(r:DebtClearingRecord,credit:boolean)=>(credit?r.customerName:r.supplierName)+((credit?r.creditSubCustomerName:r.debitSubCustomerName)?' / '+(credit?r.creditSubCustomerName:r.debitSubCustomerName):'');
@@ -18,6 +18,31 @@ export const DebtClearingView:React.FC=()=>{
  const [chosen,setChosen]=useState<DebtClearingRecord|undefined>();
  const [preview,setPreview]=useState<DebtClearingRecord|undefined>();
  const [register,setRegister]=useState(false);
+ const [fitPreview,setFitPreview]=useState(true);
+ const viewportRef=useRef<HTMLDivElement>(null);
+ const paperRef=useRef<HTMLDivElement>(null);
+ const isPreviewOpen=!!preview||register;
+ useLayoutEffect(()=>{
+  if(!isPreviewOpen)return;
+  const viewport=viewportRef.current,paper=paperRef.current;
+  if(!viewport||!paper)return;
+  let frame=0;
+  const measure=()=>{
+   const width=paper.offsetWidth,height=paper.offsetHeight;
+   if(!width||!height)return;
+   const widthFit=Math.max(0.1,(viewport.clientWidth-24)/width);
+   // On handheld screens and multi-page registers fit width, not total height.
+   const heightFit=register||viewport.clientWidth<560?1:Math.max(0.1,(viewport.clientHeight-24)/height);
+   const scale=fitPreview?Math.min(1,widthFit,heightFit):1;
+   viewport.style.setProperty('--clearing-preview-scale',String(scale));
+  };
+  const schedule=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(measure);};
+  measure();
+  const observer=new ResizeObserver(schedule);
+  observer.observe(viewport);observer.observe(paper);
+  window.addEventListener('resize',schedule);
+  return ()=>{observer.disconnect();window.removeEventListener('resize',schedule);cancelAnimationFrame(frame);};
+ },[isPreviewOpen,preview?.id,register,fitPreview]);
  const [notice,setNotice]=useState('');
  const [showHistory,setShowHistory]=useState(false);
  const reversed=useMemo(()=>new Set(debtClearings.filter(r=>r.reversesId).map(r=>r.reversesId)),[debtClearings]);
@@ -34,7 +59,7 @@ export const DebtClearingView:React.FC=()=>{
  const head=['رقم السند','التاريخ','الحساب الدائن','الحساب المدين','البيان','المبلغ','المنفذ','الحالة'];
  const cell=(r:DebtClearingRecord)=>[r.clearingNumber,r.date,name(r,true),name(r,false),r.reason,money(r.amount)+' '+(r.currency||settings.currency),r.createdBy,status(r)];
  return <div dir="rtl" className="flex flex-col gap-2 text-xs">
-  <style>{CLEARING_PRINT_CSS}</style>
+  <style>{CLEARING_PRINT_CSS+CLEARING_PREVIEW_CSS}</style>
   <section className="flex flex-wrap items-center gap-2 rounded-lg border bg-white p-2">
    <strong className="text-sm">المقاصة والتحويل بين الحسابات</strong>
    <button onClick={()=>open('new')} className="inline-flex items-center gap-1 rounded bg-indigo-600 text-white px-3 py-1.5"><Plus size={14}/>مقاصة جديدة</button>
@@ -59,18 +84,23 @@ export const DebtClearingView:React.FC=()=>{
    </div></td></tr>)}
   </tbody></table></div>
   {mode&&<AccountTransferModal key={currentUser?.id||'none'} edit={mode==='edit'?chosen:undefined} reverse={mode==='delete'?chosen:undefined} onClose={()=>setMode(null)} onSaved={r=>{setMode(null);setPreview(r);setNotice('تم اعتماد العملية محاسبياً');}}/>}
-  {(preview||register)&&<div className="clearing-print-modal fixed inset-0 z-[100] overflow-y-auto bg-slate-900/60 p-4 flex flex-col items-center">
-   <div className="clearing-print-toolbar print:hidden w-full max-w-[190mm] bg-slate-900 text-white p-2 flex items-center gap-2 rounded-t">
+  {(preview||register)&&<div className="clearing-print-modal fixed inset-0 z-[100] bg-slate-900/60">
+   <div className="clearing-preview-dialog" role="dialog" aria-modal="true" aria-label={register?'معاينة سجل المقاصة':'معاينة سند المقاصة'} data-no-modal-expand>
+   <div className="clearing-print-toolbar print:hidden bg-slate-900 text-white p-2 flex flex-wrap items-center gap-2">
     <b className="flex-1">{register?'معاينة سجل المقاصة':'معاينة سند المقاصة'}</b>
     <button onClick={()=>void print()} className="bg-indigo-600 rounded px-3 py-1.5">طباعة</button>
     <ReportPdfButton filename={preview?'سند مقاصة - '+preview.clearingNumber:'سجل المقاصة'} selector="#clearing-print-document" scope=".clearing-print-modal"/>
-    <button title="إغلاق" onClick={()=>{setPreview(undefined);setRegister(false);}}><X size={18}/></button>
+    <button type="button" onClick={()=>setFitPreview(v=>!v)} className="rounded border border-slate-500 px-2 py-1.5" aria-pressed={fitPreview}>{fitPreview?'الحجم الطبيعي':'ملاءمة الشاشة'}</button>
+    <button title="إغلاق" aria-label="إغلاق المعاينة" onClick={()=>{setPreview(undefined);setRegister(false);setFitPreview(true);}}><X size={18}/></button>
    </div>
-   <div id="clearing-print-document" className="clearing-paper" data-pdf-document>
+   <div ref={viewportRef} className="clearing-preview-viewport">
+   <div ref={paperRef} id="clearing-print-document" className="clearing-paper" data-pdf-document data-no-modal-expand>
     <PrintHeader showBorder={false}/>
     {preview?<><div dangerouslySetInnerHTML={{__html:renderClearingBody(preview,settings.currency,status(preview))}}/>
      <div className="clr-sign"><div>توقيع الطرف الأول<span className="clr-line"/></div><div>توقيع الطرف الثاني<span className="clr-line"/></div><div>الختم والتوقيع<span className="clr-line"/><div className="clr-stamp"><OfficialStamp size="3.5cm"/></div></div></div>
      <div className="clr-foot">تسوية محاسبية دون حركة نقدية أو بنكية.</div></>:<><h2 className="clr-section text-center">سجل المقاصة والتحويل بين الحسابات</h2><table><thead><tr>{head.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id}>{cell(r).map((v,i)=><td key={i}>{v}</td>)}</tr>)}</tbody></table></>}
+   </div>
+   </div>
    </div>
   </div>}
  </div>;
