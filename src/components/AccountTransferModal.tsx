@@ -117,7 +117,10 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
     body:JSON.stringify(request),cache:'no-store'
    },25000);
    const result=await response.json().catch(()=>({code:'INVALID_SERVER_REPLY'}));
-   if(!response.ok)throw Error(String(result.code||response.status));
+   if(!response.ok){
+    if(response.status===404&&result.code==='NOT_FOUND')throw Error('ACCOUNT_TRANSFER_ROUTE_UNAVAILABLE');
+    throw Error(String(result.code||response.status));
+   }
    const record=result.record as DebtClearingRecord;
    if(result.commandId!=='account-transfer-'+request.requestId||record?.id!=='clr-transfer-'+request.requestId||
       record.transferVersion!==2||!record.journalEntryId)throw Error('ACCOUNT_TRANSFER_RECEIPT_MISMATCH');
@@ -125,7 +128,9 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
    try{localStorage.removeItem(pendingKey);}catch{}
    setPending(null);unifiedRepository?.requestSync();onSaved(record);
   }catch(err){
-   setError('لم يتأكد اعتماد العملية. بقي الطلب محفوظاً على هذا الجهاز؛ أعد المحاولة بنفس الطلب بعد الاتصال. '+String(err));
+   setError(String(err).includes('ACCOUNT_TRANSFER_ROUTE_UNAVAILABLE')
+    ?'خادم المزامنة لا يدعم مسار اعتماد المقاصة الحالي. يلزم تحديث خدمة الخادم، وليس تعديل المبلغ أو البيان. الطلب محفوظ محلياً؛ بعد تحديث الخادم اضغط إعادة محاولة الاعتماد بنفس الطلب.'
+    :'لم يتأكد اعتماد العملية. بقي الطلب محفوظاً على هذا الجهاز؛ أعد المحاولة بنفس الطلب بعد الاتصال. '+String(err));
   }finally{setBusy(false);}
  };
  return <div dir="rtl" className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-3">

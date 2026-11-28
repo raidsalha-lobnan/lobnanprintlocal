@@ -26,6 +26,18 @@ export const OfflineIndicator: React.FC = () => {
   },[]);
   const storageLow=!!storageHealth&&storageHealth.quotaBytes!==null&&storageHealth.usageBytes!==null&&storageHealth.quotaBytes-storageHealth.usageBytes<50*1024*1024;
 
+  // Lack of a persistence grant is advisory, not a permanent floating warning.
+  // Native browsers control the text of the close confirmation.
+  useEffect(()=>{
+    const warn=(event:BeforeUnloadEvent)=>{
+      if(storageHealth?.persistent!==false)return;
+      if(pendingSyncCount<=0&&syncCoordinatorState.pending<=0&&syncCoordinatorState.conflict<=0&&!syncCoordinatorState.archived)return;
+      event.preventDefault();event.returnValue='';
+    };
+    window.addEventListener('beforeunload',warn);
+    return ()=>window.removeEventListener('beforeunload',warn);
+  },[storageHealth?.persistent,pendingSyncCount,syncCoordinatorState.pending,syncCoordinatorState.conflict,syncCoordinatorState.archived]);
+
   useEffect(() => {
     if (!prevOnlineRef.current && isOnline) {
       setShowRestoredNotice(true);
@@ -50,7 +62,7 @@ export const OfflineIndicator: React.FC = () => {
     <>
       <SyncConflictModal isOpen={isConflictModalOpen} onClose={closeConflictModal} />
 
-      {storageHealth&&(!storageHealth.idbAvailable||storageLow||storageHealth.persistent===false)&&<div dir="rtl" role="status" className="fixed bottom-16 left-4 z-[199] max-w-[90vw] rounded-lg border border-amber-500 bg-amber-50 px-3 py-2 text-xs text-amber-950 shadow">{!storageHealth.idbAvailable?'التخزين المحلي غير متاح؛ لا تعتمد عملية غير مؤكدة.':storageLow?'مساحة التخزين المحلي منخفضة؛ زامن العمليات وأفرغ مساحة القرص بأمان.':'المتصفح لم يضمن التخزين الدائم؛ لا تحذف بيانات الموقع قبل مزامنة كل العمليات.'}</div>}
+      {storageHealth&&(!storageHealth.idbAvailable||storageLow)&&<div dir="rtl" role="status" className="fixed top-16 left-4 z-[90] max-w-[90vw] rounded-lg border border-amber-500 bg-amber-50 px-3 py-2 text-xs text-amber-950 shadow">{!storageHealth.idbAvailable?'التخزين المحلي غير متاح؛ لا تعتمد عملية غير مؤكدة.':'مساحة التخزين المحلي منخفضة؛ زامن العمليات وأفرغ مساحة القرص بأمان.'}</div>}
       {/* Restored connection alert */}
       {showRestoredNotice && (
         <div 
