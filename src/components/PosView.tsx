@@ -18,7 +18,7 @@ import { RequisitionModal } from './pos/RequisitionModal';
 import { FavoriteItemsDrawer } from './pos/FavoriteItemsDrawer';
 import { InvoicesReviewModal } from './pos/InvoicesReviewModal';
 import { HeldInvoicesModal, type HeldInvoiceData } from './pos/HeldInvoicesModal';
-import {listCentralHeldInvoices,saveCentralHeldInvoice,deleteCentralHeldInvoice,mergeHeldRecovery} from '../services/heldPosInvoices';
+import {listCentralHeldInvoices,saveCentralHeldInvoice,deleteCentralHeldInvoice} from '../services/heldPosInvoices';
 import { DraftInvoicesQueueModal } from './pos/DraftInvoicesQueueModal';
 import { SheetInvoiceRow } from '../services/liveSheetService';
 import { onlineInvoicePostingService } from '../services/onlineInvoicePostingService';
@@ -1477,10 +1477,12 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   const heldOperationRef=useRef(false);
 
   useEffect(()=>{
-    let active=true;
+    let active=true,refreshing=false;
     const refresh=async()=>{
+      if(!active||refreshing||heldOperationRef.current)return;
       if(!currentUser?.id){if(active)setHeldLoading(false);return;}
-      if(active){setHeldLoading(true);setHeldInvoices([]);}
+      refreshing=true;
+      if(active)setHeldLoading(true);
       try{
         const cached=await readLocalHeldCache<HeldInvoiceData>(heldCacheKey);
         if(active)setHeldInvoices(cached);
@@ -1501,7 +1503,6 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
             }catch(error){console.warn('Held invoice needs central retry',error);}
           }
           if(changed)remote=await listCentralHeldInvoices<HeldInvoiceData>('desktop');
-          remote=mergeHeldRecovery(remote,localPending);
         }
         // Migrate old local-only holds once; never copy another user's cache.
         const ownerKey='pos_held_legacy_owner_v1';
@@ -1520,7 +1521,6 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           remote=await listCentralHeldInvoices<HeldInvoiceData>('desktop');
         }
         // A legacy migration refresh must not discard local pending records.
-        if(Array.isArray(localPending))remote=mergeHeldRecovery(remote,localPending);
         const merged=await reconcileLocalHeld(heldCacheKey,remote);
         if(active)setHeldInvoices(merged);
       }catch(error){
@@ -1535,11 +1535,19 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
           }
           if(Array.isArray(cached))setHeldInvoices(cached);
         }catch{}
-      }finally{if(active)setHeldLoading(false);}
+      }finally{refreshing=false;if(active)setHeldLoading(false);}
     };
+    setHeldInvoices([]);
     void refresh();
     window.addEventListener('online',refresh);
-    return ()=>{active=false;window.removeEventListener('online',refresh);};
+    // The API tunnel may recover while navigator.onLine remains true.
+    const retry=window.setInterval(()=>{
+      if(!active||refreshing||heldOperationRef.current||!currentUser?.id||!navigator.onLine)return;
+      void readLocalHeldCache<HeldInvoiceData>(heldCacheKey).then(rows=>{
+        if(active&&rows.some(row=>row.localOnly))void refresh();
+      }).catch(error=>console.warn('Local hold retry check failed',error));
+    },60000);
+    return ()=>{active=false;window.clearInterval(retry);window.removeEventListener('online',refresh);};
   },[currentUser?.id,isHeldInvoicesOpen]);
 
 
@@ -3192,8 +3200,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       const confirmedHeld={...newHeld,localOnly:false};
       if(typeof navigator!=='undefined'&&!navigator.onLine)throw Error('LOCAL_HELD_OFFLINE');
       await saveCentralHeldInvoice('desktop',confirmedHeld);
-      await confirmLocalHeld(heldCacheKey,pendingHeld,confirmedHeld);
-      setHeldInvoices(prev=>[confirmedHeld,...prev.filter(h=>h.id!==newHeld.id)]);
+      const confirmedRows=await confirmLocalHeld(heldCacheKey,pendingHeld,confirmedHeld);
+      setHeldInvoices(confirmedRows);
       resumedHeldInvoiceIdRef.current=null;
       // This reset is deliberately AFTER the server receipt.
       handleClearInvoiceDirect(true);

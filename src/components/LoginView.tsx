@@ -88,7 +88,7 @@ export const LoginView: React.FC<Props> = ({ onLocalLogin }) => {
         }catch(onlineErr){
           // Only network unavailability qualifies for offline credential unlock.
           // Invalid remote passwords and server-side rejections MUST NOT fall back.
-          const networkFailure=navigator.onLine===false || onlineErr instanceof TypeError;
+          const networkFailure=onlineErr instanceof TypeError || (onlineErr instanceof Error && onlineErr.message==='LOCAL_SYNC_HTTP_TIMEOUT');
           if(!networkFailure)throw onlineErr;
           matched=await loginOffline(identifier,password);
           setDirectoryNotice('تم فتح الحساب أوفلاين باستخدام بيانات دخول سبق التحقق منها. العمليات محفوظة محليًا حتى إعادة المزامنة.');

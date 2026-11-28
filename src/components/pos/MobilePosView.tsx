@@ -52,7 +52,7 @@ import { BarcodeScannerModal } from '../BarcodeScannerModal';
 import { matchItemByBarcode } from '../../utils/barcodeGenerator';
 import { posSound } from '../../utils/audio';
 import { isSquareMeterUnit } from '../../utils/unitsOfMeasure';
-import {listCentralHeldInvoices,saveCentralHeldInvoice,deleteCentralHeldInvoice,mergeHeldRecovery} from '../../services/heldPosInvoices';
+import {listCentralHeldInvoices,saveCentralHeldInvoice,deleteCentralHeldInvoice} from '../../services/heldPosInvoices';
 
 interface MobilePosViewProps {
   onSwitchToDesktop?: () => void;
@@ -373,10 +373,12 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const heldOperationRef=useRef(false);
 
   useEffect(()=>{
-    let active=true;
+    let active=true,refreshing=false;
     const refresh=async()=>{
+      if(!active||refreshing||heldOperationRef.current)return;
       if(!currentUser?.id){if(active)setHeldLoading(false);return;}
-      if(active){setHeldLoading(true);setHeldInvoices([]);}
+      refreshing=true;
+      if(active)setHeldLoading(true);
       try{
         const cached=await readLocalHeldCache<MobileHeldInvoice>(heldCacheKey);
         if(active)setHeldInvoices(cached);
@@ -396,7 +398,6 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
             }catch(error){console.warn('Mobile hold needs central retry',error);}
           }
           if(changed)remote=await listCentralHeldInvoices<MobileHeldInvoice>('mobile');
-          remote=mergeHeldRecovery(remote,localPending);
         }
         const ownerKey='pos_mobile_held_legacy_owner_v1';
         const migratedKey='pos_mobile_held_migration_done_v1_'+currentUser.id;
@@ -414,7 +415,6 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
           remote=await listCentralHeldInvoices<MobileHeldInvoice>('mobile');
         }
         // Merge pending device recovery copies even after legacy migration.
-        if(Array.isArray(localPending))remote=mergeHeldRecovery(remote,localPending);
         const merged=await reconcileLocalHeld(heldCacheKey,remote);
         if(active)setHeldInvoices(merged);
       }catch(error){
@@ -429,11 +429,19 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
           }
           if(Array.isArray(cached))setHeldInvoices(cached);
         }catch{}
-      }finally{if(active)setHeldLoading(false);}
+      }finally{refreshing=false;if(active)setHeldLoading(false);}
     };
+    setHeldInvoices([]);
     void refresh();
     window.addEventListener('online',refresh);
-    return ()=>{active=false;window.removeEventListener('online',refresh);};
+    // The API tunnel may recover while navigator.onLine remains true.
+    const retry=window.setInterval(()=>{
+      if(!active||refreshing||heldOperationRef.current||!currentUser?.id||!navigator.onLine)return;
+      void readLocalHeldCache<MobileHeldInvoice>(heldCacheKey).then(rows=>{
+        if(active&&rows.some(row=>row.localOnly))void refresh();
+      }).catch(error=>console.warn('Local hold retry check failed',error));
+    },60000);
+    return ()=>{active=false;window.clearInterval(retry);window.removeEventListener('online',refresh);};
   },[currentUser?.id,showHeldModal]);
 
 
@@ -708,8 +716,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       const confirmedHeld={...newHeld,localOnly:false};
       if(typeof navigator!=='undefined'&&!navigator.onLine)throw Error('LOCAL_HELD_OFFLINE');
       await saveCentralHeldInvoice('mobile',confirmedHeld);
-      await confirmLocalHeld(heldCacheKey,pendingHeld,confirmedHeld);
-      setHeldInvoices(prev=>[confirmedHeld,...prev.filter(h=>h.id!==newHeld.id)]);
+      const confirmedRows=await confirmLocalHeld(heldCacheKey,pendingHeld,confirmedHeld);
+      setHeldInvoices(confirmedRows);
       resumedMobileHeldIdRef.current=null;
       draftId.current = crypto.randomUUID();
       setCart([]);setGlobalDiscount('');setPaidAmountInput('');setInvoiceNotes('');
