@@ -1,7 +1,6 @@
 import {activeDraftStorage,flushActiveDraft,activeDraftFailed,mobileDraftRecovery} from '../../services/localActiveDrafts';
 import {readLocalHeldCache,checkpointLocalHeld,reconcileLocalHeld,confirmLocalHeld,removeLocalHeld,isHeldTransportUnavailable} from '../../services/localHeldCache';
 import {posDraftStorageKey} from '../../utils/posDraftStorageKey';
-import {removePosAttempt} from '../../sync-next/posAttemptStore';
 import {POS_LEAVE_INTENT_EVENT,type PosLeaveIntentDetail} from '../../utils/posLeaveNavigation';
 import {PosLeaveDialog} from './PosLeaveDialog';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -1090,10 +1089,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       // Reset
       try {
         activeDraftStorage.removeItem(MOBILE_POS_DRAFT_KEY);
-        // The new committed identity lives in IndexedDB; keep legacy cleanup
-      // best-effort so a successful invoice cannot be reported as failed here.
-      void removePosAttempt('lobnan_pending_atomic_pos_attempt:' + draftId.current)
-        .catch(error=>console.warn('POS_ATTEMPT_CLEANUP_DEFERRED',error));
+        // Retain the immutable completed attempt: an old recovery draft must
+      // never create a second posting. A new form receives a new draft ID.
       } catch {}
       draftId.current = crypto.randomUUID();
       setCart([]);

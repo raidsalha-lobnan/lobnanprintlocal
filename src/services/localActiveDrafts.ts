@@ -10,7 +10,13 @@ function done(tx:IDBTransaction):Promise<void>{return new Promise((resolve,rejec
 async function open(){
  const r=indexedDB.open(DB,1);
  r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains(STORE))r.result.createObjectStore(STORE,{keyPath:'key'});};
- return req(r);
+ return new Promise<IDBDatabase>((resolve,reject)=>{
+  let settled=false;
+  const timeout=setTimeout(()=>{settled=true;reject(Error('DRAFT_DB_OPEN_TIMEOUT'));},5000);
+  r.onsuccess=()=>{clearTimeout(timeout);if(settled){r.result.close();return;}settled=true;resolve(r.result);};
+  r.onerror=()=>{clearTimeout(timeout);if(!settled){settled=true;reject(r.error);}};
+  r.onblocked=()=>{clearTimeout(timeout);if(!settled){settled=true;reject(Error('DRAFT_DB_UPGRADE_BLOCKED'));}};
+ });
 }
 function legacy(key:string):DraftRow|undefined{
  try{

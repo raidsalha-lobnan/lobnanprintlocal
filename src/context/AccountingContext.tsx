@@ -7484,6 +7484,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           .map(x=>x.toString(16).padStart(2,'0')).join('');
         let pending:{invoiceId:string;commandId:string;createdAt:string;signature:string}|null=null;
         pending=await readPosAttempt(pendingKey);
+        // Older versions deleted completed attempt identities. A recovered
+        // draft with an existing deterministic invoice or queued command
+        // must be reviewed, not rebuilt against current party balances.
+        if(!pending&&draftId){
+          const priorInvoiceId='inv-pos-'+draftId;
+          const local=repo.getLocalDb();
+          const [confirmed,commands]=await Promise.all([local.confirmedInvoice(priorInvoiceId),local.pending()]);
+          if(confirmed?.value||commands.some(cmd=>cmd.id===draftId||cmd.atomicInvoiceId===priorInvoiceId))
+            throw new Error('هذه المسودة مرتبطة بفاتورة محفوظة أو عملية قيد المزامنة؛ راجع سجل الفواتير قبل إعادة الاعتماد.');
+        }
         if(pending&&pending.signature!==signature){
           const queued=await repo.getLocalDb().pending();
           if(queued.some(x=>x.id===pending?.commandId) || (draftId && await repo.getLocalDb().confirmedInvoice(pending.invoiceId)))
