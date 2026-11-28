@@ -9,7 +9,11 @@ const assets = [
   ['ArefRuqaa-Regular.ttf','49e2c4e29ee2e24c4e36a8857f45a24d13d103f3',base+'ArefRuqaa-Regular.ttf'],
   ['OFL.txt','f89db8233df5ee80af5f86b74ade558305ee13aa',base+'OFL.txt'],
   ['Lemonada.ttf','7049e67062201a8fe2c45465ae1f6c7ecccb3d78',casualBase+'Lemonada%5Bwght%5D.ttf'],
-  ['Lemonada-OFL.txt','720cfd1cd78a066bcd7e46a56aa87acdd79fc30a',casualBase+'OFL.txt']
+  ['Lemonada-OFL.txt','720cfd1cd78a066bcd7e46a56aa87acdd79fc30a',casualBase+'OFL.txt'],
+  ['Katibeh-Regular.ttf','b073fab20efe9f5657d52120f559bd3c5dd8b489','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/katibeh/Katibeh-Regular.ttf'],
+  ['Katibeh-OFL.txt','6642b740190e560e61f48dabe15deaec31c7075b','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/katibeh/OFL.txt'],
+  ['Lateef-Regular.ttf','a81a714200f8afe903aa0a9b53fd3aed1c700174','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/lateef/Lateef-Regular.ttf'],
+  ['Lateef-OFL.txt','4799a032ad91e0351c94ffc3795b6a5945e9b5c9','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/lateef/OFL.txt']
 ];
 const gitHash = bytes => createHash('sha1').update('blob '+bytes.length+'\\0'.replace('\\0','\0')).update(bytes).digest('hex');
 for (const [name, expected, url] of assets) {
