@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { jsPDF } from 'jspdf';
 import { tafqeet } from '../utils/tafqeet';
 import templateUrl from '../assets/tax-invoice/original-clean.png?url';
-import electronicStampUrl from '../assets/tax-invoice/electronic-stamp.png?url';
+import { useAccounting } from '../context/AccountingContext';
 
 type Line = { item: string; qty: string; price: string; fontSize?: number };
 type HandStyle = 'ruqaa' | 'lemonada' | 'katibeh' | 'lateef' | 'playpen' | 'mikhak' | 'marhey' | 'ruwudu' | 'rakkas' | 'alkalami';
@@ -41,6 +41,8 @@ const fmt = (n: number) => (n / 100).toFixed(2);
 
 export const TaxInvoicePrintView: React.FC = () => {
   const template = templateUrl;
+  const { settings } = useAccounting();
+  const stampUrl = settings.stampUrl?.trim() || '';
   const [style,setStyle] = useState<HandStyle>('playpen');
   const [playpenWeight,setPlaypenWeight] = useState(300);
   const [contextual,setContextual] = useState(true);
@@ -51,7 +53,8 @@ export const TaxInvoicePrintView: React.FC = () => {
   const fontReady = loadedStyle === fontKey;
   const font = new URL(import.meta.env.BASE_URL + 'fonts/tax-invoice/' + fontFiles[style], document.baseURI).href;
   const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [stampImage,setStampImage] = useState<HTMLImageElement | null>(null);
+  const [loadedStamp,setLoadedStamp] = useState<{url:string;image:HTMLImageElement} | null>(null);
+  const stampImage = loadedStamp?.url === stampUrl ? loadedStamp.image : null;
   const [applyStamp,setApplyStamp] = useState(false);
   const [stampFailed,setStampFailed] = useState(false);
   const [serial, setSerial] = useState('');
@@ -104,13 +107,17 @@ export const TaxInvoicePrintView: React.FC = () => {
   }, [template]);
 
   useEffect(() => {
+    setLoadedStamp(null);
+    setStampFailed(false);
+    if (!stampUrl) { setApplyStamp(false); return; }
     let stopped=false;
     const img=new Image();
-    img.onload=()=>{if(!stopped){setStampImage(img);setStampFailed(false);}};
-    img.onerror=()=>{if(!stopped)setStampFailed(true);};
-    img.src=electronicStampUrl;
+    if (!/^(data:|blob:)/i.test(stampUrl)) img.crossOrigin='anonymous';
+    img.onload=()=>{if(!stopped)setLoadedStamp({url:stampUrl,image:img});};
+    img.onerror=()=>{if(!stopped){setStampFailed(true);setApplyStamp(false);}};
+    img.src=stampUrl;
     return ()=>{stopped=true;};
-  },[]);
+  },[stampUrl]);
 
   useEffect(() => {
     setLoadedStyle(null);
@@ -212,8 +219,18 @@ export const TaxInvoicePrintView: React.FC = () => {
     split(grand,1288,154,258,headerSizes.grand ?? size);
     if (vat !== '' && Number(vat) > 0) hand(vat,416,1234,38,false,headerSizes.vat ?? 22);
     hand(amountWords,793,1365,700,true,headerSizes.words ?? Math.min(size,26));
-    if (applyStamp && stampImage) ctx.drawImage(stampImage,648,1158,154,171);
-    ctx.save(); ctx.direction='rtl'; ctx.textAlign='center'; ctx.font='15px Arial'; ctx.fillStyle='#555'; ctx.fillText(applyStamp?'نسخة إلكترونية — تعبئة رقمية وختم إلكتروني':'نسخة إلكترونية — تعبئة رقمية بخط عربي',512,1424); ctx.restore();
+    // Match the official 3.5 cm stamp used in sales printouts.
+    // Preserve the uploaded artwork, aspect ratio and ink colors.
+    if (applyStamp && stampImage) {
+      const maxSize=35*W/210;
+      const ratio=Math.min(maxSize/stampImage.naturalWidth,maxSize/stampImage.naturalHeight);
+      const sw=stampImage.naturalWidth*ratio, sh=stampImage.naturalHeight*ratio;
+      ctx.save();
+      ctx.translate(717,1240);
+      ctx.globalCompositeOperation='multiply';
+      ctx.drawImage(stampImage,-sw/2,-sh/2,sw,sh);
+      ctx.restore();
+    }
   },[image,fontReady,style,serial,date,customer,customerWanted,address,lines,vat,note,words,size,headerSizes,cancelEmpty,playpenWeight,stampImage,applyStamp]);
 
   const update = (index: number,key: 'item' | 'qty' | 'price',value: string) => setLines(old => old.map((l,i) => i===index ? {...l,[key]:value} : l));
@@ -267,8 +284,9 @@ export const TaxInvoicePrintView: React.FC = () => {
         <p className="text-xs text-slate-500">الحجم التلقائي يتغير بحسب عدد الكلمات وعرضها الحقيقي. يمكن تعديل كل بند بعلامتي + و− ضمن مساحة الخانة.</p>
         <label className="block text-sm">حجم الخط العام: {size}<input className="w-full" type="range" min="12" max={MAX_FONT_SIZE} value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
         <details className="border rounded p-2"><summary className="cursor-pointer text-sm font-medium">أحجام خطوط الخانات الأخرى</summary><div className="grid grid-cols-2 gap-2 mt-2">{headerFontFields.map(({key,label})=><label key={key} className="text-sm">{label}<select className={field} value={headerSizes[key] ?? ''} onChange={e=>{const value=e.target.value;setHeaderSizes(old=>({...old,[key]:value===''?undefined:Number(value)}));}}><option value="">افتراضي</option>{Array.from({length:MAX_FONT_SIZE-11},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div><button type="button" className="border rounded px-2 py-1 mt-2 text-sm" onClick={()=>{setHeaderSizes({});setLines(old=>old.map(l=>({...l,fontSize:undefined})));setSize(27);}}>إعادة الأحجام الافتراضية</button></details>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={applyStamp} disabled={!stampImage} onChange={e=>setApplyStamp(e.target.checked)}/> اعتماد وإضافة الختم الإلكتروني لهذه النسخة</label>
-        {stampFailed&&<p role="status" className="text-xs text-red-700">تعذر تجهيز صورة الختم الإلكتروني؛ يمكن الطباعة دون الختم.</p>}
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={applyStamp} disabled={!stampImage} onChange={e=>setApplyStamp(e.target.checked)}/> اعتماد وإضافة الختم الرسمي لهذه النسخة</label>
+        {!stampUrl&&<p className="text-xs text-slate-500">لا يوجد ختم محفوظ في إعدادات المنشأة.</p>}
+        {stampFailed&&<p role="status" className="text-xs text-red-700">تعذر تحميل الختم الرسمي من الإعدادات؛ يمكن الطباعة دون الختم.</p>}
         <div className="flex flex-wrap gap-2"><button type="button" disabled={!ready} onClick={print} className="bg-blue-700 text-white rounded px-4 py-2 disabled:opacity-40">طباعة</button><button type="button" disabled={!ready} onClick={exportPdf} className="bg-slate-800 text-white rounded px-4 py-2 disabled:opacity-40">حفظ PDF</button></div>
         {!ready && <p className="text-xs text-slate-600">أكمل الرقم والتاريخ والعميل والبنود والضريبة وانتظر جاهزية الخط المدمج لتفعيل الإخراج.</p>}
       </div>
