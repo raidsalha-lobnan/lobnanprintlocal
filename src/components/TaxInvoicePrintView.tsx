@@ -3,6 +3,8 @@ import { jsPDF } from 'jspdf';
 import { tafqeet } from '../utils/tafqeet';
 import templateUrl from '../assets/tax-invoice/original-clean.png?url';
 import { useAccounting } from '../context/AccountingContext';
+import {saveTaxPrintRecord,listTaxPrintRecords,readTaxPrintRecord,type TaxPrintData,type TaxPrintRecord,type TaxPrintSummary} from '../services/taxPrintArchive';
+import './TaxInvoicePrintView.css';
 
 type Line = { item: string; qty: string; price: string; fontSize?: number };
 type HandStyle = 'ruqaa' | 'lemonada' | 'katibeh' | 'lateef' | 'playpen' | 'mikhak' | 'marhey' | 'ruwudu' | 'rakkas' | 'alkalami';
@@ -42,7 +44,8 @@ const fmt = (n: number) => (n / 100).toFixed(2);
 export const TaxInvoicePrintView: React.FC = () => {
   const template = templateUrl;
   const { settings } = useAccounting();
-  const stampUrl = settings.stampUrl?.trim() || '';
+  const [savedStamp,setSavedStamp]=useState<string|null>(null);
+  const stampUrl = savedStamp ?? (settings.stampUrl?.trim() || '');
   const [style,setStyle] = useState<HandStyle>('playpen');
   const [playpenWeight,setPlaypenWeight] = useState(300);
   const [contextual,setContextual] = useState(true);
@@ -70,6 +73,38 @@ export const TaxInvoicePrintView: React.FC = () => {
   const [headerSizes, setHeaderSizes] = useState<Partial<Record<HeaderFontKey, number>>>({});
   const [message, setMessage] = useState('');
   const canvas = useRef<HTMLCanvasElement>(null);
+  const [tab,setTab]=useState<'edit'|'style'|'archive'>('edit');
+  const [rowPage,setRowPage]=useState(0);
+  const [archivePage,setArchivePage]=useState(0);
+  const [archiveQuery,setArchiveQuery]=useState('');
+  const [archive,setArchive]=useState<TaxPrintSummary[]>([]);
+  const [archiveBusy,setArchiveBusy]=useState(false);
+  const [saved,setSaved]=useState<{id:string;createdAt:string;updatedAt:string;fingerprint:string}|null>(null);
+  const [archiveError,setArchiveError]=useState('');
+  const archiveLock=useRef(false);
+  const [compact,setCompact]=useState(false);
+  const host=useRef<HTMLElement>(null);
+  useEffect(()=>{
+    const el=host.current;if(!el)return;
+    const resize=()=>setCompact(el.clientHeight<590);
+    resize();const ob=new ResizeObserver(resize);ob.observe(el);return()=>ob.disconnect();
+  },[]);
+  const perPage=compact?2:3;
+  const visiblePage=Math.min(rowPage,Math.max(0,Math.ceil(lines.length/perPage)-1));
+  const data:TaxPrintData={serial,date,customer,address,lines,vat,note,words,size,cancelEmpty,headerSizes,style,playpenWeight,contextual,alternate,applyStamp};
+  const fingerprint=JSON.stringify(data);
+  const hasInput=!!(serial||date||customer||address||vat||note||words||lines.some(l=>l.item||l.qty||l.price));
+  const dirty=saved?saved.fingerprint!==fingerprint:hasInput;
+  const refreshArchive=async()=>{
+    try{setArchive(await listTaxPrintRecords());setArchiveError('');}
+    catch{setArchiveError('تعذر قراءة سجل الفواتير المحلي. لا تحذف بيانات الموقع.');}
+  };
+  useEffect(()=>{void refreshArchive();},[]);
+  useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(dirty||archiveLock.current){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[dirty]);
+  const filteredArchive=archive.filter(r=>[r.serial,r.customer,r.date].join(' ').toLowerCase().includes(archiveQuery.trim().toLowerCase()));
+  const archivePageSize=compact?5:8;
+  const archivePages=Math.max(1,Math.ceil(filteredArchive.length/archivePageSize));
+  const currentArchivePage=Math.min(archivePage,archivePages-1);
   const active = lines.filter(l => l.item.trim() || l.qty !== '' || l.price !== '');
   const customerWanted = headerSizes.customer ?? autoItemSize(customer,size);
   const customerSize = useMemo(() => {
@@ -131,7 +166,6 @@ export const TaxInvoicePrintView: React.FC = () => {
         if (stopped) return;
         document.fonts.add(face);
         setLoadedStyle(fontKey);
-        setMessage('');
       } catch { if (!stopped) setMessage('تعذر تحميل الخط المدمج. أعد فتح الشاشة قبل الطباعة.'); }
     })();
     return () => { stopped = true; if (face) document.fonts.delete(face); };
@@ -261,6 +295,48 @@ export const TaxInvoicePrintView: React.FC = () => {
     }
   },[image,fontReady,style,serial,date,customer,customerWanted,address,lines,vat,note,words,size,headerSizes,cancelEmpty,playpenWeight,stampImage,applyStamp]);
 
+  const saveInvoice=async()=>{
+    if(!ready||!canvas.current||archiveLock.current)return;
+    archiveLock.current=true;setArchiveBusy(true);setMessage('');
+    try{
+      let stampData='';
+      if(applyStamp){
+        if(!stampImage)throw Error('STAMP_NOT_READY');
+        const stamp=document.createElement('canvas');stamp.width=stampImage.naturalWidth;stamp.height=stampImage.naturalHeight;
+        const ctx=stamp.getContext('2d');if(!ctx)throw Error('STAMP_CONTEXT');
+        ctx.drawImage(stampImage,0,0);stampData=stamp.toDataURL('image/png');
+      }
+      const renderedPng=await new Promise<Blob>((resolve,reject)=>canvas.current!.toBlob(b=>b?resolve(b):reject(Error('IMAGE_SAVE_FAILED')),'image/png'));
+      const now=new Date().toISOString();
+      const record:TaxPrintRecord={id:saved?.id||crypto.randomUUID(),createdAt:saved?.createdAt||now,updatedAt:now,data,stampData,totalCents:grand,renderedPng,serial};
+      await saveTaxPrintRecord(record,saved?.updatedAt);
+      setSaved({id:record.id,createdAt:record.createdAt,updatedAt:record.updatedAt,fingerprint});
+      setMessage('تم حفظ الفاتورة في السجل المحلي المستقل.');
+      await refreshArchive();
+    }catch(e){setMessage(String(e).includes('ARCHIVE_SERIAL_EXISTS')?'رقم الفاتورة موجود في السجل. افتحها من السجل لتعديلها.':String(e).includes('ARCHIVE_RECORD_CHANGED')?'تم تغيير السند في نافذة أخرى. افتح النسخة المحفوظة مجدداً.':'تعذر تأكيد الحفظ المحلي. لم تُحذف المدخلات.');}
+    finally{archiveLock.current=false;setArchiveBusy(false);}
+  };
+  const openInvoice=async(id:string)=>{
+    if(archiveLock.current||(dirty&&!window.confirm('توجد تعديلات غير محفوظة. هل تريد فتح فاتورة أخرى؟')))return;
+    archiveLock.current=true;setArchiveBusy(true);
+    try{
+      const r=await readTaxPrintRecord(id);if(!r)throw Error('NOT_FOUND');
+      const d=r.data;
+      setSavedStamp(d.applyStamp?r.stampData:null);setSerial(d.serial);setDate(d.date);setCustomer(d.customer);setAddress(d.address);setLines(d.lines);setVat(d.vat);setNote(d.note);setWords(d.words);setSize(d.size);setCancelEmpty(d.cancelEmpty);setHeaderSizes(d.headerSizes);setStyle(d.style);setPlaypenWeight(d.playpenWeight);setContextual(d.contextual);setAlternate(d.alternate);setApplyStamp(d.applyStamp);
+      setSaved({id:r.id,createdAt:r.createdAt,updatedAt:r.updatedAt,fingerprint:JSON.stringify(d)});
+      setRowPage(0);setTab('edit');setMessage('تم فتح الفاتورة المحفوظة.');
+    }catch{setArchiveError('تعذر فتح الفاتورة المحفوظة.');}
+    finally{archiveLock.current=false;setArchiveBusy(false);}
+  };
+  const archivedPdf=async(id:string)=>{
+    if(archiveLock.current)return;archiveLock.current=true;setArchiveBusy(true);
+    try{
+      const r=await readTaxPrintRecord(id);if(!r)throw Error('NOT_FOUND');
+      const dataUrl=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(r.renderedPng);});
+      const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true});
+      const w=Math.min(210,297*W/H),h=w*H/W;pdf.addImage(dataUrl,'PNG',(210-w)/2,(297-h)/2,w,h);pdf.save('tax-invoice-'+r.serial+'.pdf');
+    }catch{setArchiveError('تعذر إخراج النسخة المحفوظة.');}finally{archiveLock.current=false;setArchiveBusy(false);}
+  };
   const update = (index: number,key: 'item' | 'qty' | 'price',value: string) => setLines(old => old.map((l,i) => i===index ? {...l,[key]:value} : l));
   const exportPdf = () => {
     if (!ready || !canvas.current) return;
@@ -285,40 +361,53 @@ export const TaxInvoicePrintView: React.FC = () => {
     doc.body.appendChild(img); img.src=canvas.current.toDataURL('image/png');
   };
   const field='w-full rounded border border-slate-300 px-2 py-1.5 text-sm bg-white text-slate-900';
-  const reset=()=>{setSerial('');setDate('');setCustomer('');setAddress('');setLines([blank()]);setVat('');setNote('');setWords('');setApplyStamp(false);};
-  return <section dir="rtl" className="w-full min-w-0 text-slate-900 space-y-3 print:hidden">
-    <header className="flex flex-wrap justify-between items-center gap-2"><div><h1 className="text-xl font-bold">فاتورة ضريبية</h1><p className="text-sm text-slate-600">نسخة طباعة لعملية مسجلة فعليًا — لا ترحيل محاسبي ولا حركة مخزون. البيانات المدخلة لا تحفظ كسجل مبيعات.</p></div><button type="button" onClick={reset} className="border rounded px-3 py-2">نموذج جديد</button></header>
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-      <div className="bg-white border rounded-lg p-3 space-y-3">
-        <p className="text-xs text-slate-500">{image ? 'صورة النموذج الأصلي مدمجة دون الرقم التسلسلي السابق والختم.' : 'جاري تحميل النموذج الأصلي.'} {fontReady ? 'الخط جاهز.' : 'جاري تجهيز الخط.'}</p>
-        {message && <p role="status" className="text-sm text-blue-800">{message}</p>}
+  const reset=()=>{if(archiveLock.current||(dirty&&!window.confirm('توجد تعديلات غير محفوظة. هل تريد نموذجاً جديداً؟')))return;setSaved(null);setSavedStamp(null);setRowPage(0);setTab('edit');setMessage('');setSerial('');setDate('');setCustomer('');setAddress('');setLines([blank()]);setVat('');setNote('');setWords('');setApplyStamp(false);};
+  return <section ref={host} dir="rtl" className="tax-print-workspace print:hidden">
+    <header className="tax-print-header"><div><h1>فاتورة ضريبية</h1><p>حفظ وطباعة فقط — سجل مستقل محلي على هذا الجهاز، دون قيود أو مخزون.</p></div><nav className="tax-print-tabs"><button type="button" onClick={()=>setTab('edit')} aria-pressed={tab==='edit'}>البيانات</button><button type="button" onClick={()=>setTab('style')} aria-pressed={tab==='style'}>الخط والختم</button><button type="button" onClick={()=>{setTab('archive');void refreshArchive();}} aria-pressed={tab==='archive'}>سجل الفواتير ({archive.length})</button><button type="button" onClick={reset} disabled={archiveBusy}>نموذج جديد</button></nav></header>
+    <div className="tax-print-grid">
+      <div className="tax-print-editor bg-white border rounded-lg">
+        {tab==='archive'?<div className="tax-archive">
+          <div className="tax-archive-heading"><strong>سجل الفواتير الضريبية المستقل</strong><input className={field} placeholder="بحث بالرقم أو العميل أو التاريخ" value={archiveQuery} onChange={e=>{setArchiveQuery(e.target.value);setArchivePage(0);}}/></div>
+          <p className="text-xs text-slate-500">محفوظ على هذا الجهاز فقط؛ لا تحذف بيانات الموقع. لا يدخل في النسخ الاحتياطية المحاسبية أو المزامنة.</p>
+          {archiveError&&<p role="alert" className="text-red-700">{archiveError}</p>}
+          <table className="tax-archive-table"><thead><tr><th>الرقم</th><th>التاريخ</th><th>العميل</th><th>الإجمالي</th><th>الإجراء</th></tr></thead><tbody>
+          {!filteredArchive.length&&<tr><td colSpan={5}>لا توجد فواتير محفوظة مطابقة.</td></tr>}
+          {filteredArchive.slice(currentArchivePage*archivePageSize,(currentArchivePage+1)*archivePageSize).map(r=><tr key={r.id}><td>{r.serial}</td><td>{r.date}</td><td title={r.customer}>{r.customer}</td><td>{fmt(r.totalCents)}</td><td><button type="button" disabled={archiveBusy} onClick={()=>void openInvoice(r.id)}>فتح</button> <button type="button" disabled={archiveBusy} onClick={()=>void archivedPdf(r.id)}>PDF</button></td></tr>)}
+          </tbody></table>
+          <div className="tax-page-nav"><button disabled={currentArchivePage===0} onClick={()=>setArchivePage(currentArchivePage-1)}>السابق</button><span>{currentArchivePage+1} / {archivePages}</span><button disabled={currentArchivePage+1>=archivePages} onClick={()=>setArchivePage(currentArchivePage+1)}>التالي</button></div>
+        </div>:<fieldset disabled={archiveBusy} className="tax-print-fields">
+        {tab==='edit'?<>
         <div className="grid grid-cols-2 gap-2">
           <label>رقم الفاتورة<input className={field} dir="ltr" inputMode="numeric" maxLength={12} value={serial} onChange={e=>setSerial(e.target.value.replace(/[^0-9]/g,''))} placeholder="0000316"/></label>
           <label>التاريخ<input className={field} type="date" value={date} onChange={e=>setDate(e.target.value)}/></label>
           <div className="col-span-2"><label htmlFor="tax-customer-name">اسم العميل</label><div className="flex flex-wrap items-center gap-2"><input id="tax-customer-name" className={field+' flex-1 min-w-[140px]'} value={customer} onChange={e=>setCustomer(e.target.value)}/><div className="flex items-center gap-1" dir="ltr"><button type="button" aria-label="تصغير خط اسم العميل" disabled={customerWanted<=12} className="border rounded px-3 py-1 disabled:opacity-40" onClick={()=>setHeaderSizes(old=>({...old,customer:clampSize(customerWanted-1)}))}>−</button><span className="tabular-nums min-w-[30px] text-center" aria-label="حجم خط اسم العميل">{customerWanted}</span><button type="button" aria-label="تكبير خط اسم العميل" disabled={customerWanted>=MAX_FONT_SIZE} className="border rounded px-3 py-1 disabled:opacity-40" onClick={()=>setHeaderSizes(old=>({...old,customer:clampSize(customerWanted+1)}))}>+</button></div><button type="button" className="text-sm text-blue-700 border rounded px-2 py-1" onClick={()=>setHeaderSizes(old=>({...old,customer:undefined}))}>{headerSizes.customer===undefined?'تلقائي ✓':'عودة للتلقائي'}</button></div>{customerSize<customerWanted&&<p className="text-xs text-slate-500">الحجم الفعلي داخل الخانة: {customerSize} (ملاءمة تلقائية لحدود النموذج)</p>}</div>
           <label className="col-span-2">العنوان<input className={field} value={address} onChange={e=>setAddress(e.target.value)}/></label>
         </div>
-        <div className="overflow-x-auto"><table className="w-full text-sm min-w-[460px]"><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>المبلغ</th><th>حجم الخط</th><th></th></tr></thead><tbody>
-          {lines.map((l,i)=><tr key={i}><td><input aria-label={'الصنف '+(i+1)} className={field} value={l.item} onChange={e=>update(i,'item',e.target.value)}/></td><td><input aria-label="الكمية" className={field+' min-w-16'} type="number" min="0" step="any" value={l.qty} onChange={e=>update(i,'qty',e.target.value)}/></td><td><input aria-label="سعر الوحدة" className={field+' min-w-20'} type="number" min="0" step=".01" value={l.price} onChange={e=>update(i,'price',e.target.value)}/></td><td className="px-1 whitespace-nowrap">{fmt(lineAmount(l))}</td><td className="min-w-[115px]"><div className="flex items-center justify-center gap-1" dir="ltr"><button type="button" aria-label={'تصغير خط البند '+(i+1)} disabled={(l.fontSize ?? autoItemSize(l.item,size))<=12} className="border rounded px-2 py-1 disabled:opacity-40" onClick={()=>setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:clampSize((row.fontSize ?? autoItemSize(row.item,size))-1)}:row))}>−</button><span className="tabular-nums min-w-[28px] text-center">{l.fontSize ?? autoItemSize(l.item,size)}</span><button type="button" aria-label={'تكبير خط البند '+(i+1)} disabled={(l.fontSize ?? autoItemSize(l.item,size))>=MAX_FONT_SIZE} className="border rounded px-2 py-1 disabled:opacity-40" onClick={()=>setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:clampSize((row.fontSize ?? autoItemSize(row.item,size))+1)}:row))}>+</button></div><button type="button" className="block mx-auto text-xs text-blue-700" onClick={()=>setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:undefined}:row))}>{l.fontSize===undefined?'تلقائي ✓':'عودة للتلقائي'}</button>{rowSizes[i]<(l.fontSize ?? autoItemSize(l.item,size))&&<span className="block text-center text-xs text-slate-500">فعلي: {rowSizes[i]}</span>}</td><td><button type="button" aria-label="حذف البند" onClick={()=>setLines(old=>old.length===1?[blank()]:old.filter((_,j)=>i!==j))}>×</button></td></tr>)}
+        <div className="tax-lines"><table className="w-full text-sm"><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>المبلغ</th><th>حجم الخط</th><th></th></tr></thead><tbody>
+          {lines.slice(visiblePage*perPage,(visiblePage+1)*perPage).map((l,j)=>{const i=visiblePage*perPage+j;return <tr key={i}><td><input aria-label={'الصنف '+(i+1)} className={field} value={l.item} onChange={e=>update(i,'item',e.target.value)}/></td><td><input aria-label="الكمية" className={field+' min-w-16'} type="number" min="0" step="any" value={l.qty} onChange={e=>update(i,'qty',e.target.value)}/></td><td><input aria-label="سعر الوحدة" className={field+' min-w-20'} type="number" min="0" step=".01" value={l.price} onChange={e=>update(i,'price',e.target.value)}/></td><td className="px-1 whitespace-nowrap">{fmt(lineAmount(l))}</td><td className="min-w-[115px]"><div className="flex items-center justify-center gap-1" dir="ltr"><button type="button" aria-label={'تصغير خط البند '+(i+1)} disabled={(l.fontSize ?? autoItemSize(l.item,size))<=12} className="border rounded px-2 py-1 disabled:opacity-40" onClick={()=>setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:clampSize((row.fontSize ?? autoItemSize(row.item,size))-1)}:row))}>−</button><span className="tabular-nums min-w-[28px] text-center">{l.fontSize ?? autoItemSize(l.item,size)}</span><button type="button" aria-label={'تكبير خط البند '+(i+1)} disabled={(l.fontSize ?? autoItemSize(l.item,size))>=MAX_FONT_SIZE} className="border rounded px-2 py-1 disabled:opacity-40" onClick={()=>setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:clampSize((row.fontSize ?? autoItemSize(row.item,size))+1)}:row))}>+</button></div><button type="button" className="block mx-auto text-xs text-blue-700" onClick={()=>setLines(old=>old.map((row,j)=>j===i?{...row,fontSize:undefined}:row))}>{l.fontSize===undefined?'تلقائي ✓':'عودة للتلقائي'}</button>{rowSizes[i]<(l.fontSize ?? autoItemSize(l.item,size))&&<span className="block text-center text-xs text-slate-500">فعلي: {rowSizes[i]}</span>}</td><td><button type="button" aria-label="حذف البند" onClick={()=>setLines(old=>old.length===1?[blank()]:old.filter((_,j)=>i!==j))}>×</button></td></tr>;})}
         </tbody></table></div>
-        <button type="button" disabled={lines.length>=MAX} onClick={()=>setLines(old=>[...old,blank()])} className="border rounded px-3 py-1 disabled:opacity-50">+ إضافة بند</button>
-        <p className="text-xs text-slate-500">حتى 15 سطرًا، بما فيها سطر الملاحظات.</p>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={cancelEmpty} onChange={e=>setCancelEmpty(e.target.checked)}/> شطب الصفوف الفارغة تلقائيًا بحرف Z</label>
+        <div className="tax-page-nav"><button type="button" disabled={lines.length>=MAX} onClick={()=>{setRowPage(Math.floor(lines.length/perPage));setLines(old=>[...old,blank()]);}}>+ إضافة بند</button><span>{lines.length} / 15 بنداً</span><button type="button" disabled={visiblePage===0} onClick={()=>setRowPage(visiblePage-1)}>السابق</button><span>{visiblePage+1} / {Math.ceil(lines.length/perPage)}</span><button type="button" disabled={(visiblePage+1)*perPage>=lines.length} onClick={()=>setRowPage(visiblePage+1)}>التالي</button></div>
         <label className="block">الملاحظات<input className={field} value={note} onChange={e=>setNote(e.target.value)}/></label>
         <div className="grid grid-cols-2 gap-2"><label>نسبة الضريبة % (أدخل 0 عند عدم وجودها)<input className={field} type="number" min="0" max="100" step=".01" value={vat} onChange={e=>setVat(e.target.value)}/></label><div className="text-sm space-y-1"><div>المجموع: {fmt(total)} ₪</div><div>الضريبة: {fmt(tax)} ₪</div><strong>الإجمالي: {fmt(grand)} ₪</strong></div></div>
         <label className="block">المبلغ بالكلمات (تلقائي وقابل للتعديل)<input className={field} value={words} placeholder={amountWords} onChange={e=>setWords(e.target.value)}/></label>
+        </>:<div className="tax-style-pane">
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={cancelEmpty} onChange={e=>setCancelEmpty(e.target.checked)}/> شطب الصفوف الفارغة تلقائيًا بحرف Z</label>
         <label className="block text-sm">نمط الخط العربي<select className={field} value={style} onChange={e=>setStyle(e.target.value as HandStyle)}><option value="ruqaa">رقعة — Aref Ruqaa</option><option value="lemonada">خط عربي حر خفيف — Lemonada</option><option value="katibeh">خط عربي بقلم عريض — Katibeh</option><option value="lateef">خط عربي لين — Lateef</option><option value="playpen">كتابة يدوية عربية — Playpen Sans Arabic</option><option value="mikhak">Mikhak Light — شبه يدوي خفيف</option><option value="marhey">Marhey Light — حروف مرسومة يدويًا</option><option value="ruwudu">Ruwudu — كتابة عربية تقليدية</option><option value="rakkas">Rakkas — رقعة حرة</option><option value="alkalami">Alkalami — كتابة بالقلم</option></select></label>
         {style==='playpen'&&<div className="border rounded p-2 space-y-2"><h3 className="text-sm font-medium">إعدادات Playpen للكتابة العربية</h3><label className="block text-sm">سماكة القلم: {playpenWeight}<input className="w-full" type="range" min="100" max="800" step="50" value={playpenWeight} onChange={e=>setPlaypenWeight(Number(e.target.value))}/></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={contextual} onChange={e=>setContextual(e.target.checked)}/> الأشكال السياقية للحروف (calt)</label><label className="block text-sm">أشكال الحروف الاختيارية<select className={field} value={alternate} onChange={e=>setAlternate(e.target.value as typeof alternate)}><option value="standard">الافتراضي</option><option value="ss01">مجموعة بدائل 1</option><option value="ss02">مجموعة بدائل 2</option></select></label><p className="text-xs text-slate-500">تتغير الأشكال حسب الحروف التي يدعمها الخط. تبقى بيانات الفاتورة كما هي.</p><button type="button" className="border rounded px-2 py-1 text-sm" onClick={()=>{setPlaypenWeight(300);setContextual(true);setAlternate('standard');}}>استعادة إعدادات الخط</button></div>}
         <p className="text-xs text-slate-500">الحجم التلقائي يتغير بحسب عدد الكلمات وعرضها الحقيقي. يمكن تعديل كل بند بعلامتي + و− ضمن مساحة الخانة.</p>
         <label className="block text-sm">حجم الخط العام: {size}<input className="w-full" type="range" min="12" max={MAX_FONT_SIZE} value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
-        <details className="border rounded p-2"><summary className="cursor-pointer text-sm font-medium">أحجام خطوط الخانات الأخرى</summary><div className="grid grid-cols-2 gap-2 mt-2">{headerFontFields.map(({key,label})=><label key={key} className="text-sm">{label}<select className={field} value={headerSizes[key] ?? ''} onChange={e=>{const value=e.target.value;setHeaderSizes(old=>({...old,[key]:value===''?undefined:Number(value)}));}}><option value="">افتراضي</option>{Array.from({length:MAX_FONT_SIZE-11},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div><button type="button" className="border rounded px-2 py-1 mt-2 text-sm" onClick={()=>{setHeaderSizes({});setLines(old=>old.map(l=>({...l,fontSize:undefined})));setSize(27);}}>إعادة الأحجام الافتراضية</button></details>
+        <div className="tax-header-sizes"><strong>أحجام خطوط الخانات الأخرى</strong><div className="grid grid-cols-3 gap-1">{headerFontFields.map(({key,label})=><label key={key} className="text-sm">{label}<select className={field} value={headerSizes[key] ?? ''} onChange={e=>{const value=e.target.value;setHeaderSizes(old=>({...old,[key]:value===''?undefined:Number(value)}));}}><option value="">افتراضي</option>{Array.from({length:MAX_FONT_SIZE-11},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div><button type="button" className="border rounded px-2 py-1 mt-2 text-sm" onClick={()=>{setHeaderSizes({});setLines(old=>old.map(l=>({...l,fontSize:undefined})));setSize(27);}}>إعادة الأحجام الافتراضية</button></div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={applyStamp} disabled={!stampImage} onChange={e=>setApplyStamp(e.target.checked)}/> اعتماد وإضافة الختم الرسمي لهذه النسخة</label>
         {!stampUrl&&<p className="text-xs text-slate-500">لا يوجد ختم محفوظ في إعدادات المنشأة.</p>}
         {stampFailed&&<p role="status" className="text-xs text-red-700">تعذر تحميل الختم الرسمي من الإعدادات؛ يمكن الطباعة دون الختم.</p>}
-        <div className="flex flex-wrap gap-2"><button type="button" disabled={!ready} onClick={print} className="bg-blue-700 text-white rounded px-4 py-2 disabled:opacity-40">طباعة</button><button type="button" disabled={!ready} onClick={exportPdf} className="bg-slate-800 text-white rounded px-4 py-2 disabled:opacity-40">حفظ PDF</button></div>
-        {!ready && <p className="text-xs text-slate-600">أكمل الرقم والتاريخ والعميل والبنود والضريبة وانتظر جاهزية الخط المدمج لتفعيل الإخراج.</p>}
+        </div>}
+        </fieldset>}
+        <div className="tax-editor-footer">
+          <div className="tax-save-status" role="status">{message|| (saved?(dirty?'تعديلات غير محفوظة':'محفوظ في السجل المحلي'):ready?'جاهزة للحفظ والطباعة':'أكمل الرقم والتاريخ والعميل والبنود والضريبة وانتظر الخط.')}</div>
+          <div className="tax-output-actions"><button type="button" disabled={!ready||archiveBusy} onClick={()=>void saveInvoice()} className="bg-emerald-700 text-white rounded">{archiveBusy?'جارٍ الحفظ…':saved?'حفظ التعديلات':'حفظ الفاتورة'}</button><button type="button" disabled={!ready||archiveBusy} onClick={print} className="bg-blue-700 text-white rounded">طباعة</button><button type="button" disabled={!ready||archiveBusy} onClick={exportPdf} className="bg-slate-800 text-white rounded">حفظ PDF</button></div>
+        </div>
       </div>
-      <div className="border rounded-lg bg-white p-2"><h2 className="font-semibold text-sm mb-2">معاينة مباشرة</h2><canvas ref={canvas} className="w-full h-auto border"/></div>
+      <div className="tax-print-preview border rounded-lg bg-white"><h2>معاينة مباشرة — A4</h2><div className="tax-preview-fit"><canvas ref={canvas}/></div></div>
     </div>
   </section>;
 };
