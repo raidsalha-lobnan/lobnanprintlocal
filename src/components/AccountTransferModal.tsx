@@ -1,4 +1,5 @@
-import React,{useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
+import {clearingShortcut,type ClearingSaveAction} from '../utils/clearingActions';
 import {useAccounting} from '../context/AccountingContext';
 import type {AccountTransferPartyType,AccountTransferBalanceSide,DebtClearingRecord} from '../types';
 import {authHeaders,getCurrentSessionToken,publicSyncApiUrl} from '../services/secureAuth';
@@ -16,7 +17,7 @@ const fmt=(n:number)=>n.toFixed(2);
 function readPending(key:string):Request|null{
  try{const value=JSON.parse(localStorage.getItem(key)||'null');return value?.requestId?value:null;}catch{return null;}
 }
-export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string;onClose:()=>void;onSaved:(r:DebtClearingRecord)=>void;reverse?:DebtClearingRecord;edit?:DebtClearingRecord}){
+export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string;onClose:()=>void;onSaved:(r:DebtClearingRecord,action:ClearingSaveAction)=>void;reverse?:DebtClearingRecord;edit?:DebtClearingRecord}){
  const {parties,employees,settings,currentUser,unifiedRepository,vouchers,employeeAdvances,
   employeeDeductions,employeeIncentives,invoices,purchases,purchaseReturns,salesReturns,payrollSheets,
   journalEntries,debtClearings,printOrders}=useAccounting();
@@ -30,6 +31,8 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
  const [reason,setReason]=useState(pending?.reason||(reverse?'عكس سند '+reverse.clearingNumber:edit?.reason||''));
  const [notes,setNotes]=useState(pending?.notes||edit?.notes||'');
  const [busy,setBusy]=useState(false);
+ const submitting=useRef(false);
+ const formRef=useRef<HTMLFormElement>(null);
  const [error,setError]=useState('');
  const [sourceSearch,setSourceSearch]=useState(()=>parties.find(x=>x.id===source.id)?.name||employees.find(x=>x.id===source.id)?.name||'');
  const [targetSearch,setTargetSearch]=useState(()=>parties.find(x=>x.id===target.id)?.name||employees.find(x=>x.id===target.id)?.name||'');
@@ -85,9 +88,14 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
    <div className="text-[10px] text-slate-500">الرصيد حسب بيانات الجهاز؛ يعتمد الخادم بياناته الفعلية عند الحفظ.</div>
   </div>;
  };
+ const reversal=!!reverse||!!(pending&&'reversesId' in pending);
  const submit=async(e:React.FormEvent)=>{
   e.preventDefault();
-  if(busy)return;
+  if(submitting.current||busy)return;
+  const native=e.nativeEvent as SubmitEvent;
+  const selected=(native.submitter as HTMLElement|null)?.dataset.clearingAction;
+  const action:ClearingSaveAction=reversal?'save':selected==='print'||selected==='pdf'||selected==='save'?selected:'save';
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){setError('يرجى تحديد تاريخ صحيح.');return;}
   if(!currentUser?.id){setError('يرجى تسجيل الدخول أولاً');return;}
   if(!pending&&!reverse){
    if(!source.id){setError('يرجى اختيار حساب الطرف الأول.');return;}
@@ -108,7 +116,7 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
    localStorage.setItem(pendingKey,JSON.stringify(request));
    if(localStorage.getItem(pendingKey)!==JSON.stringify(request))throw Error('LOCAL_REQUEST_NOT_PERSISTED');
   }catch{setError('تعذر حفظ طلب الاسترداد محلياً؛ لم يتم الإرسال.');return;}
-  setPending(request);setBusy(true);setError('');
+  submitting.current=true;setPending(request);setBusy(true);setError('');
   try{
    const base=publicSyncApiUrl(),token=getCurrentSessionToken();
    if(!token)throw Error('SESSION_LOGIN_REQUIRED');
@@ -126,15 +134,27 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
       record.transferVersion!==2||!record.journalEntryId)throw Error('ACCOUNT_TRANSFER_RECEIPT_MISMATCH');
    // A confirmed PostgreSQL response is the only success path.
    try{localStorage.removeItem(pendingKey);}catch{}
-   setPending(null);unifiedRepository?.requestSync();onSaved(record);
+   setPending(null);unifiedRepository?.requestSync();onSaved(record,action);
   }catch(err){
    setError(String(err).includes('ACCOUNT_TRANSFER_ROUTE_UNAVAILABLE')
     ?'خادم المزامنة لا يدعم مسار اعتماد المقاصة الحالي. يلزم تحديث خدمة الخادم، وليس تعديل المبلغ أو البيان. الطلب محفوظ محلياً؛ بعد تحديث الخادم اضغط إعادة محاولة الاعتماد بنفس الطلب.'
     :'لم يتأكد اعتماد العملية. بقي الطلب محفوظاً على هذا الجهاز؛ أعد المحاولة بنفس الطلب بعد الاتصال. '+String(err));
-  }finally{setBusy(false);}
+  }finally{submitting.current=false;setBusy(false);}
  };
+ useEffect(()=>{
+  const handler=(event:KeyboardEvent)=>{
+   const action=clearingShortcut(event);
+   if(!action||event.isComposing)return;
+   event.preventDefault();event.stopImmediatePropagation();
+   if(event.repeat||submitting.current||busy||(reversal&&action!=='save'))return;
+   const button=formRef.current?.querySelector<HTMLButtonElement>('[data-clearing-action="'+action+'"]');
+   button?.click();
+  };
+  window.addEventListener('keydown',handler,true);
+  return ()=>window.removeEventListener('keydown',handler,true);
+ },[busy,reversal]);
  return <div dir="rtl" className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-3">
-  <form onSubmit={submit} className="w-full max-w-3xl max-h-[95vh] overflow-auto rounded-xl bg-white p-4 text-xs shadow-xl space-y-3">
+  <form ref={formRef} onSubmit={submit} className="w-full max-w-3xl max-h-[95vh] overflow-auto rounded-xl bg-white p-4 text-xs shadow-xl space-y-3">
    <div className="flex justify-between items-center"><h3 className="font-bold text-base">{edit?'تعديل سند '+edit.clearingNumber:reverse?'إلغاء سند مقاصة':'سند مقاصة وتحويل حسابات'}</h3><button type="button" onClick={onClose} disabled={busy}>إغلاق ✕</button></div>
    {edit&&!pending&&<p className="rounded border border-amber-300 bg-amber-50 p-2">سيعكس النظام السند السابق ويرحّل البديل في معاملة واحدة. معاينة الأرصدة الحالية قبل عكس السند.</p>}
    {pending&&<p className="rounded border border-amber-300 bg-amber-50 p-2">يوجد طلب محفوظ لم يتأكد اعتماده بعد. إعادة المحاولة تستخدم المعرف نفسه؛ لن تنشئ قيداً ثانياً.</p>}
@@ -155,8 +175,14 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
    <label className="block">البيان {!reverse&&<span className="text-red-600 font-bold">(مطلوب) *</span>}<input id="account-transfer-reason" aria-required={!reverse} aria-invalid={!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')} disabled={locked} value={reason} placeholder="اكتب بيان التحويل" onChange={e=>{setReason(e.target.value);if(error.startsWith('البيان مطلوب'))setError('');}} className={'block w-full rounded border p-2 '+(!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')?'border-red-500 bg-rose-50':'')}/></label>
    <label className="block">ملاحظات<textarea disabled={locked} value={notes} onChange={e=>setNotes(e.target.value)} className="block w-full rounded border p-2"/></label>
    {error&&<div role="alert" className="rounded bg-rose-50 text-rose-800 p-2">{error}</div>}
-   <div className="flex gap-2 justify-end"><button type="button" disabled={busy} onClick={onClose} className="rounded border px-3 py-2">إغلاق</button>
-    <button type="submit" disabled={busy} className="rounded bg-indigo-700 text-white px-4 py-2 font-bold disabled:opacity-50">{busy?'جاري التحقق من الاعتماد...':pending?'إعادة محاولة الاعتماد':reverse?'تأكيد الإلغاء':edit?'حفظ التعديل':'اعتماد المقاصة والقيد'}</button></div>
+   <div className="flex flex-wrap gap-2 justify-start items-center">
+    <button type="submit" data-clearing-action="save" title="Ctrl + S" disabled={busy} className="rounded bg-indigo-700 text-white px-3 py-2 font-bold disabled:opacity-50">{busy?'جاري التحقق من الاعتماد...':reversal?'تأكيد الإلغاء':pending?'إعادة محاولة الاعتماد والحفظ':'اعتماد وحفظ'} <kbd dir="ltr" className="text-[10px] opacity-80">Ctrl+S</kbd></button>
+    {!reversal&&<>
+     <button type="submit" data-clearing-action="print" title="Alt + S" disabled={busy} className="rounded bg-blue-700 text-white px-3 py-2 font-bold disabled:opacity-50">حفظ وطباعة <kbd dir="ltr" className="text-[10px] opacity-80">Alt+S</kbd></button>
+     <button type="submit" data-clearing-action="pdf" title="Ctrl + Alt + S" disabled={busy} className="rounded bg-emerald-700 text-white px-3 py-2 font-bold disabled:opacity-50">حفظ وإنشاء PDF <kbd dir="ltr" className="text-[10px] opacity-80">Ctrl+Alt+S</kbd></button>
+    </>}
+    <button type="button" disabled={busy} onClick={onClose} className="rounded border px-3 py-2">إغلاق</button>
+   </div>
   </form>
  </div>;
 }

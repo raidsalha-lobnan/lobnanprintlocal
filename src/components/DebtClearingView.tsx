@@ -1,11 +1,12 @@
-import React,{useLayoutEffect,useMemo,useRef,useState} from 'react';
+import React,{useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {clearingPdfFilename,type ClearingSaveAction} from '../utils/clearingActions';
 import {useAccounting} from '../context/AccountingContext';
 import type {DebtClearingRecord} from '../types';
 import {AccountTransferModal,transferTypeLabel} from './AccountTransferModal';
 import {PrintHeader} from './common/PrintHeader';
 import {OfficialStamp} from './common/OfficialStamp';
 import {ReportPdfButton} from './common/ReportPdfButton';
-import {printReportSurface} from '../utils/reportPdfEngine';
+import {printReportSurface,saveReportPdf} from '../utils/reportPdfEngine';
 import {CLEARING_PRINT_CSS,CLEARING_PREVIEW_CSS,renderClearingBody} from '../utils/clearingPrintDocument';
 import {Plus,Search,Printer,Edit2,Trash2,Eye,RefreshCw,X} from 'lucide-react';
 const money=(v:number)=>Number(v||0).toFixed(2);
@@ -21,6 +22,8 @@ export const DebtClearingView:React.FC=()=>{
  const [fitPreview,setFitPreview]=useState(true);
  const viewportRef=useRef<HTMLDivElement>(null);
  const paperRef=useRef<HTMLDivElement>(null);
+ const outputRequest=useRef<{id:string;action:'print'|'pdf'}|null>(null);
+ const [outputBusy,setOutputBusy]=useState(false);
  const isPreviewOpen=!!preview||register;
  useLayoutEffect(()=>{
   if(!isPreviewOpen)return;
@@ -45,6 +48,21 @@ export const DebtClearingView:React.FC=()=>{
  },[isPreviewOpen,preview?.id,register,fitPreview]);
  const [notice,setNotice]=useState('');
  const [showHistory,setShowHistory]=useState(false);
+ useEffect(()=>{
+  const job=outputRequest.current,root=paperRef.current;
+  if(!job||!preview||preview.id!==job.id||!root)return;
+  outputRequest.current=null; // consume exactly once, including StrictMode
+  setOutputBusy(true);
+  void (async()=>{
+   try{
+    if(job.action==='print')await printReportSurface(root);
+    else await saveReportPdf(root,{filename:clearingPdfFilename(preview),paper:'a4'});
+    setNotice(job.action==='pdf'?'تم اعتماد العملية وإنشاء ملف PDF':'تم اعتماد العملية وفتح الطباعة');
+   }catch(error){
+    setNotice('تم اعتماد المقاصة محاسبياً، لكن تعذّر إخراج المستند. أعد الطباعة أو حفظ PDF من المعاينة فقط، دون إعادة الاعتماد. '+String(error));
+   }finally{setOutputBusy(false);}
+  })();
+ },[preview]);
  const reversed=useMemo(()=>new Set(debtClearings.filter(r=>r.reversesId).map(r=>r.reversesId)),[debtClearings]);
  const status=(r:DebtClearingRecord)=>r.reversesId?'قيد عكسي':reversed.has(r.id)?(debtClearings.some(c=>c.replacesId===r.id)?'معدّل':'ملغى'):'معتمد';
  const active=debtClearings.filter(r=>!r.reversesId&&!reversed.has(r.id));
@@ -83,15 +101,15 @@ export const DebtClearingView:React.FC=()=>{
     <button title="معاينة الطباعة" onClick={()=>setPreview(r)} className="text-blue-700"><Printer size={15}/></button>
    </div></td></tr>)}
   </tbody></table></div>
-  {mode&&<AccountTransferModal key={currentUser?.id||'none'} edit={mode==='edit'?chosen:undefined} reverse={mode==='delete'?chosen:undefined} onClose={()=>setMode(null)} onSaved={r=>{setMode(null);setPreview(r);setNotice('تم اعتماد العملية محاسبياً');}}/>}
+  {mode&&<AccountTransferModal key={currentUser?.id||'none'} edit={mode==='edit'?chosen:undefined} reverse={mode==='delete'?chosen:undefined} onClose={()=>setMode(null)} onSaved={(r,action:ClearingSaveAction)=>{setMode(null);setNotice('تم اعتماد العملية محاسبياً');if(action!=='save'){outputRequest.current={id:r.id,action};setRegister(false);setPreview(r);}}}/>}
   {(preview||register)&&<div className="clearing-print-modal fixed inset-0 z-[100] bg-slate-900/60">
    <div className="clearing-preview-dialog" role="dialog" aria-modal="true" aria-label={register?'معاينة سجل المقاصة':'معاينة سند المقاصة'} data-no-modal-expand>
    <div className="clearing-print-toolbar print:hidden bg-slate-900 text-white p-2 flex flex-wrap items-center gap-2">
     <b className="flex-1">{register?'معاينة سجل المقاصة':'معاينة سند المقاصة'}</b>
-    <button onClick={()=>void print()} className="bg-indigo-600 rounded px-3 py-1.5">طباعة</button>
-    <ReportPdfButton filename={preview?'سند مقاصة - '+preview.clearingNumber:'سجل المقاصة'} selector="#clearing-print-document" scope=".clearing-print-modal"/>
+    <button disabled={outputBusy} onClick={()=>void print()} className="bg-indigo-600 rounded px-3 py-1.5 disabled:opacity-50">طباعة</button>
+    {outputBusy?<span role="status" className="text-xs">جارٍ تجهيز المستند…</span>:<ReportPdfButton filename={preview?clearingPdfFilename(preview):'سجل المقاصة'} selector="#clearing-print-document" scope=".clearing-print-modal"/>}
     <button type="button" onClick={()=>setFitPreview(v=>!v)} className="rounded border border-slate-500 px-2 py-1.5" aria-pressed={fitPreview}>{fitPreview?'الحجم الطبيعي':'ملاءمة الشاشة'}</button>
-    <button title="إغلاق" aria-label="إغلاق المعاينة" onClick={()=>{setPreview(undefined);setRegister(false);setFitPreview(true);}}><X size={18}/></button>
+    <button disabled={outputBusy} title="إغلاق" aria-label="إغلاق المعاينة" onClick={()=>{setPreview(undefined);setRegister(false);setFitPreview(true);}}><X size={18}/></button>
    </div>
    <div ref={viewportRef} className="clearing-preview-viewport">
    <div ref={paperRef} id="clearing-print-document" className="clearing-paper" data-pdf-document data-no-modal-expand>
