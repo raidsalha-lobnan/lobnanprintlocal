@@ -74,6 +74,7 @@ export const TaxInvoicePrintView: React.FC = () => {
   const [message, setMessage] = useState('');
   const canvas = useRef<HTMLCanvasElement>(null);
   const [tab,setTab]=useState<'edit'|'style'|'archive'>('edit');
+  const [stylePage,setStylePage]=useState<'font'|'sizes'>('font');
   const [rowPage,setRowPage]=useState(0);
   const [archivePage,setArchivePage]=useState(0);
   const [archiveQuery,setArchiveQuery]=useState('');
@@ -82,14 +83,15 @@ export const TaxInvoicePrintView: React.FC = () => {
   const [saved,setSaved]=useState<{id:string;createdAt:string;updatedAt:string;fingerprint:string}|null>(null);
   const [archiveError,setArchiveError]=useState('');
   const archiveLock=useRef(false);
-  const [compact,setCompact]=useState(false);
+  const [availableHeight,setAvailableHeight]=useState(650);
+  const compact=availableHeight<590;
   const host=useRef<HTMLElement>(null);
   useEffect(()=>{
     const el=host.current;if(!el)return;
-    const resize=()=>setCompact(el.clientHeight<590);
+    const resize=()=>setAvailableHeight(el.clientHeight);
     resize();const ob=new ResizeObserver(resize);ob.observe(el);return()=>ob.disconnect();
   },[]);
-  const perPage=compact?2:3;
+  const perPage=availableHeight<460?1:compact?2:3;
   const visiblePage=Math.min(rowPage,Math.max(0,Math.ceil(lines.length/perPage)-1));
   const data:TaxPrintData={serial,date,customer,address,lines,vat,note,words,size,cancelEmpty,headerSizes,style,playpenWeight,contextual,alternate,applyStamp};
   const fingerprint=JSON.stringify(data);
@@ -102,7 +104,7 @@ export const TaxInvoicePrintView: React.FC = () => {
   useEffect(()=>{void refreshArchive();},[]);
   useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(dirty||archiveLock.current){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[dirty]);
   const filteredArchive=archive.filter(r=>[r.serial,r.customer,r.date].join(' ').toLowerCase().includes(archiveQuery.trim().toLowerCase()));
-  const archivePageSize=compact?5:8;
+  const archivePageSize=availableHeight<460?3:compact?5:8;
   const archivePages=Math.max(1,Math.ceil(filteredArchive.length/archivePageSize));
   const currentArchivePage=Math.min(archivePage,archivePages-1);
   const active = lines.filter(l => l.item.trim() || l.qty !== '' || l.price !== '');
@@ -391,15 +393,18 @@ export const TaxInvoicePrintView: React.FC = () => {
         <div className="grid grid-cols-2 gap-2"><label>نسبة الضريبة % (أدخل 0 عند عدم وجودها)<input className={field} type="number" min="0" max="100" step=".01" value={vat} onChange={e=>setVat(e.target.value)}/></label><div className="text-sm space-y-1"><div>المجموع: {fmt(total)} ₪</div><div>الضريبة: {fmt(tax)} ₪</div><strong>الإجمالي: {fmt(grand)} ₪</strong></div></div>
         <label className="block">المبلغ بالكلمات (تلقائي وقابل للتعديل)<input className={field} value={words} placeholder={amountWords} onChange={e=>setWords(e.target.value)}/></label>
         </>:<div className="tax-style-pane">
+        <div className="tax-page-nav"><button type="button" aria-pressed={stylePage==='font'} onClick={()=>setStylePage('font')}>الخط والختم والشطب</button><button type="button" aria-pressed={stylePage==='sizes'} onClick={()=>setStylePage('sizes')}>أحجام الخانات</button></div>
+        {stylePage==='font'?<>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={cancelEmpty} onChange={e=>setCancelEmpty(e.target.checked)}/> شطب الصفوف الفارغة تلقائيًا بحرف Z</label>
         <label className="block text-sm">نمط الخط العربي<select className={field} value={style} onChange={e=>setStyle(e.target.value as HandStyle)}><option value="ruqaa">رقعة — Aref Ruqaa</option><option value="lemonada">خط عربي حر خفيف — Lemonada</option><option value="katibeh">خط عربي بقلم عريض — Katibeh</option><option value="lateef">خط عربي لين — Lateef</option><option value="playpen">كتابة يدوية عربية — Playpen Sans Arabic</option><option value="mikhak">Mikhak Light — شبه يدوي خفيف</option><option value="marhey">Marhey Light — حروف مرسومة يدويًا</option><option value="ruwudu">Ruwudu — كتابة عربية تقليدية</option><option value="rakkas">Rakkas — رقعة حرة</option><option value="alkalami">Alkalami — كتابة بالقلم</option></select></label>
         {style==='playpen'&&<div className="border rounded p-2 space-y-2"><h3 className="text-sm font-medium">إعدادات Playpen للكتابة العربية</h3><label className="block text-sm">سماكة القلم: {playpenWeight}<input className="w-full" type="range" min="100" max="800" step="50" value={playpenWeight} onChange={e=>setPlaypenWeight(Number(e.target.value))}/></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={contextual} onChange={e=>setContextual(e.target.checked)}/> الأشكال السياقية للحروف (calt)</label><label className="block text-sm">أشكال الحروف الاختيارية<select className={field} value={alternate} onChange={e=>setAlternate(e.target.value as typeof alternate)}><option value="standard">الافتراضي</option><option value="ss01">مجموعة بدائل 1</option><option value="ss02">مجموعة بدائل 2</option></select></label><p className="text-xs text-slate-500">تتغير الأشكال حسب الحروف التي يدعمها الخط. تبقى بيانات الفاتورة كما هي.</p><button type="button" className="border rounded px-2 py-1 text-sm" onClick={()=>{setPlaypenWeight(300);setContextual(true);setAlternate('standard');}}>استعادة إعدادات الخط</button></div>}
         <p className="text-xs text-slate-500">الحجم التلقائي يتغير بحسب عدد الكلمات وعرضها الحقيقي. يمكن تعديل كل بند بعلامتي + و− ضمن مساحة الخانة.</p>
         <label className="block text-sm">حجم الخط العام: {size}<input className="w-full" type="range" min="12" max={MAX_FONT_SIZE} value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
-        <div className="tax-header-sizes"><strong>أحجام خطوط الخانات الأخرى</strong><div className="grid grid-cols-3 gap-1">{headerFontFields.map(({key,label})=><label key={key} className="text-sm">{label}<select className={field} value={headerSizes[key] ?? ''} onChange={e=>{const value=e.target.value;setHeaderSizes(old=>({...old,[key]:value===''?undefined:Number(value)}));}}><option value="">افتراضي</option>{Array.from({length:MAX_FONT_SIZE-11},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div><button type="button" className="border rounded px-2 py-1 mt-2 text-sm" onClick={()=>{setHeaderSizes({});setLines(old=>old.map(l=>({...l,fontSize:undefined})));setSize(27);}}>إعادة الأحجام الافتراضية</button></div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={applyStamp} disabled={!stampImage} onChange={e=>setApplyStamp(e.target.checked)}/> اعتماد وإضافة الختم الرسمي لهذه النسخة</label>
         {!stampUrl&&<p className="text-xs text-slate-500">لا يوجد ختم محفوظ في إعدادات المنشأة.</p>}
         {stampFailed&&<p role="status" className="text-xs text-red-700">تعذر تحميل الختم الرسمي من الإعدادات؛ يمكن الطباعة دون الختم.</p>}
+        </>:<>        <div className="tax-header-sizes"><strong>أحجام خطوط الخانات الأخرى</strong><div className="grid grid-cols-3 gap-1">{headerFontFields.map(({key,label})=><label key={key} className="text-sm">{label}<select className={field} value={headerSizes[key] ?? ''} onChange={e=>{const value=e.target.value;setHeaderSizes(old=>({...old,[key]:value===''?undefined:Number(value)}));}}><option value="">افتراضي</option>{Array.from({length:MAX_FONT_SIZE-11},(_,j)=>j+12).map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div><button type="button" className="border rounded px-2 py-1 mt-2 text-sm" onClick={()=>{setHeaderSizes({});setLines(old=>old.map(l=>({...l,fontSize:undefined})));setSize(27);}}>إعادة الأحجام الافتراضية</button></div>
+</>}
         </div>}
         </fieldset>}
         <div className="tax-editor-footer">

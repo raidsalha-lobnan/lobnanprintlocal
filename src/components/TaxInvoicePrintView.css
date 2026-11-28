@@ -38,3 +38,20 @@
 .tax-archive-table th,.tax-archive-table td{padding:5px 3px;border-bottom:1px solid #dbe3ec;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tax-archive-table th:nth-child(3){width:34%}
 @media(max-width:650px){.tax-print-header{align-items:flex-start;flex-direction:column}.tax-print-grid{grid-template-columns:1fr;grid-template-rows:minmax(0,2fr) minmax(0,1fr)}.tax-print-tabs{justify-content:flex-start}.tax-lines th:nth-child(1){width:32%}.tax-lines th:nth-child(5){width:21%}.tax-archive-heading{flex-wrap:wrap}}
+
+.tax-page-nav button[aria-pressed=true]{background:#4338ca;color:#fff;border-color:#4338ca}
+.tax-style-pane>p{margin:0}
+.tax-print-fields .tax-style-pane .p-2{padding:4px}
+@media(min-width:651px) and (min-height:600px){
+ .tax-print-fields,.tax-archive{scrollbar-width:thin}
+ .tax-print-fields>label{margin:0}
+ .tax-print-fields .text-sm.space-y-1{display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px}
+ .tax-print-fields .text-sm.space-y-1>*{margin:0!important}
+}
+@media(max-height:600px) and (min-width:651px){
+ .tax-print-header p{display:none}
+ .tax-print-fields,.tax-archive{gap:2px}
+ .tax-print-fields input:not([type=checkbox]):not([type=range]),.tax-print-fields select{height:24px!important;min-height:24px!important}
+ .tax-print-fields .text-sm.space-y-1{display:flex;align-items:center;flex-wrap:wrap;gap:3px 6px}
+ .tax-print-fields .text-sm.space-y-1>*{margin:0!important}
+}
