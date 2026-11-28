@@ -191,8 +191,36 @@ export const TaxInvoicePrintView: React.FC = () => {
       const top = 513 + occupied * (640/MAX) + 10;
       const bottom = 1153 - 10;
       if (bottom > top) {
-        ctx.save(); ctx.strokeStyle='#153b9e'; ctx.lineWidth=2.4; ctx.lineCap='round'; ctx.lineJoin='round';
-        ctx.beginPath(); ctx.moveTo(99,top); ctx.lineTo(939,top); ctx.lineTo(99,bottom); ctx.lineTo(939,bottom); ctx.stroke(); ctx.restore();
+        // Stable variation per invoice: preview, PDF and print use the same cancellation mark.
+        let seed = 2166136261;
+        for (const char of serial+'|'+date) seed = Math.imul(seed ^ char.charCodeAt(0), 16777619) >>> 0;
+        const rand = () => {
+          seed = (Math.imul(seed,1664525)+1013904223) >>> 0;
+          return seed / 4294967296;
+        };
+        const between = (lo:number, hi:number) => lo+(hi-lo)*rand();
+        const h = bottom-top;
+        const y = (fraction:number) => top + h*Math.max(0,Math.min(1,fraction));
+        const x1=between(99,116), x2=between(922,939);
+        const x3=between(99,116), x4=between(922,939);
+        const y1=y(between(.025,.075)), y2=y(between(.025,.075));
+        const y3=y(between(.925,.975)), y4=y(between(.925,.975));
+        ctx.save();
+        // Clip the mark strictly to the unused rows, including when only one remains.
+        ctx.beginPath(); ctx.rect(91,top-3,852,h+6); ctx.clip();
+        ctx.strokeStyle='#153b9e'; ctx.lineCap='round'; ctx.lineJoin='round';
+        ctx.lineWidth=between(2.0,2.5);
+        ctx.beginPath(); ctx.moveTo(x1,y1);
+        ctx.bezierCurveTo(between(310,380),y(between(.005,.10)),between(650,735),y(between(.015,.11)),x2,y2);
+        ctx.stroke();
+        ctx.lineWidth=between(2.2,2.8);
+        ctx.beginPath(); ctx.moveTo(x2,y2);
+        ctx.bezierCurveTo(between(660,760),y(between(.24,.39)),between(270,395),y(between(.62,.77)),x3,y3);
+        ctx.stroke();
+        ctx.lineWidth=between(1.9,2.5);
+        ctx.beginPath(); ctx.moveTo(x3,y3);
+        ctx.bezierCurveTo(between(300,385),y(between(.88,.98)),between(650,730),y(between(.90,.995)),x4,y4);
+        ctx.stroke(); ctx.restore();
       }
     }
     split(total,1181,154,258,headerSizes.total ?? size);
