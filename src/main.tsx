@@ -5,6 +5,7 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { enforceArabicNumeralsGlobally } from './utils/numberFormat';
 import './index.css';
+import {initializeActiveDrafts,activeDraftNeedsAttention} from './services/localActiveDrafts';
 import {applyWebDisplayScale,readWebDisplayScale} from './utils/webDisplayScale';
 
 applyWebDisplayScale(readWebDisplayScale());
@@ -21,10 +22,16 @@ if (location.protocol!=='file:' && 'serviceWorker' in navigator && import.meta.e
 // تفعيل الحظر الصارم للأرقام الهندية واعتماد الأرقام العربية 0-9 بغض النظر عن الجهاز أو لغة المتصفح
 enforceArabicNumeralsGlobally();
 
-createRoot(document.getElementById('root')!).render(
+window.addEventListener('beforeunload',event=>{if(activeDraftNeedsAttention()){event.preventDefault();event.returnValue='';}});
+async function start(){
+  try{await initializeActiveDrafts();}catch(error){console.warn('Durable draft recovery unavailable; legacy copy retained',error);}
+  createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary fallbackTitle="حدث خطأ في واجهة البرنامج">
       <App />
     </ErrorBoundary>
   </StrictMode>,
 );
+
+}
+void start();

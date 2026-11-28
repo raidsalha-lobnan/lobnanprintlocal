@@ -1,3 +1,4 @@
+import {activeDraftStorage,flushActiveDraft,activeDraftFailed,mobileDraftRecovery} from '../../services/localActiveDrafts';
 import {readLocalHeldCache,checkpointLocalHeld,reconcileLocalHeld,confirmLocalHeld,removeLocalHeld,isHeldTransportUnavailable} from '../../services/localHeldCache';
 import {posDraftStorageKey} from '../../utils/posDraftStorageKey';
 import {removePosAttempt} from '../../sync-next/posAttemptStore';
@@ -112,17 +113,17 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
   // Multi-Currency
   const baseCurrency = currencies.find(c => c.isBase) || { code: 'ILS', symbol: '₪', rateAgainstBase: 1.0 };
-  const [selectedCurrencyCode, setSelectedCurrencyCode] = useState(()=>{try{return JSON.parse(localStorage.getItem(posDraftStorageKey('mobile_pos_active_draft',currentUser?.id||currentUserId))||'{}').selectedCurrencyCode||settings.baseCurrencyCode||'ILS';}catch{return settings.baseCurrencyCode||'ILS';}});
+  const [selectedCurrencyCode, setSelectedCurrencyCode] = useState(()=>{try{return JSON.parse(activeDraftStorage.getItem(posDraftStorageKey('mobile_pos_active_draft',currentUser?.id||currentUserId))||'{}').selectedCurrencyCode||settings.baseCurrencyCode||'ILS';}catch{return settings.baseCurrencyCode||'ILS';}});
   const activeCurrency = currencies.find(c => c.code === selectedCurrencyCode) || baseCurrency;
 
   const MOBILE_POS_DRAFT_KEY = posDraftStorageKey('mobile_pos_active_draft', currentUser?.id || currentUserId);
   const savedMobileDraft = useMemo(() => {
     try {
-      const raw = localStorage.getItem(MOBILE_POS_DRAFT_KEY);
+      const raw = activeDraftStorage.getItem(MOBILE_POS_DRAFT_KEY);
       if (!raw) {
         const legacy = localStorage.getItem('mobile_pos_active_draft');
         if (legacy && window.confirm('توجد سلة قديمة محفوظة على هذا الجهاز. هل تريد استعادتها لهذا الحساب؟')) {
-          localStorage.setItem(MOBILE_POS_DRAFT_KEY, legacy);
+          activeDraftStorage.setItem(MOBILE_POS_DRAFT_KEY, legacy);
           localStorage.removeItem('mobile_pos_active_draft');
           return JSON.parse(legacy);
         }
@@ -132,6 +133,9 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
     return {} as any;
   }, []);
 
+  const [draftStorageFailed,setDraftStorageFailed]=useState(false);
+  useEffect(()=>{const update=()=>setDraftStorageFailed(activeDraftFailed(MOBILE_POS_DRAFT_KEY));window.addEventListener('lobnan-draft-storage-state',update);return()=>window.removeEventListener('lobnan-draft-storage-state',update);},[MOBILE_POS_DRAFT_KEY]);
+  const [recoverableMobileDrafts]=useState(()=>mobileDraftRecovery(currentUser?.id||currentUserId,MOBILE_POS_DRAFT_KEY));
   const draftId = useRef(savedMobileDraft.draftId || crypto.randomUUID());
   const resumedMobileHeldIdRef=useRef<string|null>(savedMobileDraft.resumedHeldId||null);
   const [leaveTargetTab,setLeaveTargetTab] = useState<string|null>(null);
@@ -161,7 +165,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const bankTreasuries = useMemo(() => (treasuries || []).filter(t =>
     t.status !== 'inactive' && t.type !== 'cash_box' && t.accountCode !== 'CASH-1101' &&
     /^CASH-\d{4,}$/.test(t.accountCode || '')), [treasuries]);
-  const [selectedBankTreasuryCode, setSelectedBankTreasuryCode] = useState<string>('');
+  const [selectedBankTreasuryCode, setSelectedBankTreasuryCode] = useState<string>(savedMobileDraft.selectedBankTreasuryCode||'');
 
   // Show the first actual noncash treasury until the user selects another.
   useEffect(() => {
@@ -283,7 +287,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const [successNotification, setSuccessNotification] = useState<{ number: string; total: number } | null>(null);
 
   // Auto-save mobile POS draft (لضمان بقاء البيانات والأصناف عند التحديث أو F5)
-  useEffect(() => {
+  React.useLayoutEffect(() => {
     try {
       const hasContent =
         cart.length > 0 ||
@@ -294,8 +298,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
         (invoiceNotes && invoiceNotes.trim() !== '');
 
       if (hasContent) {
-        localStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
-          draftId:draftId.current, resumedHeldId:resumedMobileHeldIdRef.current,paidAmountInput,
+        activeDraftStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
+          draftId:draftId.current, resumedHeldId:resumedMobileHeldIdRef.current,paidAmountInput,selectedBankTreasuryCode,selectedCashTreasuryCode,
           selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate,
           partyTypeMode,
           customerNameInput,
@@ -309,33 +313,10 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
           timestamp: Date.now()
         }));
       } else {
-        localStorage.removeItem(MOBILE_POS_DRAFT_KEY);
+        activeDraftStorage.removeItem(MOBILE_POS_DRAFT_KEY);
       }
     } catch {}
-  }, [partyTypeMode, customerNameInput, customSubCustomerName, selectedCustomerId, selectedSubCustomerId, cart, paymentMethod, globalDiscount, invoiceNotes,paidAmountInput,selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate]);
-
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      try {
-        localStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
-          draftId:draftId.current, resumedHeldId:resumedMobileHeldIdRef.current,paidAmountInput,
-          selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate,
-          partyTypeMode,
-          customerNameInput,
-          customSubCustomerName,
-          selectedCustomerId,
-          selectedSubCustomerId,
-          cart,
-          paymentMethod,
-          globalDiscount,
-          invoiceNotes,
-          timestamp: Date.now()
-        }));
-      } catch {}
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [partyTypeMode, customerNameInput, customSubCustomerName, selectedCustomerId, selectedSubCustomerId, cart, paymentMethod, globalDiscount, invoiceNotes,paidAmountInput,selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate]);
+  }, [partyTypeMode, customerNameInput, customSubCustomerName, selectedCustomerId, selectedSubCustomerId, cart, paymentMethod, globalDiscount, invoiceNotes,paidAmountInput,selectedCurrencyCode,payCurrencyCode,payExchangeRate,cashCurrencyCode,cashExchangeRate,bankCurrencyCode,bankExchangeRate,selectedBankTreasuryCode,selectedCashTreasuryCode]);
 
   // Automatically re-evaluate cart item prices whenever customer changes in Mobile POS
   const prevMobileCustIdRef = useRef(selectedCustomerId);
@@ -1108,7 +1089,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       resumedMobileHeldIdRef.current=null;
       // Reset
       try {
-        localStorage.removeItem(MOBILE_POS_DRAFT_KEY);
+        activeDraftStorage.removeItem(MOBILE_POS_DRAFT_KEY);
         // The new committed identity lives in IndexedDB; keep legacy cleanup
       // best-effort so a successful invoice cannot be reported as failed here.
       void removePosAttempt('lobnan_pending_atomic_pos_attempt:' + draftId.current)
@@ -1187,8 +1168,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
         setLeaveTargetTab(intent.detail.targetTab);
       }else{
         try{
-          localStorage.setItem(MOBILE_POS_DRAFT_KEY,'{}');
-          if(localStorage.getItem(MOBILE_POS_DRAFT_KEY)!=='{}')
+          activeDraftStorage.setItem(MOBILE_POS_DRAFT_KEY,'{}');
+          if(activeDraftStorage.getItem(MOBILE_POS_DRAFT_KEY)!=='{}')
             throw new Error('POS_DRAFT_CLEAR_NOT_CONFIRMED');
         }catch{
           event.preventDefault();
@@ -1201,10 +1182,11 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   },[cart,invoiceNotes,customSubCustomerName,globalDiscount,paidAmountInput,
     customerNameInput,selectedCustomerId,selectedSubCustomerId,MOBILE_POS_DRAFT_KEY]);
 
-  const completeMobileDeparture=(destination:string)=>{
+  const completeMobileDeparture=async(destination:string)=>{
     try{
-      localStorage.setItem(MOBILE_POS_DRAFT_KEY,'{}');
-      if(localStorage.getItem(MOBILE_POS_DRAFT_KEY)!=='{}')throw new Error('POS_DRAFT_CLEAR_NOT_CONFIRMED');
+      activeDraftStorage.setItem(MOBILE_POS_DRAFT_KEY,'{}');
+      if(activeDraftStorage.getItem(MOBILE_POS_DRAFT_KEY)!=='{}')throw new Error('POS_DRAFT_CLEAR_NOT_CONFIRMED');
+      await flushActiveDraft(MOBILE_POS_DRAFT_KEY);
     }catch(error){
       console.error('Unable to reset mobile cashier draft before navigation',error);
       alert('تعذّر تأكيد فتح كاشير فارغ على هذا الجهاز. لن نغادر تلقائياً، ويرجى عدم مسح بيانات الموقع.');
@@ -1225,14 +1207,14 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       setCustomSubCustomerName('');setSelectedSubCustomerId('');
       setCustomerNameInput('زبون نقدي / عام');setSelectedCustomerId('');
       setPartyTypeMode('customer');setIsPaymentModalOpen(false);
-      completeMobileDeparture(destination);
+      await completeMobileDeparture(destination);
       return;
     }
     setLeaveBusy(true);
     try{
       allowLocalHoldForLeaveRef.current=action==='hold';
       const saved=action==='save'?await handleCheckout(false):await handleHoldInvoice();
-      if(saved===true)completeMobileDeparture(destination);
+      if(saved===true)await completeMobileDeparture(destination);
     }catch(error){
       console.error('Cashier leave action failed',error);
       alert('تعذّر إكمال العملية، بقيت الفاتورة في شاشة الكاشير. تحقق من حالة الحفظ قبل إعادة المحاولة.');
@@ -1244,6 +1226,8 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
   return (
     <div className="flex flex-col h-full bg-[#f1f5f9] w-full overflow-hidden text-slate-800 selection:bg-blue-500 selection:text-white" dir="rtl">
+      {draftStorageFailed&&<div role="alert" className="bg-amber-100 text-red-800 p-2 text-xs">تعذّر تأكيد حفظ المسودة محلياً. لا تغلق الكاشير قبل حفظها أو تعليقها بنجاح.</div>}
+      {!cart.length&&recoverableMobileDrafts.length>0&&<div className="bg-amber-50 p-2 text-xs">مسودات من جلسات سابقة (راجع سجل الفواتير قبل الاستعادة): {recoverableMobileDrafts.map(d=><button key={d.key} className="border rounded px-2 py-1" onClick={async()=>{if(!window.confirm('استعادة المسودة؟ تأكد أنها غير مفتوحة في تبويب آخر وغير معتمدة مسبقاً.'))return;try{activeDraftStorage.setItem(MOBILE_POS_DRAFT_KEY,d.raw);await flushActiveDraft(MOBILE_POS_DRAFT_KEY);window.location.reload();}catch{alert('تعذّر تأكيد حفظ نسخة الاسترداد.');}}}>{d.customer}</button>)}</div>}
       {leaveTargetTab && <PosLeaveDialog busy={leaveBusy}
         onCancel={()=>setLeaveTargetTab(null)}
         onAction={action=>{void resolveMobileDeparture(action);}}/>}

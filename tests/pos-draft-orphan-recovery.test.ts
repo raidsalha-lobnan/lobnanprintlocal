@@ -33,7 +33,7 @@ test('recovery never uses an old edit or pending invoice as an automatic cloud w
   const recovery = source.slice(source.indexOf('{recoverableDrafts.length > 0'),
     source.indexOf('{draftStorageFailed &&'));
   assert.match(recovery,/window\.confirm/);
-  assert.match(recovery,/localStorage\.setItem\(POS_FULL_DRAFT_KEY, candidate\.raw\)/);
+  assert.match(recovery,/activeDraftStorage\.setItem\(POS_FULL_DRAFT_KEY, candidate\.raw\)/);
   assert.doesNotMatch(recovery,/postPosSaleOnline|repo\.commit|enqueueAtomicInvoicePosting/);
 });
 

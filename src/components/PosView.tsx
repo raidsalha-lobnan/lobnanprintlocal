@@ -1,3 +1,4 @@
+import {activeDraftStorage,flushActiveDraft,activeDraftFailed} from '../services/localActiveDrafts';
 import {readLocalHeldCache,checkpointLocalHeld,reconcileLocalHeld,confirmLocalHeld,removeLocalHeld,isHeldTransportUnavailable} from '../services/localHeldCache';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'; // Trigger Sync
 import { DateInput } from '../components/common/DateInput';
@@ -429,7 +430,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   // a new invoice; existing official invoices must be opened from history.
   if(!ownerId)return {};
   try {
-    const scoped=localStorage.getItem(POS_FULL_DRAFT_KEY);
+    const scoped=activeDraftStorage.getItem(POS_FULL_DRAFT_KEY);
     const raw=scoped ?? localStorage.getItem('pos_active_full_draft');
     if(!raw)return {};
     const draft=JSON.parse(raw) as PosFullDraftData;
@@ -441,7 +442,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     if(!draft.tableLines.every(line=>line&&typeof line==='object'&&
       typeof line.id==='string'&&typeof line.itemName==='string'))return {};
     if (!scoped) {
-      localStorage.setItem(POS_FULL_DRAFT_KEY,raw);
+      activeDraftStorage.setItem(POS_FULL_DRAFT_KEY,raw);
       localStorage.removeItem('pos_active_full_draft');
     }
     return draft;
@@ -497,12 +498,13 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
   // A browser restart can create a new tab slot while older unsent drafts
   // remain in localStorage. Offer read-only discovery, never auto-replay them.
   const [recoverableDrafts, setRecoverableDrafts] = useState(() =>
-    findRecoverableCashierDrafts(localStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current));
+    findRecoverableCashierDrafts(activeDraftStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current));
   const [leaveTargetTab,setLeaveTargetTab] = useState<string|null>(null);
   const [leaveBusy,setLeaveBusy] = useState(false);
   const leaveApprovedRef = useRef(false);
   const allowLocalHoldForLeaveRef = useRef(false);
   const [draftStorageFailed, setDraftStorageFailed] = useState(false);
+  useEffect(()=>{const update=()=>setDraftStorageFailed(activeDraftFailed(POS_FULL_DRAFT_KEY));window.addEventListener('lobnan-draft-storage-state',update);return()=>window.removeEventListener('lobnan-draft-storage-state',update);},[POS_FULL_DRAFT_KEY]);
   const [saveNotice, setSaveNotice] = useState('');
   React.useEffect(() => {
     if (!saveNotice) return;
@@ -963,8 +965,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
         activeRowId,
         timestamp: Date.now()
       };
-      localStorage.setItem(POS_FULL_DRAFT_KEY, JSON.stringify(draft));
-      setDraftStorageFailed(false);
+      activeDraftStorage.setItem(POS_FULL_DRAFT_KEY, JSON.stringify(draft));
+      void flushActiveDraft(POS_FULL_DRAFT_KEY).then(()=>setDraftStorageFailed(false),()=>setDraftStorageFailed(true));
     } catch (error) {
       setDraftStorageFailed(true);
       console.warn('Failed to persist the active cashier form', error);
@@ -2970,7 +2972,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     setInvoiceDate(dateForNewPosInvoice(posLayoutConfig));
 
     try {
-      localStorage.removeItem(POS_FULL_DRAFT_KEY);
+      activeDraftStorage.removeItem(POS_FULL_DRAFT_KEY);
       // The new committed identity lives in IndexedDB; keep legacy cleanup
       // best-effort so a successful invoice cannot be reported as failed here.
       void removePosAttempt('lobnan_pending_atomic_pos_attempt:' + completedDraftId)
@@ -3645,7 +3647,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     // the saved date pin. Without a pin the device's current local date wins.
     setInvoiceDate(dateForNewPosInvoice(posLayoutConfig));
     try {
-      localStorage.removeItem(POS_FULL_DRAFT_KEY);
+      activeDraftStorage.removeItem(POS_FULL_DRAFT_KEY);
     } catch {}
 
     setSubCustomerId('');
@@ -3682,7 +3684,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     handleClearInvoiceDirect(true);
     posSound.beep();
     try {
-      localStorage.removeItem(POS_FULL_DRAFT_KEY);
+      activeDraftStorage.removeItem(POS_FULL_DRAFT_KEY);
       localStorage.removeItem('alnoor_last_focused_element');
     } catch {}
   };
@@ -3698,7 +3700,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       handleClearInvoiceDirect();
       
       try {
-        localStorage.removeItem(POS_FULL_DRAFT_KEY);
+        activeDraftStorage.removeItem(POS_FULL_DRAFT_KEY);
       } catch {}
 
       const defaultCashCust = customers.find(c => c.code === 'CUST-0001' || c.code === '1');
@@ -3825,8 +3827,8 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       // Prevent a stale automatic form copy from appearing on the next visit.
       try{
         const blank=JSON.stringify({ownerId,tableLines:[]});
-        localStorage.setItem(POS_FULL_DRAFT_KEY,blank);
-        if(localStorage.getItem(POS_FULL_DRAFT_KEY)!==blank)
+        activeDraftStorage.setItem(POS_FULL_DRAFT_KEY,blank);
+        if(activeDraftStorage.getItem(POS_FULL_DRAFT_KEY)!==blank)
           throw new Error('POS_DRAFT_CLEAR_NOT_CONFIRMED');
       }catch{
         event.preventDefault();
@@ -3839,12 +3841,13 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
     subCustomerName,subCustomerId,customCustomerText,cashAmountInput,bankAmountInput,
     selectedCustomerId,customers,ownerId,POS_FULL_DRAFT_KEY]);
 
-  const completeCashierDeparture=(target:string)=>{
+  const completeCashierDeparture=async(target:string)=>{
     // A confirmed blank checkpoint prevents the previous invoice from returning.
     try{
       const blank=JSON.stringify({ownerId,tableLines:[]});
-      localStorage.setItem(POS_FULL_DRAFT_KEY,blank);
-      if(localStorage.getItem(POS_FULL_DRAFT_KEY)!==blank)throw new Error('POS_DRAFT_CLEAR_NOT_CONFIRMED');
+      activeDraftStorage.setItem(POS_FULL_DRAFT_KEY,blank);
+      if(activeDraftStorage.getItem(POS_FULL_DRAFT_KEY)!==blank)throw new Error('POS_DRAFT_CLEAR_NOT_CONFIRMED');
+      await flushActiveDraft(POS_FULL_DRAFT_KEY);
     }catch(error){
       console.error('Unable to reset cashier draft before navigation',error);
       alert('تعذّر تأكيد فتح كاشير فارغ على هذا الجهاز. لن نغادر تلقائياً، ويرجى عدم مسح بيانات الموقع.');
@@ -3861,7 +3864,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       if(!window.confirm('هل تريد تجاهل بيانات الفاتورة الحالية؟ لن تتأثر الفواتير المحفوظة أو المعلّقة.'))return;
       handleClearInvoiceDirect(true);
       setPaymentNotes('');setPaymentMethod('cash');setInvoiceWorkflowStatus('new');
-      completeCashierDeparture(destination);
+      await completeCashierDeparture(destination);
       return;
     }
     setLeaveBusy(true);
@@ -3870,7 +3873,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
       const saved=action==='save'
         ? await handleSaveInvoice('none',true)
         : await handleHoldInvoice();
-      if(saved===true)completeCashierDeparture(destination);
+      if(saved===true)await completeCashierDeparture(destination);
     }catch(error){
       console.error('Cashier leave action failed',error);
       alert('تعذّر إكمال العملية، بقيت الفاتورة في شاشة الكاشير. تحقق من حالة الحفظ قبل إعادة المحاولة.');
@@ -3903,7 +3906,7 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
             <div key={candidate.key} className="inline-flex items-center gap-1">
             <button type="button"
               className="rounded border border-amber-600 bg-white px-2 py-1 font-bold hover:bg-amber-100"
-              onClick={() => {
+              onClick={async () => {
                 if (posSaveUiInFlightRef.current) {
                   alert('انتظر اكتمال الحفظ المحلي الحالي أولاً.');
                   return;
@@ -3911,16 +3914,17 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
                 if (!window.confirm('استعادة المسودة: ' + candidate.itemPreview +
                   '؟ قد تكون المسودة مفتوحة في تبويب آخر. راجع سجل الفواتير قبل إعادة حفظها لتجنب التكرار.')) return;
                 try {
-                  const active = localStorage.getItem(POS_FULL_DRAFT_KEY);
+                  const active = activeDraftStorage.getItem(POS_FULL_DRAFT_KEY);
                   if (active && active !== candidate.raw) {
                     const previous = JSON.parse(active);
                     if (previous?.tableLines?.some((line: PosTableLine) =>
                       !!line.itemName?.trim()) || previous?.invoiceNotes?.trim()) {
-                      localStorage.setItem(
+                      activeDraftStorage.setItem(
                         'pos_active_full_draft:' + ownerId + ':backup-' + crypto.randomUUID(), active);
                     }
                   }
-                  localStorage.setItem(POS_FULL_DRAFT_KEY, candidate.raw);
+                  activeDraftStorage.setItem(POS_FULL_DRAFT_KEY, candidate.raw);
+                  await flushActiveDraft(POS_FULL_DRAFT_KEY);
                   window.location.reload();
                 } catch {
                   alert('تعذرت استعادة المسودة. لم نغيّر الفاتورة المعتمدة؛ لا تمسح بيانات المتصفح.');
@@ -3930,17 +3934,18 @@ const getInitialPosDraft = (ownerId?:string): PosFullDraftData => {
             </button>
             <button type="button" aria-label={'حذف المسودة: ' + candidate.itemPreview}
               className="rounded border border-red-600 bg-white px-2 py-1 font-bold text-red-700 hover:bg-red-50"
-              onClick={() => {
+              onClick={async () => {
                 if (posSaveUiInFlightRef.current) {
                   alert('انتظر اكتمال الحفظ المحلي الحالي أولاً.');
                   return;
                 }
                 if (!window.confirm('حذف نسخة الاسترداد المحلية: ' + candidate.itemPreview + '؟ تأكد من عدم استخدامها في تبويب آخر. لن تُحذف أي فاتورة معتمدة أو عملية مزامنة.')) return;
                 try {
-                  if (!discardRecoverableCashierDraft(localStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current, candidate)) {
+                  if (!discardRecoverableCashierDraft(activeDraftStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current, candidate)) {
                     alert('المسودة تغيرت أو لم تعد متاحة. تمت إعادة فحص القائمة؛ لم نحذف نسخة أخرى.');
                   }
-                  setRecoverableDrafts(findRecoverableCashierDrafts(localStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current));
+                  await flushActiveDraft(candidate.key);
+                  setRecoverableDrafts(findRecoverableCashierDrafts(activeDraftStorage, ownerId, POS_FULL_DRAFT_KEY, draftIdRef.current));
                 } catch {
                   alert('تعذر حذف نسخة الاسترداد المحلية. لم يتم تغيير الفواتير المعتمدة.');
                 }
