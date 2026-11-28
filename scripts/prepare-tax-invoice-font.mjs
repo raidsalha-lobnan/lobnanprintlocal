@@ -15,7 +15,11 @@ const assets = [
   ['Lateef-Regular.ttf','a81a714200f8afe903aa0a9b53fd3aed1c700174','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/lateef/Lateef-Regular.ttf'],
   ['Lateef-OFL.txt','4799a032ad91e0351c94ffc3795b6a5945e9b5c9','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/lateef/OFL.txt'],
   ['PlaypenSansArabic.ttf','4f807c64e77fef2dd45b8b3c26b5d867fcd86d5c','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/playpensansarabic/PlaypenSansArabic%5Bwght%5D.ttf'],
-  ['PlaypenSansArabic-OFL.txt','b4b34da590f5717c2c2d9c00ef63574bcc0bf31e','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/playpensansarabic/OFL.txt']
+  ['PlaypenSansArabic-OFL.txt','b4b34da590f5717c2c2d9c00ef63574bcc0bf31e','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/playpensansarabic/OFL.txt'],
+  ['Mikhak-Light.ttf','f0e85eb928f9719402159435546407827e149a11','https://raw.githubusercontent.com/aminabedi68/Mikhak/9dea055eb3dfc752879442224460c6e5d6ebe232/fonts/ttf/Mikhak-Light.ttf'],
+  ['Mikhak-OFL.txt','fd34f9640eefffa6cd629d09115ac310745d0c39','https://raw.githubusercontent.com/aminabedi68/Mikhak/9dea055eb3dfc752879442224460c6e5d6ebe232/OFL.txt'],
+  ['Marhey.ttf','b54afeaefdac874cae1952efe3a9e47906907179','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/marhey/Marhey%5Bwght%5D.ttf'],
+  ['Marhey-OFL.txt','d4683065ab49e7067d25d48e5cd2ddc27b3aa193','https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/marhey/OFL.txt']
 ];
 const gitHash = bytes => createHash('sha1').update('blob '+bytes.length+'\\0'.replace('\\0','\0')).update(bytes).digest('hex');
 for (const [name, expected, url] of assets) {
