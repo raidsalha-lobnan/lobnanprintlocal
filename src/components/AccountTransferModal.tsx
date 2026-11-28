@@ -180,7 +180,7 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
 
    {reversal&&<label className="transfer-field">التاريخ<input type="date" required disabled={locked} value={date} onChange={e=>setDate(e.target.value)} className="block w-full rounded border p-2"/></label>}
    <div className="transfer-description-row">
-   <label className="transfer-field">البيان {!reverse&&<span className="text-red-600 font-bold">(مطلوب) *</span>}<input id="account-transfer-reason" aria-required={!reverse} aria-invalid={!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')} disabled={locked} value={reason} placeholder="اكتب بيان التحويل" onChange={e=>{setReason(e.target.value);if(error.startsWith('البيان مطلوب'))setError('');}} className={'block w-full rounded border p-2 '+(!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')?'border-red-500 bg-rose-50':'')}/></label>
+   <label className="transfer-field"><span>البيان {!reverse&&<span className="text-red-600 font-bold">(مطلوب) *</span>}</span><input id="account-transfer-reason" aria-required={!reverse} aria-invalid={!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')} disabled={locked} value={reason} placeholder="اكتب بيان التحويل" onChange={e=>{setReason(e.target.value);if(error.startsWith('البيان مطلوب'))setError('');}} className={'block w-full rounded border p-2 '+(!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')?'border-red-500 bg-rose-50':'')}/></label>
    <label className="transfer-field">ملاحظات<textarea rows={2} disabled={locked} value={notes} onChange={e=>setNotes(e.target.value)} className="block w-full rounded border p-2"/></label>
    </div>
    {error&&<div role="alert" className="transfer-notice rounded bg-rose-50 text-rose-800">{error}</div>}
