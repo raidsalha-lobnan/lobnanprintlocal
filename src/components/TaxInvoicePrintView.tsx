@@ -365,7 +365,6 @@ export const TaxInvoicePrintView: React.FC = () => {
   const field='w-full rounded border border-slate-300 px-2 py-1.5 text-sm bg-white text-slate-900';
   const reset=()=>{if(archiveLock.current||(dirty&&!window.confirm('توجد تعديلات غير محفوظة. هل تريد نموذجاً جديداً؟')))return;setSaved(null);setSavedStamp(null);setRowPage(0);setTab('edit');setMessage('');setSerial('');setDate('');setCustomer('');setAddress('');setLines([blank()]);setVat('');setNote('');setWords('');setApplyStamp(false);};
   return <section ref={host} dir="rtl" className="tax-print-workspace print:hidden">
-    <header className="tax-print-header"><div><h1>فاتورة ضريبية</h1><p>حفظ وطباعة فقط — سجل مستقل محلي على هذا الجهاز، دون قيود أو مخزون.</p></div><nav className="tax-print-tabs"><button type="button" onClick={()=>setTab('edit')} aria-pressed={tab==='edit'}>البيانات</button><button type="button" onClick={()=>setTab('style')} aria-pressed={tab==='style'}>الخط والختم</button><button type="button" onClick={()=>{setTab('archive');void refreshArchive();}} aria-pressed={tab==='archive'}>سجل الفواتير ({archive.length})</button><button type="button" onClick={reset} disabled={archiveBusy}>نموذج جديد</button></nav></header>
     <div className="tax-print-grid">
       <div className="tax-print-editor bg-white border rounded-lg">
         {tab==='archive'?<div className="tax-archive">
@@ -407,12 +406,14 @@ export const TaxInvoicePrintView: React.FC = () => {
 </>}
         </div>}
         </fieldset>}
-        <div className="tax-editor-footer">
-          <div className="tax-save-status" role="status">{message|| (saved?(dirty?'تعديلات غير محفوظة':'محفوظ في السجل المحلي'):ready?'جاهزة للحفظ والطباعة':'أكمل الرقم والتاريخ والعميل والبنود والضريبة وانتظر الخط.')}</div>
-          <div className="tax-output-actions"><button type="button" disabled={!ready||archiveBusy} onClick={()=>void saveInvoice()} className="bg-emerald-700 text-white rounded">{archiveBusy?'جارٍ الحفظ…':saved?'حفظ التعديلات':'حفظ الفاتورة'}</button><button type="button" disabled={!ready||archiveBusy} onClick={print} className="bg-blue-700 text-white rounded">طباعة</button><button type="button" disabled={!ready||archiveBusy} onClick={exportPdf} className="bg-slate-800 text-white rounded">حفظ PDF</button></div>
-        </div>
+
       </div>
       <div className="tax-print-preview border rounded-lg bg-white"><h2>معاينة مباشرة — A4</h2><div className="tax-preview-fit"><canvas ref={canvas}/></div></div>
     </div>
+    <footer className="tax-editor-footer">
+          <div className="tax-save-status" role="status">{message|| (saved?(dirty?'تعديلات غير محفوظة':'محفوظ في السجل المحلي'):ready?'جاهزة للحفظ والطباعة':'أكمل الرقم والتاريخ والعميل والبنود والضريبة وانتظر الخط.')}</div>
+          <div className="tax-footer-bar"><nav className="tax-print-tabs"><button type="button" onClick={()=>setTab('edit')} aria-pressed={tab==='edit'}>البيانات</button><button type="button" onClick={()=>setTab('style')} aria-pressed={tab==='style'}>الخط والختم</button><button type="button" onClick={()=>{setTab('archive');void refreshArchive();}} aria-pressed={tab==='archive'}>سجل الفواتير ({archive.length})</button><button type="button" onClick={reset} disabled={archiveBusy}>نموذج جديد</button></nav><div className="tax-output-actions"><button type="button" disabled={!ready||archiveBusy} onClick={()=>void saveInvoice()} className="bg-emerald-700 text-white rounded">{archiveBusy?'جارٍ الحفظ…':saved?'حفظ التعديلات':'حفظ الفاتورة'}</button><button type="button" disabled={!ready||archiveBusy} onClick={print} className="bg-blue-700 text-white rounded">طباعة</button><button type="button" disabled={!ready||archiveBusy} onClick={exportPdf} className="bg-slate-800 text-white rounded">حفظ PDF</button></div>
+          </div>
+    </footer>
   </section>;
 };
