@@ -141,7 +141,11 @@ test('after initial bootstrap, opening an already-initialized device uses event 
 });
 test('a desktop cashier active draft survives reload and preserves its invoice rows',()=>{
  const pos=readFileSync(new URL('../src/components/PosView.tsx',import.meta.url),'utf8');
- assert.match(pos,/localStorage\.getItem\(POS_FULL_DRAFT_KEY\)/);
+ assert.match(pos,/activeDraftStorage\.getItem\(POS_FULL_DRAFT_KEY\)/);
+ const checkpoint=readFileSync(new URL('../src/services/localActiveDrafts.ts',import.meta.url),'utf8');
+ const startup=readFileSync(new URL('../src/main.tsx',import.meta.url),'utf8');
+ assert.match(checkpoint,/durableWriteTransaction\(db,STORE\)/);
+ assert.ok(startup.indexOf('await initializeActiveDrafts()')<startup.indexOf('createRoot(document'));
  assert.match(pos,/getInitialPosDraft\(currentUser\?\.id\)/);
  assert.match(pos,/if\(savedPosDraft\.tableLines\?\.length\)return savedPosDraft\.tableLines/);
  assert.doesNotMatch(pos,/Automatically hold or reset uncommitted cart when unmounting/);
