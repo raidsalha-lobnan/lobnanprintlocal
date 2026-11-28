@@ -1,0 +1,39 @@
+/* The accounting-wide modal rule forces 80vw and scrollable heights.
+   This dedicated form owns its layout; only its body can scroll on tiny screens. */
+.account-transfer-overlay{display:flex;align-items:center;justify-content:center;padding:8px;box-sizing:border-box;overflow:hidden}
+.account-transfer-form{box-sizing:border-box;display:flex;flex-direction:column;width:min(1020px,100%);max-width:100%;max-height:100%;min-height:0;overflow:hidden;padding:0}
+.account-transfer-form .transfer-header{flex:none;padding:8px 12px;border-bottom:1px solid #dbe3ec;gap:8px}
+.account-transfer-form .transfer-header h3{font-size:14px!important;margin:0}
+.account-transfer-form .transfer-body{display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto;padding:8px 12px;overscroll-behavior:contain}
+.account-transfer-form .transfer-parties{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-items:stretch}
+.account-transfer-form .transfer-party{display:flex;flex-direction:column;gap:4px;min-width:0;padding:7px}
+.account-transfer-form .transfer-party-types button{min-width:0}
+.account-transfer-form .transfer-party input:not([type=checkbox]):not([type=radio]),
+.account-transfer-form .transfer-field input{box-sizing:border-box;height:30px!important;min-height:30px!important;padding-block:3px!important}
+.account-transfer-form .transfer-balances{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 8px;margin-top:auto;font-size:11px;overflow-wrap:anywhere}
+.account-transfer-form .transfer-balance-hint{font-size:10px;margin:0}
+.account-transfer-form .transfer-amount-row{display:grid;grid-template-columns:auto minmax(0,1.4fr) minmax(105px,1fr) minmax(125px,1fr);align-items:end;gap:8px}
+.account-transfer-form .transfer-direction{align-self:center}
+.account-transfer-form .transfer-field{display:flex;flex-direction:column;min-width:0;gap:2px}
+.account-transfer-form .transfer-field textarea{box-sizing:border-box;min-height:40px!important;height:40px!important;max-height:40px!important;resize:none;padding:4px 7px!important;overflow:auto}
+.account-transfer-form .transfer-description-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:8px;align-items:start}
+.account-transfer-form .transfer-description-row #account-transfer-reason{height:40px!important}
+.account-transfer-form .transfer-notice{padding:4px 7px;margin:0;overflow-wrap:anywhere}
+.account-transfer-form .transfer-footer{flex:none;gap:6px;padding:8px 12px;background:#fff;border-top:1px solid #dbe3ec}
+.account-transfer-form .transfer-footer button{padding:5px 9px;white-space:nowrap}
+@media (max-width:700px){
+ .account-transfer-form .transfer-amount-row{grid-template-columns:repeat(2,minmax(0,1fr));align-items:center}
+ .account-transfer-form .transfer-balances{grid-template-columns:1fr}
+}
+@media (max-width:480px){
+ .account-transfer-overlay{padding:4px}
+ .account-transfer-form .transfer-parties,.account-transfer-form .transfer-description-row{grid-template-columns:1fr}
+ .account-transfer-form .transfer-header,.account-transfer-form .transfer-body,.account-transfer-form .transfer-footer{padding:6px 8px}
+ .account-transfer-form .transfer-footer button{flex:1 1 44%;white-space:normal}
+ .account-transfer-form .transfer-balances{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-height:520px) and (min-width:701px){
+ .account-transfer-form .transfer-header,.account-transfer-form .transfer-footer{padding-block:5px}
+ .account-transfer-form .transfer-body{gap:4px;padding-block:5px}
+ .account-transfer-form .transfer-party{gap:3px;padding:5px}
+}

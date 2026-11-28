@@ -1,4 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
+import {createPortal} from 'react-dom';
+import './AccountTransferModal.css';
 import {clearingShortcut,type ClearingSaveAction} from '../utils/clearingActions';
 import {useAccounting} from '../context/AccountingContext';
 import type {AccountTransferPartyType,AccountTransferBalanceSide,DebtClearingRecord} from '../types';
@@ -68,10 +70,10 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
   const subSearch=side==='source'?sourceSubSearch:targetSubSearch;
   const setSubSearch=side==='source'?setSourceSubSearch:setTargetSubSearch;
   const subs=p.type==='customer'&&p.id?parties.filter(x=>x.isSubCustomer&&subCustomerParentId(x)===p.id&&!isInvoiceOnlySubCustomer(x)).map(x=>({id:x.id,name:x.name,code:x.code})):[];
-  return <div className="space-y-2 rounded-lg border bg-slate-50 p-3">
+  return <div className="transfer-party rounded-lg border bg-slate-50">
    <strong>{side==='source'?'الطرف الأول — من حساب':'الطرف الثاني — إلى حساب'}</strong>
-   <div className="flex gap-1">{types.map(t=><button type="button" key={t} disabled={locked} onClick={()=>{set({type:t,id:''});setSearch('');setSubSearch('');}}
-    className={'flex-1 rounded border p-1.5 font-bold '+(t===p.type?'bg-indigo-600 text-white':'bg-white')}>{transferTypeLabel(t)}</button>)}</div>
+   <div className="transfer-party-types flex gap-1">{types.map(t=><button type="button" key={t} disabled={locked} onClick={()=>{set({type:t,id:''});setSearch('');setSubSearch('');}}
+    className={'flex-1 rounded border px-1 py-1 font-bold '+(t===p.type?'bg-indigo-600 text-white':'bg-white')}>{transferTypeLabel(t)}</button>)}</div>
    <AutocompleteCombobox items={list} selectedId={p.id} value={locked?(list.find(x=>x.id===p.id)?.name||search):search}
     entityType={p.type} showCode={false} allowQuickAdd={false} disabled={locked}
     placeholder={'اكتب اسم '+transferTypeLabel(p.type)+' أو الكود...'}
@@ -83,9 +85,8 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
     placeholder="العميل الفرعي (اختياري)"
     onChangeText={text=>{setSubSearch(text);if(text!==subs.find(x=>x.id===p.subCustomerId)?.name)set({...p,subCustomerId:undefined});}}
     onSelect={opt=>{set({...p,subCustomerId:opt.id||undefined});setSubSearch(opt.name);}}/>}
-   <div>الرصيد الحالي: <b>{balanceText(balance)}</b></div>
-   <div>الرصيد المتوقع: <b>{balanceText(balance===null||!validAmount?null:balance+delta)}</b></div>
-   <div className="text-[10px] text-slate-500">الرصيد حسب بيانات الجهاز؛ يعتمد الخادم بياناته الفعلية عند الحفظ.</div>
+   <div className="transfer-balances"><div>الرصيد الحالي: <b>{balanceText(balance)}</b></div>
+   <div>الرصيد المتوقع: <b>{balanceText(balance===null||!validAmount?null:balance+delta)}</b></div></div>
   </div>;
  };
  const reversal=!!reverse||!!(pending&&'reversesId' in pending);
@@ -153,29 +154,38 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
   window.addEventListener('keydown',handler,true);
   return ()=>window.removeEventListener('keydown',handler,true);
  },[busy,reversal]);
- return <div dir="rtl" className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-3">
-  <form ref={formRef} onSubmit={submit} className="w-full max-w-3xl max-h-[95vh] overflow-auto rounded-xl bg-white p-4 text-xs shadow-xl space-y-3">
-   <div className="flex justify-between items-center"><h3 className="font-bold text-base">{edit?'تعديل سند '+edit.clearingNumber:reverse?'إلغاء سند مقاصة':'سند مقاصة وتحويل حسابات'}</h3><button type="button" onClick={onClose} disabled={busy}>إغلاق ✕</button></div>
-   {edit&&!pending&&<p className="rounded border border-amber-300 bg-amber-50 p-2">سيعكس النظام السند السابق ويرحّل البديل في معاملة واحدة. معاينة الأرصدة الحالية قبل عكس السند.</p>}
-   {pending&&<p className="rounded border border-amber-300 bg-amber-50 p-2">يوجد طلب محفوظ لم يتأكد اعتماده بعد. إعادة المحاولة تستخدم المعرف نفسه؛ لن تنشئ قيداً ثانياً.</p>}
+ return createPortal(<div dir="rtl" className="account-transfer-overlay fixed inset-0 z-[100] bg-slate-900/60">
+  <form ref={formRef} onSubmit={submit} role="dialog" aria-modal="true" aria-label="المقاصة والتحويل بين الحسابات" data-no-modal-expand className="account-transfer-form rounded-xl bg-white text-xs shadow-xl">
+   <div className="transfer-header flex justify-between items-center"><h3 className="font-bold text-base">{edit?'تعديل سند '+edit.clearingNumber:reverse?'إلغاء سند مقاصة':'سند مقاصة وتحويل حسابات'}</h3><button type="button" onClick={onClose} disabled={busy}>إغلاق ✕</button></div>
+   <div className="transfer-body">
+   {edit&&!pending&&<p className="transfer-notice rounded border border-amber-300 bg-amber-50">سيعكس النظام السند السابق ويرحّل البديل في معاملة واحدة. معاينة الأرصدة الحالية قبل عكس السند.</p>}
+   {pending&&<p className="transfer-notice rounded border border-amber-300 bg-amber-50">يوجد طلب محفوظ لم يتأكد اعتماده بعد. إعادة المحاولة تستخدم المعرف نفسه؛ لن تنشئ قيداً ثانياً.</p>}
    {!reverse&&!(pending&&'reversesId' in pending)&&<>
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{endpointControl(source,setSource,sourceSearch,setSourceSearch,'source')}{endpointControl(target,setTarget,targetSearch,setTargetSearch,'target')}</div>
-    <button type="button" disabled={locked} onClick={()=>{setSource(target);setTarget(source);setSourceSearch(targetSearch);setTargetSearch(sourceSearch);setSourceSubSearch(targetSubSearch);setTargetSubSearch(sourceSubSearch);}} className="rounded border p-2">عكس الطرفين ⇄</button>
-    <div className="flex flex-wrap gap-2 items-center"><label>نوع الرصيد المنقول:</label>
+    <div className="transfer-parties">{endpointControl(source,setSource,sourceSearch,setSourceSearch,'source')}{endpointControl(target,setTarget,targetSearch,setTargetSearch,'target')}</div>
+    <p className="transfer-balance-hint text-slate-500">الأرصدة حسب بيانات الجهاز؛ يعتمد الخادم بياناته الفعلية عند الحفظ.</p>
+    <div className="transfer-amount-row">
+    <button type="button" disabled={locked} onClick={()=>{setSource(target);setTarget(source);setSourceSearch(targetSearch);setTargetSearch(sourceSearch);setSourceSubSearch(targetSubSearch);setTargetSubSearch(sourceSubSearch);}} className="rounded border px-2 py-1">عكس الطرفين ⇄</button>
+    <div className="transfer-direction flex flex-wrap gap-2 items-center"><label>نوع الرصيد المنقول:</label>
      <label><input type="radio" disabled={locked} checked={balanceSide==='debit'} onChange={()=>setBalanceSide('debit')}/> مدين</label>
      <label><input type="radio" disabled={locked} checked={balanceSide==='credit'} onChange={()=>setBalanceSide('credit')}/> دائن</label>
     </div>
-    <label className="block">المبلغ ({settings.currency})<input type="number" min="0.01" step="0.01" disabled={locked} value={amount} onChange={e=>setAmount(e.target.value)} className="block w-full rounded border p-2"/></label>
-    {source.id&&target.id&&validAmount&&!same&&<div className="rounded bg-blue-50 p-2">
+    <label className="transfer-field">المبلغ ({settings.currency})<input type="number" min="0.01" step="0.01" disabled={locked} value={amount} onChange={e=>setAmount(e.target.value)} className="block w-full rounded border p-2"/></label>
+   <label className="transfer-field">التاريخ<input type="date" required disabled={locked} value={date} onChange={e=>setDate(e.target.value)} className="block w-full rounded border p-2"/></label>
+    </div>
+    {source.id&&target.id&&validAmount&&!same&&<div className="transfer-notice rounded bg-blue-50">
      <b>معاينة القيد:</b> مدين {transferTypeLabel((balanceSide==='debit'?target:source).type)} — {fmt(numeric)} | دائن {transferTypeLabel((balanceSide==='debit'?source:target).type)} — {fmt(numeric)}
     </div>}
    </>}
    {(reverse||(pending&&'reversesId' in pending))&&<p className="rounded bg-amber-50 p-2">سيتم عكس السند {reverse?.clearingNumber||('reversesId' in (pending||{})?(pending as {reversesId:string}).reversesId:'')} بقيد مستقل.</p>}
-   <label className="block">التاريخ<input type="date" required disabled={locked} value={date} onChange={e=>setDate(e.target.value)} className="block w-full rounded border p-2"/></label>
-   <label className="block">البيان {!reverse&&<span className="text-red-600 font-bold">(مطلوب) *</span>}<input id="account-transfer-reason" aria-required={!reverse} aria-invalid={!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')} disabled={locked} value={reason} placeholder="اكتب بيان التحويل" onChange={e=>{setReason(e.target.value);if(error.startsWith('البيان مطلوب'))setError('');}} className={'block w-full rounded border p-2 '+(!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')?'border-red-500 bg-rose-50':'')}/></label>
-   <label className="block">ملاحظات<textarea disabled={locked} value={notes} onChange={e=>setNotes(e.target.value)} className="block w-full rounded border p-2"/></label>
-   {error&&<div role="alert" className="rounded bg-rose-50 text-rose-800 p-2">{error}</div>}
-   <div className="flex flex-wrap gap-2 justify-start items-center">
+
+   {reversal&&<label className="transfer-field">التاريخ<input type="date" required disabled={locked} value={date} onChange={e=>setDate(e.target.value)} className="block w-full rounded border p-2"/></label>}
+   <div className="transfer-description-row">
+   <label className="transfer-field">البيان {!reverse&&<span className="text-red-600 font-bold">(مطلوب) *</span>}<input id="account-transfer-reason" aria-required={!reverse} aria-invalid={!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')} disabled={locked} value={reason} placeholder="اكتب بيان التحويل" onChange={e=>{setReason(e.target.value);if(error.startsWith('البيان مطلوب'))setError('');}} className={'block w-full rounded border p-2 '+(!reverse&&!reason.trim()&&error.startsWith('البيان مطلوب')?'border-red-500 bg-rose-50':'')}/></label>
+   <label className="transfer-field">ملاحظات<textarea rows={2} disabled={locked} value={notes} onChange={e=>setNotes(e.target.value)} className="block w-full rounded border p-2"/></label>
+   </div>
+   {error&&<div role="alert" className="transfer-notice rounded bg-rose-50 text-rose-800">{error}</div>}
+   </div>
+   <div className="transfer-footer flex flex-wrap gap-2 justify-start items-center">
     <button type="submit" data-clearing-action="save" title="Ctrl + S" disabled={busy} className="rounded bg-indigo-700 text-white px-3 py-2 font-bold disabled:opacity-50">{busy?'جاري التحقق من الاعتماد...':reversal?'تأكيد الإلغاء':pending?'إعادة محاولة الاعتماد والحفظ':'اعتماد وحفظ'} <kbd dir="ltr" className="text-[10px] opacity-80">Ctrl+S</kbd></button>
     {!reversal&&<>
      <button type="submit" data-clearing-action="print" title="Alt + S" disabled={busy} className="rounded bg-blue-700 text-white px-3 py-2 font-bold disabled:opacity-50">حفظ وطباعة <kbd dir="ltr" className="text-[10px] opacity-80">Alt+S</kbd></button>
@@ -184,5 +194,5 @@ export function AccountTransferModal({onClose,onSaved,reverse,edit}:{key?:string
     <button type="button" disabled={busy} onClick={onClose} className="rounded border px-3 py-2">إغلاق</button>
    </div>
   </form>
- </div>;
+ </div>,document.body);
 }
